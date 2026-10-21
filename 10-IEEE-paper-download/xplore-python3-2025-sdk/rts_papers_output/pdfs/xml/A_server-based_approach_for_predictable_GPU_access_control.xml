@@ -1,0 +1,599 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">A Server-based Approach for Predictable GPU Access Control</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Hyoseung</forename><surname>Kim</surname></persName>
+							<email>hyoseung@ucr.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">University of California</orgName>
+								<address>
+									<settlement>Riverside</settlement>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Pratyush</forename><surname>Patel</surname></persName>
+							<email>pratyusp@andrew.cmu.edu</email>
+							<affiliation key="aff1">
+								<orgName type="institution">Carnegie Mellon University</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Shige</forename><surname>Wang</surname></persName>
+							<email>shige.wang@gm.com</email>
+						</author>
+						<author>
+							<persName><forename type="first">Raj</forename><surname>Rajkumar</surname></persName>
+							<email>rajkumar@cmu.edu</email>
+							<affiliation key="aff1">
+								<orgName type="institution">Carnegie Mellon University</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">A Server-based Approach for Predictable GPU Access Control</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">9BFA95C69411D9923F8DB295A63DB295</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-17T20:32+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>We propose a server-based approach to manage a general-purpose graphics processing unit (GPU) in a predictable and efficient manner. Our proposed approach introduces a GPU server task that is dedicated to handling GPU requests from other tasks on their behalf. The GPU server ensures bounded time to access the GPU, and allows other tasks to suspend during their GPU computation to save CPU cycles. By doing so, we address the two major limitations of the existing realtime synchronization-based GPU management approach: busy waiting and long priority inversion. We implemented a prototype of the server-based approach on a real embedded platform. This case study demonstrates the practicality and effectiveness of the server-based approach. Experimental results indicate that the server-based approach yields significant improvements in task schedulability over the existing synchronization-based approach in most practical settings. Although we focus on a GPU in this paper, the server-based approach can also be used for other types of computational accelerators.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>The high computational demands of complex algorithmic tasks used in recent embedded and cyber-physical systems pose substantial challenges in guaranteeing their timeliness. For example, a self-driving car <ref type="bibr" target="#b17">[19,</ref><ref type="bibr" target="#b29">31]</ref> executes perception and motion planning algorithms in addition to running tasks for data fusion from tens of sensors equipped within the vehicle. Since these tasks are computation intensive, it becomes hard to satisfy their timing requirements when they execute on the same hardware platform. Fortunately, many of today's embedded multi-core processors, such as NXP i.MX6 <ref type="bibr">[4]</ref> and NVIDIA TX1/TX2 <ref type="bibr" target="#b2">[3]</ref>, have an on-chip, general-purpose graphics processing unit (GPU), which can greatly help in addressing the timing challenges of computation-intensive tasks by accelerating their execution.</p><p>The use of GPUs in a time predictable manner brings up several challenges. First, many of today's commercialoff-the-shelf (COTS) GPUs do not support a preemption mechanism, and GPU access requests from application tasks are handled in a sequential, non-preemptive manner. This is primarily due to the high overhead expected on GPU context switching <ref type="bibr" target="#b28">[30]</ref>. Although some recent GPU architectures, such as NVIDIA Pascal <ref type="bibr" target="#b1">[2]</ref>, claim to offer GPU preemption, there is no documentation regarding their explicit behavior, and existing drivers (and GPU programming APIs) do not offer any programmer control over GPU preemption at the time of writing this paper. Second, COTS GPU device drivers do not respect task priorities and the scheduling policy used in the system. Hence, in the worst case, the GPU access request of the highest-priority task may be delayed by the requests of all lower-priority tasks in the system, which could possibly cause unbounded priority inversion.</p><p>The aforementioned issues have motivated the development of predictable GPU management techniques to ensure task timing constraints while achieving performance improvement <ref type="bibr" target="#b10">[12,</ref><ref type="bibr" target="#b12">14,</ref><ref type="bibr" target="#b11">13,</ref><ref type="bibr" target="#b14">16,</ref><ref type="bibr" target="#b15">17,</ref><ref type="bibr" target="#b18">20,</ref><ref type="bibr" target="#b30">32]</ref>. Among them, the work in <ref type="bibr" target="#b10">[12,</ref><ref type="bibr" target="#b12">14,</ref><ref type="bibr" target="#b11">13</ref>] introduces a synchronization-based approach that models GPUs as mutually-exclusive resources and uses real-time synchronization protocols to arbitrate GPU access. This approach has many benefits. First, it can schedule GPU requests from tasks in an analyzable manner, without making any change to GPU device drivers. Second, it allows the existing task schedulability analysis methods, originally developed for real-time synchronization protocols, to be easily applied to analyze tasks accessing GPUs. However, due to the underlying assumption on critical sections, this approach requires tasks to busy-wait during the entire GPU access, thereby resulting in substantial CPU utilization loss. Also, the use of real-time synchronization protocols for GPUs may unnecessarily delay the execution of high-priority tasks due to the priority-boosting mechanism employed in some protocols, such as MPCP <ref type="bibr" target="#b27">[29]</ref> and FMLP <ref type="bibr" target="#b6">[8]</ref>. We will review these issues in Section IV-B.</p><p>In this paper, we develop a server-based approach for predictable GPU access control to address the aforementioned limitations of the existing synchronization-based approach. Our proposed approach introduces a dedicated GPU server task that receives GPU access requests from other tasks and handles the requests on their behalf. Unlike the synchronization-based approach, the server-based approach allows tasks to suspend during GPU computation while preserving analyzability. This not only yields CPU utilization benefits, but also reduces task response times. We present the schedulability analysis of tasks under our server-based approach, which accounts for the overhead of the GPU server task. Although we have focused on a GPU in this work, our approach can be used for other types of computational accelerators, such as a digital signal processor (DSP).</p><p>We implemented a prototype of our approach on a SABRE Lite embedded platform <ref type="bibr" target="#b0">[1]</ref> equipped with four ARM Cortex-A9 CPUs and one Vivante GC2000 GPU. Our case study using this implementation with the workzone recognition algorithm <ref type="bibr" target="#b21">[23]</ref> developed for a self-driving car demonstrates the practicality and effectiveness of our approach in saving CPU utilization and reducing response time. We also conducted detailed experiments on task schedulability. Experimental results show that while our server-based approach does not dominate the synchronization-based approach, it outperforms the latter in most of the practical cases.</p><p>The rest of this paper is organized as follows: Section II reviews relevant prior work. Section III describes our system model. Section IV reviews the use of the synchronizationbased approach for GPU access control and discusses its limitations. Section V presents our proposed server-based approach. Section VI evaluates the approach using a practical case study and overhead measurements, along with detailed schedulabilty experiments. Section VII concludes the paper.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. RELATED WORK</head><p>Many techniques have been developed to utilize a GPU as a predictable, shared computing resource. TimeGraph <ref type="bibr" target="#b15">[17]</ref> is a real-time GPU scheduler that schedules GPU access requests from tasks with respect to task priorities. This is done by modifying an open-source GPU device driver and monitoring GPU commands at the driver level. RGEM <ref type="bibr" target="#b14">[16]</ref> allows splitting a long data-copy operation into smaller chunks, reducing blocking time on data-copy operations. Gdev <ref type="bibr" target="#b16">[18]</ref> provides common APIs to both user-level tasks and the OS kernel to use a GPU as a standard computing resource. GPES <ref type="bibr" target="#b30">[32]</ref> is a software technique to break a long GPU execution segment into smaller sub-segments, allowing preemptions at the boundaries of sub-segments. While all these techniques can mitigate the limitations of today's GPU hardware and device drivers, they have not considered the schedulability of tasks using the GPU. In other words, they handle GPU requests from tasks in a predictable manner, but do not formally analyze the worst-case timing behavior of tasks on the CPU side, which is addressed in this paper.</p><p>Elliott et al. <ref type="bibr" target="#b10">[12,</ref><ref type="bibr" target="#b12">14,</ref><ref type="bibr" target="#b11">13]</ref> modeled GPUs as mutuallyexclusive resources and proposed the use of real-time synchronization protocols for accessing GPUs. Based on this, they developed GPUSync <ref type="bibr" target="#b12">[14]</ref>, a software framework for GPU management in multi-core real-time systems. GPUSync supports both fixed-and dynamic-priority scheduling policies, and provides various features, such as budget enforcement, multi-GPU support, and clustered scheduling. It uses separate locks for copy and execution engines of GPUs to enable overlapping of GPU data transmission and computation. The pros and cons of the synchronization-based approach in general will be thoroughly discussed in Section IV.</p><p>The self-suspension behavior of tasks has been studied in the context of real-time systems <ref type="bibr" target="#b4">[6,</ref><ref type="bibr" target="#b5">7,</ref><ref type="bibr" target="#b9">11,</ref><ref type="bibr" target="#b18">20]</ref>. This is motivated by the fact that tasks can suspend while accessing hardware accelerators like GPUs. Kim et al. <ref type="bibr" target="#b18">[20]</ref> proposed segment-fixed priority scheduling, which assigns different priorities and phase offsets to each segment of tasks. They developed several heuristics for priority and offset assignment because finding the optimal solution for that assignment is NP-hard in the strong sense. Chen et al. <ref type="bibr" target="#b9">[11]</ref> reported errors in existing self-suspension analyses and presented corrections </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>GPU kernel execution</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Notify completion</head><p>Fig. <ref type="figure">1</ref>: Execution pattern of a task accessing a GPU for the errors. Those approaches assume that the duration of self-suspension is given as a fixed task parameter. However, this assumption does not comply with the case where a task accesses a shared GPU and the waiting time for the GPU is affected by other tasks in the system. In this work, we use the results in <ref type="bibr" target="#b5">[7,</ref><ref type="bibr" target="#b9">11]</ref> to take into account the effect of selfsuspension in task schedulability, and propose techniques to bound the worst-case access time to a shared GPU.</p><p>III. SYSTEM MODEL The work in this paper assumes a multi-core platform equipped with a single general-purpose GPU device. <ref type="foot" target="#foot_0">1</ref> The GPU is shared among multiple tasks, and GPU requests from tasks are handled in a sequential, non-preemptive manner. The GPU has its own memory region, which is assumed to be sufficient enough for the tasks under consideration. We do not assume the concurrent execution of GPU requests from different tasks, called GPU co-scheduling, because recent work <ref type="bibr" target="#b25">[27]</ref> reports that "co-scheduled GPU programs from different programs are not truly concurrent, but are multiprogrammed instead" and "this (co-scheduling) may lead to slower or less predictable total times in individual programs".</p><p>We consider sporadic tasks with constrained deadlines. The execution time of a task using a GPU is decomposed into normal execution segments and GPU access segments. Normal execution segments run entirely on CPU cores and GPU access segments involve GPU operations. Figure <ref type="figure">1</ref> depicts an example of a task having a single GPU access segment. In the GPU access segment, the task first copies data needed for GPU computation, from CPU memory to GPU memory (Step 1 in Figure <ref type="figure">1</ref>). This is typically done using Direct Memory Access (DMA), which requires no (or minimal) CPU intervention. The task then triggers the actual GPU computation, also referred to as GPU kernel execution, and waits for the GPU computation to finish (Step 2 ). The task is notified when the GPU computation finishes (Step 3 ), and it copies the results back from the GPU to the CPU (Step 4 ). Finally, the task continues its normal execution segment. Note that during the time when CPU intervention is not required, e.g., during data copies with DMA and GPU kernel execution, the task may suspend or busy-wait, depending on the implementation of the GPU device driver and the configuration used. Synchronous and Asynchronous GPU Access. The example in Figure <ref type="figure">1</ref> uses synchronous mode for GPU access, where each GPU command, such as memory copy and GPU kernel execution, can be issued only after the prior GPU command has finished. However, many GPU programming interfaces, such as CUDA and OpenCL, also provide asynchronous mode, which allows a task to overlap CPU and GPU computations. For example, if a task sends all GPU commands in asynchronous mode at the beginning of the GPU access segment, then it can either perform other CPU operations within the same GPU access segment or simply wait until all the GPU commands complete. Hence, while the sequence of GPU access remains the same, the use of asynchronous mode can affect the amount of active CPU time in a GPU segment.</p><p>Task Model. A task τ i is characterized as follows:</p><formula xml:id="formula_0">τ i := (C i , T i , D i , G i , η i )</formula><p>• C i : the sum of the worst-case execution time (WCET) of all normal execution segments of task τ i . • T i : the minimum inter-arrival time of each job of τ i .</p><p>• D i : the relative deadline of each job of τ i (D i ≤ T i ).</p><p>• G i : the maximum accumulated length of all GPU segments of τ i , when there is no other task competing for a GPU. • η i : the number of GPU access segments in each job of τ i . The utilization of a task τ i is defined as</p><formula xml:id="formula_1">U i = (C i + G i )/T i .</formula><p>Parameters C i and G i can be obtained by either measurementbased or static-analysis tools. When a measurement-based approach is used, C i and G i need to be conservatively estimated. A task using a GPU has one or more GPU access segments. We use G i,j to denote the maximum length of the j-th GPU access segment of τ i , i.e., G i = ηi j=1 G i,j . Parameter G i,j can be decomposed as follows:</p><p>G i,j := (G e i,j , G m i,j )</p><p>• G e i,j : the WCET of pure GPU operations that do not require CPU intervention in the j-th GPU access segment of τ i .</p><p>• G m i,j : the WCET of miscellaneous operations that require CPU intervention in the j-th GPU access segment of τ i . G e i,j includes the time for GPU kernel execution, and G m i,j</p><p>includes the time for copying data, launching the kernel, notifying the completion of GPU commands, and executing other CPU operations. The cost of self-suspension during CPU-inactive time in a GPU segment is assumed to be taken into account by G m i,j . If data are copied to or from the GPU using DMA, only the time for issuing the copy command is included in G m i,j ; the time for actual data transmission by DMA is modeled as part of G e i,j , as it does not require CPU intervention. Note that G i,j ≤ G e i,j + G m i,j because G e i,j and G m i,j are not necessarily observed on the same control path and they may overlap in asynchronous mode.</p><p>CPU Scheduling. In this work, we focus on partitioned fixed-priority preemptive task scheduling due to the following reasons: (i) it is widely supported in many commercial realtime embedded OSs such as OKL4 <ref type="bibr" target="#b13">[15]</ref> and QNX RTOS <ref type="bibr" target="#b3">[5]</ref>, and (ii) it does not introduce task migration costs. Thus, each task is statically assigned to a single CPU core. Any fixedpriority assignment, such as Rate-Monotonic <ref type="bibr" target="#b22">[24]</ref> can be used for tasks. Each task τ i is assumed to have a unique priority π i . An arbitrary tie-breaking rule can be used to achieve this assumption under fixed-priority scheduling.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. LIMITATIONS OF SYNCHRONIZATION-BASED GPU ACCESS CONTROL</head><p>In this section, we characterize the limitations of using a real-time synchronization protocol for tasks accessing a GPU on a multi-core platform.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Overview</head><p>The synchronization-based approach models the GPU as a mutually-exclusive resource and the GPU access segments of tasks as critical sections. A single mutex is used for protecting such GPU critical sections. Hence, under the synchronizationbased approach, a task should hold the GPU mutex to enter its GPU access segment. If the mutex is already held by another task, the task is inserted into the waiting list of the mutex and waits until the mutex can be held by that task. Some implementations like GPUSync <ref type="bibr" target="#b12">[14]</ref> use separate locks for internal resources of the GPU, e.g., copy and execution engines, to achieve parallelism in GPU access, but we focus on a single lock for the entire GPU for simplicity.</p><p>Among a variety of real-time synchronization protocols, we consider the Multiprocessor Priority Ceiling Protocol (MPCP) <ref type="bibr" target="#b26">[28,</ref><ref type="bibr" target="#b27">29]</ref> as a representative, because it works for partitioned fixed-priority scheduling that we use in our work and it has been widely referenced in the literature. We shall briefly review the definition of MPCP below. More details on MPCP can be found in <ref type="bibr" target="#b20">[22,</ref><ref type="bibr" target="#b26">28,</ref><ref type="bibr" target="#b27">29]</ref>. 1) When a task τ i requests an access to a resource R k , it can be granted to τ i if it is not held by another task. 2) While a task τ i is holding a resource that is shared among tasks assigned to different cores, the priority of τ i is raised to π B + π i , where π B is a base task-priority level greater than that of any task in the system, and π i is the normal priority of τ i . This "priority boosting" under MPCP is referred to as the global priority ceiling of τ i . 3) When a task τ i requests access to a resource R k that is already held by another task, τ i is inserted to the waiting list of the mutex for R k . 4) When a resource R k is released and the waiting list of the mutex for R k is not empty, the highest-priority task in the waiting list is dequeued and granted R k .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Limitations</head><p>As described in Section III, each GPU access segment contains various operations, including data copies, notifications, and GPU computation. Specifically, a task may suspend when CPU intervention is not required, e.g., during GPU kernel execution, to save CPU cycles. However, under the synchronization-based approach, any task in its GPU access segment should "busy-wait" for any operation conducted on the GPU in order to ensure timing predictability. This is because most real-time synchronization protocols and their analyses, such as MPCP <ref type="bibr" target="#b27">[29]</ref>, FMLP <ref type="bibr" target="#b6">[8]</ref>, and OMLP <ref type="bibr" target="#b8">[10]</ref>, </p><formula xml:id="formula_2">Î Ž Î " Î ' GPU CPU</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Global priority ceiling</head><p>Fig. <ref type="figure">2</ref>: Example schedule of GPU-using tasks under the synchronization-based approach with MPCP assume that (i) a critical section is executed entirely on the CPU, and (ii) there is no suspension during the execution of the critical section. Hence, during its GPU kernel execution, the task is not allowed to suspend even when no CPU intervention is required. <ref type="foot" target="#foot_1">2</ref> For example, while the GPUSync implementation <ref type="bibr" target="#b12">[14]</ref> can be configured to suspend instead of busy-wait during GPU kernel execution at runtime, its analysis uses an suspension-oblivious approach that does not capture CPU time saving from self-suspension. As the time for GPU kernel execution and data transmission by DMA increases, the CPU time loss under the synchronization-based approach is therefore expected to increase. The analyses of those protocols could possibly be modified to allow suspension within critical sections, at the potential expense of increased pessimism. <ref type="foot" target="#foot_2">3</ref>Some synchronization protocols, such as MPCP <ref type="bibr" target="#b27">[29]</ref>, FMLP <ref type="bibr" target="#b6">[8]</ref> and FMLP+ <ref type="bibr" target="#b7">[9]</ref>, use priority boosting (either restricted or unrestricted) as a progress mechanism to prevent unbounded priority inversion. However, the use of priority boosting could cause another problem we call "long priority inversion". We describe this problem with the example in Figure <ref type="figure">2</ref>. There are three tasks, τ h , τ m , and τ l , that have high, medium, and low priorities, respectively. Each task has one GPU access segment that is protected by MPCP and executed between two normal execution segments. τ h and τ m are allocated to Core 1, and τ l is allocated to Core 2.</p><p>Task τ l is released at time 0 and makes a GPU request at time 1. Since there is no other task using the GPU at that point, τ l acquires the mutex for the GPU and enters its GPU access segment. τ l then executes with the global priority ceiling associated with the mutex (priority boosting). Note that while the GPU kernel of τ l is executed, τ l also consumes CPU cycles due to the busy-waiting requirement of the synchronizationbased approach. Tasks τ m and τ h are released at time 2 and 3, respectively. They make GPU requests at time 3 and 4, but Request to the GPU server task Execute the highest priority GPU request Fig. <ref type="figure">3</ref>: GPU access procedure under our server-based approach the GPU cannot be granted to either of them because it is already held by τ l . At time 5, τ l releases the GPU mutex, and τ h acquires the mutex next because it has higher priority than τ m . At time 8, τ h finishes its GPU segment, releases the mutex, and restores its normal priority. Next, τ m acquires the mutex, and preempts the normal execution segment of τ h because the global priority ceiling of the mutex is higher than τ h 's normal priority. Hence, although the majority of τ m 's GPU segment merely performs busy-waiting, the execution of the normal segment of τ h is delayed until the GPU access segment of τ m finishes. Finally, τ h completes its normal execution segment at time 12, making the response time of τ h 9 in this example.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. SERVER-BASED GPU ACCESS CONTROL</head><p>We present our server-based approach for predictable GPU access control. This approach addresses the two main limitations of the synchronization-based approach, namely, busy waiting and long priority inversion.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. GPU Server Task</head><p>Our server-based approach creates a GPU server task that handles GPU access requests from other tasks on their behalf. The GPU server is assigned the highest priority in the system, which is to prevent preemptions by other tasks. Figure <ref type="figure">3</ref> shows the sequence of GPU request handling under our server-based approach. First, when a task τ i enters its GPU access segment, it makes a GPU access request to the GPU server, not to the GPU device driver. The request is made by sending the memory region information for the GPU access segment, including input/output data, commands and code for GPU kernel execution to the server task. This requires the memory regions to be configured as shared regions so that the GPU server can access them with their identifiers, e.g., shmid. After sending the request to the server, τ i suspends, allowing other tasks to execute. Secondly, the server enqueues the received request into the GPU request queue, if the GPU is being used by another request. The GPU request queue is a priority queue, where elements are ordered in their task priorities. Thirdly, once the GPU becomes free, the server dequeues a request from the head of the queue and executes the corresponding GPU segment. During CPU-inactive time, e.g., data copy with DMA and GPU kernel execution, the server suspends to save CPU cycles. Of course, in asynchronous mode, the server suspends after finishing remaining miscellaneous CPU operations of the request being handled. When the request finishes, the server notifies the completion of the request and wakes up the task τ i . Finally, τ i resumes its execution.  The use of the GPU server task inevitably introduces the following additional computational costs: (i) sending a GPU request to the server and waking up the server task, (ii) enqueueing the request and checking the request queue to find the highest-priority GPU request, and (iii) notifying the completion of the request to the corresponding task. We use the term to characterize the GPU server overhead that upper-bounds these computational costs. Figure <ref type="figure" target="#fig_0">4</ref> shows an example of task scheduling under our server-based approach. This example has the same configuration as the one in Figure <ref type="figure">2</ref> and uses synchronous mode for GPU access. 4 The GPU server, which the server-based approach creates, is allocated to Core 1. Each GPU access segment has two sub-segments of miscellaneous operations, each of which is assumed to amount to .</p><p>At time 1, the task τ l makes a GPU access request to the server task. The server receives the request and executes the corresponding GPU access segment at time 1 + . Since the server-based approach does not require tasks to busy-wait, τ l suspends until the completion of its GPU request. The GPU request of τ m at time 3 is enqueued into the request queue of the server. As the server executes with the highest priority in the system, it delays the execution of τ h released at time 3 by . Hence, τ h starts execution at time 3 + and makes a GPU request at time 4 + . When the GPU access segment of τ l completes, the server task is notified. The server then notifies the completion of the GPU request to τ l and wakes it up, and subsequently executes the GPU access segment of τ h at time 5 + 2 . The task τ h suspends until its GPU request finishes.</p><p>The GPU access segment of τ h finishes at time 8 + 2 and that of τ m starts at time 8 + 3 . Unlike the case under the synchronization-based approach, τ h can continue to execute its normal execution segment from time 8 + 3 , because τ m suspends and the priority of τ m is not boosted. The task τ h finishes its normal execution segment at time 9+4 , and hence, the response time of τ h is 6+4 . Recall that the response time of τ h is 9 for the same taskset under the synchronization-based approach, as shown in Figure <ref type="figure">2</ref>. Therefore, we can conclude 4 The GPU server supports both synchronous and asynchronous GPU access.</p><p>that the server-based approach provides a shorter response time than the synchronization-based approach for this example taskset, if the value of is under 3/4 time units, which, as measured in Section VI-B, is a very pessimistic value for .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Schedulability Analysis</head><p>We analyze task schedulability under our server-based approach. Since all the GPU requests of tasks are handled by the GPU server, we first identify the GPU request handling time for the server. The following properties hold for the serverbased approach: Lemma 1. The GPU server task imposes up to 2 of extra CPU time on each GPU request.</p><p>Proof. As the GPU server intervenes before and after the execution of each GPU segment, each GPU request can cause at most 2 of overhead in the worst-case. Note that the cost of issuing the GPU request as well as self-suspension is already taken into account by G m i,j , as described in Section III.</p><p>Lemma 2. The maximum waiting time for the j-th GPU segment of a task τ i under the server-based approach is bounded by the following recurrence:</p><formula xml:id="formula_3">B w,n+1 i,j = max π l &lt;πi∧1≤u≤η l (G l,u + ) + π h &gt;πi∧1≤u≤η h B w,n i,j T h + 1 (G h,u + )<label>(1)</label></formula><p>where B w,0 i,j = max π l &lt;πi∧1≤u≤η l (G l,u + ) (the first term of the equation).</p><p>Proof. When τ i , the task under analysis, makes a GPU request, the GPU may already be handling a request from a lowerpriority task. As the GPU executes in a non-preemptive manner, τ i must wait for the completion of the lower-priority GPU request, and as a result, the longest GPU access segment from all lower-priority tasks needs to be considered as the waiting time in the worst case. Here, only one of overhead is caused by the GPU server because other GPU requests will be immediately followed and the GPU server needs to be invoked only once between two consecutive GPU requests, as depicted in Figure <ref type="figure" target="#fig_0">4</ref>. This is captured by the first term of the equation.</p><p>During the waiting time of B w i,j , higher-priority tasks can make GPU requests to the server. As there can be at most one carry-in request from each higher-priority task τ h during B w i,j , the maximum number of GPU requests made by τ h is bounded by η h u=1 ( B w i,j /T h + 1). Multiplying each element of this summation by G h,u + therefore gives the maximum waiting time caused by the GPU requests of τ h , which is exactly used as the second term of the equation. Lemma 3. The maximum handling time of all GPU requests of a task τ i by the GPU server is given by:</p><formula xml:id="formula_4">B gpu i = B w i + G i + 2η i : η i &gt; 0 0 : η i = 0 (2)</formula><p>where B w i is the sum of the maximum waiting time for each GPU access segment of τ i , i.e., B w i = 1≤j≤ηi B w i,j . Proof. If η i &gt; 0, the j-th GPU request of τ i is handled after B w i,j of waiting time, and takes G i,j + 2 to complete (by Lemma 1). Hence, the maximum handling time of all GPU requests of τ i is</p><formula xml:id="formula_5">ηi j=1 (B w i,j + G i,j + 2 ) = B w i + G i + 2η i . If η i = 0, B gpu i is obviously zero.</formula><p>The response time of a task τ i is affected by the presence of the GPU server on τ i 's core. If τ i is allocated on a different core than the GPU server, the worst-case response time of τ i under the server-based approach is given by:</p><formula xml:id="formula_6">W n+1 i =C i + B gpu i + τ h ∈P(τi)∧π h &gt;πi W n i +(W h -C h ) T h C h<label>(3)</label></formula><p>where P(τ i ) is the CPU core on which τ i is allocated. The recurrence computation terminates when</p><formula xml:id="formula_7">W n+1 i = W n i , and τ i is schedulable if W n i ≤ D i .</formula><p>It is worth noting that, as captured in the third term, the GPU segments of higher-priority tasks do not cause any direct interference to τ i because they are executed by the GPU server that runs on a different core.</p><p>If τ i is allocated on the same core as the GPU server, the worst-case response time of τ i is given by:</p><formula xml:id="formula_8">W n+1 i = C i + B gpu i + τ h ∈P(τi)∧π h &gt;πi W n i +(W h -C h ) T h C h + τj =τi∧ηj &gt;0 W n i +{D j -(G m j + 2η j )} T j (G m j + 2η j )<label>(4)</label></formula><p>where G m j is the sum of the WCETs of miscellaneous operations in τ i 's GPU access segments, i.e., G m j = ηj k=1 G m j,k . Under the server-based approach, both, the GPU-using tasks, as well as the GPU server task, can self-suspend. Hence, we use the following lemma given by Bletsas et al. <ref type="bibr" target="#b5">[7]</ref> to prove Eqs. ( <ref type="formula" target="#formula_6">3</ref>) and (4):</p><p>Lemma 4 (from <ref type="bibr" target="#b5">[7]</ref>). The worst-case response time of a selfsuspending task τ i is upper bounded by:</p><formula xml:id="formula_9">W n+1 i = C i + τ h ∈P(τi)∧π h &gt;πi W n i + (W h -C h ) T h C h (5)</formula><p>Note that D h can be used instead of W h in the summation term of Eq. ( <ref type="formula">5</ref>) <ref type="bibr" target="#b9">[11]</ref>.</p><p>Theorem 1. The worst-case response time of a task τ i under the server-based approach is given by Eqs. (3) and (4).</p><p>Proof. To account for the maximum GPU request handling time of τ i , B gpu i is added in both Eqs. ( <ref type="formula" target="#formula_6">3</ref>) and (4). In the ceiling function of the third term of both equations, (W h -C h ) accounts for the self-suspending effect of higher-priority GPUusing tasks (by Lemma 4). With these, Eq.( <ref type="formula" target="#formula_6">3</ref>) upper bounds the worst-case response time of τ i when it is allocated on a different core than the GPU server.</p><p>The main difference between Eq. (4) and Eq. ( <ref type="formula" target="#formula_6">3</ref>) is the last term, which captures the worst-case interference from the GPU server task. The execution time of the GPU server task is bounded by summing up the worst-case miscellaneous operations and the server overhead caused by GPU requests from all other tasks (G m j + 2η j ). Since the GPU server self-suspends during CPU-inactive time intervals, adding {D j -(G m j +2η j )} to W n i in the ceiling function captures the worst-case selfsuspending effect (by Lemma 4). These factors are exactly captured by the last term of Eq. ( <ref type="formula" target="#formula_8">4</ref>). Hence, it upper bounds task response time in the presence of the GPU server.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. EVALUATION</head><p>This section provides our experimental evaluation of the two different approaches for GPU access control. We first present details about our implementation and describe case study results on a real embedded platform. Next, we explore the impact of these approaches on task schedulability with randomly-generated tasksets, by using parameters based on the practical overheads measured from our implementation.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Implementation</head><p>We implemented prototypes of the synchronization-based and the server-based approaches on a SABRE Lite board <ref type="bibr" target="#b0">[1]</ref>. The board is equipped with an NXP i.MX6 Quad SoC that has four ARM Cortex-A9 cores and one Vivante GC2000 GPU. We ran an NXP Embedded Linux kernel version 3.14.52 patched with Linux/RK <ref type="bibr" target="#b24">[26]</ref> version 1.6 5 , and used the Vivante v5.0.11p7.4 GPU driver along with OpenCL 1.1 (Embedded Profile) for general-purpose GPU programming. We also configured each core to run at its maximum frequency, 1 GHz.</p><p>Linux/RK provides a kernel-level implementation of MPCP which we used to implement the synchronization-based approach. Under our implementation, each GPU-using task first acquires an MPCP-based lock, issues memory copy and GPU kernel execution requests in an asynchronous manner, and uses OpenCL events to busy-wait on the CPU till the GPU operation completes, before finally releasing the lock.</p><p>To implement the server-based approach, we set up shared memory regions between the server task and each GPU-using task, which are used to share GPU input/output data. POSIX signals are used by the GPU-using tasks and the server to notify GPU requests and completions, respectively. The server has an initialization phase, during which, it initializes shared memory regions and obtains GPU kernels from the GPU binaries (or source code) of each task. Subsequently, the server uses these GPU kernels whenever the corresponding task issues a GPU request. As the GPU driver allows suspensions during GPU requests, the server task issues memory copy and GPU kernel execution requests in an asynchronous manner, and suspends by calling the clFinish() API function provided by OpenCL.</p><p>GPU Driver and Task-Specific Threads. The OpenCL implementation on the i.MX6 platform spawns user-level threads in order to handle GPU requests and to notify completions. Under the synchronization-based approach, OpenCL spawns multiple such threads for each GPU-using task, whereas under 5 Linux/RK is available at http://rtml.ece.cmu.edu/redmine/projects/rk/.</p><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 05:49:48 UTC from IEEE Xplore. Restrictions apply. the server-based approach, such threads are spawned only for the server task. To eliminate possible scheduling interference, the GPU driver process, as well as the spawned OpenCL threads, are configured to run at the highest real-time priority in all our experiments.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Practical Evaluation</head><p>Overheads. We measured the practical worst-case overheads for both the approaches in order to perform schedulability analysis. Each worst-case overhead measurement involved examining 100,000 readings of the respective operations measured on the i.MX6 platform. Figure <ref type="figure">5</ref> shows the mean and 99.9th percentile of the MPCP lock operations and Figure <ref type="figure" target="#fig_1">6</ref> shows the same for server related overheads. Under the synchronization-based approach with MPCP, overhead occurs while acquiring and releasing the GPU lock. Under the server-based approach, overheads involve waking up the server task, performing priority queue operations (i.e., server execution delay), and notifying completion to wake up the GPU-using task after finishing GPU computation.</p><p>To safely take into consideration the worst-case overheads, we use the 99.9th percentile measurements for each source of delay in our experiments. This amounts to a total of 14.0 µs lock-related delay under the synchronization-based approach, and a total of 44.97 µs delay for the server task under the server-based approach. Case Study. We present a case study motivated by the software system of the self-driving car developed at CMU <ref type="bibr" target="#b29">[31]</ref>. Among various algorithmic tasks of the car, we chose a GPU accelerated version of the workzone recognition algorithm <ref type="bibr" target="#b21">[23]</ref> (workzone) that periodically processes images collected from a camera. Two GPU-based matrix multiplication tasks (gpu_matmul1 and gpu_matmul2), and two CPU-bound tasks (cpu_matmul1 and cpu_matmul2) are also used to represent a subset of other tasks of the car. Unique task priorities are assigned based on the Rate-Monotonic policy <ref type="bibr" target="#b22">[24]</ref> and each task is pinned to a specific core as described in Table <ref type="table" target="#tab_4">I</ref>. Of these, the workzone task has two GPU segments per job whereas both the GPU-based matrix multiplication tasks have a single GPU segment. Under the server-based approach, the server task is pinned to CPU Core 1 and is run with realtime priority 80. In order to avoid unnecessary interference while recording traces, the task-specific OpenCL threads are pinned on a separate CPU core for both approaches. All tasks are released at the same time using Linux/RK APIs. CPU scheduling is performed using the SCHED_FIFO policy, and CPU execution traces are collected for one hyperperiod (3,000 ms) as shown in Figure <ref type="figure" target="#fig_3">7</ref>.</p><p>The CPU-execution traces for the synchronization and server-based approaches are shown in Figure <ref type="figure" target="#fig_3">7</ref> It is immediately clear that the server-based approach allows suspension of tasks while they are waiting for the GPU request to complete. In particular, we make the following key observations from the case study: 1) Under the synchronization-based approach, tasks suspend when they wait for the GPU lock to be released, but they do not suspend while using the GPU. On the contrary, under the server-based approach, tasks suspend even when their GPU segments are being executed. The results show that our proposed server-based approach can be successfully implemented and used on a real platform.</p><p>2) The response time of cpu_matmul1 under the synchronization-based approach is significantly larger than that under the server-based approach, i.e., 520.68 ms vs. 219.09 ms in the worst case, because of the busy-waiting problem discussed in Section IV-B.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Schedulability Experiments</head><p>Taskset Generation. We used 10,000 randomly-generated tasksets with the parameters given in Table <ref type="table" target="#tab_4">II</ref> for each experimental setting. The parameters are inspired from the observations from our case study and the GPU workloads used in prior work <ref type="bibr" target="#b15">[17,</ref><ref type="bibr" target="#b16">18]</ref>. Systems with four and eight CPU cores (N P = {4, 8}) are considered. To generate each taskset, the number of CPU cores in the system and the number of tasks for each core are first created based on the parameters in Table <ref type="table" target="#tab_4">II</ref>. Next, a subset of the generated tasks is chosen at random, corresponding to the specified percentage of GPUusing tasks, to include GPU segments. Task period T i is randomly selected within the defined minimum and maximum task period range. Task deadline D i is set equal to T i . On each core, the taskset utilization is split into k random-sized pieces, where k is the number of tasks per core. The size of each piece represents the utilization U i of the corresponding task τ i , i.e., U i = (C i +G i )/T i . If τ i is a CPU-only task, C i is set to (U i • T i ) and G i is set to zero. If τ i is a GPU-using task, the given ratio of the accumulated GPU segment length to the  WCET of normal segments is used to determine the values of C i and G i . G i is then split into η i random-sized pieces, where η i is the number of τ i 's GPU segments chosen randomly from the specified range. For each GPU segment G i,j , the values of G e i,j and G m i,j are determined by the ratio of miscellaneous operations given in Table <ref type="table" target="#tab_4">II</ref>, assuming G i,j = G e i,j + G m i,j . Finally, task priorities are assigned by the Rate-Monotonic policy <ref type="bibr" target="#b22">[24]</ref>, with arbitrary tie-breaking.</p><p>Results. We capture the percentage of schedulable tasksets where all tasks meet their deadlines. For the synchronizationbased approach, MPCP <ref type="bibr" target="#b27">[29]</ref> is used with the task schedulability test developed by Lakshmanan et al. <ref type="bibr" target="#b19">[21]</ref> and the correction given by Chen et al. <ref type="bibr" target="#b9">[11]</ref>. We considered both zero and non-zero locking overhead under MPCP, but there was no noticeable difference between them. Hence, only the results with zero overhead are presented in the paper. Under the server-based approach, the GPU server is randomly allocated to one of the cores in the system. Eqs. ( <ref type="formula" target="#formula_6">3</ref>) and (4) are used for task schedulability tests. We set the GPU server overhead to 50 µs, which is slightly larger than the measured overheads from our implementation presented in Section VI-B. Figure <ref type="figure" target="#fig_4">8</ref> shows the percentage of schedulable tasksets as the ratio of the accumulated GPU segment length (G i ) increases. The solid lines denote the results with N P = 4 and the dotted lines denote results with N P = 8. In general, the percentage of schedulable tasksets is higher when N P = 4, compared to when N P = 8. This is because the GPU is contended for by more tasks as the number of cores increases. The server-based approach outperforms the synchronization-based approach in all cases of this figure. This is mainly due to the fact that the server-based approach allows other tasks to use the CPU while the GPU is being used. Figure <ref type="figure">9</ref> shows the percentage of schedulable tasksets as the percentage of GPU-using tasks increases. The left-most point on the x-axis represents that all tasks are CPU-only tasks, and the right-most point represents that all tasks access the GPU. Under both approaches, the percentage of schedulable tasksets reduces as the percentage of GPU-using tasks increases. However, the server-based approach significantly outperforms MPCP, with as much as 34% more tasksets being schedulable when the percentage of GPU-using tasks is 60% and N P = 4.</p><p>The benefit of the server-based approach is also observed with changes in other task parameters. In Figure <ref type="figure">10</ref>, the percentage of schedulable tasksets is illustrated as the number of tasks per core increases. The server-based approach is affected less by the increase in task counts, compared to the synchronization-based approach. The difference in schedulability between the two approaches grows larger as the number of tasks per core increases. This is because as more tasks exist, the total amount of the CPU-inactive time in GPU segments also increases. Figure <ref type="figure">11</ref> shows the experimental results as the number of GPU segments per task increases. While the server-based approach has higher schedulability for fewer GPU segments per task, it gets closer and then coincides with the synchronization-based approach eventually, because it faces excess server overhead (of 2 per request, by Lemma 1) with an increasing number of GPU segments. Figure <ref type="figure">12</ref> shows the results as taskset utilization per core increases. The server-based approach provides higher schedulability than the synchronization-based approach, but as the total taskset utilization gets closer to 90%, the gap diminishes and the percentage of schedulable tasksets under both approaches goes down to zero.</p><p>We next investigate the factors that negatively impact the performance of the server-based approach. The GPU server overhead is obviously one such factor. Although an of 50 µs that we used in prior experiments is sufficient enough to upper-  <ref type="figure">13</ref> shows the percentage of schedulable tasksets as the GPU server overhead increases. Since exists only under the serverbased approach, the performance of MPCP is unaffected by this factor. On the other hand, the performance of the serverbased approach deteriorates as the overhead increases. The length of miscellaneous operations in GPU access segments is another factor degrading the performance of the server-based approach, because miscellaneous operations require the GPU server to consume a longer CPU time. Figure <ref type="figure" target="#fig_0">14</ref> shows the percentage of schedulable tasksets as the ratio of miscellaneous operations in GPU access segments increases. As MPCP makes tasks busy-wait during their entire GPU access, the performance of the synchronization-based approach remains unaffected. On the other hand, as expected, the performance of the server-based approach degrades as the ratio of miscellaneous operations increases. When the ratio reaches 90%, the server-based approach begins to underperform compared to the synchronization-based approach. However, such a high ratio of miscellaneous operations in GPU segments is hardly observable in practical GPU applications because memory copy is typically done by DMA and GPU kernel execution takes the majority time of GPU segments.</p><p>In summary, the server-based approach outperforms the synchronization-based approach in most cases where realistic parameters are used. Specifically, the benefit of the serverbased approach is significant when the percentage of GPUusing tasks is high or the number of tasks is large. However, we do find that the server-based approach does not dominate the synchronization-based approach. The synchronization-based approach may result in better schedulability than the serverbased approach when the GPU server overhead or the ratio of miscellaneous operations in GPU segments is beyond the range of practical values. In this paper, we have presented a server-based approach for predictable CPU access control in real-time embedded and cyber-physical systems. It is motivated by the limitations of the synchronization-based approach, namely busy-waiting and long priority inversion. By introducing a dedicated server task for GPU request handling, the server-based approach addresses those limitations, while ensuring the predictability and analyzability of tasks. The implementation and case study results on an NXP i.MX6 embedded platform indicate that the server-based approach can be implemented with acceptable overhead and performs as expected with a combination of CPU-only and GPU-using tasks. Experimental results show that the server-based approach yields significant improvements in task schedulability over the synchronization-based approach in most cases. Other types of accelerators such as DSP and FPGA can also benefit from our approach.</p><p>Our proposed server-based approach offers several interesting directions for future work. First, while we focus on a single GPU in this work, the server-based approach can be extended to multi-GPU systems. One possible way is to create a GPU server for each of the GPUs and allocating a subset of GPUusing tasks to each server. Secondly, the server-based approach can facilitate an efficient co-scheduling of GPU kernels. For instance, the latest NVIDIA architectures can schedule multiple GPU kernels concurrently only if they belong to the same address space <ref type="bibr" target="#b1">[2]</ref>, and the use of the GPU server satisfies this requirement, just as MPS <ref type="bibr" target="#b23">[25]</ref> does. Lastly, as the GPU server has a central knowledge of all GPU requests, other features like GPU fault tolerance and power management can be developed. We plan to explore these topics in the future.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: Example schedule under our server-based approach</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 6 :</head><label>6</label><figDesc>Fig. 5: MPCP lock overhead</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head></head><label></label><figDesc>(a) and Figure 7(b), respectively. Tasks executing on Core 0 are shown in blue whereas tasks executing on Core 1 are shown in red.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 7 :</head><label>7</label><figDesc>Fig. 7: Task execution timeline during one hyperperiod (3,000 ms) TABLE II: Base parameters for taskset generation Parameters Values Number of CPU cores (N P ) 4, 8 Number of tasks per core [3, 5] Percentage of GPU-using tasks [10, 30] % Task period and deadline (T i = D i ) [100, 500] ms Taskset utilization per core [30, 50] % Ratio of GPU segment len. to normal WCET (G i /C i ) [10, 30] % Number of GPU segments per task (η i ) [1, 3] Ratio of misc. operations in G i,j (G m i,j /G i,j ) [10, 20] % GPU server overhead ( ) 50 µs</figDesc><graphic coords="8,54.11,245.83,503.80,126.15" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: Schedulability w.r.t. the GPU segment length</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 9 :Fig. 10 :</head><label>910</label><figDesc>Fig. 9: Schedulability w.r.t. the percentage of GPU-using tasks</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 13 :Fig. 14 :</head><label>1314</label><figDesc>Fig. 13: Schedulability w.r.t. the GPU server overhead ( )</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head>TABLE I :</head><label>I</label><figDesc>Tasks used in the case study</figDesc><table><row><cell>Task τ i</cell><cell>Task name</cell><cell>C i (in ms)</cell><cell>η i</cell><cell>G i (in ms)</cell><cell>T i = D i (in ms)</cell><cell>CPU Core</cell><cell>Priority</cell></row><row><cell>τ 1</cell><cell>workzone</cell><cell>20</cell><cell>2</cell><cell>G 1,1 = 95, G 1,2 = 47</cell><cell>300</cell><cell>0</cell><cell>70</cell></row><row><cell>τ 2</cell><cell>cpu_matmul1</cell><cell>215</cell><cell>0</cell><cell>0</cell><cell>750</cell><cell>0</cell><cell>67</cell></row><row><cell>τ 3</cell><cell>cpu_matmul2</cell><cell>102</cell><cell>0</cell><cell>0</cell><cell>300</cell><cell>1</cell><cell>69</cell></row><row><cell>τ 4</cell><cell>gpu_matmul1</cell><cell>0.15</cell><cell>1</cell><cell>G 4,1 = 19</cell><cell>600</cell><cell>1</cell><cell>68</cell></row><row><cell>τ 5</cell><cell>gpu_matmul2</cell><cell>0.15</cell><cell>1</cell><cell>G 5,1 = 38</cell><cell>1000</cell><cell>1</cell><cell>66</cell></row><row><cell></cell><cell></cell><cell cols="4">(a) Synchronization-based Approach (MPCP)</cell><cell></cell><cell></cell></row><row><cell></cell><cell></cell><cell></cell><cell cols="2">(b) Server-based Approach</cell><cell></cell><cell></cell><cell></cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>This assumption reflects today's GPU-enabled embedded processors, e.g., NXP i.MX6 [4] and NVIDIA TX1/TX2<ref type="bibr" target="#b2">[3]</ref>. A multi-GPU platform would be used for future real-time embedded and cyber-physical systems, but extending our work to handle multiple GPUs remains as future work.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_1"><p>These protocols allow suspension while waiting for lock acquisition.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_2"><p>In case of MPCP, whenever a task resumes from self-suspension, it may experience priority inversion from tasks with higher boosted priorities<ref type="bibr" target="#b19">[21]</ref>. However, the recent generalized FMLP+ paper<ref type="bibr" target="#b7">[9]</ref> shows that the restricted priority boosting of FMLP+ allows self-suspension within critical sections with no detrimental effect on the analysis. We limit our focus to MPCP and leave a detailed comparison with FMLP+ as future work.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_3"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 05:49:48 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">MX6 Sabre Lite by Boundary Devices</title>
+		<ptr target="https://boundarydevices.com/" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<ptr target="http://www.nvidia.com" />
+		<title level="m">NVIDIA GP100 Pascal Whitepaper</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<ptr target="http://www.nxp.com" />
+		<title level="m">NVIDIA Jetson TX1/TX2 Embedded Platforms</title>
+		<imprint/>
+	</monogr>
+	<note>NXP i.MX6 Processors</note>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Qnx Rtos</surname></persName>
+		</author>
+		<ptr target="http://www.qnx.com" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Realistic analysis of limited parallel software/hardware implementations</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Audsley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Errata for three papers (2004-05) on fixed-priority scheduling with self-suspensions</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+		<idno>CISTER-TR- 150713</idno>
+	</analytic>
+	<monogr>
+		<title level="j">CISTER</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Technical Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">A flexible real-time locking protocol for multiprocessors</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">The FMLP+: An asymptotically optimal real-time locking protocol for suspension-aware analysis</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">The OMLP family of optimal multiprocessor real-time locking protocols</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Design Automation for Embedded Systems</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="277" to="342" />
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Many suspensions, many problems: A review of self-suspending tasks in real-time systems</title>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Technical Report</title>
+		<imprint>
+			<biblScope unit="volume">854</biblScope>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+		<respStmt>
+			<orgName>Department of Computer Science, TU Dortmund</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Globally scheduled real-time multiprocessor systems with GPUs</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">48</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="34" to="74" />
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">An optimal k-exclusion real-time locking protocol motivated by multi-GPU systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">49</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="140" to="170" />
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">GPUSync: A framework for real-time GPU management</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<ptr target="http://ok-labs.com" />
+		<title level="m">General Dynamics. OKL4 Microvisor</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">RGEM: A responsive GPGPU execution model for runtime engines</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">TimeGraph: GPU scheduling for real-time multi-tasking environments</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">USENIX Annual Technical Conference (ATC)</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Gdev: First-class GPU resource management in the operating system</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">USENIX Annual Technical Conference (ATC)</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Parallel scheduling for cyber-physical systems: Analysis and case study on a self-driving car</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Cyber-Physical Systems (ICCPS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Segment-fixed priority scheduling for self-suspending realtime tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Coordinated task scheduling, allocation and synchronization on multiprocessors</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Partitioned fixedpriority preemptive scheduling for multi-core processors</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Kernel-based traffic sign tracking to improve highway workzone recognition for reliable autonomous driving</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Conference on Intelligent Transportation Systems (ITSC)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973">1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<monogr>
+		<title level="m" type="main">Sharing a GPU between MPI processes: Multi-process service (MPS) overview</title>
+		<author>
+			<persName><surname>Nvidia</surname></persName>
+		</author>
+		<ptr target="http://docs.nvidia.com/deploy/pdf/CUDAMultiProcessServiceOverview.pdf" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Linux/RK: A portable resource kernel in Linux</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Oikawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS) Work-In-Progress</title>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">An evaluation of the NVIDIA TX1 for supporting real-time computer-vision workloads</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for shared memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Distributed Computing Systems (ICDCS)</title>
+		<imprint>
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="1988">1988</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Enabling preemptive multiprogramming on GPUs</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Tanasic</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Symposium on Computer Architecture (ISCA)</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Towards a viable autonomous driving research platform</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wei</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Intelligent Vehicles Symposium (IV)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">GPES: a preemptive execution system for GPGPU computing</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Tong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

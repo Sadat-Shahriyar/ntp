@@ -1,0 +1,932 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Scaling Global Scheduling with Message Passing</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Felipe</forename><surname>Cerqueira</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems (MPI-SWS)</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Manohar</forename><surname>Vanga</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems (MPI-SWS)</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems (MPI-SWS)</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Scaling Global Scheduling with Message Passing</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">51F94E45F899CF056F7BDF5DF80E6641</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T04:07+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Global real-time schedulers have earned the reputation of scaling poorly due to the high runtime overheads involved in global state management. In this paper, two mature implementations, one using fine-grained locking (SCHED DEADLINE) and one using coarse-grained locking (LITMUS RT 's G-EDF plugin), are evaluated and it is shown that, regardless of locking granularity, indeed neither scales well w.r.t. worst-case overheads due to excessive lock contention. To demonstrate that this is not an inherent limitation of global scheduling, the design of G-EDF-MP is presented, a global scheduler that uses message passing to avoid lock contention and cache-line sharing. It is shown to offer up to a 23-to 36-fold reduction in worst-case scheduling overhead on a 64core platform, which translates into much improved schedulability (in some cases, more than 120 additional tasks can be supported).</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Global real-time schedulers dispatch tasks to processors dynamically at runtime based on the state of all processors and all tasks. Such a global view of the system enables a wealth of attractive algorithmic properties-most famously optimality (e.g., <ref type="bibr" target="#b5">[6,</ref><ref type="bibr" target="#b23">24,</ref><ref type="bibr" target="#b36">37]</ref>)-that have spurred considerable interest in global scheduling in recent years (e.g., <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b4">5,</ref><ref type="bibr" target="#b9">10,</ref><ref type="bibr" target="#b25">26,</ref><ref type="bibr" target="#b27">28,</ref><ref type="bibr" target="#b30">31]</ref>, see <ref type="bibr" target="#b22">[23]</ref> for a recent overview). However, in practice, the Achilles' Heel of global scheduling is runtime overheads <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b15">16,</ref><ref type="bibr" target="#b17">18]</ref>: maintaining the required consistent global state can be costly, and becomes increasingly problematic with rising core counts. One might thus reasonably wonder: is it at all possible to scale global scheduling beyond a handful of cores?</p><p>In this paper, we answer this question in the affirmative. We first study two mature, radically different implementations of global real-time scheduling-LITMUS RT 's global earliest-deadline first (G-EDF) scheduler <ref type="bibr" target="#b12">[13,</ref><ref type="bibr" target="#b16">17]</ref> and the SCHED DEADLINE scheduler for stock Linux <ref type="bibr" target="#b26">[27,</ref><ref type="bibr" target="#b31">32,</ref><ref type="bibr" target="#b32">33]</ref> (SD hereafter)-and show that they indeed do not scale. LITMUS RT 's implementation uses a single coarse-grained lock to protect all scheduler state; its lack of scalability is thus expected. However, to our surprise, we found that SD, which uses fine-grained per-processor locks, does not scale either: it achieves much lower average-case overheads than LITMUS RT , but only at the expense of crippling worst-case overheads.</p><p>Based on the observation that the main scalability bottleneck is not locking granularity per se, but rather the number of processors that may access the same lock(s), we then sidestep the global state management problem with a novel design based on message passing. In our new design, processors report state changes to a dedicated scheduling processor that is responsible for all scheduling decisions. As a result, the global state is not shared, scheduling decisions are implicitly serialized, and no scheduler lock is ever accessed by more than two processors, a potent combination that scales well: on a 64-core Intel Xeon platform, we observed a 23x (resp., 36x) reduction in worst-case scheduling overhead w.r.t. LITMUS RT (resp., SD).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Motivation: The Case for Global Scheduling</head><p>The defining property of a global scheduler is that each task may execute on potentially any processor, depending on availability and each task's current priority. Implicit in this definition is the reason why it is difficult to implement global scheduling: to dynamically dispatch tasks according to processor availability, and in accordance with the scheduling policy (e.g., in order of increasing deadlines under G-EDF), a globally consistent snapshot of the entire system state is needed. As globally shared (and frequently changing) state is well known to be a scalability bottleneck, it is not surprising that global schedulers are inherently more afflicted by runtime overheads than partitioned schedulers (in which tasks are statically assigned to processors and all dispatching decisions can be made locally).</p><p>Nonetheless, there are good reasons to not give up on global scheduling. As already mentioned, (practical) optimal multiprocessor real-time schedulers are necessarily global. Further, even if optimality of the scheduler is a secondary concern (or none at all, as it is admittedly often the case in practice), global scheduling offers advantages that make it preferable for certain applications. For example, in adaptive systems (i.e., if task requirements change at runtime in reaction to environmental changes) and in open systems (i.e., if tasks may exit or join the system dynamically), global scheduling is much easier to deal with precisely because it dispatches tasks dynamically and hence avoids the need for complex task mapping adjustments <ref type="bibr" target="#b11">[12]</ref>.</p><p>Other reasons speaking for global scheduling are that it is less susceptible to deadline misses due to intermittent overloads (as the load is spread across all processors) <ref type="bibr" target="#b22">[23]</ref>, that it offers lower average-case scheduling latencies (because no processor idles while any task is waiting) <ref type="bibr" target="#b22">[23]</ref>, that it is best suited for race-toidle energy conservation strategies <ref type="bibr" target="#b30">[31]</ref>, and that it permits much simpler locking mechanisms (e.g., classic priority inheritance works as expected under global scheduling, but is ineffective under partitioned scheduling, see e.g. <ref type="bibr" target="#b12">[13]</ref>).</p><p>To summarize, while global scheduling is not necessarily the best approach for all real-time workloads, there exist many applications that can benefit significantly from efficient OS support for global real-time scheduling for reasons of flexibility, optimality, and simplicity. Case in point: while Linux, QNX, and many other commercial real-time OSs offer flexible scheduling APIs that allow specifying arbitrary processor affinities <ref type="bibr" target="#b28">[29]</ref>, they default to global scheduling.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Focus of This Paper</head><p>Motivated by the overhead challenges surrounding global scheduling, our objective is to understand how global scheduling policies may be efficiently supported on multicore platforms that are large by today's standards.</p><p>To this end, we study two mature and actively maintained open-source versions of G-EDF in Linux as reference implementations reflecting the current state of the art. We focus on the G-EDF policy in this paper for a number of reasons. For one, it has received considerable attention in prior work <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b4">5,</ref><ref type="bibr" target="#b9">10,</ref><ref type="bibr" target="#b22">23,</ref><ref type="bibr" target="#b27">28]</ref> and multiple independent implementations are readily available. Further, it is well-suited for the (predominantly) soft real-time workloads likely to be encountered on large multicore platforms because it is optimal (in the sense that it is not subject to utilization loss) if bounded deadline tardiness is permitted <ref type="bibr" target="#b23">[24]</ref>. And finally, it is representative of the larger class of job-level fixed-priority schedulers, which includes both fixed-priority scheduling (the default in most commercial real-time OSs such as QNX and VxWorks) and other interesting (soft) real-time schedulers <ref type="bibr" target="#b25">[26]</ref>. In short, if it is possible to scale G-EDF, then many other interesting policies can be implemented similarly.</p><p>Contributions. The primary contribution of this paper is to demonstrate that it is indeed possible to construct scalable global schedulers: global scheduling is not inherently limited by kernellevel lock and cache contention, though it is the case with many existing implementations. To support this claim:</p><p>1) We first review the challenges inherent in global scheduling and the designs of SD and LITMUS RT 's G-EDF plugin, and identify key performance and correctness limitations in Sec. II. 2) To overcome the scalability limitations of the current lockbased solutions, we introduce a novel scheduler design in Sec. III that is primarily based on message passing, and in which the remaining locks are accessed in pairwise fashion only. 3) We demonstrate that our design performs significantly better at scale than either of the two major current G-EDF implementations by means of average-and worst-case overhead measurements across six multicore platforms with 8, 16, 24, 32, and 64 cores in Sec. IV. For instance, in the 64-core setup, the worst-case scheduling overhead is reduced by a factor of 23 compared to LITMUS RT 's G-EDF plugin, and by a factor of 36 compared to SD. 4) Finally, in Sec. V, we report on large-scale schedulability experiments that show that the reduction in overheads translates into significantly improved schedulability: when considering soft real-time schedulability (i.e., bounded tardiness) in the 64-core setup, our message-passing-based implementation can support more than 120 additional realtime tasks than the best prior implementation. A secondary contribution of this paper is the first direct comparison of LITMUS RT and SD on the same hardware platform and with identical workloads, which is long overdue given their similarity in aim and differences in design.</p><p>We review related work in Sec. VI, and begin with a discussion of the scalability challenges posed by global scheduling.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. SCALABILITY CHALLENGES</head><p>Before discussing the scalability limitations of existing implementations, we need to clarify the relevant metrics. In this paper, we focus on the scalability of scheduling overheads: the costs of making a scheduling decision and dispatching a task (discussed in detail in Sec. IV), which should grow only slowly (or ideally not at all) with increasing core counts.</p><p>Another source of overheads that affects tasks under global scheduling are cache-related preemption and migration delays (CPMD), which tasks incur due to a loss of cache affinity when they resume execution after a preemption or migration. While CPMD is a non-negligible source of overhead in practice (and accounted for in the experiments in Sec. V), it is less relevant in the context of this paper because CPMD is primarily hardwaredependent (i.e., not affected by the kernel's scheduler implementation). Further, CPMD is not specific to global scheduling, but also affects partitioned (and semi-partitioned) scheduling, whereas overhead scalability is a challenge specific to global scheduling (partitioning is trivially scalable w.r.t. overheads).</p><p>In the following, we let m denote the number of processors, and assume familiarity with the sporadic task model on behalf of the reader. In short, a sporadic task releases a sequence of jobs, where each job corresponds to an invocation of the task and has an associated release time and deadline. From the point of view of the Linux kernel, a sporadic task is simply a process that more or less regularly becomes ready for scheduling. We therefore use the terms 'task' and 'job' interchangeably when discussing implementation matters. With these clarifications in place, we next discuss why it is difficult for global schedulers to maintain low overheads with increasing processor counts.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Requirements and Challenges</head><p>Implementing a correct global scheduler requires the maintenance or discovery of a consistent global snapshot of the system that includes (i) the current task-to-processor mapping (i.e., which tasks are scheduled) and (ii) the set of jobs that are eligible to run but not scheduled (to determine whether a preemption is required). Such a consistent view is necessary to avoid priority inversions, that is, to ensure that the global scheduling invariant is satisfied at all times: in a system with m processors and r ready tasks, the min(m, r) highest-priority tasks must be scheduled, where each task's current priority is determined by a policy such as EDF.</p><p>Given a consistent snapshot, making a correct scheduling decision (i.e., one that maintains the global scheduling invariant) is trivial. However, since scheduling events-job arrivals, completions, suspensions, and resumptions-may occur concurrently on any processor, the state on which a scheduling decision is based may be invalidated before the scheduler has finished making its decision. There are two possible ways to deal with this issue: serialize all scheduling events (as done in LITMUS RT ), thereby avoiding concurrent state changes, or discard the invalidated decision and retry immediately (Linux and SD use this technique). Unfortunately, both approaches are problematic from a scalability perspective. Whereas the former approach, if implemented with a global lock, introduces an obvious contention hotspot, the latter can be problematic because concurrent state changes may race repeatedly (i.e., a processor may have to retry many times before arriving at a consistent decision). Worse, both contention and the likelihood of concurrent state changes increase with the number of cores.</p><p>In fact, this very issue-maintaining a task-to-processor assignment that respects the global scheduling invariant in the face of concurrent scheduling events-is the root of most complexity and scalability issues in global schedulers.</p><p>Another, more analytical problem is posed by job release interrupts. Jobs are typically released (i.e., in Linux, processes become ready) in response to timer or device interrupts. Such interrupts are thus an inherent aspect of global real-time scheduling; however, they are not controlled by the scheduler. Rather, interrupts are dispatched in hardware and always take precedence over the OS's scheduling policy. This deviation from the scheduling policy causes considerable analytical complications. Since most published schedulability tests do not account for interrupts (e.g., see <ref type="bibr" target="#b22">[23]</ref>), their delaying effects must be accounted for separately prior to normal schedulability analysis <ref type="bibr" target="#b18">[19]</ref>. However, because it is in general not possible to predict on which processor(s) a task will execute, it must be assumed that, in the worst case, a job is delayed by all interrupts that occur while it is pending <ref type="bibr" target="#b12">[13,</ref><ref type="bibr" target="#b18">19]</ref>, which introduces considerable pessimism. Minimizing the impact of job releases on already scheduled jobs is thus an important goal in the implementation of global schedulers <ref type="bibr" target="#b15">[16]</ref>.</p><p>To motivate the scalability problem further, and to illustrate the impact of the just-described key issues, we next review the two considered reference implementations and demonstrate their lack of scalability on a 64-core Intel Xeon platform.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. The Design and Scalability of G-EDF in LITMUS RT</head><p>LITMUS RT <ref type="bibr" target="#b0">[1]</ref>, a real-time extension of the Linux kernel originally developed at UNC Chapel Hill, has included a G-EDF plugin since its initial version <ref type="bibr" target="#b19">[20]</ref>. The version considered herein is called GSN-EDF because it was designed to support suspension-based locking protocols and non-preemptable sections with O(1) priority inversions <ref type="bibr" target="#b10">[11,</ref><ref type="bibr" target="#b12">13]</ref>. GSN-EDF has been the main G-EDF implementation of LITMUS RT since 2007 and has remained structurally unchanged since then. It has also been subject of several prior studies <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b15">16,</ref><ref type="bibr" target="#b17">18,</ref><ref type="bibr" target="#b19">20]</ref>, which we revisit in the context of this work in Sec. VI.</p><p>The design of GSN-EDF is straightforward and favors worstcase predictability and conceptual simplicity over average-case optimizations: a single global spin lock protects both the shared ready queue (a binomial heap) and the processor mapping that links tasks to processors, and also serializes all scheduling decisions. This simple, coarse-grained synchronization approach has the advantage that it is relatively easy to reason about correctness, but obviously comes at a scalability tradeoff.</p><p>GSN-EDF's lack of scalability is readily apparent in Fig. <ref type="figure">1</ref>, which shows an excerpt of the evaluation discussed in detail in Sec. IV. In short, we measured the average and maximum runtime overheads of GSN-EDF when managing 8, 16, 24, 32, 48, and 64 cores, respectively, of a 2 GHz 64-core Intel Xeon machine. Fig. <ref type="figure">1</ref> depicts the maximum and average costs of two key operations, namely the scheduling overhead (i.e., assigning jobs to processors) and the release overhead (i.e., adding jobs to the ready queue and triggering preemptions).</p><p>Both the maximum scheduling and release overheads exhibit a strong dependence on m and quickly become excessive beyond 16-24 cores, exceeding 1,000 µs and 600 µs, respectively, at 48 cores. Worse, this trend also manifests in the average-case overheads, which both reach about 500 µs at m = 64. Given that tasks with deadlines in the range of a few milliseconds are not uncommon, scheduling overheads of more than one millisecond are not viable and clearly show GSN-EDF's lack of scalability.</p><p>Prior studies using GSN-EDF <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b9">10,</ref><ref type="bibr" target="#b22">23,</ref><ref type="bibr" target="#b27">28]</ref> used platforms with 4, 24, and 32 processors, a range in which GSN-EDF still exhibits overheads that are moderate in the context of Fig. <ref type="figure">1</ref>. Nonetheless, in conjunction with the analytical limitations of current interrupt accounting techniques, the high release overheads proved problematic <ref type="bibr" target="#b15">[16]</ref>. For this reason, GSN-EDF supports dedicated interrupt handling <ref type="bibr" target="#b15">[16,</ref><ref type="bibr" target="#b37">38]</ref>, where a dedicated processor handles all release interrupts, and realtime tasks are scheduled only on the other m -1 processors to shield them from interrupts. Given release overheads in the range of hundreds of microseconds (as evident in Fig. <ref type="figure">1</ref>), this is a worthwhile tradeoff since the capacity lost to accounting-related pessimism far exceeds the "loss" of one processor <ref type="bibr" target="#b15">[16]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. The SCHED DEADLINE Patch for Linux</head><p>The SD patch <ref type="bibr" target="#b26">[27,</ref><ref type="bibr" target="#b31">32,</ref><ref type="bibr" target="#b32">33]</ref> for Linux was developed at the Scuola Superiore Sant'Anna in Pisa and fundamentally differs from GSN-EDF in both its design and its goal. While LITMUS RT is primarily a prototyping framework and abstraction layer for experimental real-time research, SD is a comparably mature implementation that directly integrates with the kernel and aims at eventual inclusion into mainline Linux. Its design hence closely follows Linux's push/pull architecture, which is based on distributed, per-processor ready queues, each guarded by a separate spin lock, which reduces both lock and cache contention by minimizing data sharing across processors. GSN-EDF and SD thus represent two extreme opposites: while in GSN-EDF global coordination is the default (and all scheduling decisions are serialized), in the push/pull design, most scheduling decisions are made locally (and concurrently).</p><p>In Linux, a global policy such as G-EDF must be implemented on top of the per-processor ready queues by explicitly loadbalancing the highest-priority tasks whenever local scheduling events require a global adjustment (e.g. when new jobs are released or when jobs complete). This is accomplished with the eponymous push and pull operations, which enact sourceand target-initiated migrations, respectively, to maintain the global scheduling invariant. <ref type="foot" target="#foot_2">1</ref> Conceptually, pull operations scan all other ready queues to "steal" backlogged higher-priority tasks before a local scheduling decision is made, and push operations move local backlogged tasks to other processors where they can be scheduled immediately after a local scheduling decision was made. In the actual implementation, these operations are not invoked as part of every scheduler invocation; rather, processors push whenever a new job is released or a local job is preempted, and pull when a local job completes or suspends. Both operations require a pairwise acquisition of the relevant per-processor locks in order to maintain consistency. To prevent deadlocks, the locks are always acquired in order of increasing processor indices, which may require processors to drop and reacquire their local scheduler lock. To improve blocking time in the average case, the local lock is always dropped in Linux and both source and target locks are reacquired in order.</p><p>In summary, the push/pull design underlying the SD scheduler strives to avoid scalability bottlenecks by limiting cache contention through the use of per-processor run queues, and by using fine-grained, per-processor locks. Consequently, our starting assumption was that SD would easily and consistently outperform GSN-EDF. Surprisingly, we found that the push/pull design works both really well and not at all: as shown in Fig. <ref type="figure">2</ref>, it yields very low average-case overheads, but it is also subject to excessive worst-case overheads.</p><p>On the positive side, our experiments show that the more sophisticated locking mechanism is very useful for coping with contention in the average case. We found the average-case overheads to remain low throughout the tested range, and well below 100 µs even for m = 64. From a throughput perspective, SD thus performs excellently, and much better than GSN-EDF.</p><p>However, from a (hard) real-time perspective, the results are troublesome, as the maximum observed overheads clearly do not scale well. In fact, in some configurations, SD exhibits maximum overheads more than five times worse than the much simpler GSN-EDF: for instance, for m = 24, the maximum scheduling overhead of GSN-EDF is roughly 180 µs, whereas SD already exceeds 1,000 µs. In the extreme of m = 64, we even observed scheduling overheads approaching 4.5 ms, which demonstrates a total lack of scalability w.r.t. worst-case overheads.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Root Causes: Transitive Blocking and Push Failures</head><p>As we set out to investigate the scalability of G-EDF implementations, our initial assumption was that per-processor state and locks as employed by SD would "naturally" be the most promising approach, a fallacy that we believe to be widespread. In fact, to the best of our knowledge, our experiments are the first to demonstrate that, w.r.t. maximum overheads, the push/pull approach scales significantly worse than a single, coarse-grained lock. In the end, it turns out that "simulating" a unified global state from multiple distributed states requires complex synchronization logic (e.g., scanning operations, the release and reacquisition of locks, complex interaction among processors, etc.), which is detrimental to worst-case overheads.</p><p>A key reason for the observed spikes is that fine-grained locking gives rise to pathological, difficult to anticipate blocking scenarios when multiple processors push and pull simultaneously. While the per-processor locks are on average accessed by only a handful of processors, it is possible for any lock to be contested by all processors at the same time. Further, due to the scanning operations and the need for pairwise ordered lock acquisitions described above, this effect can escalate due to transitive blocking when high-contention scenarios are encountered on every outer and every nested lock acquisition.</p><p>The case for push/pull-based designs is further weakened by an "optimization" inherited from stock Linux's push/pull scheduler that prevents SD from maintaining the global invariant at all times (i.e., priority inversions, though likely infrequent, are possible with the current implementation). The problem arises because a push operation may fail as follows. To carry out a push migration, the source processor first searches for the processor that is currently executing the lowest-priority task (i.e., latest-deadline task in SD) by iteratively examining all processor states. After the target processor has been identified, its lock is reacquired to enact the migration. However, in the mean time while the source processor was not holding the target processor's lock, the target processor's state may have changed, thus invalidating the decision. Specifically, after deciding to migrate a task T i to a processor P k , a new, higher-priority task may arrive on P k , either because it resumes or because another processor pushes first (as described in further detail in <ref type="bibr" target="#b12">[13,</ref><ref type="bibr">Ch. 3]</ref> in the context of the stock Linux fixed-priority push/pull scheduler). This poses a fundamental question: in a push/pull design, how often must a processor retry a failed push operation in the worst case?</p><p>In the current SD implementation (version V8), if a push operation fails three times, then it is abandoned and the task is kept in the local queue even if that violates the global scheduling invariant. However, a retry limit of three is clearly insufficient, since with tens of cores and hundreds of tasks, it is certainly possible that more than three higher-priority tasks arrive concurrently with a push operation. Unfortunately, the hard-coded retry limit exists for a reason: correcting it would likely cause a further increase in (worst-case) overheads due to additional contention from repeatedly failing push operations.</p><p>Finally, it should be noted that overheads were measured while executing simple, periodic, CPU-bound, synchronously 2 released real-time tasks, as explained in Appendix A. The synthetic benchmark tasks used to evaluate SD correspond to the standard workload used to benchmark LITMUS RT (see Sec. IV) and mimic well-behaved recurrent real-time applications such as process control or signal processing tasks. We thus believe this to be a fair and relevant assessment of the two G-EDF implementations, but note that "antagonistic" tasks could likely provoke even higher overheads under either scheduler. Nonetheless, the results allow us to identify the central scalability bottleneck.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Scalability Implications</head><p>In the end, we found that neither fine-grained nor coarsegrained locking scales particularly well. This is because the true bottleneck is not lock granularity, which is more relevant in a throughput context, but rather peak contention, that is, the number of processors that potentially access the same lock(s). Peak contention, however, cannot be reduced by splitting the shared global state into ever finer pieces that still must be shared among all processors. To the contrary, due to transitive blocking, m processors sharing m locks in a nested fashion suffer larger worst-case delays than m processors sharing a single lock.</p><p>Ideally, a scheduler should have the simplicity of GSN-EDF, provide average-case overheads close to those of SD, and provide worst-case overheads as predictable and simple to reason about as those of GSN-EDF (but preferably lower). In the following, we present a novel G-EDF implementation, based on message passing instead of state sharing, that comes much closer to these goals than any prior implementation known to us.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. GLOBAL SCHEDULING VIA MESSAGE PASSING</head><p>The use of message passing is a growing trend in recent work on multicore scalability <ref type="bibr" target="#b8">[9,</ref><ref type="bibr" target="#b21">22,</ref><ref type="bibr" target="#b33">34]</ref>. Its main advantage is that it makes sharing explicit and forces algorithm designs that inherently provide data isolation and reduce sharing. In the following, we show that message passing is also a viable implementation technique at the timescale of a real-time scheduler. We begin with an overview of G-EDF-MP's design, our new messagepassing-based G-EDF implementation, and provide a detailed description of how it operates in Sec. III-B.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Design Overview</head><p>As discussed in Sec. II, our solution is motivated by the fact that large overheads from peak contention and cache-line sharing arise because each processor must coordinate with other processors to generate a globally consistent snapshot of the system prior to making a decision.</p><p>G-EDF-MP avoids these two issues through a simple tradeoff. Taking dedicated interrupt handling as already implemented in GSN-EDF a significant step further, it declares a single dedicated scheduling processor (henceforth the DSP) to be responsible for all scheduling decisions and all device and timer interrupts. The rest of the client processors in the system simply carry out the decision made by the DSP. To avoid analytical complications, the DSP itself does not execute any real-time tasks, which execute only on the shielded client processors.</p><p>Since only the DSP makes decisions, it is the only processor that needs to have a global view of the system. G-EDF-MP thus maintains this view locally in the DSP: ready queue updates do  not require any locking, to the effect that job release interrupts cannot be delayed by lock contention. However, for reasons of efficiency, G-EDF-MP is not a "pure" message-passing-based implementation, as it still uses some locks to synchronize the assignment of tasks to clients. In particular, the DSP-to-client communication is carried out with two lock-protected task pointers per client, which the DSP updates in order to indicate task assignments. However, the peak contention of these locks is limited because (i) they are never acquired in a nested fashion, and (ii) they are subject to only pairwise sharing (by the DSP and the particular client).</p><p>The DSP uses inter-processor interrupts (IPIs) to notify clients when a particular decision requires an immediate preemption. Similarly, a client communicates local scheduling events (e.g. job completions, suspensions, etc.) to the DSP by writing a message to one of a small number of shared, wait-free FIFO mailboxes and sending an IPI as a notification. This allows the DSP to keep track of the global state of the system and to react as clients become available for other work.</p><p>Overall, the G-EDF-MP approach is conceptually simple, but requires careful implementation choices, which we discuss next.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. The G-EDF-MP Data Structures</head><p>Fig. <ref type="figure" target="#fig_2">3</ref> provides an overview of the system. The DSP uses its local DSP state to make scheduling decisions. The clients have a small per-client state that is protected by per-client locks (not shown), which indicates the assigned and scheduled tasks. Preemptions are enacted by the DSP by modifying a client's state and sending an IPI. Clients communicate with the DSP by writing to a shared mailbox and sending an IPI to the DSP.</p><p>Per-client state. G-EDF-MP is conceptually based on the linkbased scheduling approach first introduced with GSN-EDF <ref type="bibr" target="#b16">[17]</ref>.</p><p>Link-based scheduling tracks two task pointers for each processor, the linked task that should be scheduled, and the scheduled task that currently is scheduled. The DSP updates the linked task as required to maintain the global scheduling invariant, and the client is responsible for tracking linked with scheduled as quickly as possible by context-switching to linked whenever the DSP updates the assignment. (This delay is accounted for analytically in Appendix B.)</p><p>The two main advantages of link-based scheduling are that it enables the implementation of non-preemptable critical section support with O(1) priority inversion <ref type="bibr" target="#b12">[13,</ref><ref type="bibr" target="#b14">15]</ref> (though this is not yet activated in G-EDF-MP), and that it cleanly decouples the logical scheduling aspects as dictated by the scheduling policy from the peculiarities of hardware and process management <ref type="bibr" target="#b12">[13]</ref>.</p><p>Each client's linked and scheduled fields are protected by a spin lock. Only clients may change their scheduled pointer, but both the DSP and the clients update the linked pointers: clients invalidate their linked pointer to indicate job completions or suspensions, and the DSP updates the linked pointer to assign new work. In contrast, under GSN-EDF, all processors may relink any other processor and all linked and scheduled pointers are protected by a single lock. DSP state. The DSP state consists of (i) a ready queue of tasks that are ready to execute but are waiting to be linked, (ii) binomial heaps and timers tracking future job releases, 3 and (iii) a copy of each client's state (e.g. which task is linked to, whether it is idle etc.) that is updated whenever the DSP changes linked or when a client reports idleness. Part (iii) is used to detect when preemptions become necessary. The DSP uses a copy of the client state (rather than accessing it directly) to improve cache locality and to avoid having to lock per-client states during preemption checks, which are frequently required. Notably, the DSP state is not protected by any locks since it is accessed only by the DSP with disabled interrupts.</p><p>Shared mailbox. The mailbox enables asynchronous client-to-DSP communication, where each message consists of a pointer to a callback function, the sender ID, and the task that triggered the scheduling event. It consists of a small number of Feather-Trace buffers <ref type="bibr" target="#b16">[17]</ref>, which support wait-free writes so clients never block when sending messages. 4 To take advantage of the cache topology, there is one mailbox per socket that is shared only by cores on the same die (and the DSP). The DSP services message buffers in a round-robin fashion to avoid starvation, and briefly enables interrupts between messages (lest latency spikes arise). We next describe the main scheduling events.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. The G-EDF-MP Operations</head><p>There are six major message types in G-EDF-MP, as illustrated in Fig. <ref type="figure" target="#fig_3">4</ref>, which shows a sequence of events and messages.</p><p>1) When a job is released or resumed by an external event, the DSP receives an interrupt (since we use dedicated interrupt handling) and the associated handler is executed. Otherwise, if a task is woken up by another task on a client, the DSP is notified by the client via a message. In either case, the DSP immediately links the task to an idle core if one is available, and otherwise checks whether a preemption is in order. Since the DSP has a 3 LITMUS RT provides binomial heaps to enable the release of many jobs at once with efficient O(log n) merge operations <ref type="bibr" target="#b17">[18]</ref>. G-EDF-MP simply reuses the existing infrastructure, with the difference that no locking is required. 4 We chose Feather-Trace buffers because they are readily available in LITMUS RT as part of the overhead tracing infrastructure. In future work, it may be interesting to evaluate whether specific-purpose, single-writer, cachecoherency-friendly message buffers <ref type="bibr" target="#b8">[9,</ref><ref type="bibr" target="#b21">22]</ref> achieve even lower overheads. copy of all current task assignments, these decisions are made purely locally without any lock acquisitions.</p><p>In Fig. <ref type="figure" target="#fig_3">4</ref>, the DSP decides that the newly arrived task T 2 should preempt task T 1 on the depicted client processor. To enact the preemption, the DSP acquires the client's lock, updates its linked pointer, and sends an IPI. After releasing the client's lock, the DSP adds the unlinked task T 1 back into the ready queue. Note that T 1 remains scheduled until the client receives the IPI, which illustrates the separation of logical and physical processor management in link-based scheduling.</p><p>2) When a client processor receives a rescheduling IPI, it locks its local state and simply checks whether linked differs from scheduled, and if so atomically updates scheduled to indicate that it has picked up the link change. It then unlocks its local state and carries out a context switch to the new task.</p><p>3) When a job suspends on a client processor, it immediately becomes unavailable for execution. Hence, the client invalidates its linked field to indicate that it is idle and sends a message to the DSP to communicate its availability. Since the client at this point does not have information about which job to schedule next (or even whether more jobs are pending), it simply idles (or services non-real-time background tasks).</p><p>Introducing idle time of course introduces additional delays for any pending real-time tasks, which must be reflected when accounting for overheads, as we discuss in Appendix B. Note that this idle time is not in conflict with the fact that G-EDF is a work-conserving policy. In any practical scheduler implementation, processors incur brief periods of unavailability while selecting the next task to dispatch, regardless of whether this is realized with locking or message passing mechanisms.</p><p>4) When the DSP is notified of a suspension, it discards the suspending task from its data structures. The suspending task will be "reintroduced" to the scheduler when it is later resumed by an interrupt or another task-see (1) above. Note that a suspending task might already be queued in the ready queue if a preemption IPI sent from the DSP to the client raced with a suspension IPI sent from the client to the DSP. In general, since G-EDF-MP intentionally aims to decouple clients from the DSP as much as possible for scalability reasons, many potential race conditions among in-flight events must be handled.</p><p>Since a suspension message implies that the sending client became idle, the DSP links the highest-priority job in the ready queue to the sender (if any). In the example in Fig. <ref type="figure" target="#fig_3">4</ref>, the DSP links T 1 to the client and sends a preemption IPI, which causes T 1 to be dispatched as discussed in (2) above. 5) When a job completes on a client processor, the client reacts as in (3): it invalidates linked and notifies the DSP. 6) When the DSP is notified of a completion, if the job completed before its next release time, the DSP programs a local timer for the next job release; otherwise, if the job was tardy, it adds the task immediately back into the ready queue. Either way, it selects the highest-priority job in the ready queue (if any) and assigns it to the sender.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Concurrency challenges.</head><p>The preceding list of events covers the major scheduling operations in G-EDF-MP. While the design is intentionally simple at the conceptual level, several corner cases must be correctly dealt with in practice. For example, since an unlinked task T i in the ready queue may remain briefly scheduled on some processor P k (until the client's "is"-state catches up with the "should"-state), it may be picked by the DSP and linked to some other processor P l that scheduled some other task T j . In such a case, P l must delay its context switch from T j to T i until P k ceases to use T i 's kernel stack.</p><p>This, however, becomes problematic if subsequently T j is assigned to P k -a deadlock results, as P l uses T j 's kernel stack while it waits for P k to release T i 's kernel stack, and vice versa. If left unchecked, this can happen as a result of short suspensions (e.g., due to I/O), and must be detected and resolved by swapping the links of T i and T j . To avoid such situations altogether, G-EDF-MP performs link swaps whenever it links a still-scheduled task. To allow the DSP to reliably detect still-scheduled tasks, clients must check linked and update scheduled atomically, as discussed in operation <ref type="bibr" target="#b1">(2)</ref>.</p><p>While such corner cases add some implementation complexity, they do not affect the overheads and scalability of G-EDF-MP negatively, as we show next.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. EVALUATION</head><p>To assess the scalability of G-EDF-MP, SD, and GSN-EDF in terms of average and maximum overheads, we conducted extensive experiments on a 64-core Intel Xeon X7550 2.0 GHz platform using LITMUS RT version 2013.1 and version V8 of the SD patch, both based on Linux 3.10. Features that lead to unpredictability such as hardware multithreading, frequency scaling, and deep sleep states were disabled for all kernels, along with every kernel configuration option associated with debugging. All non-essential background services such as cron were disabled. For each m ∈ {8, 16, 24, 32, 48, 64}, each of the three kernel versions was compiled with support for at most m processors and booted on the test platform.</p><p>Overheads were measured with Feather-Trace <ref type="bibr" target="#b16">[17]</ref>, a lightweight tracing framework included in LITMUS RT . As Feather-Trace was not built with large core counts in mind, the stock version uses a single, shared trace buffer, which itself creates a scalability bottleneck at higher core counts. To resolve this, we changed Feather-Trace to record most samples in processor-local buffers. We also added support for coping with non-synchronized cycle counters by determining each processor's cycle counter offset prior to each experiment.</p><p>For each m and for each n ∈ {m, 2m, . . . , 10m}, we generated five task sets with n synthetic tasks using Emberson et al.'s task set generator <ref type="bibr" target="#b24">[25]</ref>. Task sets were generated with a target utilization chosen uniformly at random from [0.4m, 0.8m] and periods drawn from a log-uniform distribution in the range [10ms, 100ms]. Each task set was executed for 30 s under each of the following four schedulers: G-EDF-MP, SD, GSN-EDF without dedicated interrupt handling, and GSN-EDF with dedicated interrupt handling (GSN-EDF-DI hereafter). Note that real-time tasks execute on only m -1 of the m cores under G-EDF-MP and GSN-EDF-DI. We ran a cache-thrashing background workload to provoke maximum memory hierarchy Next, we discuss the different runtime overheads that delay real-time tasks, which are all traced individually in LITMUS RT .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Measured Runtime Overheads</head><p>In the case of G-EDF-MP, nine major overhead sources affect a task's response time, which are illustrated in Fig. <ref type="figure" target="#fig_4">5</ref>.</p><p>First, a task incurs release event latency (∆ ev ) if its triggering interrupt is delayed because the DSP disabled interrupts. Release overhead (∆ rel ) reflects the cost of processing the release interrupt, including all ready queue updates, preemption checks, and link changes. After the link change, the DSP sends a rescheduling IPI, which incurs IPI latency (∆ ipi ) due to interconnect contention and when the recipient disabled interrupts.</p><p>On the client, the task incurs scheduling overhead (∆ sch ) while the kernel selects the next task to be dispatched; this overhead includes any blocking delays incurred when accessing the scheduler state. Finally, context-switch overhead (∆ cxs ) is incurred when switching kernel stacks. While executing, a realtime task can be delayed by the periodic timer tick (which fires once every millisecond), incurring tick overhead (∆ tck ).</p><p>Two overheads specific to G-EDF-MP are the IPI sent to notify the DSP of pending messages and the time spent by the DSP reacting to messages. Regarding the former, we distinguish between ∆ ipi , the latency of normal reschedule IPIs sent to trigger the scheduler on a remote processor, and client request latency (∆ req ), which reflects the delay from the time that a client sends a message to the DSP until the DSP dequeues that specific message. Regarding the latter G-EDF-MP-specific overhead, each message has a corresponding callback function, the invocation of which causes DSP handler overhead (∆ dsp ).</p><p>CPMD (∆ cpd ) affects a task when it reloads cache contents after a preemption or migration. CPMD is not affected by the choice of G-EDF implementation and was measured separately using the method proposed by Bastoni et al. <ref type="bibr" target="#b7">[8]</ref>.</p><p>With the exception of the client request latency and DSP handler overhead, all of the just-discussed overhead sources also affect GSN-EDF, GSN-EDF-DI, and SD. To obtain comparable measures for SD, we ported Feather-Trace to the SD kernel (but did not introduce any other changes). Further, the scheduling overhead ∆ sch is actually measured in two parts (before and after the context switch); we report the aggregate measure here. In contrast to earlier LITMUS RT -based studies <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b15">16,</ref><ref type="bibr" target="#b17">18]</ref>, we did not apply any statistical outlier filters (which made possible by recent LITMUS RT improvements <ref type="bibr" target="#b13">[14]</ref>). Finally, it is also worth mentioning that synchronously releasing all tasks (as discussed in Sec. II-D and Appendix A) creates a challenging benchmark, as it forces all real-time tasks to be activated together. The overhead measurements that were obtained thus reflect very unfavorable scenarios in terms of contention.</p><p>All graphs are available online <ref type="bibr" target="#b20">[21]</ref>. Due to space constraints, we discuss only the most pertinent trends in the following.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Experimental Results</head><p>As already shown in Figs. <ref type="figure">1</ref> and<ref type="figure">2</ref>, GSN-EDF does not scale well w.r.t. both average-and worst-case overheads, and SD does not scale well w.r.t. worst-case overheads. The key questions thus are, (i) does G-EDF-MP scale well with the number of cores and the number of tasks, and (ii) does G-EDF-MP achieve low average-case overheads similar to SD?</p><p>We begin with question (i), and the answer is clearly yes. Fig. <ref type="figure">6</ref>(a) shows the maximum observed scheduling overhead as a function of m. While the maximum scheduling overhead under GSN-EDF and SD increases from 40.19 µs and 52.11 µs, resp., at 8 cores to 2759.04 µs and 4337.55 µs, resp., at 64 cores, the scheduling overhead under G-EDF-MP increases from 12.75 µs to only 119.37 µs; a relatively modest increase and a 23x and 36x improvement over GSN-EDF and SD, resp.</p><p>Similar trends are observed with increasing n, as shown in Fig. <ref type="figure">6</ref>(c), which depicts ∆ sch as a function of n for m = 48. Whereas the maximum scheduling overhead under GSN-EDF, GSN-EDF-DI, and SD either already start high or reveal large upwards slopes, G-EDF-MP maintains near-constant overheads around 60 µs for the entire range of tested task set sizes. These trends are not surprising, since GSN-EDF, GSN-EDF-DI, and SD must acquire one or more globally shared locks (for which contention increases with m) and manipulate ready queues (which grow in size with n) as part of each scheduler invocation. Further, overheads under SD are strongly affected by increasing n since a larger number of tasks increases the frequency of scheduler invocations, which increases the likelihood of push failures and transitive blocking. In contrast, each client state lock in G-EDF-MP is accessed by only two processors, and clients never access the ready queue-the client-side scheduler is O(1).</p><p>GSN-EDF and GSN-EDF-DI exhibit mostly similar trends, with overheads slightly lower under GSN-EDF-DI simply because one fewer core participates in the scheduling, thereby reducing peak contention slightly.</p><p>The major difference in scalability between the primarily lockbased schedulers and G-EDF-MP also manifests in the maximum release overhead as shown in Fig. <ref type="figure">6(b)</ref>. The overhead under G-EDF-MP exhibits quicker growth than in Fig. <ref type="figure">6</ref>(a) due to O(log n) updates to the ready queue (a binomial heap) and O(m) preemption checks. Still, G-EDF-MP exhibits much lower maximum release overhead than its counterparts afflicted by lock contention: for m = 64, the maximum release overhead exceeds 1700 µs and 1500 µs under GSN-EDF and SD, resp., whereas G-EDF-MP stays well below 275 µs.</p><p>To answer question (ii), consider the plots of average-case scheduling and release overheads shown in Figs. <ref type="figure">6(d</ref>) and 6(e), resp. As discussed in Sec. II, GSN-EDF does not scale well in the average case, which also extends to GSN-EDF-DI, whereas SD has no problems scaling in the average case (since pathological contention is rare). G-EDF-MP in turn exhibits still lower scheduling overheads, as seen in Fig. <ref type="figure">6(d)</ref> (at m = 64, ∆ sch = 3.04 µs under G-EDF-MP vs. ∆ sch = 48.48 µs under SD).</p><p>In Fig. <ref type="figure">6</ref>(e), G-EDF-MP exhibits somewhat higher average release overheads than SD (at m = 64, ∆ rel = 109.40 µs under G-EDF-MP vs. ∆ rel = 65.67 µs under SD), but more importantly, the overhead under G-EDF-MP grows only slowly from m = 8 to m = 64, in contrast to GSN-EDF (which is below 6 µs at m = 8, but exceeds 475 µs at m = 64). <ref type="foot" target="#foot_4">5</ref> We conclude that G-EDF-MP already performs reasonably well in terms of average-case overheads, but also believe that there is room for further low-level code optimizations in the future.</p><p>Although the trends are promising so far, there is no silver bullet for multicore scalability-the design of G-EDF-MP introduces new overheads that also need to be considered. These are shown in Fig. <ref type="figure">6</ref>(f), which depicts the average and maximum client request latency and the DSP handler cost.</p><p>The DSP handler cost is not particularly problematic since it is dominated by ready queue and preemption checks and thus grows only slowly with m, just like the release overhead.</p><p>The client request latency is determined by three factors: how long the DSP disables interrupts, how expensive it is for the DSP to dequeue a message, and how many messages are already queued (recall that each message buffer is FIFO-ordered). To keep the first factor low, the DSP enables interrupts between any two messages. Concerning the second factor, reading the mailbox becomes more expensive with growing core counts as more processors send messages concurrently. However, since we use per-socket mailboxes, this increase is relatively small.</p><p>The third factor, the length of the message queue, is the main bottleneck of G-EDF-MP-with an increasing number of clients, the peak contention in terms of simultaneous message arrivals naturally grows as well. This can be clearly seen in Fig. <ref type="figure">6(f)</ref>, where the maximum client request latency grows quickly with m. The average client request latency, however, is not strongly affected by this-again, peak contention is a rare event.</p><p>Finally, to offer further support for our claims and to illustrate how overheads vary with increasing task counts, Fig. <ref type="figure">7</ref> depicts six additional graphs showing scheduling overheads, release overheads, DSP handler overheads, and client request latency as a function of n on the 32-core platform. The general trend is that G-EDF-MP performs well w.r.t. the overheads encountered by all schedulers-in insets (a), (b), (d), and (e), G-EDF-MP exhibits the lowest overheads of the four schedulers for any n. In fact, in special cases, G-EDF-MP achieves even up to two orders of magnitude lower overheads than the reference implementations: the maximum observed scheduling overhead under G-EDF-MP is ≈17 µs vs. ≈1740 µs under SD, as apparent in Fig. <ref type="figure">7(a)</ref>. Finally, Fig. <ref type="figure">7(c</ref>) confirms that client request latency is the main bottleneck w.r.t. worst-case overheads, but not a major problem w.r.t. average-case overheads, and Fig. <ref type="figure">7</ref>(f) shows that the cost per DSP operation is virtually constant. Overall, our data shows G-EDF-MP to scale much better than either GSN-EDF or SD in the tested range of up to 64 cores. Nonetheless, G-EDF-MP is obviously not arbitrarily scalable as the DSP eventually becomes a bottleneck, albeit at much higher processor counts than in prior lock-based schedulers.</p><p>Next, we discuss whether G-EDF-MP's improved overhead scalability translates into analytical benefits as well.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. SCHEDULABILITY EXPERIMENTS</head><p>Since message passing introduces new sources of delays, just comparing the magnitude of overheads does not provide a complete view of G-EDF-MP's performance. Rather, overhead-aware schedulability analysis that accounts for all runtime overheads is necessary. We therefore performed extensive overhead-aware schedulability experiments to assess the impact of overheads on each of the four implementations. Before presenting the main results, we briefly summarize our experimental setup.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Experimental Setup</head><p>We evaluated the four schedulers (GSN-EDF, GSN-EDF-DI, SD and G-EDF-MP) w.r.t. two criteria: soft real-time schedulability, by checking if a task set has bounded tardiness <ref type="bibr" target="#b23">[24]</ref> after accounting for average-case overheads, and hard real-time schedulability, by applying a collection of G-EDF schedulability tests <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b4">5,</ref><ref type="bibr" target="#b9">10,</ref><ref type="bibr" target="#b27">28]</ref> after accounting for worst-case overheads. Runtime overheads were accounted for using standard techniques as described in Appendix B. For increased breadth, we employed two different task set generation methods; one used in prior LITMUS RT studies <ref type="bibr" target="#b12">[13,</ref><ref type="bibr" target="#b15">16,</ref><ref type="bibr" target="#b17">18]</ref> and one proposed by Emberson et al. <ref type="bibr" target="#b24">[25]</ref>.</p><p>First, we evaluated schedulability as a function of n using task sets similar to those used in previous LITMUS RT studies (see <ref type="bibr" target="#b12">[13,</ref><ref type="bibr">Ch. 4</ref>] for a detailed description). In short, each task set is generated by independently drawing n utilizations and periods. Utilizations were drawn from one of six distributions: three exponential distributions ranging over [0, 1] (with means 0.1, 0.25 and 0.5), and three uniform distributions (ranging over [0.1, 0.2], [0.1, 0.4] and [0.5, 0.9]). Periods were chosen from uniform and log-uniform distributions across several ranges ([1, 1000], <ref type="bibr" target="#b9">[10,</ref><ref type="bibr">100]</ref>, <ref type="bibr" target="#b9">[10,</ref><ref type="bibr">1000]</ref>, <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b32">33]</ref>, and [200, 1000], in ms).</p><p>In the second set of experiments using Emberson et al.'s task set generation method <ref type="bibr" target="#b24">[25]</ref>, we assessed the impact of increasing the total utilization for a fixed n. We varied n ∈ {2m, 3m, . . . , 10m} and considered both uniformly and loguniformly distributed periods in the range <ref type="bibr" target="#b0">[1,</ref><ref type="bibr">1000]</ref>.</p><p>Both methods were used to assess the schedulability for each m ∈ {8, 16, 24, 32, 48, 64}. For each sampling point, we generated and tested 1,000 task sets.</p><p>In total, we evaluated more than 1,000 parameter configurations. Due to space constraints, we highlight here two configurations that reveal a significant analytical impact. The complete set of results is available online <ref type="bibr" target="#b20">[21]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Results</head><p>Fig. <ref type="figure" target="#fig_8">8</ref>(a) shows a result depicting soft real-time schedulability for m = 64 as a function of n. The achieved soft real-time schedulability is shown for each of the four evaluated implementations and also for two hypothetical G-EDF configurations assuming zero overheads on m and m -1 processors, to provide an upper bound and to show the cost of using a DSP. In Fig. <ref type="figure" target="#fig_8">8</ref>(a), GSN-EDF and SD achieve zero schedulability for all task counts due to the pessimism involved in interrupt accounting (recall that GSN-EDF-DI and G-EDF-MP shield real-time tasks from all interrupts, whereas tasks may be delayed by release interrupts in SD and GSN-EDF). Under G-EDF-MP, bounded tardiness is maintained up to n = 448, whereas GSN-EDF-DI starts to decay already at n = 128 and reaches zero schedulability at n = 320. Here, G-EDF-MP can support more than 120 additional tasks, thereby halving the distance to the theoretical upper bound.</p><p>Fig. <ref type="figure" target="#fig_8">8</ref>(b) shows hard real-time schedulability as a function of total utilization (for a fixed n). As in Fig. <ref type="figure" target="#fig_8">8</ref>(a), interrupt-related pessimism renders GSN-EDF and SD completely unschedulable. About one third of the task sets are schedulable under GSN-EDF-DI until reaching a total utilization of about 20. In contrast, about 70% of the task sets are schedulable under G-EDF-MP until reaching a total utilization of about 24, where the theoretical upper bound starts to decrease as well. Again, G-EDF-MP halves the gap to the theoretical upper bound.</p><p>Fig. <ref type="figure" target="#fig_8">8</ref>(b) also exhibits G-EDF's inherent hard real-time limitations: even when assuming overhead-free execution, hardly any task set with a total utilization greater than 50% can be claimed schedulable. However, in the context of this work, G-EDF's algorithmic limitations are irrelevant because G-EDF-MP's low-overhead design can be easily transferred to other global schedulers (such as global fixed-priority scheduling or  <ref type="bibr" target="#b12">[13,</ref><ref type="bibr" target="#b15">16,</ref><ref type="bibr" target="#b17">18]</ref>).  earliest-deadline-until-zero-laxity scheduling (EDZL) <ref type="bibr" target="#b2">[3]</ref>, which can offer higher hard real-time schedulability).</p><p>Overall, the schedulability experiments confirm that G-EDF-MP's lower overheads translate into significantly higher schedulability at high core counts. At lower core counts (i.e., m ≤ 16) and with fewer tasks, overhead scalability is not yet an issue and G-EDF-MP performs similarly to GSN-EDF-DI. The complete set of experiments is available online <ref type="bibr" target="#b20">[21]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. RELATED WORK</head><p>This work reuses two key implementation techniques and is closely related to several prior studies, which we review next.</p><p>Implementation techniques. G-EDF-MP employs a DSP to shield real-time tasks from OS overheads, a well-known technique that dates back to the Spring kernel <ref type="bibr" target="#b37">[38]</ref>. More recently, the idea of delegating cores to exclusively handle OS duties has also been applied in the context of manycore platforms (e.g., <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b38">39]</ref>).</p><p>G-EDF-MP further employs message passing, which is known to scale well on multicores. In particular, in multikernel OSs such as Barrelfish <ref type="bibr" target="#b8">[9]</ref> and Quest-V <ref type="bibr" target="#b33">[34]</ref>, the entire OS design is centered around message passing to avoid scalability bottlenecks (among other reasons). Message passing is further used in some current commercial RTOSs as well (e.g., ENEA's OSE). However, G-EDF-MP differs significantly from these prior works in that it implements a global scheduling policy, wheres OSE, Quest-V, and Barrelfish intentionally avoid global policies whenever possible and implement partitioned schedulers (which scale trivially w.r.t. overheads).</p><p>Message passing has also been shown to offer higher throughput than shared locks in the face of heavy contention in recent work studying synchronization choices on multicore platforms <ref type="bibr" target="#b21">[22,</ref><ref type="bibr" target="#b34">35]</ref>. However, throughput depends mostly on averagecase overheads, whereas we designed G-EDF-MP specifically to lower worst-case overheads. Prior to G-EDF-MP, it was not clear that message passing could be a viable-or even superiorchoice for constructing global real-time schedulers.</p><p>Prior studies. Both GSN-EDF and SD have been the subject of prior studies. Most recently, Lelli et al. <ref type="bibr" target="#b32">[33]</ref> empirically compared SD and stock Linux's SCHED FIFO scheduler (in various configurations to emulate global, clustered, and partitioned scheduling) on a 48-core platform. In contrast to this study, they did not measure worst-case overheads (and did not apply schedulability analysis), but rather measured average-case overheads and indirectly assessed each scheduler's performance with a statistical evaluation of observed task behavior. Since SD exhibits low average-case overheads, their experimental setup did not reveal the pathological lock contention that we observed.</p><p>Several alternative implementations of G-EDF in LITMUS RT were compared in <ref type="bibr" target="#b15">[16]</ref>. While several of the investigated alternatives aimed at reducing lock contention, they did not perform significantly better than the stock GSN-EDF plugin, which in hindsight can be attributed to the fact that they did not reduce peak contention (a single lock to serialize scheduling decisions remained in all versions). Dedicated interrupt handling was shown to be very beneficial, which is apparent in Fig. <ref type="figure" target="#fig_8">8</ref>, too.</p><p>GSN-EDF was previously evaluated as part of several largescale, overhead-aware schedulability studies <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b17">18]</ref>, as was a prior version of G-EDF in LITMUS RT <ref type="bibr" target="#b19">[20]</ref>. However, these studies were conducted on platforms significantly smaller than the 64-core machine employed herein, and also considered only a single core count each; scalability limitations hence did not manifest to the extent revealed in this paper. Further, prior studies <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b17">18,</ref><ref type="bibr" target="#b19">20]</ref> did not compare LITMUS RT against SD and used statistical outlier filters (in contrast to this study).</p><p>Finally, it should be noted that scheduling overheads are just one piece of the predictability puzzle on multicores, as other factors such as contention and interference at all levels of the memory hierarchy must be considered, too (e.g., see <ref type="bibr" target="#b29">[30,</ref><ref type="bibr" target="#b35">36]</ref>).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. CONCLUSION</head><p>We evaluated the scalability of G-EDF implementations and found that G-EDF-MP, a novel scheduler design based primarily on message passing, scales substantially better than prior lockbased schedulers, thereby lowering scheduling overheads by up to a factor of 36 on 64 cores. While global scheduling is certainly not the right approach for all real-time workloads (e.g., CPMD issues remain), this work significantly extends the range of workloads and platforms for which global approaches are viable, thus opening up interesting avenues for future work. In particular, the presented approach is not limited to G-EDF, but can be easily applied to other global scheduling policies as well.</p><p>The key limitation of G-EDF-MP is that a single DSP is an inherent bottleneck that inevitably will cause problems beyond 64 cores. Given this limitation, systems with core counts too large to be efficiently supported by a single G-EDF-MP instance should use clustered scheduling instead (whereby the set of all cores is partitioned into disjoint subsets and a global scheduler is instantiated for each such subset). In fact, this was already noted in a prior study <ref type="bibr" target="#b6">[7]</ref>, which recommended that global scheduling should be restricted to a "small-to-medium number of cores." Our work does not invalidate this observation, but rather redefines the notion of what constitutes a "medium number of cores." That is, seen in this context, G-EDF-MP simply increases the largest cluster size that can be efficiently supported.</p><p>In future work, it would be interesting to develop G-EDF-MP extensions with two or more DSPs, which then, however, would have to synchronize decisions. A substantial algorithmic improvement would be to equip clients with a next pointer to avoid idle time after job completions/suspensions, but choosing next such that analytical benefits are realized is not trivial. Fig. <ref type="figure">9</ref>: Skeleton of the periodic tasks used to benchmark the SD scheduler.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Overhead Accounting</head><p>Runtime overheads can be accounted for in schedulability tests that assume overhead-free execution (i.e., that consider overheads to be negligible) by inflating task parameters so that a positive overhead-free schedulability test of the transformed task set implies the timeliness of the original task set in the presence of overheads (e.g., context switch costs can be charged to the preempting job as execution costs, etc.). The required transformations are conceptually simple, but somewhat tedious and beyond the scope of this paper; the interested reader may find a detailed description of the standard techniques applicable to GSN-EDF, GSN-EDF-DI, and SD in <ref type="bibr" target="#b12">[13,</ref><ref type="bibr">Ch. 3]</ref>.</p><p>However, G-EDF-MP requires additional accounting for the communication that it introduces. For the sake of completeness, we briefly document how we extended the accounting methods provided in <ref type="bibr" target="#b12">[13]</ref> to reflect the added delays. We assume familiarity with the basic approach on behalf of the reader.</p><p>From an overhead accounting perspective, G-EDF-MP works similarly to GSN-EDF-DI. Thus, the accounting methods for scheduling (∆ sch , ∆ ipi ) and interrupt overheads (∆ rel , ∆ ev ) do not differ. However, every time a preemption occurs, the preempted lower-priority job is able to resume execution only after a full round-trip communication with the DSP. That is, (i) the client becomes idle, (ii) signals the completion, (iii) the DSP links a new task to the client and sends back an IPI. This situation is illustrated in Fig. <ref type="figure" target="#fig_4">5</ref>, where the client processor becomes idle while task T 1 is pending.</p><p>Compared to the overheads delaying a preempted job under GSN-EDF or GSN-EDF-DI, this introduces additional delays due to the client request latency (∆ req ), the DSP handler (∆ dsp ), an additional IPI delay (∆ ipi ), and an additional scheduler invocation (∆ sch ) and context switch (∆ cxs ). This results in the following rule for inflating parameters.</p><p>For a sporadic task T i with period p i and execution cost e i , let e i and p i denote the transformed parameters. Then </p><formula xml:id="formula_0">p i = p i -∆ ev</formula></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 :Fig. 2 :</head><label>12</label><figDesc>Fig. 1: Scheduling and release overheads under GSN-EDF.The average scheduling and release overheads coincide at this resolution.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: Structural overview of G-EDF-MP.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: Overview of G-EDF-MP operations.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: Overview of G-EDF-MP runtime overheads. contention. In total, we traced 1,200 task sets during ten hours of real-time execution and collected over 7 billion raw samples.Next, we discuss the different runtime overheads that delay real-time tasks, which are all traced individually in LITMUS RT .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 6 :Fig. 7 :</head><label>67</label><figDesc>Fig.6: Runtime overheads under GSN-EDF, GSN-EDF-DI, SD, and G-EDF-MP. Note that each graph uses a different scale due to the wide range of observed overhead magnitudes.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head></head><label></label><figDesc>Soft schedulability as a function of n for exponentially distributed task utilizations with mean 0.1 (as in</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head></head><label></label><figDesc>��� ��� ��� ��� ��� ��� ��� ��� ��� ��� ��� ��� ��� ������������������������������ �������������������� (b) Hard schedulability as a function of total utilization based on Emberson et al.'s method [25] with n = 5m.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: Comparison of hard and soft schedulability for m = 64. Periods were drawn from a log-uniform distribution with range [1ms,1000ms].</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>and e i = e i + 3 •+ 2 •</head><label>32</label><figDesc>(∆ sch + ∆ cxs ) + ∆ cpd 1 -U tck 0 C pre + ∆ req + ∆ dsp + 2 • ∆ ipi + ∆ rel , where C pre = ∆ tck +∆ ev •U tck 1-U tckdenotes the interrupt-related cost per preemption<ref type="bibr" target="#b12">[13,</ref> Sec. 3.4.5], and where U tck = ∆ tck 1000µs denotes the utilization of the tick interrupt.</figDesc></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>978-1-4799-4829-1/14/$31.00 ©2014 IEEE Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 05:50:36 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_1"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 05:50:36 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_2"><p>While the Linux real-time scheduler defaults to global scheduling, it supports specifying arbitrary processor affinities to restrict a task's execution to a subset of processors. This allows emulating partitioned, global, and hybrid schedulers<ref type="bibr" target="#b28">[29]</ref>. We focus on global affinities herein, as those are most difficult to support-adding affinity restrictions makes the (runtime) problem easier.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_3"><p>In a synchronous task set release, all tasks release their first job at the same time, which ensures that all tasks share a common time zero. In our case, the synchronous release serves to provoke worst-case contention and overheads.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_4"><p>Release operations are costly in both GSN-EDF and GSN-EDF-DI because, in the worst case, all tasks are released simultaneously and every processor must be preempted, which requires many updates of the global state and results in significant lock and cache contention.</p></note>
+		</body>
+		<back>
+			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Overhead Experiments</head><p>Overheads under LITMUS RT are commonly measured using workloads consisting of synthetic periodic tasks with randomly generated task parameters (i.e., execution costs and periods) <ref type="bibr" target="#b12">[13,</ref><ref type="bibr" target="#b15">16,</ref><ref type="bibr" target="#b17">18]</ref>. These benchmark tasks carry out floating point arithmetic on large arrays to simulate CPU-bound signal processing tasks. We adopted this approach in this study as well, but needed to port the tasks to SD to enable a fair comparison.</p><p>LITMUS RT provides custom system calls to support periodic job releases and synchronous task set releases (which means that all tasks release their first job at exactly the same time), which we emulated under SD using standard Linux APIs. Periodic execution can be trivially accomplished under Linux with clock_nanosleep(). Synchronous task set releases were coordinated with a shared memory segment and pthreads barriers, as illustrated in Fig. <ref type="figure">9</ref>. The benchmark workload hence behaves virtually identically under SD and LITMUS RT . </p></div>			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<ptr target="http://www.litmus-rt.org" />
+		<title level="m">The LITMUS RT project web site</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">An analysis of global EDF schedulability for arbitrary-deadline sporadic task systems</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">43</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="3" to="24" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">EDZL scheduling analysis</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cirinei</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">40</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="264" to="289" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Nix: a case for a manycore system for cloud computing</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Ballesteros</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Evans</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Forsyth</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Guardiola</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mckie</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Minnich</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Soriano-Salvador</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Bell Labs Tech. Journal</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="41" to="54" />
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Techniques for multiprocessor global schedulability analysis</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS&apos;07</title>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Fast scheduling of periodic tasks on multiple resources</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Gehrke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Plaxton</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IPPS&apos;95</title>
+		<imprint>
+			<date type="published" when="1995">1995</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">An empirical comparison of global, partitioned, and clustered multiprocessor EDF schedulers</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bastoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS&apos;10</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="14" to="24" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">Cache-related preemption and migration delays: Empirical approximation and impact on schedulability</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+	<note>in OSPERT&apos;10</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title level="m" type="main">The multikernel: a new OS architecture for scalable multicore systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Baumann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Barham</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P.-E</forename><surname>Dagand</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Harris</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Isaacs</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Peter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Roscoe</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Schüpbach</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Singhania</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+	<note>in SOSP&apos;09</note>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Improved schedulability analysis of EDF on multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cirinei</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS&apos;05</title>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">A flexible real-time locking protocol for multiprocessors</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+	<note>in RTCSA&apos;07</note>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<monogr>
+		<title level="m" type="main">Adaptive multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<publisher>The University of North Carolina at Chapel Hill</publisher>
+		</imprint>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">Scheduling and locking in multiprocessor realtime operating systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+		<respStmt>
+			<orgName>The University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Improved analysis and evaluation of real-time semaphore protocols for P-FP scheduling</title>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS&apos;13</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="292" to="302" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<monogr>
+		<title level="m" type="main">Feather-trace: A light-weight event tracing toolkit</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+	<note>in OSPERT&apos;07</note>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">On the implementation of global real-time schedulers</title>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS&apos;09</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<title level="m">LITMUS RT : A status report</title>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+	<note>in RTLWS&apos;07</note>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">On the scalability of real-time scheduling algorithms on multicore platforms: A case study</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+	<note>in RTSS&apos;08</note>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">An overview of interrupt accounting techniques for multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Architecture: Embedded Software Design</title>
+		<imprint>
+			<biblScope unit="volume">57</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="638" to="654" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">LITMUS RT : A testbed for empirically comparing real-time multiprocessor schedulers</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+	<note>in RTSS&apos;06</note>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title level="m" type="main">Scaling global scheduling with message passing</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Cerqueira</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Vanga</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<ptr target="http://www.mpi-sws.org/cont/tr/2014-001.pdf" />
+		<imprint/>
+	</monogr>
+	<note>extended version),&quot; 2014, available at</note>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Everything you always wanted to know about synchronization but were afraid to ask</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>David</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Guerraoui</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Trigonakis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">SOSP&apos;13</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">A survey of hard real-time scheduling for multiprocessor systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Comput. Surv</title>
+		<imprint>
+			<biblScope unit="volume">43</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page">44</biblScope>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Tardiness bounds under global EDF scheduling on a multiprocessor</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">38</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="133" to="189" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<monogr>
+		<title level="m" type="main">Techniques for the synthesis of multiprocessor tasksets</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Emberson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Stafford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Fair lateness scheduling: Reducing maximum lateness in G-EDF-like scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS&apos;12</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<monogr>
+		<title level="m" type="main">An EDF scheduling class for the Linux kernel</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Checconi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Trimarchi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Scordino</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+	<note>in RTLWS&apos;09</note>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Priority-driven scheduling of periodic task systems on multiprocessors</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Funk</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="issue">2-3</biblScope>
+			<biblScope unit="page" from="187" to="205" />
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<monogr>
+		<title level="m" type="main">Schedulability analysis of the Linux push and pull scheduler with arbitrary processor affinities</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Gujarati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Cerqueira</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+	<note>in ECRTS&apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<monogr>
+		<title level="m" type="main">Mem-Guard: Memory bandwidth reservation system for efficient performance isolation in multi-core platforms</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Heechul</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Yao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+	<note>in RTAS&apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<monogr>
+		<title level="m" type="main">A scheduling algorithm to reduce the static energy consumption of multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Legout</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Jan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Pautet</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+	<note>in RTNS&apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<monogr>
+		<title level="m" type="main">An efficient and scalable implementation of global EDF in Linux</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lelli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Cucinotta</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+	<note>in OSPERT&apos;11</note>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">An experimental comparison of different real-time schedulers on multicore systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lelli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Cucinotta</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. Syst. Softw</title>
+		<imprint>
+			<biblScope unit="volume">85</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="2405" to="2416" />
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<monogr>
+		<title level="m" type="main">Quest-V: A virtualized multikernel for high-confidence systems</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Danish</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+		<idno type="arXiv">arXiv:1112.5136</idno>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<monogr>
+		<title level="m" type="main">Remote core locking: Migrating critical-section execution to improve the performance of multithreaded applications</title>
+		<author>
+			<persName><forename type="first">J.-P</forename><surname>Lozi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>David</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Thomas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lawall</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Muller</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+	<note>in ATC&apos;12</note>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<monogr>
+		<title level="m" type="main">Real-time cache management framework for multicore architectures</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Mancuso</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Dudko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Betti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cesati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+	<note>in RTAS&apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">RUN: Optimal multiprocessor real-time scheduling via reduction to uniprocessor</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Regnier</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lima</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Massa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Levin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Brandt</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS&apos;11</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">The Spring kernel: a new paradigm for real-time operating systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Stankovic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Ramamritham</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIGOPS Oper. Syst. Rev</title>
+		<imprint>
+			<biblScope unit="volume">23</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="54" to="71" />
+			<date type="published" when="1989-07">Jul. 1989</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">Factored operating systems (fos): the case for a scalable operating system for multicores</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Wentzlaff</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Agarwal</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM SIGOPS Operating Systems Review</title>
+		<imprint>
+			<biblScope unit="volume">43</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="76" to="85" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

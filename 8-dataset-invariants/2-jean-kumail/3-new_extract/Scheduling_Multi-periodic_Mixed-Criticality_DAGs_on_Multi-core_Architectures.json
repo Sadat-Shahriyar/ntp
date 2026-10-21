@@ -1,0 +1,472 @@
+{
+  "paper_name": "Scheduling_Multi-periodic_Mixed-Criticality_DAGs_on_Multi-core_Architectures",
+  "paper_description": "This paper proposes a meta-heuristic (MH-MCDAG) and an implementation (G-ALAP-LLF) for scheduling multi-periodic Directed Acyclic Graphs (DAGs) of Mixed-Criticality (MC) tasks on multi-core architectures. It introduces a sufficient condition for safe mode transitions and aims to improve the acceptance rate of schedulable systems compared to existing approaches, particularly by scheduling high-criticality tasks as late as possible (ALAP) in the high-criticality mode.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Definition 1",
+      "formal_description": {
+        "statement": "A MC-correct schedule for a system S = (G, Π) is a schedule that satisfies two conditions: 1) LO-Mode: For any task job j_i,k of task tau_i, if it completes its execution within its C_i(LO) budget, then it must meet its deadline d_i,k and all precedence constraints. 2) HI-Mode: If a Timing Failure Event (TFE) occurs at time t, then for any HI-criticality task job j_i,k, it must complete its execution by its deadline d_i,k, respecting its C_i(HI) budget and all precedence constraints.",
+        "variables": {
+          "S": "Mixed-Criticality System",
+          "G": "Set of MC-DAGs",
+          "Π": "Architecture with m identical processors",
+          "j_i,k": "k-th job of task tau_i",
+          "tau_i": "task i",
+          "C_i(LO)": "Worst-case execution time of task tau_i in LO mode",
+          "C_i(HI)": "Worst-case execution time of task tau_i in HI mode",
+          "d_i,k": "Deadline of job j_i,k",
+          "t": "Time instant",
+          "TFE": "Timing Failure Event"
+        },
+        "assumptions": [],
+        "conclusion": "Defines what constitutes a correct schedule for a mixed-criticality system with DAGs, considering both normal (LO) and failure (HI) modes."
+      },
+      "informal_sketch": {
+        "intuition": "A schedule is considered 'MC-correct' if it guarantees that all tasks meet their deadlines and precedence constraints, both in the normal operating mode (LO) and in the high-criticality mode (HI) which is activated upon a timing failure event. In HI mode, high-criticality tasks get priority and potentially extended execution times.",
+        "steps": [
+          "In LO mode: Ensure all tasks meet their deadlines and precedence constraints if they execute within their LO-criticality budgets.",
+          "In HI mode: If a TFE occurs, ensure all HI-criticality tasks meet their deadlines and precedence constraints, considering their HI-criticality budgets."
+        ],
+        "pseudocode": "def is_mc_correct(schedule, system):\n    # Check LO-Mode condition\n    if not check_lo_mode(schedule, system):\n        return False\n    # Check HI-Mode condition\n    if not check_hi_mode(schedule, system):\n        return False\n    return True",
+        "key_insights": [
+          "Ensures deadline and precedence satisfaction in both operational modes.",
+          "Distinguishes behavior based on criticality levels during failure events."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 2",
+      "formal_description": {
+        "statement": "For each task tau_i executing in mode chi, the function psi_chi_i(t1, t2) is defined as the total execution time allocated to job j_i,k of task tau_i within the time interval [t1, t2], where r_i,k is the release time of j_i,k.  delta_chi_i(s) = 1 if tau_i is executing at time s in mode chi, and 0 otherwise.",
+        "variables": {
+          "psi_chi_i(t1, t2)": "Total execution time allocated to task tau_i in mode chi between t1 and t2",
+          "delta_chi_i(s)": "Indicator function for task tau_i executing at time s in mode chi",
+          "tau_i": "task i",
+          "chi": "execution mode (HI or LO)",
+          "t1": "start time of interval",
+          "t2": "end time of interval",
+          "r_i,k": "release time of k-th job of task tau_i"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a function to measure the actual execution time received by a task job within a given time interval in a specific criticality mode."
+      },
+      "informal_sketch": {
+        "intuition": "This function measures how much actual processing time a specific job of a task has received up to a certain point in time, within a given operating mode.",
+        "steps": [
+          "Initialize total allocated time to 0.",
+          "Iterate through each time slot 's' from t1 to t2.",
+          "If task tau_i is executing at time 's' in mode 'chi' (indicated by delta_chi_i(s) = 1), add 1 unit of time to the total allocated time.",
+          "Return the total allocated time."
+        ],
+        "pseudocode": "def compute_allocated_time(task_i, mode, start_time, end_time):\n    total_allocated_time = 0\n    for s in range(start_time, end_time):\n        if is_executing(task_i, mode, s):\n            total_allocated_time += 1\n    return total_allocated_time",
+        "key_insights": [
+          "Quantifies actual execution time received by a task job.",
+          "Crucial for analyzing budget consumption and remaining execution time."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 3",
+      "formal_description": {
+        "statement": "A correct schedule in a given mode chi is a schedule that respects the deadline and precedence constraints on all task jobs of the MCS considering their C_i(chi).",
+        "variables": {
+          "chi": "execution mode (HI or LO)",
+          "MCS": "Mixed-Criticality System",
+          "C_i(chi)": "Worst-case execution time of task tau_i in mode chi"
+        },
+        "assumptions": [],
+        "conclusion": "Defines what a correct schedule means for a single criticality mode."
+      },
+      "informal_sketch": {
+        "intuition": "This definition focuses on the schedulability within a single mode. It means that if we only consider the tasks and their execution times for a specific mode (either LO or HI), the schedule must ensure that all tasks finish by their deadlines and respect any dependencies between them.",
+        "steps": [
+          "For a given mode (e.g., LO or HI):",
+          "Consider all task jobs in the system.",
+          "Ensure each task job's execution time does not exceed its C_i(chi).",
+          "Ensure each task job completes before its deadline.",
+          "Ensure all precedence constraints between tasks are met."
+        ],
+        "pseudocode": "def is_correct_schedule_in_mode(schedule, system, mode):\n    for task_i in system.tasks:\n        for job_k in task_i.jobs:\n            if not respects_deadline(job_k, schedule, mode):\n                return False\n            if not respects_precedence(job_k, schedule, system):\n                return False\n    return True",
+        "key_insights": [
+          "Focuses on schedulability within a single mode.",
+          "Essential for proving correctness of HI and LO modes separately."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "claim",
+      "identifier": "Safe Trans. Prop.",
+      "formal_description": {
+        "statement": "While the k-th activation of HI task tau_i has not been fully allocated in LO mode (i.e., psi_LO_i(r_i,k, t) < C_i(LO)), the budget allocated to this job in LO mode must be greater than or equal to the one allocated to it in HI mode: psi_LO_i(r_i,k, t) >= psi_HI_i(r_i,k, t).",
+        "variables": {
+          "tau_i": "task i",
+          "k": "job index",
+          "r_i,k": "release time of k-th job of task tau_i",
+          "t": "current time",
+          "psi_LO_i(r_i,k, t)": "Execution time allocated to job j_i,k in LO mode up to time t",
+          "psi_HI_i(r_i,k, t)": "Execution time allocated to job j_i,k in HI mode up to time t",
+          "C_i(LO)": "Worst-case execution time of task tau_i in LO mode"
+        },
+        "assumptions": [],
+        "conclusion": "Ensures that if a mode switch occurs, the job has received at least as much execution time in LO mode as it has in HI mode up to that point, which is a prerequisite for Theorem 1."
+      },
+      "informal_sketch": {
+        "intuition": "This property ensures that when a system is running in LO mode and a timing failure occurs, the amount of processing time already given to a high-criticality task job in LO mode is at least as much as it would have received if it were running in HI mode up to that same point. This is a crucial step to guarantee that the job can still meet its deadline in HI mode after the switch.",
+        "steps": [
+          "Consider a specific job j_i,k of a HI-criticality task tau_i.",
+          "Check if this job has completed its execution in LO mode (i.e., if psi_LO_i(r_i,k, t) < C_i(LO)).",
+          "If it has not completed, verify that the execution time already received in LO mode (psi_LO_i(r_i,k, t)) is greater than or equal to the execution time it would have received in HI mode (psi_HI_i(r_i,k, t)) up to time t.",
+          "If this condition holds, Safe Trans. Prop. is satisfied for this job at time t."
+        ],
+        "pseudocode": "def check_safe_transition_property(task_i, job_k_index, current_time, system):\n    release_time = task_i.jobs[job_k_index].release_time\n    C_i_LO = task_i.C_LO\n    \n    psi_LO = compute_allocated_time(task_i, 'LO', release_time, current_time)\n    psi_HI = compute_allocated_time(task_i, 'HI', release_time, current_time)\n    \n    if psi_LO < C_i_LO:\n        return psi_LO >= psi_HI\n    return True # Job already completed in LO mode",
+        "key_insights": [
+          "Provides a condition to bound the execution time received by HI tasks in LO mode.",
+          "Crucial for proving that HI tasks can still meet their deadlines after a mode switch."
+        ]
+      },
+      "dependencies": [
+        "Definition 2"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 1",
+      "formal_description": {
+        "statement": "To ensure Condition HI-Mode of MC-correct scheduling (Definition 1), it is sufficient to define a correct schedule in HI mode (Definition 3) and from this, define a correct schedule in LO mode (Definition 3) respecting Safe Trans. Prop. (Claim 1).",
+        "variables": {
+          "Definition 1": "MC-correct scheduling definition",
+          "Definition 3": "Correct schedule in a given mode definition",
+          "Claim 1": "Safe Trans. Prop."
+        },
+        "assumptions": [],
+        "conclusion": "Establishes a sufficient condition for achieving MC-correctness by ensuring schedulability in both modes and satisfying the safe transition property."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem provides a recipe for achieving MC-correctness. It states that if you can schedule your system correctly in the high-criticality mode (meaning all HI tasks meet their deadlines), and then schedule it correctly in the low-criticality mode while also ensuring the Safe Transition Property holds, then the overall system will be MC-correct. The Safe Transition Property is key to bridging the gap between LO and HI modes.",
+        "steps": [
+          "Step 1: Ensure the system is schedulable in HI mode (i.e., all HI tasks meet their deadlines when using C_i(HI) budgets). This is a prerequisite for the HI-criticality guarantee.",
+          "Step 2: Ensure the system is schedulable in LO mode (i.e., all tasks meet their deadlines when using C_i(LO) budgets).",
+          "Step 3: While scheduling in LO mode, enforce the Safe Trans. Prop. This means that for any HI task job, the execution time it receives in LO mode up to any point 't' must be at least as much as it would have received in HI mode up to 't', as long as the job hasn't finished its LO execution.",
+          "If Steps 1, 2, and 3 are all met, then the system is MC-correct."
+        ],
+        "pseudocode": "def achieve_mc_correctness(system):\n    # Step 1: Ensure HI mode schedulability\n    if not is_correct_schedule_in_mode(hi_schedule, system, 'HI'):\n        return False\n    \n    # Step 2 & 3: Ensure LO mode schedulability and Safe Trans. Prop.\n    if not is_correct_schedule_in_mode_with_safe_transition(lo_schedule, system, 'LO'):\n        return False\n        \n    return True",
+        "key_insights": [
+          "Decomposes the MC-correctness problem into two single-mode schedulability problems plus a transition property.",
+          "The Safe Trans. Prop. is the critical link that ensures the HI-mode guarantee is maintained even when operating in LO mode."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 3",
+        "Claim 1"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 4",
+      "formal_description": {
+        "statement": "MH-MCDAG Meta-heuristic for multi-periodic MC-DAG scheduling: 1) Compute the scheduling table in HI mode and check its correctness. 2) Compute the scheduling table in LO mode, enforcing Safe Trans. Prop. Check correctness of the schedule in LO mode.",
+        "variables": {
+          "MH-MCDAG": "Meta-heuristic for MC-DAG scheduling",
+          "S_LO": "Scheduling table for LO mode",
+          "S_HI": "Scheduling table for HI mode",
+          "Safe Trans. Prop.": "Safe Transition Property"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a two-step meta-heuristic for generating MC-correct schedules for multi-periodic MC-DAGs."
+      },
+      "informal_sketch": {
+        "intuition": "This defines a general strategy (meta-heuristic) for creating schedules. It's a two-phase process: first, figure out how to schedule everything in the high-criticality mode, and if that works, then figure out how to schedule in the low-criticality mode while making sure the transition between modes is safe (using the Safe Trans. Prop.).",
+        "steps": [
+          "Phase 1: Generate a schedule for the HI-criticality mode. This schedule must be correct (all HI tasks meet deadlines).",
+          "Phase 2: Generate a schedule for the LO-criticality mode. This schedule must also be correct (all tasks meet deadlines), AND it must satisfy the Safe Trans. Prop. to ensure that if a mode switch happens, the HI tasks can still meet their deadlines.",
+          "If both phases are successful, the resulting pair of schedules (S_LO, S_HI) is MC-correct."
+        ],
+        "pseudocode": "def MH_MCDAG(system):\n    # Phase 1: Compute HI schedule\n    S_HI = compute_schedule(system, mode='HI')\n    if not is_correct_schedule_in_mode(S_HI, system, 'HI'):\n        return None # Scheduling failed in HI mode\n        \n    # Phase 2: Compute LO schedule, enforcing Safe Trans. Prop.\n    S_LO = compute_schedule_with_safe_transition(system, mode='LO', S_HI=S_HI)\n    if not is_correct_schedule_in_mode(S_LO, system, 'LO'):\n        return None # Scheduling failed in LO mode\n        \n    return S_LO, S_HI",
+        "key_insights": [
+          "A structured approach to tackle MC-DAG scheduling.",
+          "Separates concerns for HI and LO modes while ensuring inter-mode safety."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 3",
+        "Claim 1"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Formula 1",
+      "formal_description": {
+        "statement": "psi_chi_i(t1, t2) = integral from s=t1 to t2 of delta_chi_i(s) ds",
+        "variables": {
+          "psi_chi_i(t1, t2)": "Total execution time allocated to task tau_i in mode chi between t1 and t2",
+          "delta_chi_i(s)": "Indicator function for task tau_i executing at time s in mode chi",
+          "chi": "execution mode (HI or LO)",
+          "t1": "start time of interval",
+          "t2": "end time of interval"
+        },
+        "assumptions": [],
+        "conclusion": "This is the formal mathematical definition of the psi function, representing the integral of the execution indicator function over a time interval."
+      },
+      "informal_sketch": {
+        "intuition": "This is the precise mathematical way to calculate the total execution time a task received within a specific time window. It's the sum of all time units where the task was actually running in the given mode.",
+        "steps": [
+          "Define a function delta_chi_i(s) that is 1 if task tau_i is running at time 's' in mode 'chi', and 0 otherwise.",
+          "Integrate (sum up) this delta function over the time interval from t1 to t2.",
+          "The result of this integration is the total execution time, psi_chi_i(t1, t2)."
+        ],
+        "pseudocode": "def compute_allocated_time_integral(task_i, mode, start_time, end_time):\n    total_time = 0\n    for s in range(start_time, end_time):\n        if is_executing(task_i, mode, s):\n            total_time += 1\n    return total_time",
+        "key_insights": [
+          "Formalizes the measurement of actual execution time.",
+          "Connects the indicator function to the total time spent executing."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Formula 2",
+      "formal_description": {
+        "statement": "delta_chi_i(s) = 1 if tau_i is executing at time s in mode chi, 0 otherwise.",
+        "variables": {
+          "delta_chi_i(s)": "Indicator function for task tau_i executing at time s in mode chi",
+          "tau_i": "task i",
+          "chi": "execution mode (HI or LO)",
+          "s": "time instant"
+        },
+        "assumptions": [],
+        "conclusion": "Defines an indicator function that is 1 when a task is executing and 0 otherwise."
+      },
+      "informal_sketch": {
+        "intuition": "This is a simple flag that tells us whether a specific task is actively running on a processor at a particular moment in time, within a given operating mode.",
+        "steps": [
+          "At any given time 's' and in any given mode 'chi':",
+          "Check if task tau_i is currently executing.",
+          "If yes, delta_chi_i(s) is 1.",
+          "If no, delta_chi_i(s) is 0."
+        ],
+        "pseudocode": "def is_executing(task_i, mode, time_s):\n    # This function would query the scheduler or execution trace\n    # to determine if task_i is running at time_s in mode\n    if task_i.is_running_at(time_s, mode):\n        return 1\n    else:\n        return 0",
+        "key_insights": [
+          "Binary indicator of task execution.",
+          "Fundamental building block for calculating total execution time."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Formula 3",
+      "formal_description": {
+        "statement": "L_chi_i,k(t) = d_i,k - t - (CP_chi_i + R_chi_i,k). R_chi_i,k = C_i(chi) - psi_chi_i(r_i,k, t-1).",
+        "variables": {
+          "L_chi_i,k(t)": "Laxity of job j_i,k of task tau_i at time t in mode chi",
+          "d_i,k": "Deadline of job j_i,k",
+          "t": "current time",
+          "CP_chi_i": "Critical Path length of task tau_i in mode chi",
+          "R_chi_i,k": "Remaining execution time of job j_i,k in mode chi",
+          "C_i(chi)": "Worst-case execution time of task tau_i in mode chi",
+          "psi_chi_i(r_i,k, t-1)": "Execution time allocated to job j_i,k in mode chi up to time t-1",
+          "r_i,k": "release time of job j_i,k"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the laxity of a task job, which is a measure of how much time it can be delayed without missing its deadline. It depends on the deadline, current time, critical path, and remaining execution time."
+      },
+      "informal_sketch": {
+        "intuition": "Laxity is a key concept in real-time scheduling. It tells you how much 'slack' a task job has before it absolutely must start executing to meet its deadline. A lower laxity means higher urgency. This formula calculates that slack.",
+        "steps": [
+          "Calculate the remaining execution time (R_chi_i,k) for job j_i,k: This is its total required execution time (C_i(chi)) minus the time it has already received (psi_chi_i(r_i,k, t-1)).",
+          "Calculate the critical path (CP_chi_i) for task tau_i: This is the longest path from tau_i to any exit task in its DAG, considering execution times.",
+          "Calculate the laxity (L_chi_i,k(t)): Subtract the current time (t), the critical path length (CP_chi_i), and the remaining execution time (R_chi_i,k) from the job's deadline (d_i,k).",
+          "The result is the laxity: how much time is left until the job *must* start to meet its deadline, considering its remaining work and the longest possible path to completion."
+        ],
+        "pseudocode": "def calculate_laxity(task_i, job_k_index, current_time, mode, system):\n    job = task_i.jobs[job_k_index]\n    d_i_k = job.deadline\n    r_i_k = job.release_time\n    C_i_mode = task_i.C_mode\n    \n    # Calculate remaining execution time\n    allocated_time_so_far = compute_allocated_time(task_i, mode, r_i_k, current_time)\n    R_chi_i_k = C_i_mode - allocated_time_so_far\n    \n    # Calculate critical path (this would be pre-computed or looked up)\n    CP_chi_i = system.get_critical_path(task_i, mode)\n    \n    laxity = d_i_k - current_time - (CP_chi_i + R_chi_i_k)\n    return laxity",
+        "key_insights": [
+          "Combines deadline, current time, remaining work, and path length to measure urgency.",
+          "Lower laxity implies higher priority in scheduling."
+        ]
+      },
+      "dependencies": [
+        "Definition 2",
+        "Definition 3"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Formula 4",
+      "formal_description": {
+        "statement": "P_chi_i,k = d_i - CP_chi_i. (where d_i is the relative deadline for job j_i,k).",
+        "variables": {
+          "P_chi_i,k": "Priority of job j_i,k of task tau_i in mode chi",
+          "d_i": "Relative deadline of job j_i,k",
+          "CP_chi_i": "Critical Path length of task tau_i in mode chi"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a priority assignment for G-EDF based on the deadline and the critical path length."
+      },
+      "informal_sketch": {
+        "intuition": "This formula defines a priority for a task job in a G-EDF (Global Earliest Deadline First) context, but it's modified by the critical path. Jobs with earlier deadlines and shorter critical paths get higher priority. This helps to prioritize tasks that are on a critical path and have tight deadlines.",
+        "steps": [
+          "Determine the relative deadline (d_i) for the job j_i,k.",
+          "Determine the critical path length (CP_chi_i) for task tau_i in the current mode chi.",
+          "Calculate the priority (P_chi_i,k) by subtracting the critical path length from the relative deadline.",
+          "Jobs with smaller P_chi_i,k values have higher priority."
+        ],
+        "pseudocode": "def calculate_gedf_priority(task_i, job_k_index, mode, system):\n    job = task_i.jobs[job_k_index]\n    relative_deadline = job.relative_deadline\n    CP_chi_i = system.get_critical_path(task_i, mode)\n    \n    priority = relative_deadline - CP_chi_i\n    return priority",
+        "key_insights": [
+          "Combines deadline and critical path for priority assignment.",
+          "A variation of EDF that accounts for task dependencies."
+        ]
+      },
+      "dependencies": [
+        "Definition 3"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 1",
+      "formal_description": {
+        "statement": "To ensure Condition HI-Mode of MC-correct scheduling (Definition 1), it is sufficient to define a correct schedule in HI mode (Definition 3) and from this, define a correct schedule in LO mode (Definition 3) respecting Safe Trans. Prop. (Claim 1).",
+        "variables": {
+          "Definition 1": "MC-correct scheduling definition",
+          "Definition 3": "Correct schedule in a given mode definition",
+          "Claim 1": "Safe Trans. Prop."
+        },
+        "assumptions": [],
+        "conclusion": "Establishes a sufficient condition for achieving MC-correctness by ensuring schedulability in both modes and satisfying the safe transition property."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem provides a recipe for achieving MC-correctness. It states that if you can schedule your system correctly in the high-criticality mode (meaning all HI tasks meet their deadlines), and then schedule it correctly in the low-criticality mode while also ensuring the Safe Transition Property holds, then the overall system will be MC-correct. The Safe Transition Property is key to bridging the gap between LO and HI modes.",
+        "steps": [
+          "Step 1: Ensure the system is schedulable in HI mode (i.e., all HI tasks meet their deadlines when using C_i(HI) budgets). This is a prerequisite for the HI-criticality guarantee.",
+          "Step 2: Ensure the system is schedulable in LO mode (i.e., all tasks meet their deadlines when using C_i(LO) budgets).",
+          "Step 3: While scheduling in LO mode, enforce the Safe Trans. Prop. This means that for any HI task job, the execution time it receives in LO mode up to any point 't' must be at least as much as it would have received in HI mode up to 't', as long as the job hasn't finished its LO execution.",
+          "If Steps 1, 2, and 3 are all met, then the system is MC-correct."
+        ],
+        "pseudocode": "def achieve_mc_correctness(system):\n    # Step 1: Ensure HI mode schedulability\n    if not is_correct_schedule_in_mode(hi_schedule, system, 'HI'):\n        return False\n    \n    # Step 2 & 3: Ensure LO mode schedulability and Safe Trans. Prop.\n    if not is_correct_schedule_in_mode_with_safe_transition(lo_schedule, system, 'LO'):\n        return False\n        \n    return True",
+        "key_insights": [
+          "Decomposes the MC-correctness problem into two single-mode schedulability problems plus a transition property.",
+          "The Safe Trans. Prop. is the critical link that ensures the HI-mode guarantee is maintained even when operating in LO mode."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 3",
+        "Claim 1"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Formula 5",
+      "formal_description": {
+        "statement": "B_i,k(t) = psi_LO_i(r_i,k, t) + psi_HI_i(t, d_i,k). Since C_i(HI) = psi_HI_i(r_i,k, t) + psi_HI_i(t, d_i,k), we have B_i,k(t) = psi_LO_i(r_i,k, t) + C_i(HI) - psi_HI_i(r_i,k, t).",
+        "variables": {
+          "B_i,k(t)": "Total budget allocated to job j_i,k at time t after a TFE",
+          "psi_LO_i(r_i,k, t)": "Execution time allocated to job j_i,k in LO mode up to time t",
+          "psi_HI_i(t, d_i,k)": "Execution time allocated to job j_i,k in HI mode from time t to its deadline d_i,k",
+          "C_i(HI)": "Worst-case execution time of task tau_i in HI mode",
+          "psi_HI_i(r_i,k, t)": "Execution time allocated to job j_i,k in HI mode up to time t",
+          "r_i,k": "release time of job j_i,k",
+          "d_i,k": "deadline of job j_i,k",
+          "t": "time of TFE occurrence"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the total budget available for a job after a TFE occurs, combining execution already received in LO mode and the remaining execution time in HI mode."
+      },
+      "informal_sketch": {
+        "intuition": "This formula calculates the total available processing time for a high-criticality job if a timing failure occurs. It's the sum of the time it already got in LO mode plus the time it will get in HI mode until its deadline. The second part of the equation shows how to express the HI-mode execution time until the deadline using the total HI WCET and the time already spent in HI mode.",
+        "steps": [
+          "The total budget B_i,k(t) is the sum of:",
+          "1. The execution time already received by job j_i,k in LO mode up to the TFE time t (psi_LO_i(r_i,k, t)).",
+          "2. The execution time that will be allocated to job j_i,k in HI mode from time t until its deadline d_i,k (psi_HI_i(t, d_i,k)).",
+          "We know that the total execution time in HI mode is C_i(HI). This can be split into time already executed in HI mode up to t (psi_HI_i(r_i,k, t)) and time to be executed from t to d_i,k (psi_HI_i(t, d_i,k)). So, psi_HI_i(t, d_i,k) = C_i(HI) - psi_HI_i(r_i,k, t).",
+          "Substitute this into the first equation to get B_i,k(t) = psi_LO_i(r_i,k, t) + C_i(HI) - psi_HI_i(r_i,k, t)."
+        ],
+        "pseudocode": "def calculate_total_budget_after_tfe(task_i, job_k_index, tfe_time, system):\n    job = task_i.jobs[job_k_index]\n    r_i_k = job.release_time\n    d_i_k = job.deadline\n    C_i_HI = task_i.C_HI\n    \n    psi_LO_up_to_tfe = compute_allocated_time(task_i, 'LO', r_i_k, tfe_time)\n    psi_HI_up_to_tfe = compute_allocated_time(task_i, 'HI', r_i_k, tfe_time)\n    \n    # psi_HI_from_tfe_to_deadline = C_i_HI - psi_HI_up_to_tfe\n    # B_i_k_t = psi_LO_up_to_tfe + psi_HI_from_tfe_to_deadline\n    B_i_k_t = psi_LO_up_to_tfe + C_i_HI - psi_HI_up_to_tfe\n    \n    return B_i_k_t",
+        "key_insights": [
+          "Quantifies the total available execution time for a HI job after a mode switch.",
+          "This is a key component in proving that the job can still meet its deadline."
+        ]
+      },
+      "dependencies": [
+        "Definition 2",
+        "Definition 3"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Formula 6",
+      "formal_description": {
+        "statement": "psi_LO_i(r_i,k, t) >= psi_HI_i(r_i,k, t).",
+        "variables": {
+          "psi_LO_i(r_i,k, t)": "Execution time allocated to job j_i,k in LO mode up to time t",
+          "psi_HI_i(r_i,k, t)": "Execution time allocated to job j_i,k in HI mode up to time t",
+          "r_i,k": "release time of job j_i,k",
+          "t": "current time"
+        },
+        "assumptions": [],
+        "conclusion": "This is the formal statement of the Safe Trans. Prop. (Claim 1), ensuring that execution in LO mode is at least as much as in HI mode up to time t."
+      },
+      "informal_sketch": {
+        "intuition": "This is the core of the Safe Transition Property. It states that if a high-criticality job hasn't finished its work in LO mode, the amount of time it has already been given in LO mode must be greater than or equal to the amount of time it would have been given if it were running in HI mode up to that same point. This is crucial for ensuring that the job doesn't fall behind its HI-mode execution budget.",
+        "steps": [
+          "Consider a specific HI-criticality job j_i,k.",
+          "At any time 't' after its release (r_i,k):",
+          "Compare the execution time it has received in LO mode (psi_LO_i(r_i,k, t)) with the execution time it would have received in HI mode (psi_HI_i(r_i,k, t)).",
+          "The Safe Transition Property requires that psi_LO_i(r_i,k, t) must be greater than or equal to psi_HI_i(r_i,k, t)."
+        ],
+        "pseudocode": "def check_safe_transition_property_formal(task_i, job_k_index, current_time, system):\n    job = task_i.jobs[job_k_index]\n    r_i_k = job.release_time\n    \n    psi_LO = compute_allocated_time(task_i, 'LO', r_i_k, current_time)\n    psi_HI = compute_allocated_time(task_i, 'HI', r_i_k, current_time)\n    \n    return psi_LO >= psi_HI",
+        "key_insights": [
+          "Guarantees that HI tasks don't lose ground in LO mode compared to HI mode.",
+          "Essential for the proof of Theorem 1."
+        ]
+      },
+      "dependencies": [
+        "Definition 2"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Formula 7",
+      "formal_description": {
+        "statement": "B_i,k(t) >= C_i(HI).",
+        "variables": {
+          "B_i,k(t)": "Total budget allocated to job j_i,k at time t after a TFE",
+          "C_i(HI)": "Worst-case execution time of task tau_i in HI mode"
+        },
+        "assumptions": [],
+        "conclusion": "This inequality, derived from Formula 5 and Claim 1 (Formula 6), shows that the total budget available for a HI job after a TFE is at least its HI-criticality WCET, thus ensuring it can complete."
+      },
+      "informal_sketch": {
+        "intuition": "This is the final step in proving that a HI task job can meet its deadline after a mode switch. It combines the total budget available (B_i,k(t)) with the Safe Transition Property to show that this budget is always sufficient to cover the job's entire HI-criticality execution time (C_i(HI)).",
+        "steps": [
+          "Recall the total budget available after a TFE: B_i,k(t) = psi_LO_i(r_i,k, t) + C_i(HI) - psi_HI_i(r_i,k, t) (from Formula 5).",
+          "From the Safe Trans. Prop. (Formula 6), we know that psi_LO_i(r_i,k, t) >= psi_HI_i(r_i,k, t).",
+          "Substitute this inequality into the equation for B_i,k(t):",
+          "B_i,k(t) >= psi_HI_i(r_i,k, t) + C_i(HI) - psi_HI_i(r_i,k, t).",
+          "The terms psi_HI_i(r_i,k, t) cancel out, leaving B_i,k(t) >= C_i(HI).",
+          "This means the total budget is at least the HI WCET, guaranteeing completion."
+        ],
+        "pseudocode": "def check_budget_sufficiency(task_i, job_k_index, tfe_time, system):\n    B_i_k_t = calculate_total_budget_after_tfe(task_i, job_k_index, tfe_time, system)\n    C_i_HI = task_i.C_HI\n    \n    return B_i_k_t >= C_i_HI",
+        "key_insights": [
+          "Directly proves that HI jobs can meet their deadlines after a mode switch.",
+          "Relies on the Safe Transition Property and the definition of total budget."
+        ]
+      },
+      "dependencies": [
+        "Definition 2",
+        "Definition 3",
+        "Formula 5",
+        "Formula 6"
+      ]
+    }
+  ],
+  "extracted_at": "2025-11-12T02:51:33.544154",
+  "xml_path": "papers\\xml\\Scheduling_Multi-periodic_Mixed-Criticality_DAGs_on_Multi-core_Architectures.xml"
+}

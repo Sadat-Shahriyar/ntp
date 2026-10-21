@@ -1,0 +1,697 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Schedulability Analysis of the Linux Push and Pull Scheduler with Arbitrary Processor Affinities</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Arpan</forename><surname>Gujarati</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems</orgName>
+								<orgName type="institution">MPI-SWS</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Felipe</forename><surname>Cerqueira</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems</orgName>
+								<orgName type="institution">MPI-SWS</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems</orgName>
+								<orgName type="institution">MPI-SWS</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Schedulability Analysis of the Linux Push and Pull Scheduler with Arbitrary Processor Affinities</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">F39442CA9F20CA76951136AA2EC00C7C</idno>
+					<idno type="DOI">10.1109/ECRTS.2013.18</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T19:37+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Contemporary multiprocessor real-time operating systems, such as VxWorks, LynxOS, QNX, and real-time variants of Linux, allow a process to have an arbitrary processor affinity, that is, a process may be pinned to an arbitrary subset of the processors in the system. Placing such a hard constraint on process migrations can help to improve cache performance of specific multi-threaded applications, achieve isolation among components, and aid in load-balancing. However, to date, the lack of schedulability analysis for such systems prevents the use of arbitrary processor affinities in predictable hard real-time applications. In this paper, it is shown that job-level fixed-priority scheduling with arbitrary processor affinities is strictly more general than global, clustered, and partitioned job-level fixed-priority scheduling. The Linux push and pull scheduler is studied as a reference implementation and techniques for the schedulability analysis of hard real-time tasks with arbitrary processor affinity masks are presented. The proposed tests work by reducing the scheduling problem to "global-like" sub-problems to which existing global schedulability tests can be applied. Schedulability experiments show the proposed techniques to be effective.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>As multicore systems have become the standard computing platform in many domains, the question of how to efficiently exploit the available hardware parallelism for real-time workloads has gained importance. In particular, the problem of scheduling multiprocessor real-time systems has received considerable attention over the past decade and various scheduling algorithms have been proposed.</p><p>One of the main dimensions along which these real-time scheduling algorithms for multiprocessors are classified is the permitted degree of migration. Global and partitioned scheduling represent two extremes of this spectrum. Under global scheduling, the scheduler dynamically dispatches ready tasks to different processors from a single queue in the order of their priorities, whereas under partitioned scheduling, each task is statically assigned to a single processor, and each processor is then scheduled independently. Researchers have also studied hybrid approaches in detail. One notable hybrid approach is clustered scheduling, under which processors are grouped into disjoint clusters, each task is statically assigned to a single cluster, and "global" scheduling is applied within each cluster.</p><p>Interestingly, many contemporary real-time operating systems, such as VxWorks, LynxOS, QNX, and other real-time variants of Linux, do not actually implement the schedulers as described in the literature. Instead, they use the concept of processor affinity to implement a more flexible migration strategy. For example, Linux provides the system call sched_setaffinity(), which allows the processor affinity of a process or a thread to be specified, with the interpretation that the process (or the thread) may not execute on any processor that is not part of its processor affinity. That is, processor affinities allow binding<ref type="foot" target="#foot_0">1</ref> a process to an arbitrary subset of processors in the system.</p><p>Processor affinities are commonly used in throughputoriented computing to boost an application's performance (e.g., TCP throughput on multiprocessor servers <ref type="bibr" target="#b19">[20]</ref>) and to completely isolate real-time applications from non-real-time applications by assigning them to different cores. Processor affinities can also be used to realize global, partitioned, and clustered scheduling. (E.g., to realize partitioned scheduling, each task's processor affinity is set to include exactly one processor, and to realize global scheduling, each task's processor affinity is set to include all processors.) However, what makes this feature interesting from a scheduling point of view is that arbitrary processor affinities (APAs) can be assigned on a task-by-task basis, which permits the specification of migration strategies that are more flexible and less regular than those studied in the literature to date.</p><p>In this paper, we present the first techniques for the schedulability analysis of sporadic tasks with APAs under joblevel fixed-priority (JLFP) scheduling, both to enable the use of APAs in predictable hard real-time systems (i.e., to allow APAs to be used in systems in which the timing correctness must be established a priori), and to explore whether scheduling with APAs (APA scheduling hereafter) merits increased attention from the real-time community.</p><p>In particular, we answer three fundamental questions pertaining to APA scheduling. (i) Is APA scheduling strictly dominant w.r.t. global, partitioned, and clustered scheduling? (Yes, for JLFP policies, see Sec. III.) (ii) Is it possible to analyze APA scheduling using existing techniques for global schedulability analysis? (Yes, see Sec. IV.) (iii) Besides the desirable ability to isolate tasks for scheduling-unrelated reasons such as security concerns, does APA scheduling also offer improved schedulability? (To some extent, yes, see Sec. V.)</p><p>To answer these questions, we study Linux's push and pull scheduler as a reference implementation of APA scheduling and derive matching schedulability analysis.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Prior Work and Background</head><p>Recall that APA scheduling uses the concept of processor affinities to implement a flexible migration strategy. Therefore, we start by classifying real-time scheduling algorithms according to different migration strategies and compare them with APA scheduling. We then classify different priority assignment policies used in real-time scheduling and discuss how they relate to APA scheduling. Finally, we compare APA scheduling to scheduling problems of a similar structure in related domains.</p><p>According to the degree of migrations allowed, real-time scheduling algorithms either allow unrestricted migrations, no migrations, or follow a hybrid approach with an intermediate degree of migration. Global scheduling <ref type="bibr" target="#b13">[14]</ref> is an example of scheduling algorithm that allows unrestricted migration of tasks across all processors (if required) while partitioned scheduling <ref type="bibr" target="#b13">[14]</ref> is an example of a scheduling algorithm that allows no migration at all. Some notable hybrid scheduling algorithms that have been proposed include the aforementioned clustered scheduling <ref type="bibr" target="#b5">[6,</ref><ref type="bibr" target="#b12">13]</ref>, semi-partitioned scheduling (e.g., see <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b4">5,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b22">23]</ref>) and restricted-migration scheduling (e.g., see <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b16">17]</ref>).</p><p>APA scheduling generalizes global, partitioned, and clustered scheduling. In other words, APA scheduling constrains each task to migrate only among a limited set of processors defined by the task's processor affinity. Therefore, using appropriate processor affinity assignment, a taskset can be modeled as a global, clustered, or partitioned taskset (see Sec. III).</p><p>Under semi-partitioned scheduling, most tasks are statically assigned to one processor (as under partitioning) and only a few tasks migrate (as under global scheduling). APA scheduling resembles semi-partitioned scheduling in that it may also allow two tasks to have separate degrees of migration. However, if and when a task migrates under APA scheduling is determined dynamically "on-demand" as under global scheduling, whereas semi-partitioned schedulers typically restrict tasks to migrate at pre-determined points in time to pre-determined processors.</p><p>APA scheduling, which restricts migrations to occur among a fixed set of processors, should also not be confused with restricted-migration scheduling. Under restricted-migration scheduling, migrations occur only at job boundaries. It limits when a job may migrate, whereas APA scheduling (like global, clustered, and semi-partitioned scheduling) primarily specifies where a job may migrate to. However, both global and semipartitioned scheduling <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b16">17]</ref> can be combined with restrictedmigration scheduling and a similar approach could also be taken for APA scheduling.</p><p>Orthogonal to the degree of migration allowed, scheduling algorithms also have a choice of how to prioritize different jobs or tasks in a taskset and how these priorities may vary over time. In particular, the different priority assignment policies used in real-time scheduling can be classified either as tasklevel fixed priority (FP), job-level fixed priority (JLFP), or job-level dynamic priority (JLDP) policies.</p><p>A FP policy assigns a unique priority to each task, e.g., the classic Rate Monotonic (RM) <ref type="bibr" target="#b25">[26]</ref> and Deadline Monotonic (DM) <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b24">25]</ref> priority assignments fall into this category. A JLFP policy assigns a fixed priority to each job, and unlike under FP policies, two jobs of the same task may have distinct priorities; e.g., this is the case in the Earliest Deadline First <ref type="bibr" target="#b25">[26]</ref> policy. A JLDP policy allows a job to have distinct priorities during its lifetime; a prominent example in this category is the Least Laxity First <ref type="bibr" target="#b15">[16]</ref> policy. APA scheduling can be combined with any of these priority assignment policies.</p><p>In this paper, we restrict our focus to JLFP policies, since such policies can be implemented with low overheads <ref type="bibr" target="#b10">[11]</ref>. However, our results pertaining to JLFP policies also apply to FP scheduling, which is the policy actually implemented in mainline Linux. Similar to priorities under a FP policy, we assume that all jobs of a task share the same processor affinity (i.e., the processor affinity assignment does not vary over time).</p><p>APA scheduling could also be understood as global scheduling on a (degenerate) unrelated heterogeneous multiprocessor (e.g., see <ref type="bibr" target="#b20">[21]</ref>), where each task has the same, constant execution cost on any processor included in its processor affinity, and "infinite" execution cost on any other processor. However, such platforms have primarily been studied in the context of partitioned scheduling to date (e.g., see <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b8">9,</ref><ref type="bibr" target="#b20">21]</ref>).</p><p>Finally, the APA scheduling problem also resembles a classic non-real-time scheduling problem in which a set of nonrecurrent jobs is to be scheduled on a set of restricted identical machines <ref type="bibr" target="#b21">[22,</ref><ref type="bibr" target="#b23">24]</ref>, i.e., given a set of n jobs and a set of m parallel machines, where each job has a processing time and a set of machines to which it can be assigned, the goal is to find a schedule that optimizes a given objective (e.g., a schedule with a minimal makespan). However, to the best of our knowledge, this problem has not been studied in the context of the classic sporadic task model of recurrent real-time execution (or w.r.t. other recurrent task models).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. System Model</head><p>We consider the problem of scheduling a set of n real-time tasks τ = {T 1 , . . . , T n } on a set of m identical processors π = {Π 1 , Π 2 , . . . , Π m }. We adopt the classic sporadic task model <ref type="bibr" target="#b26">[27]</ref>, where each task T i = (e i , d i , p i ) is characterized by a worst-case execution time e i , a relative deadline d i , and a minimum inter-arrival time or period p i . Based on the relation between its relative deadline and its period, a task T i either has an implicit deadline (d i = p i ), a constrained deadline (d i ≤ p i ), or an arbitrary deadline. The utilization u i of a task T i is e i /p i and the density δ i of a task T i is e i / min(d i , p i ).</p><p>Each task T i also has an associated processor affinity α i , where α i ⊆ π is the set of processors on which T i can be scheduled. In this initial work on the analysis of APA scheduling, we assume that α i is static, i.e., processor affinities do not change over time. We define the joint processor affinity cpus(γ) of a taskset γ as the set of processors on which at least one task in γ can be scheduled. Similarly, for a set of processors ρ, tasks(ρ) defines the set of tasks that can be scheduled on at least one processor in ρ.</p><formula xml:id="formula_0">cpus(γ) = ∀Ti∈γ α i , tasks(ρ) = {T i | α i ∩ ρ = φ} (1)</formula><p>A task T k can (directly) interfere with another task T i , i.e., delay T i 's execution, only if α k overlaps with α i . We let I i denote the set of all such tasks in τ whose processor affinities overlap with α i . In general, the exact interfering taskset depends on the scheduling policy. Therefore, we define I A i as the interfering taskset if T i is scheduled under scheduling algorithm A. For example, in an FP scheduler, only higherpriority tasks can interfere with T i . If we let prio(T k ) denote T k 's priority, where prio(T k ) &gt; prio(T i ) implies that T k has a higher priority than T i (i.e., T k can preempt T i ), then</p><formula xml:id="formula_1">I F P i = {T k | prio(T k ) &gt; prio(T i ) ∧ α k ∩ α i = φ}. (<label>2</label></formula><formula xml:id="formula_2">)</formula><p>For simplicity, we assume integral time throughout the paper. Therefore, any time instance t is assumed to be a non-negative integral value representing the entire interval [t, t + 1). We assume that tasks do not share resources (besides processors) and do not suspend themselves, i.e., a job is delayed only if other tasks interfere with it. Further, a task T i is backlogged if a job of T i is available for execution, but T i is not scheduled on any processor. We also use two concepts frequently: schedulability of a task and schedulability of a taskset. A task T i ∈ τ is schedulable on the processor platform π, if it can be shown that no job of T i ever misses its deadline. A taskset τ is schedulable on the processor platform π if all tasks in τ are schedulable on π.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Paper Organization</head><p>The rest of this paper is structured as follows. In Sec. II we give a brief overview of the Linux push and pull scheduler. We also give a formal definition of an APA scheduler, assuming the Linux scheduler as a reference implementation of APA scheduling. In Sec. III, we compare APA scheduling with global, partitioned, and clustered scheduling from a schedulability perspective. In Secs. IV and V, we present schedulability analysis techniques for APA scheduling and evaluate them using schedulability experiments. Lastly, Sec. VI discusses future work and concluding remarks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. PUSH AND PULL SCHEDULING IN LINUX</head><p>The Linux kernel employs an efficient scheduling framework based on processor-local queues. This framework resembles the design of a partitioned scheduler, i.e., every processor has a runqueue containing backlogged tasks and every task in the system belongs to one, and just one, runqueue. Implementing partitioned scheduling is trivial in this design by enforcing a no-migration policy (i.e., by assigning singleton processor affinities). However, the Linux scheduler is also capable of emulating global and APA scheduling using appropriate processor affinities and migrations. We review the Linux scheduler implementation of global and APA scheduling in the remainder of this section to illustrate the similarities between these two approaches, which we later exploit to derive schedulability analysis techniques for APA scheduling.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Global Scheduling with Push and Pull Operations</head><p>Under global scheduling, all backlogged tasks are conceptually stored in a single priority-ordered queue that is served by all processors, and the highest-priority tasks from this queue are scheduled. A single runqueue guarantees that the system is work-conserving and that it always schedules the m highestpriority tasks (if that many are available). In preparation of our analysis of APA scheduling, we summarize global scheduling as follows.</p><p>Global Scheduling Invariant: Let S(t) be the set of all tasks that are scheduled on any of the m processors at time t. Let prio(T i ) denote the priority of a task T i at time t. If T b is a backlogged task at time t, then under global scheduling:</p><formula xml:id="formula_3">∀T s ∈ S(t), prio(T b ) ≤ prio(T s ) ∧ |S(t)| = m.</formula><p>(3)</p><p>However, the Linux scheduler implements runqueues in a partitioned fashion. Therefore, to satisfy the global scheduling invariant, Linux requires explicitly triggered migrations so that a task is scheduled as soon as at least one of the processors is not executing a higher-priority task. These migrations are achieved by so-called "push" and "pull" operations, which are source-initiated and target-initiated migrations, respectively, as described next.</p><p>Let Π s denote the source and let Π t denote the target processor, and let T m be the task to be migrated. A push operation is performed by Π s on T m if T m becomes available for execution on Π s 's runqueue (e.g., when a new job of T m arrives, when a job of T m resumes from suspension, or when a job of T m is preempted by a higher priority job). The push operation iterates over runqueues of all processors and tries to identify the best runqueue (belonging to the target processor Π t ) such that the task currently assigned to Π t has a lower priority than T m .</p><p>In contrast to a push operation, a pull operation is a targetinitiated migration carried out by processor Π t when it is about to schedule a job of priority lower than the previously scheduled task (e.g., when the previous job of a higher-priority task suspended or completed). The pull operation scans each processor Π s for a task T m assigned to Π s 's runqueue such that T m is backlogged and T m 's priority exceeds that of all local tasks in Π t 's runqueue. When multiple candidate tasks such as T m are available for migration, the pull operation selects the task with the highest priority.</p><p>Preemptions are enacted as follows in Linux. Suppose a processor Π s is currently serving a low-priority task T l when a higher-priority task T h becomes availabe for execution on Π s (i.e., processor Π s handles the interrupt that causes T h to release a job). Then Π s immediately schedules T h instead of T l and invokes a push operation on T l to determine if T l can be scheduled elsewhere. If no suitable migration target Π t exists for T l at the time of preemption, T l will remain queued on Π s until it is discovered later by a pull operation (or until T h 's job completes and Π s becomes available again).</p><p>Crucially, a push operation is triggered only for tasks that are not currently scheduled, and a pull operation similarly never migrates a task that is already scheduled. Thus, once a task is scheduled on a processor Π t , it can only be "dislodged" by the arrival of a higher-priority task on Π t , either due to a push operation targeting Π t or due to an interrupt handled by Π t . On which processor a job is released depends on the specific interrupt source (e.g., timers, I/O devices, etc.), and how the interrupt routing is configured in the multiprocessor platform (e.g., interrupts could be routed to a specific processor or distributed among all processors). We make no assumptions on which processor handles interrupts, that is, we assume that a job may be released on potentially any processor.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. APA Scheduling</head><p>APA scheduling is similar to global scheduling in that a task may have to be migrated to be scheduled. Under global scheduling, a task is allowed to migrate to any processor in the system, whereas under APA scheduling, a task is allowed to migrate only to processors included in its processor affinity set. Therefore, APA scheduling provides a slightly different guarantee than the global scheduling invariant.</p><p>APA Scheduling Invariant: Let T b be a backlogged task at time t with processor affinity α b . Let S (t) be the set of tasks that are scheduled on any processors in α b at time t. If prio(T i ) denotes the priority of a task T i at time t, then under APA scheduling:</p><formula xml:id="formula_4">∀T s ∈ S (t), prio(T b ) ≤ prio(T s ) ∧ |S (t)| = |α b |. (<label>4</label></formula><formula xml:id="formula_5">)</formula><p>A key feature of Linux's scheduler is that push and pull operations seamlessly generalize to APA scheduling. A push operation on</p><formula xml:id="formula_6">Π s migrates T m from Π s to Π t only if Π t ∈ α m .</formula><p>Similarly, a pull operation on Π t pulls T m from Π s only if Π t ∈ α m . In short, the two operations never violate a task's processor affinity when it is migrated.</p><p>The push and pull operations together ensure that a task T m is waiting to be scheduled only if all processors in α m are busy executing higher-priority tasks. However, as discussed above, note that push and pull operations never migrate already scheduled, higher-priority tasks to "make room" for T m . As a result, T m may remain backlogged if all processors in α m are occupied by higher-priority tasks, even if some task T h ∈ S (t) could be scheduled on another processor Π x not part of α m (i.e., in the worst case, if Π x ∈ α h and Π x / ∈ α m , then Π x may idle while T m is backlogged). For instance, such a scenario may occur if T h is released on the processor that T m is scheduled on since Linux switches immediately to higher-priority tasks and only then attempts to push the preempted task. While this approach may not be ideal from a schedulability point of view, it has the advantage of simplifying the implementation; we revisit this issue in Sec. VI.</p><p>From the definitions of the global and APA scheduling invariants, we can infer that global scheduling is a special case of APA scheduling, where all tasks have an affinity α i = π. Conversely, APA scheduling is more general than global scheduling, but also "global-like" from the point of view of backlogged task-a task is only backlogged if "all available" processors are serving higher-priority tasks. We discuss this idea in detail in the next sections. We begin by showing APA JLFP scheduling to strictly dominate global, clustered, and partitioned JLFP scheduling in Sec. III below, and then present in Sec. IV general schedulability tests applicable to all schedulers that guarantee the APA scheduling invariant given in Equation (4).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. GENERALITY OF APA SCHEDULING</head><p>Recall from Sec. I that a careful assignment of processor affinities can improve throughput, can simplify load balancing (e.g., to satisfy thermal constraints), and can be used to isolate applications from each other (e.g., for security reasons). In this section, we weigh the schedulability benefits of APA scheduling against global and partitioned scheduling and show that APAs are a useful construct from the point of view of real-time scheduling as well.</p><p>As discussed in Sec. I, APA scheduling is a constrainedmigration model that limits the scheduling and migration of a task to an arbitrary set of processors. By assigning an appropriate processor affinity, a task can either be allowed to migrate among all processors (like global scheduling), allowed to migrate among a subset of processors (like clustered scheduling), or not allowed to migrate at all (like partitioned scheduling).</p><p>Lemma 1: A taskset that is schedulable under global, partitioned, or clustered scheduling, is also schedulable under APA scheduling.</p><p>Proof-sketch: Trivial; APA scheduling can emulate global, clustered, and partitioned scheduling by assigning every task in the taskset an appropriate processor affinity.</p><p>However, unlike under clustered scheduling, the processor affinities of tasks under APA scheduling need not be disjoint, i.e., two tasks T i and T k can have non-equal processor affinities α i and α k such that α i ∩α k = ∅. As a result, there exist tasksets that are schedulable under APA scheduling, but infeasible under global, clustered, and partitioned scheduling.</p><p>Theorem 1: APA JLFP scheduling strictly dominates global, partitioned, and clustered JLFP scheduling.</p><p>Proof: We show that there exists a taskset which is schedulable under APA scheduling, but not schedulable under global, partitioned, or clustered JLFP scheduling. Consider the taskset described in Table <ref type="table">I</ref>, which is to be scheduled on two processors. Consider any JLFP rule to prioritize tasks and an asynchronous arrival sequence, where task T 2 arrives at time 1 but all other tasks arrive at time 0. We try to schedule this taskset using global, partitioned, and APA JLFP scheduling. We do not explicitly consider clustered scheduling because, for two processors, clustered scheduling reduces to either global or partitioned scheduling.</p><p>Global scheduling: Since tasks T 1 and T 2 have unit densities each and there are two processors in the system, to obtain a schedule without any deadline misses, jobs of these tasks must always have the two highest priorities (although their relative priority ordering may differ under different JLFP policies). Also, since the deadlines of tasks T 3 and T 4 are very small compared to the execution costs of tasks T 5 , T 6 , and T 7 , jobs of tasks T 3 and T 4 must be assigned higher priorities relative to the jobs of tasks T 5 , T 6 , and T 7 . Due to these constraints, either jobs of T 3 must be assigned the third-highest priority and jobs of T 4 the fourth-highest priority, or vice versa. In either case, either T 3 or T 4 (whichever has the job with the lower priority) misses its deadline because neither can exploit the parallelism during <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b3">4)</ref>, as illustrated in Figure <ref type="figure" target="#fig_0">1</ref>. Therefore, the taskset is infeasible under global JLFP scheduling with any JLFP rule.</p><p>Partitioned scheduling: A feasible partition must have a total utilization of at most one. The utilizations of tasks T 5 , T 6 , and T 7 are 0.501, 0.5001, and 0.5 respectively. Clearly, these three tasks cannot be partitioned into two bins, each with total utilization at most one. Therefore, the taskset cannot be  </p><formula xml:id="formula_7">Task α i T 1 {Π 1 } T 2 {Π 2 } T 3 {Π 1 } T 4 {Π 2 } T 5 {Π 1 } T 6 {Π 2 } T 7 {Π 1 , Π 2 }</formula><p>partitioned onto a two-processor system. APA scheduling: The failure of global scheduling suggests that tasks T 3 and T 4 (and also tasks T 1 and T 2 because of their unit densities) should be restricted to separate processors. This separation cannot be achieved by partitioning as tasks T 5 , T 6 , and T 7 prevent successful partitioning of the taskset. Therefore, using processor affinities as given in Table <ref type="table" target="#tab_1">II</ref>, we partition tasks T 1 , T 2 , T 3 , T 4 , T 5 , and T 6 but allow task T 7 to migrate. The taskset is now schedulable assuming FP as the JLFP rule (lower indices imply higher priorites). To show this, we next prove the schedulability of task T 7 (tasks T 1 , T 2 , T 3 , T 4 , T 5 , and T 6 can be trivially shown to be schedulable using uniprocessor response-time analysis). Consider an interval Γ = [t a , t d ) of length 10,000 where t a is the arrival time and t d is the absolute deadline of a job J 7 belonging to task T 7 . We look at the two processors Π 2 and Π 1 in sequence. First, we bound the minimum time for which J 7 can execute on Π 2 . Then, to ensure T 7 's schedulability, we argue that J 7 can always satisfy its remaining processor demand on Π 1 .</p><p>We use techniques from <ref type="bibr" target="#b6">[7]</ref> to bound the maximum interference such that any demand due to a carry-in job (i.e., a job released prior to t a ) is also accounted for. During Γ, the maximum interference incurred by J 7 on Π 2 due to tasks T 2 , T 4 , and T 6 is bounded by 2 + 2 + 5001 = 5005 (the exact interference I varies with the inter-arrival times of jobs). If I ≤ 5000, then J 7 can be scheduled successfully on Π 2 itself. However, if I &gt; 5000, J 7 must satisfy its remaining demand on Π 1 , i.e., if I = 5000 + δ where δ ∈ <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b4">5]</ref>, then J 7 must execute on processor Π 1 for at least δ time units.</p><p>Let Γ denote the cumulative interval(s) in Γ when jobs of T 6 interfere with J 7 on Π 2 . Since the contribution of tasks T 2 and T 4 to I is at most 2 + 2 = 4, the contribution of T 6 to I is at least 4996 + δ (recall that I = 5000 + δ). This contribution is a result of either one job or two consecutive jobs of T 6 (in case the release of the first job of T 6 does not align with t a but precedes t a ). In either case, Γ consists of at least one contiguous interval Γ ∈ Γ of length 2498 + δ/2. However, in any contiguous interval of length 2498 + δ/2, Π 1 can be busy executing jobs of tasks T 1 , T 3 , and T 5 for at most (2498 + δ/2)/1000 * 501 + 2 + 2 = 1507 time units, i.e., while Π 2 is continuously unavailable during Γ , Π 1 is available for at least 2498 + δ -1507 = 991 + δ δ time units, and consequently J 7 has enough opportunities to finish its remaining execution on Π 1 . Therefore, T 7 is schedulable and the taskset is schedulable under APA JLFP scheduling.</p><p>Theorem 1 establishes the dominance of APA scheduling  <ref type="table">I</ref>. The small up-arrows and down-arrows indicate job-arrivals and deadlines respectively. Jobs executing on processor Π 1 are in shaded in grey and jobs executing on processor Π 2 are shaded in white. (a) T 3 's job is assigned a higher priority than T 4 's job and consequently T 4 's job misses its deadline. (b) T 4 's job is assigned a higher priority than T 3 's job and consequently T 3 's job misses its deadline.</p><p>with a JLFP policy over global, partitioned, and clustered JLFP scheduling and provides further motivation to explore this scheduling technique. Concerning the more general case of JLDP policies, we leave the dominance question for future work. However, we note that there may be a case of equivalence since there exist global JLDP schedulers that are optimal for implicit-deadline tasks <ref type="bibr" target="#b7">[8]</ref>, and since optimal online scheduling of arbitrary-deadline tasks is generally impossible <ref type="bibr" target="#b18">[19]</ref>. In any case, Lemma 1 shows that APA scheduling is at least as powerful as global, clustered, and partitioned scheduling combined even w.r.t. JLDP policies.</p><p>In the next section, we provide initial schedulability analysis techniques for APA schedulers with any JLFP policy.</p><p>IV. SCHEDULABILITY ANALYSIS There are many variants of APA schedulers deployed in current real-time operating systems such as VxWorks, LynxOS, QNX, and real-time variants of Linux. However, to the best of our knowledge, no schedulability analysis test applicable to tasksets with APAs has been proposed to date. In this section, we apply the ideas from Sec. II that relate APA scheduling to the well-studied global scheduling problem, and propose simple and efficient techniques to analyze tasksets for APA scheduling. In a nutshell, we reduce APA scheduling to "globallike" subproblems, which allows reuse of the large body of literature on global schedulability analysis. The section is divided into three parts. We start with a simple method for analyzing tasksets with APAs using tests for global scheduling and argue its correctness. The second part introduces a more robust test with reduced pessimism, but at the cost of high computational complexity. The last part introduces a heuristicbased test to balance the cost versus pessimism tradeoff by considering only "promising" subproblems.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Reduction to Subproblems</head><p>Recall from Sections II and III that, for a given task T i , global scheduling is a special case of APA scheduling when α i = π. Similarly, for a subproblem with a reduced processor set α i , and a reduced taskset tasks(α i ), APA scheduling reduces to global scheduling. For example, consider the scheduling problems illustrated in Figure <ref type="figure" target="#fig_1">2</ref>. Figure <ref type="figure" target="#fig_1">2</ref>(a) represents an APA scheduling problem, where each task has an individual processor affinity. Figure <ref type="figure" target="#fig_1">2</ref>(b) represents a subproblem of the former problem that is also an APA scheduling problem. However, as in a global scheduling problem, task T 5 's processor affinity spans all the processors in this subproblem. Also, all the tasks in this subproblem can interfere with T 5 . Therefore, the subproblem is global w.r.t. T 5 . In other words, if T 5 is schedulable using global scheduling on a platform consisting only of the processors in α 5 , then it is also schedulable using APA scheduling on the processor platform π. This idea is formally stated in the lemma below for JLFP schedulers and thus also extends to FP scheduling. Recall that tasks(ρ) denotes the set of tasks that can be scheduled on at least one processor in ρ.</p><p>Lemma 2: If a task T i ∈ tasks(α i ) is schedulable when the reduced taskset tasks(α i ) is globally scheduled on the reduced processor platform α i using a JLFP policy A, then T i is also schedulable under APA scheduling of τ on the processor platform π using the same JLFP policy A.</p><p>Proof sketch: Suppose not. Then a task T i ∈ tasks(α i ) is schedulable under global scheduling on the processor platform α i using a JLFP policy A, but it is not schedulable under APA scheduling on the processor platform π using the same JLFP policy A. For a job J i of any task T i to miss its deadline, its response time r i must be greater than its deadline, i.e., r i &gt; d i , where r i is the sum of T i 's WCET and the time during which J i was interfered with by other tasks.</p><p>Task T i incurs interference whenever all processors on which T i can be scheduled (i.e., α i ) are busy executing tasks other than T i . With respect to a given interval [t 1 , t 2 ), let Θ i (t 1 , t 2 ) denote the sub-interval (or a union of non-contiguous subintervals) during which all processors in α i are busy executing tasks other than T i . Therefore, if |Θ i (t 1 , t 2 )| represents the cumulative length of the sub-intervals denoted by Θ i (t 1 , t 2 ), then for a job J i arriving at t a to miss its deadline, it is necessary that</p><formula xml:id="formula_8">e i + |Θ i (t a , t a + d i )| &gt; d i .</formula><p>Since T i is not schedulable under APA scheduling on the processor platform π, there exists an arrival sequence and a corresponding interval [t a , t d ) of length d i such that a job J AP A i of T i arrives at time t a and misses its deadline at time t d under APA scheduling, i.e.,</p><formula xml:id="formula_9">∃t a : e i + |Θ AP A i (t a , t d )| &gt; d i .</formula><p>(5)</p><p>However, since T i ∈ τ is schedulable under global scheduling on the reduced processor platform α i , for any possible arrival sequence and a corresponding interval [t a , t d ) of length d i , a job J G i of T i arriving at t a successfully completes its execution before t d , i.e.,</p><formula xml:id="formula_10">∀t a : e i + |Θ G i (t a , t d )| ≤ d i . (<label>6</label></formula><formula xml:id="formula_11">)</formula><p>The work that comprises</p><formula xml:id="formula_12">Θ AP A i (t a , t d ) is computed upon α i . Θ G i (t a , t d )</formula><p>is computed upon all processors in the processor platform, which is equal to α i in this case. Also, by construction, under both APA and global scheduling, the same set of tasks keeps processors in α i busy during Θ AP A i (t a , t d ) and Θ G i (t a , t d ), i.e., the set of possible arrival sequences are equivalent. Therefore, if there exists an interval [t a , t d ) such that Θ AP A i (t a , t d ) exceeds d ie i , then there exists such an interval for Θ G i (t a , t d ) as well, and Equations ( <ref type="formula">5</ref>) and ( <ref type="formula" target="#formula_10">6</ref>) cannot both be true simultaneously.</p><p>Using the equivalence from Lemma 2, we design a simple schedulability test for APA scheduling based on global schedulability analysis. In this paper, our focus is on global tests in general, that is, we do not focus on any particular test. For this purpose, we assume the availability of a generic test GlobalAnalysis(A, T i , π, ζ i ) to analyze the schedulability of a single task, where A is the scheduling policy, T i is the task to be analyzed, π is the processor set on which the task is to be scheduled, and ζ i is the set of tasks that can interfere with T i . The test returns true if T i is schedulable and false otherwise. Note that a result of true does not imply that all tasks in τ are schedulable; we are only concerned with schedulability of task T i . Using this interface we define a simple method to analyze tasks sets for APA scheduling. The key idea is to identify for each task an "equivalent" global subproblem, and to then invoke GlobalAnalysis(A, T i , π, ζ i ) on that subproblem.</p><p>Lemma 3: A taskset τ is schedulable on a processor set π under APA scheduling using a JLFP policy A if</p><formula xml:id="formula_13">∀Ti∈τ GlobalAnalysis(A, T i , α i , I A i ). (<label>7</label></formula><formula xml:id="formula_14">)</formula><p>Proof sketch: The analysis checks schedulability of each task T i ∈ τ under global scheduling on processor platform α i . From Lemma 2, if each task T i ∈ τ is schedulable on the corresponding reduced processor platform α i , then T i is also schedulable on the processor platform π under APA scheduling. Therefore, the entire taskset τ is schedulable under APA scheduling with policy A on the processor platform π.</p><p>The analysis technique in Lemma 3 is a straightforward way to reuse global schedulability analysis for analyzing tasksets with APAs, i.e., tasksets to be scheduled by APA scheduling. Apart from the computations required by a conventional global schedulability test, this new analysis technique requires only minor additions for computing the interfering taskset (e.g. I F P i for an FP rule, I EDF i for an EDF rule) for every task T i on the respective processor platform α i . However, this algorithm assumes that the processors in overlapping affinity regions must service the demand of all tasks that can be scheduled in that overlapping region. Therefore, it is possible that a  <ref type="table" target="#tab_2">III</ref>, which is to be scheduled on five processors under APA scheduling. The processor affinities of the tasks are also illustrated in Figure <ref type="figure" target="#fig_1">2(a)</ref>. Assume a fixed-priority scheduler with the following priority scheme: ∀i &lt; k, prio(T i ) &gt; prio(T k ). To analyze the schedulability of the taskset, we define GlobalAnalysis(FP , T i , α i , I F P i ) in Lemma 3 as a modified version of the response-time analysis for global fixed-priority scheduling in <ref type="bibr" target="#b9">[10]</ref> (see Sec. V for details). Task T 5 fails the GlobalAnalysis(FP , T 5 , α 5 , I F P 5 ) test with the given processor affinity (see Figure <ref type="figure" target="#fig_1">2</ref>(b) for the corresponding subproblem), i.e, α 5 = {Π 1 , Π 2 , Π 4 }. However, if applied to a different subset of the processor affinity (Figure <ref type="figure" target="#fig_1">2(c</ref>)), i.e., α 5 = {Π 1 , Π 4 }, T 5 is deemed schedulable by the test. Note that on the processor platform α 5 , all four higher priority tasks can interfere with T 5 ; but on the processor platform α 5 , only T 2 and T 4 can interfere with T 5 . Therefore, there is a significant reduction in the total interference on T 5 , and consequently the test claims T 5 to be schedulable on α 5 , but not on α 5 .</p><p>In the next section, we use Example 1 to motivate an analysis technique for APA scheduling that checks schedulability of a task T i on all possible subsets of α i . We also argue the formal correctness of this approach by proving that schedulability of T i on a processor platform α i ⊂ α i implies schedulability of T i on the processor platform α i .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Exhaustive Reduction</head><p>Lemma 4: If a task T i ∈ τ is schedulable under APA scheduling with the processor affinity α i ⊂ α i and taskset τ , then T i is also schedulable under APA scheduling with the affinity α i and taskset τ .</p><p>Proof sketch: We prove the lemma by contradiction, analogous to Lemma 2. Recall from the proof of Lemma 2 that Θ i (t 1 , t 2 ) denotes the sub-interval of interference during which all processors in α i are busy executing tasks other than T i . Similarly, we define Θ i (t 1 , t 2 ) over all processors in α i . We assume that T i is not schedulable under APA scheduling with processor affinity α i and taskset τ but T i is schedulable under APA scheduling with the processor affinity α i ⊂ α i , i.e., if t a is the arrival time of a job of T i for an arbitrary job arrival sequence, then</p><formula xml:id="formula_15">∃t a : e i + |Θ i (t a , t a + d i )| &gt; d i , (<label>8</label></formula><formula xml:id="formula_16">)</formula><formula xml:id="formula_17">∀t a : e i + |Θ i (t a , t a + d i )| ≤ d i . (<label>9</label></formula><formula xml:id="formula_18">)</formula><p>For any arbitrary, fixed arrival sequence, at any time instance, if all processors in α i are busy executing tasks other than T i , then all processors in α i must also be executing tasks other than</p><formula xml:id="formula_19">T i since α i ⊆ α i . Thus, Θ i (t a , t a + d i ) is a superset (⊇) of Θ i (t a , t a + d i ), and hence, |Θ i (t a , t a + d i )| ≥ |Θ i (t a , t a + d i )|:</formula><p>Equations ( <ref type="formula" target="#formula_15">8</ref>) and ( <ref type="formula" target="#formula_17">9</ref>) cannot be true simultaneously.</p><p>In Example 1, the schedulability test could not claim task T 5 to be schedulable with a processor affinity of α 5 . However, the test claimed that the same task T 5 , assuming a reduced processor affinity of α 5 ⊂ α 5 , is schedulable. Note that this example does not contradict Lemma 4. While the result of Lemma 4 pertains to actual schedulability under APA scheduling, the schedulability test used in Example 1 is a sufficient, but not necessary, test, which is subject to inherent pessimism, both due to the subproblem reduction and because the underlying global schedulability test is only sufficient, but not necessary, as well. Therefore, it may return negative results for tasks that are actually schedulable under APA scheduling.</p><p>We next present a schedulability analysis for APA scheduling based on Lemma 4 and the simple test in Lemma 3 that exploits the oberservation that it can be beneficial to consider only a subset of a task's processor affinity. In this method, global schedulability analysis is performed for a task T i ∈ τ on all possible subsets of its processor affinity, i.e., ∀S ⊆ α i . The task T i is deemed schedulable if it passes the analysis for at least one such subset S, and the taskset τ is deemed schedulable if all tasks T i ∈ τ pass the test. Recall from Lemma 4 that schedulability of a task T i under APA scheduling with processor affinity S ⊆ α i implies schedulability of T i under APA scheduling with processor affinity α i , however, it does not require modifying the processor affinity of T i from α i to S. In particular, while analyzing schedulability of any task T i , the processor affinities of other tasks remain unchanged.</p><p>Lemma 5: A taskset τ is schedulable on a processor set π under APA scheduling using a JLFP policy A if ∀Ti∈τ ∀Si⊆αi GlobalAnalysis(A, T i , S i , I A i ∩ tasks(S i )) .</p><p>(10) Proof sketch: If there exists a subset S i ⊆ α i such that T i is schedulable using global scheduling on processor platform S i using a JLFP policy A, then from Lemma 2, T i is also schedulable under APA scheduling with the processor affinity S i and the policy A. From Lemma 4, since T i is schedulable under APA scheduling with the processor affinity S i ⊆ α i , T i is also schedulable under APA scheduling with the processor affinity α i . Therefore, if corresponding subsets exist for every task in τ , the taskset τ is schedulable on the processor set π under APA scheduling using JLFP policy A.</p><p>The schedulability test given by the above lemma requires iterating over potentially every subset S ⊆ α i . This makes the algorithm robust in the sense that it eliminates all false negatives that occur when a task T i can be claimed to be schedulable only on a subset of its processor affinity S ⊂ α i , but not on its processor affinity α i . However, since |α i | is bounded by m, and since the schedulability tests have to be run for all the tasks in the taskset, in the worst case, the algorithm requires O(n • 2 m ) invocations of GlobalAnalysis(A, T i , α i , I A i ). Despite the exponential complexity, an exhaustive approach is still feasible for contemporary embedded multiprocessors with up to eight processors. However, for multiprocessor systems with higher number of processors, we need an alternative algorithm that does not analyze a task for all possible subsets of its processor affinity. Instead, in the next section, we propose a heuristic to identify and test only a few "promising" subsets.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Heuristic-based Reduction</head><p>We propose a heuristic that helps to choose promising subsets of a task's processor affinity to test the task's schedulability. The heuristic removes one or a few processors at a time from the task's processor affinity such that maximum benefit is achieved in terms of the interference lost (i.e., the processor time gained). We illustrate this intuition with an example below and then proceed with a detailed explanation of the heuristic and the new analysis technique.</p><p>Example 2: Consider the taskset from Example 1 (Table <ref type="table" target="#tab_2">III</ref>). Since the schedulability of tasks T 1 , T 2 , . . . , T 5 has already been established in Example 1, we carry out analysis for task T 6 in this example. T 6 fails GlobalAnalysis(F P, T 6 , α 6 , I F P 6 ) with the processor affinity as given in Figure <ref type="figure" target="#fig_1">2</ref>(b), i.e, α 6 = {Π 1 , Π 3 , Π 5 }. Therefore, we find an appropriate subset α 6 ⊂ α 6 such that T 6 is claimed to be schedulable on processor platform α 6 . However, unlike the algorithm given in Lemma 5, we intelligently select only the promising subsets of α 6 . In each iteration, we remove the processor that contributes the most to the total interference w.r.t. T 6 .</p><p>Iteration 1: α 6 = {T 1 , T 3 , T 5 }. The removal candidates in α 6 are Π 1 , Π 3 and Π 5 . Removing Π 1 leads to removal of {T 5 }, removing Π 3 leads to removal of {T 1 , T 4 } and removing Π 5 leads to removal of {T 2 , T 3 } from I F P 6 . We remove {Π 3 } because {T 1 , T 4 } contributes most to the total interference on T 6 . But T 6 still fails the schedulability test.</p><p>Iteration 2: α 6 = {Π 1 , Π 5 }. The removal candidates in α 6 are Π 1 and Π 5 . Removing Π 1 leads to removal of {T 5 } and removing Π 5 leads to removal of {T 2 , T 3 } from I F P</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>6</head><p>. We choose to remove {Π 5 } because {T 2 , T 3 } contributes more to the total interference on T 6 than {T 5 }. The new subset is thus α 6 = {Π 5 } and T 6 passes the schedulability test. Therefore, T 6 is schedulable under APA scheduling with an FP policy.</p><p>The intuition of iteratively removing processors from the processor affinity until the processor set is empty is formalized with the heuristic-based algorithm HeuristicBasedAnalysis(T i , α i , I i ), which is defined in Algorithm 1. With this procedure, we obtain a new schedulability analysis for APA scheduling: a taskset τ is schedulable under APA scheduling using JLFP if ∀T i ∈ τ , HeuristicBasedAnalysis(T i , α i , I i ) returns true.</p><p>Algorithm 1 shows the pseudo-code for heuristically determining subsets of α i and then invoking global analysis on those subsets. α k i is the new subset to be analyzed in the beginning of the k th iteration and I k i is the corresponding interfering taskset. RC denotes the set of removal candidates.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Algorithm 1 HeuristicBasedAnalysis(A, T i , α i , I</head><formula xml:id="formula_20">A i ) 1: α 0 i ← αi 2: I 0 i ← I A i 3: k ← 0 4: repeat 5:</formula><p>if GlobalAnalysis(A, Ti, α k i , I k i ) is true then for all c ∈ RC do 13:</p><formula xml:id="formula_21">t(c) ← tasks(α k i ) \ tasks(α k i \ c)} 14: Δ(c) ← Tx∈t(c) ( d i px + 1)ex 15:</formula><p>end for 16:</p><p>c ← c ∈ RC with largest Δ(c) |c| (tie break using |c|)</p><p>17:</p><formula xml:id="formula_22">α k+1 i ← α k i \ c</formula><p>18:</p><formula xml:id="formula_23">I k+1 i ← I k i \ t(c ) 19: until (α k+1 i = α k i ) ∨ (α k+1 i = φ)</formula><p>A removal candidate is a set of processors c such that, if c is removed from α k i to obtain the new subset α k+1 i , then there is a non-zero decrease in the total interference on T i from tasks in I k+1 i (compared to the total interference on T i from the tasks in I k i ). In other words, removing c from α k i should lead to removal of at least one task from I k i . Let t(c) be the set of tasks removed from I k i if c is removed from α k i . To select the "best" removal candidate, we use a metric that we call estimated demand reduction per processor, as defined below (Δ(c) is computed in line 14 of Algorithm 1).</p><formula xml:id="formula_24">Δ(c) |c| = 1 |c| Tx∈t(c) d i p x + 1 e x (<label>11</label></formula><formula xml:id="formula_25">)</formula><p>For a removal candidate c, the estimated demand reduction per processor quantifies the approximate reduction in total interference after the k th iteration, if c was removed from α k i to obtain the new subset. The algorithm selects the removal candidate with the maximum estimated demand reduction per processor. In case of a tie between two or more candidates, we select the candidate with a smaller cardinality, e.g. among two candidates c , c ∈ RC with equal demand reduction per processor, we select c if |c | &lt; |c |. This ensures that more processors are available for scheduling T i with the same amount of approximate total interference. We run this procedure iteratively either until we find a successful subset or until there is no change in α k+1 i w.r.t. α k i . The procedure HeuristicBasedAnalysis(T i , α i , I i ) requires at most a number of iterations linear in the number of processors m because in every iteration at least one processor is removed from T i 's processor affinity. Therefore, after at most |α i | iterations, the processor set becomes empty and the procedure terminates. The schedulability of a taskset τ requires each task T i ∈ τ to be schedulable. Therefore, in the worst case, this algorithm requires O(n • m) invocations of GlobalAnalysis(A, T i , α i , I i ). Compared to the exhaustive technique discussed in the previous section, this algorithm is much quicker to converge to a suitable subset. However, it is a heuristic-based algorithm and may still miss out on prospective subsets that may yield positive results. In the next section, we present results of schedulability experiments to validate the efficiency of the proposed analysis.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EXPERIMENTS AND EVALUATION</head><p>We ran two sets of schedulability experiments, to compare global, partitioned, and APA FP scheduling, and to compare the performance of the proposed heuristic-based schedulability analysis for APA scheduling with the exhaustive analysis. We start with the discussion of the experimental setup and then report on the observed trends.</p><p>To perform the experiments, we generated tasksets using Emberson et al.'s taskset generator <ref type="bibr" target="#b17">[18]</ref>. Motivated by our study of Linux, we restricted our focus to FP scheduling algorithms. For global FP scheduling, we used the DkC priority assignment heuristic <ref type="bibr" target="#b14">[15]</ref> and the response-time analysis for global fixed-priority scheduling given in <ref type="bibr" target="#b9">[10]</ref>, which we denote as G-FP-RTA. For partitioned FP scheduling (P-FP), we used uniprocessor response-time time analysis <ref type="bibr" target="#b2">[3]</ref> and assigned DM priorities. Partitioning was carried out using five standard bin-packing heuristics: worst-fit-decreasing, first-fit-decreasing, best-fit decreasing, next-fit-decreasing, and almost-worst-fitdecreasing; a task set was claimed schedulable under P-FP if it could be succesfully partitioned using any of the heuristics and if each task in each partition passed the response-time test.</p><p>To implement GlobalAnalysis(F P, T i , α i , I F P i ) for APA scheduling, we used a modified version of G-FP-RTA, which we refer to as G-FP-APA. Note that the tasksets used in APA scheduling experiments were assigned processor affinities using a heuristic similar to the one discussed in Sec. IV, i.e., we started with a global assignment and allowed shrinking of the processor affinities till a schedulable partitioned assignment was found, or till a schedulable arbitrary assignment (intermediate of global and partitioned assignments) was achieved. Since optimal priority assignment for APA scheduling is still an open problem, we tried using both DkC and DM priorities with the aforementioned heuristic. Also, tasks with a singleton processor affinity set were analyzed using uniprocessor response time analysis for efficiency (instead of G-FP-RTA).</p><p>We considered two variants of G-FP-APA, the exhaustive approach based on Lemma 5 (G-FP-APAe) and the heuristicbased approach based on Algorithm 1 (G-FP-APAh). For the first set of experiments, we varied the number of processors m from 3 to 8. Herein, we focus on graphs corresponding to m = 4, m = 6, and m = 8. For the second set of experiments, m ranges from 3 to 5. We also varied the utilization from 0 to m in steps of 0.25 (excluding both end points). For each value of m and utilization u, we generated and tested 640 tasksets, with a number of tasks ranging from m + 1 to 2.5m, in steps of 4. The periods of tasks were randomly chosen from [10ms, 100ms] following a log-uniform distribution. We summarize the main trends apparent in our results below.</p><p>Experiment 1 (G-FP-APAe vs. G-FP-RTA vs. P-FP): Each graph in Figure <ref type="figure" target="#fig_2">3</ref> consists of three curves, one for each of the three configurations, which represent the fraction of tasksets schedulable as a function of the total system utilization. For utilization greater than 75%, G-FP-APAe performs consistently better than P-FP, though the average improvement is modest, in the range of 0%-10%. From a schedulability point of view, we expect APA scheduling to provide the most benefit for tasksets that cannot be partitioned easily, nor are schedulable by global scheduling. However, due to the difficulty of (randomly) generating such tasksets, the experiment does not show the improvement that G-FP-APAe provides over its partitioned and global counterparts for such workloads.</p><p>Experiment 2 (G-FP-APAh vs. G-FP-APAe): The objective of this experiment is to understand if the performance of the heuristic-based APA schedulability analysis G-FP-APAh is comparable to the exhaustive test G-FP-APAe. We used a similar experimental setup as in the first experiment, but applied both the G-FP-APAh and G-FP-APAe tests. The results in Figure <ref type="figure" target="#fig_3">4</ref> show that G-FP-APAh performs almost as well as to G-FP-APAe, i.e., the curves vary only slightly. This validates the efficiency of the used heuristic. Note that processor affinities were generated randomly in this experiment, which explains the overall lower schedulability compared to Experiment 1.</p><p>The experimental results demonstrate that the proposed analysis-reduction to global subproblems-is indeed effective. Further comparisons of APA scheduling with other scheduling techniques and other affinity mask assignment heuristics will certainly be interesting; however, such studies are beyond the scope of this paper and remain the subject of future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. CONCLUSION AND OPEN QUESTIONS</head><p>In this paper, we investigated the schedulability analysis of real-time tasksets with APAs. While processor affinities have been studied and used by application developers for providing isolation and average-case enhancements, this work is the first of its kind that explores APAs from a schedulability perspective. We showed that APA-based JLFP scheduling strictly dominates global, clustered, and partitioned JLFP scheduling. The primary contribution of this paper, however, is our schedulability analysis for APA scheduling, which is simple, efficient, and reuses the extensive body of results for global scheduling already available. In summary, the paper establishes that arbitrary processor affinities are useful and can be analyzed formally. Therefore, we hope to stir further research into the design of improved analysis techniques for APA scheduling and stronger models with more flexible migration strategies.</p><p>Since this paper is an initial step in the development of realtime scheduling theory for APA scheduling, there is abundant room for future work. First, a key question: is designing schedulability analysis for APA scheduling based on global schedulability analysis the best we can do? The results from our experiments are inconclusive w.r.t. this question. To answer this question, we need a feasibility test or any other schedulability test for APA scheduling that could be used as a benchmark. However, the major source of pessimism seems to be the computation of interference for affinities with high degree of overlaps, i.e., the interference computation assumes that the processors in the overlapping region have to service the entire demand of all the tasks that can be scheduled on those processors. This assumption is in some cases certainly inaccurate because apart from the overlapping regions, an interfering task can also be scheduled on other processors in its processor affinity. Therefore, the development of new schedulability analysis for APA scheduling from first principles would provide a useful benchmark for future improvements.</p><p>However, the assumption that tasks with overlapping affinities interfere with their entire workload is difficult to avoid in the context of worst-case analysis since, according to Linux's push-pull semantics, a higher-priority task interfering with a lower-priority task does not voluntarily yield the processor, even if it could migrate to an otherwise idle processor. That is, the Linux scheduler does not enact a migration if a scheduled higher-priority task T h (executing on a processor Π x ) may "altruistically" give up its processor, in lieu of another processor Π y (also in α h ), so that a lower-priority task T l can be scheduled on Π x (effectively shifting T h from Π x to Π y ).</p><p>For example, consider a simple taskset with implicit deadlines, which consists of tasks T 1 (1, 2), T 2 (2, 3), T 3 (3, 4), and T 4 (4, 12) having processor affinities {Π 1 }, {Π 1 , Π 2 }, {Π 2 , Π 3 }, and {Π 3 } respectively. Figure <ref type="figure" target="#fig_4">5</ref> illustrates the initial portion of two possible schedules for this taskset. Figure <ref type="figure" target="#fig_4">5</ref>(a) shows a scheduling assuming Linux's push-pull semantics. In Figure <ref type="figure" target="#fig_4">5</ref>(b), at time 1, T 2 shifts from Π 2 to Π 1 and T 3 shifts from Π 3 to Π 2 to enable scheduling of T 4 . While in the push-pull schedule, T 4 's job finishes its execution at time 12, in the second schedule, it finishes its execution at time 4. Therefore, we conjecture that a stronger migration rule like shifting will allow processor affinities to provide significantly higher schedulability, and so we seek to explore the design space of shifting-based scheduling algorithms in future work.</p><p>Finally, APAs do not place any restrictions on when migrations can take place. Another obvious generalization of the studied problem would be to interpret each α i as function of time (similar to priorities), which could be used to generalize many semi-partitioned schedulers, and other hybrid schedulers, in the literature. There is also a significant room for improvements by exploring the problem of finding optimal processor affinities and optimal priority assignments.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 .</head><label>1</label><figDesc>Fig. 1. Global JLFP schedules of tasks T 1 , T 2 , T 3 , and T 4 in TableI. The small up-arrows and down-arrows indicate job-arrivals and deadlines respectively. Jobs executing on processor Π 1 are in shaded in grey and jobs executing on processor Π 2 are shaded in white. (a) T 3 's job is assigned a higher priority than T 4 's job and consequently T 4 's job misses its deadline. (b) T 4 's job is assigned a higher priority than T 3 's job and consequently T 3 's job misses its deadline.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 .</head><label>2</label><figDesc>Four scheduling problems (a), (b), (c), and (d) are illustrated here. The circles represent the processors and the rectangles represent the tasks and their associated processor affinities, e.g., problem (a) consists of the processor set π = {Π 1 , Π 2 , Π 3 , Π 4 , Π 5 } and the taskset τ = {T 1 , T 2 , T 3 , T 4 , T 5 , T 6 }. Problem (b), (c), and (d) are subproblems of problem (a). Note that all the subproblems are global w.r.t. task T 5 , i.e., like in a global scheduling problem, T 5 can be scheduled on all processors in these subproblems and all tasks in these subproblems can potentially interfere with T 5 .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 3 .</head><label>3</label><figDesc>Fig. 3. The comparison of APA scheduling (G-FP-APA) versus global (G-FP-RTA) and partitioned (P-FP) scheduling.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 4 .</head><label>4</label><figDesc>Fig. 4. The comparison of heuristic based G-FP-RTA algorithm w.r.t. the exhaustive G-FP-RTA</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 5 .</head><label>5</label><figDesc>Fig. 5.The figures show the initial schedules of the taskset T 1 (1, 2), T 2 (2, 3), T 3<ref type="bibr" target="#b2">(3,</ref><ref type="bibr" target="#b3">4)</ref>, and T 4 (4, 12) having processor affinities {Π 1 }, {Π 1 , Π 2 }, {Π 2 , Π 3 }, and {Π 3 } respectively, when scheduled by (a) Linux's push-pull scheduler and (b) a hypothetical shifting-migrations-based scheduler.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>TABLE II</head><label>II</label><figDesc></figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head>TABLE III Task</head><label>III</label><figDesc>{Π 1 , Π 3 , Π 5 } schedulability test claims task T i to be not schedulable with the given processor affinity α i , but claims it to be schedulable with a different processor affinity α i ⊂ α i , i.e., the result of the schedulability analysis in Lemma 3 may vary for the same task if reduced to different subproblems.Example 1: Consider the taskset described in Table</figDesc><table><row><cell></cell><cell cols="3">e i d i p i</cell><cell>α i</cell></row><row><cell>T 1</cell><cell>5</cell><cell>6</cell><cell>6</cell><cell>{Π 2 , Π 3 }</cell></row><row><cell>T 2</cell><cell>3</cell><cell>4</cell><cell>4</cell><cell>{Π 4 , Π 5 }</cell></row><row><cell>T 3</cell><cell>1</cell><cell>4</cell><cell>4</cell><cell>{Π 2 , Π 5 }</cell></row><row><cell>T 4</cell><cell>2</cell><cell>8</cell><cell>8</cell><cell>{Π 3 , Π 4 }</cell></row><row><cell>T 5</cell><cell>2</cell><cell cols="3">5 12 {Π 1 , Π 2 , Π 4 }</cell></row><row><cell>T 6</cell><cell>1</cell><cell cols="2">3 12</cell><cell></cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>In the context of migrations, binding means that a process can only migrate to (or be scheduled on) the processors that it is bound to.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_1"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 23:34:15 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><p>Acknowledgement. We thank <rs type="person">Sanjoy Baruah</rs> for pointing out the connection to the scheduling of unrelated heterogeneous multiprocessors and restricted identical machines.</p></div>
+			</div>			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">An EDF-based scheduling algorithm for multiprocessor soft real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bud</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><forename type="middle">C</forename><surname>Devi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 17th Euromicro Conference on Real-Time Systems, ser. ECRTS &apos;05</title>
+		<meeting>the 17th Euromicro Conference on Real-Time Systems, ser. ECRTS &apos;05</meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2005">2005</date>
+			<biblScope unit="page" from="199" to="208" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Assigning real-time tasks on heterogeneous multiprocessors with two unrelated types of processors</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Raravi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 31st Real-Time Systems Symposium</title>
+		<meeting>the 31st Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="239" to="248" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Applying new scheduling theory to static priority pre-emptive scheduling</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Audsley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Richardson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wellings</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software Eng. J</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<date type="published" when="1993">1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Hard real-time scheduling: The deadline-monotonic approach</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Audsley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">F</forename><surname>Richardson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">J</forename><surname>Wellings</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the IEEE Workshop on Real-Time Operating Systems and Software</title>
+		<meeting>the IEEE Workshop on Real-Time Operating Systems and Software</meeting>
+		<imprint>
+			<date type="published" when="1991">1991</date>
+			<biblScope unit="page" from="133" to="137" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">A semipartitioned approach for parallel real-time scheduling</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Bado</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>George</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Courbin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">20th International Conference on Real-Time and Network Systems</title>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="151" to="160" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of multiprocessor sporadic task systems</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">K</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Handbook of Realtime and Embedded Systems</title>
+		<imprint>
+			<publisher>CRC Press</publisher>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Techniques for multiprocessor global schedulability analysis</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 28th IEEE International Real-Time Systems Symposium</title>
+		<meeting>the 28th IEEE International Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="119" to="128" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Proportionate progress: A notion of fairness in resource allocation</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">K</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><forename type="middle">K</forename><surname>Cohen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">G</forename><surname>Plaxton</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">A</forename><surname>Varvel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Algorithmica</title>
+		<imprint>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="page" from="600" to="625" />
+			<date type="published" when="1996">1996</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Partitioning real-time tasks among heterogeneous multiprocessors</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceddings of the International Conference on Parallel Processing</title>
+		<meeting>eddings of the International Conference on Parallel essing</meeting>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+			<biblScope unit="page" from="467" to="474" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Response-time analysis for globally scheduled symmetric multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cirinei</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 28th IEEE International Real-Time Systems Symposium</title>
+		<meeting>the 28th IEEE International Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="149" to="160" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">Scheduling and locking in multiprocessor real-time operating systems</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+		<respStmt>
+			<orgName>The University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Partitioned EDF scheduling for multiprocessors using a C=D task splitting scheme</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Zhang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">48</biblScope>
+			<biblScope unit="page" from="3" to="33" />
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">A hybrid realtime scheduling approach for large-scale multicore platforms</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Baumberger</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 19th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 19th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="247" to="258" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">A survey of hard real-time scheduling for multiprocessor systems</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Comput. Surv</title>
+		<imprint>
+			<biblScope unit="volume">43</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page">44</biblScope>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Improved priority assignment for global fixed priority pre-emptive scheduling in multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">47</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="1" to="40" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Multiprocessor online scheduling of hard-real-time tasks</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Dertouzos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Mok</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Software Engineering</title>
+		<imprint>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="issue">12</biblScope>
+			<biblScope unit="page" from="1497" to="1506" />
+			<date type="published" when="1989">1989</date>
+		</imprint>
+	</monogr>
+	<note>Software Engineering</note>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Semipartitioned hard real-time scheduling with restricted migrations upon identical multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Dorin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">M</forename><surname>Yomsi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Richard</surname></persName>
+		</author>
+		<idno>abs/1006.2637</idno>
+	</analytic>
+	<monogr>
+		<title level="j">CoRR</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Techniques for the synthesis of multiprocessor tasksets</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Emberson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Stafford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">1st Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Optimal online multiprocessor scheduling of sporadic real-time tasks is impossible</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Fisher</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">45</biblScope>
+			<biblScope unit="issue">1-2</biblScope>
+			<biblScope unit="page" from="26" to="71" />
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">An in-depth analysis of the impact of processor affinity on network performance</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Foong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Fung</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Newell</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 12th IEEE International Conference on Networks</title>
+		<meeting>the 12th IEEE International Conference on Networks</meeting>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="page" from="244" to="250" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title level="m" type="main">EDF scheduling on heterogeneous multiprocessors</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">H</forename><surname>Funk</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+		</imprint>
+		<respStmt>
+			<orgName>The University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<monogr>
+		<title level="m" type="main">Heuristics for scheduling on restricted identical machines</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">J</forename><surname>Gálvez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">M</forename><surname>Ruiz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">F G</forename><surname>Skarmeta</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+		<respStmt>
+			<orgName>University of Murcia, Spain, Tech. Rep.</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Semi-partitioned scheduling of sporadic task systems on multiprocessors</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Yamasaki</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 21st Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 21st Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="249" to="258" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Scheduling with processing set restrictions: A survey</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">Y</forename></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Leung</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C.-L</forename><surname>Li</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">International Journal of Production Economics</title>
+		<imprint>
+			<biblScope unit="volume">116</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="251" to="262" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">On the complexity of fixedpriority scheduling of periodic, real-time tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">Y</forename></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Leung</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Whitehead</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Performance evaluation</title>
+		<imprint>
+			<biblScope unit="volume">2</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="237" to="250" />
+			<date type="published" when="1982">1982</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973">1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<monogr>
+		<title level="m" type="main">Fundamental design problems of distributed systems for the hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">K</forename><surname>Mok</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1983">1983</date>
+		</imprint>
+		<respStmt>
+			<orgName>Massachusetts Institute of Technology, Tech. Rep.</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

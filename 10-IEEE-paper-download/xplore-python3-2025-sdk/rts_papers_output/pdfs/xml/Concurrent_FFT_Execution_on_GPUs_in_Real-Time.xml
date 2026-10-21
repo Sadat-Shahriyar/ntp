@@ -1,0 +1,885 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Concurrent FFT Execution on GPUs in Real-Time</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Syed</forename><forename type="middle">W</forename><surname>Ali</surname></persName>
+							<email>swali@cs.unc.edu</email>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Joseph</forename><surname>Goh</surname></persName>
+							<email>jgoh@cs.unc.edu</email>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Joshua</forename><surname>Bakita</surname></persName>
+							<email>jbakita@cs.unc.edu</email>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Samarjit</forename><surname>Chakraborty</surname></persName>
+							<email>samarjit@cs.unc.edu</email>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<email>anderson@cs.unc.edu</email>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Concurrent FFT Execution on GPUs in Real-Time</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">D899649FAB4F0528BE1EF61DB10E9786</idno>
+					<idno type="DOI">10.1109/PDP66500.2025.00029</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-18T05:04+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>GPU</term>
+					<term>FFT</term>
+					<term>signal processing</term>
+					<term>real-time systems</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Fourier transforms are vital for a broad range of signal-processing applications. Accelerating FFTs with GPUs offers an orders-of-magnitude improvement vs. CPU-only FFT computation. However, two problems arise when executing FFT tasks with other GPU work. First, concurrent GPU use introduces unpredictability in the form of lengthy response times. Second, it is unclear how to best parameterize and schedule FFT tasks to meet the throughput and timeliness constraints of real-time signal processing. This work investigates how FFT and other GPU-using tasks can concurrently access a GPU while maintaining bounded response-time guarantees without sacrificing throughput. In our experiments, the techniques proposed by this work result in an up to 17% improvement in worst-case FFT response times.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Fourier analysis, often performed using Fast Fourier Transform (FFT) algorithms, are indispensable in signal processing applications. For instance, methods for spectrum sensing, the detection of transmitters across the wireless spectrum, may utilize FFTs to identify occupied frequencies or trends in the signals therein. However, executing FFTs on large, highfrequency inputs is a computationally arduous task.</p><p>GPUs are well suited to address this challenge, as they can perform the matrix-like operations of FFT algorithms in parallel, greatly improving data throughput. NVIDIA GPUs are standard in industry where cuFFT <ref type="bibr" target="#b0">[1]</ref>, NVIDIA's FFT library, is used to achieve orders-of-magnitude speedup in signal-processing algorithms (compared to CPU-only execution) <ref type="bibr" target="#b1">[2]</ref>- <ref type="bibr" target="#b8">[9]</ref>. Furthermore, GPUs can be shared among tasks, whether they be signal-processing tasks or a combination of distinct workloads.</p><p>Unfortunately, concurrently executing multiple tasks on the same GPU in a naïve manner can cause highly unpredictable response times <ref type="bibr" target="#b9">[10]</ref>- <ref type="bibr" target="#b12">[13]</ref>. Conversely, while task-exclusive GPU access can mitigate such unpredictability, GPU throughput is severely reduced for systems with tasks that cannot fully utilize the GPU's computational capacity <ref type="bibr" target="#b13">[14]</ref>. Furthermore, some signal-processing systems adhere to precise, real-world timing constraints. Such constraints may be inherent to the design and operation of their algorithms <ref type="bibr" target="#b14">[15]</ref>- <ref type="bibr" target="#b16">[17]</ref> or imposed by components relying on their output for real-time correctness <ref type="bibr" target="#b17">[18]</ref>, <ref type="bibr" target="#b18">[19]</ref>. Without predictable response times for GPU work, signal-processing tasks cannot be guaranteed to meet such deadlines, thus weakening the system's reliability.</p><p>Organization. After covering the necessary background information in Sec. II, we outline in Sec. III how FFT tasks on the GPU can be modified and analyzed to allow for predictable, concurrent GPU access. In Sec. IV we apply our method to FFT tasks with representative inputs and experimentally evaluate our approach. Sec. V concludes.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. PRELIMINARIES</head><p>In this section, we provide the background necessary for our GPU-partitioning approach for FFT tasks. We state our analysis objectives, summarize key prior work, and specify our system model.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Analysis Objectives</head><p>Spectrum-sensing motivations. This work is motivated by the timeliness requirements of spectrum-sensing systems. Such systems can require signal samples to be collected and processed at strict time intervals to support dynamic signal detection and spectrum-access decisions <ref type="bibr" target="#b14">[15]</ref>- <ref type="bibr" target="#b16">[17]</ref>. For instance, Shi et al. <ref type="bibr" target="#b14">[15]</ref> proposed the use of a precise schedule for when and how long to access each frequency channel in order to maximize detection likelihood. However, the work acknowledges that its implementation adheres to its schedule on a "best-effort" basis and is unable to guarantee sensing deadlines are reliably met. By enabling predictable execution times for FFTs on GPUs, we seek to alleviate the challenge of designing and analyzing a spectrum-sensing system to meet stringent real-time requirements.</p><p>Real-time correctness. A system is said to be real-time correct if each task in the system can meet their timing requirements, usually specified in the form of deadlines by which task invocations must finish. Even for applications without hard deadlines, it is often desirable for the system to be soft real-time correct, i.e., ensured bounded latency or only subject to a limited pattern of deadline misses <ref type="bibr" target="#b28">[29]</ref>, <ref type="bibr" target="#b29">[30]</ref>. An application amenable to real-time correctness guarantees Fig. <ref type="figure">1</ref>. High-level process of determining real-time correctness of a system. This paper's focus is shown in the dotted box. may also be allowed to share a hardware platform with other, more safety-critical applications <ref type="bibr" target="#b30">[31]</ref>.</p><p>We illustrate the process of designing and analyzing a system for real-time correctness in Fig. <ref type="figure">1</ref>. Typically, a system's real-time correctness is determined by employing a schedulability test, which determines whether all tasks of the system under analysis are guaranteed to meet all of their deadlines under a given scheduling algorithm. Schedulability tests require task properties such as their worst-case execution times (WCETs) to be known and upper-bounded. In order to derive reliable WCET values of a GPU-using task, one must not only ensure bounded execution time on the GPU, but also bounded blocking time, time spent waiting for access to hardware accelerators such as GPUs. Hence, our paper focuses on enabling bounded execution and blocking times for FFT tasks on the GPU, thereby enabling verification of real-time correctness in a signal-processing system.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Partitioning and Sharing of NVIDIA GPUs</head><p>Our proposed method leverages prior work on predictable hardware partitioning and sharing of NVIDIA GPUs. Recent work by Bakita and Anderson on libsmctrl <ref type="bibr" target="#b25">[26]</ref> enables NVIDIA GPUs to be spatially partitioned through the allocation of individual streaming multiprocessors (SMs), a basic unit of computing hardware in NVIDIA GPUs, shown in Fig. <ref type="figure">2</ref>. To obtain provable upper bounds for blocking and execution times for GPU accesses, we employ a realtime locking protocol, as relying on the default OS scheduler typically provides no response-time guarantees. In particular, our method adapts the recently introduced Streaming Multiprocessor Locking Protocol (SMLP) <ref type="bibr" target="#b13">[14]</ref>, which arbitrates exclusive access to SMs, thereby reducing the interference incurred by work co-scheduled on GPUs. The SMLP improves upon coarser-grained locking methods to arbitrate GPU access, providing lower analytical and observed response-time bounds while significantly improving GPU utilization and throughput. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. System Model</head><p>We now present our system model, focusing on the GPU and work executing on it. We do not focus on the CPU, but discuss interactions with the CPU in Sec III-A. GPU-task model. We consider a set of N GPU kernels, i.e., GPU programs, executing on a single discrete GPU. We denote the i th GPU kernel by τ i . An invocation of the i th GPU kernel by the CPU is referred to as a job of τ i .</p><p>We assume that the same GPU kernel does not execute multiple jobs simultaneously. The GPU is composed of H total SMs, across which jobs execute. In order for GPU access to be arbitrated by the SMLP, we require each job to request exclusive access to a subset of the GPU's SMs before it is allowed to execute.</p><p>The SMLP can allocate each job a variable number of SMs, provided that no two concurrent jobs' allocations overlap. The set of SM-allocation sizes permitted for each τ i , denoted by S i , is specified prior to execution. We require ∀i, 1 ∈ S i such that a job can begin execution as soon as any number of SMs become available. We define L i,k as the WCET of kernel τ i when allocated exactly k SMs. We use L max i to denote the largest WCET of τ i among all permitted values of k such that</p><formula xml:id="formula_0">L max i = max k∈Si L i,k .</formula><p>We describe later in Sec. III how GPU kernels' L i,k values may be measured, the SMLP configured correspondingly with ideal S i , and, based on analysis from <ref type="bibr" target="#b13">[14]</ref>, how to upper bound the time each τ i spends from request to completion. cuFFT. In this paper, we use cuFFT <ref type="bibr" target="#b0">[1]</ref>, a closed-source FFT library provided by NVIDIA, for all FFT computation. An FFT task can be specified using cuFFT, which is then executed by SMs as a GPU kernel. We have chosen cuFFT as our exemplar FFT implementation for two reasons. First, cuFFT is widely accessible. It does not require developers to be intimately familiar with GPU programming APIs and comes bundled with NVIDIA's developer toolkit. Second, there exists extensive work on GPU-accelerated signal processing relying on cuFFT <ref type="bibr" target="#b1">[2]</ref>- <ref type="bibr" target="#b8">[9]</ref>. Thus, our work has immediate applicability to existing work on GPU-accelerated signal processing.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. REAL-TIME FFT TASKS</head><p>In this section, we show how cuFFT and other GPU-using tasks can be modified to use the SMLP for predictable GPU access. We adapt and summarize analysis for the SMLP from <ref type="bibr" target="#b13">[14]</ref> to provide blocking-time and response-time guarantees. Then, based on extensive profiling of cuFFT kernel response times, we describe performance trends across different SMallocation sizes. Finally, informed by our measurements and observations, we show how to select permitted SM-allocation sizes for GPU kernels using the SMLP such that blocking and response times are optimized.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Modifications for GPU Partitioning</head><p>The modifications to GPU-using tasks needed to support concurrency and to be compatible with the SMLP are straightforward, requiring no changes to the GPU kernel itself. Launching GPU kernels. On NVIDIA GPUs, GPU work is enqueued on CUDA streams, where work in one stream can run in parallel with work enqueued on other streams. As such, we require each job to launch its GPU kernels, whether they be cuFFT or user-defined kernels, with a CUDA stream unique to that job. Only asynchronous CUDA functions should be used to allow multiple streams Algorithm 1 cuFFT kernel launch procedure to be launched in parallel. For instance, one should use cudaMemcpyAsync instead of cudaMemcpy, as the former may be specified with a CUDA stream and is performed asynchronously with any other asynchronous operations. Additionally, cudaStreamSynchronize should be used to ensure all prerequisite asynchronous operations are complete before using the GPU's compute capacity.</p><p>Applying SM partitioning. Lines 7-11 of Alg. 1, highlighted in red, demonstrate how one would invoke the SMLP and libsmctrl for a cuFFT kernel. Note that all GPU kernels in the system must request GPU access through the SMLP by performing these steps. While Alg. 1 uses cuFFT, the procedure can be generalized to any GPU kernel by replacing cufftExec (line 9) with the desired kernel to be executed. GPU requests are necessary as interference is mitigated by arbitrating access to SMs.</p><p>When a job of τ i is ready to execute on the GPU, it issues a lock request to the SMLP by calling smlp_lock (line 7). If no SMs are idle at that moment, the SMLP suspends the requesting job until other GPU work finishes and at least one SM becomes available. For accessibility to the reader, we lightly modify the SMLP to enqueue and satisfy requests in FIFO order instead of taking per-job priorities into consideration. We describe how the blocking-time bound for our adapted SMLP is derived and incorporated into the WCET of each GPU-using task in Sec. III-D.</p><p>As soon as any SMs become idle, the SMLP allocates some or all of the available SMs to a requesting job and smlp_lock returns a corresponding SM mask. The mask is then applied to the requesting job's stream using libsmctrl (line 8), ensuring spatially partitioned GPU access. The exact number of SMs allocated to each request is dependent on the number of SMs available at the moment the request is satisfied, as well the allowed SM-allocation sizes specified for each task in S i (allowed_sizes on line 7). A satisfied request is assigned the largest SM-allocation size permitted by S i that does not exceed the number of available SMs.</p><p>Additionally, partitioning of SMs only benefits the computation portion of a GPU kernel. As such, acquisition of the SMLP lock and application of the corresponding SM mask should be performed immediately before actual execution begins. For instance, lines 2-5 of Alg. 1 perform functions such as copying memory to the GPU and configuring the kernel to be launched. Because these operations can have significant latency but do not perform computation on the GPU, calling smlp_lock too early would result in idle SMs. Similarly, smlp_unlock should be performed immediately once kernel computation finishes to allow other kernels to access the now-freed SMs as soon as possible.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Response-Time Analysis</head><p>Before stating our proposed method for selecting permitted SM-allocation sizes, we briefly adapt and summarize blockingtime and response-time analysis of the SMLP from <ref type="bibr" target="#b13">[14]</ref>.</p><p>We first introduce additional notation. Let A i,k = k • L i,k , i.e., A i,k denotes the worst-case cumulative time the GPU kernel τ i may consume across k SMs. Similar to L max i , we use A max i to denote the largest value A i,k among all permitted SM-allocation sizes k, such that</p><formula xml:id="formula_1">A max i = max k∈Si A i,k .<label>(1)</label></formula><p>The following two lemmas provide blocking-time and response-time bounds for the SMLP. 1 We illustrate the worstcase scenarios accounted for by Lem. 1 and 2 in Fig. <ref type="figure" target="#fig_0">3</ref>. Lemma 1. (Adapted from <ref type="bibr" target="#b13">[14]</ref>) The duration a job of τ i will be suspended by the SMLP waiting for SMs to be allocated to it is no longer than</p><formula xml:id="formula_2">j̸ =i A max j H .<label>(2)</label></formula><p>Proof. Let J i denote an arbitrary job of τ i . Recall that we require each GPU kernel to execute at most one job at once. Thus, in the worst case, J i 's lock request must be queued behind exactly one request from each GPU kernel other than τ i . By definition of A max i given by (1), the cumulative work completed by SMs for jobs ahead of τ i 's job is at most</p><formula xml:id="formula_3">j̸ =i A max j .</formula><p>Since we require 1 ∈ S i , the job of τ i can begin executing as soon as any SMs become available and no longer need to service jobs enqueued earlier. Since each occupied SM completes one unit of work per unit of time, the longest period all H SMs can be occupied with jobs ahead of J i is</p><formula xml:id="formula_4">j̸ =i A max j H as desired.</formula><p>From Lem. 1, we also obtain a response-time bound for jobs using the SMLP, expressed in the following lemma. 1 Blocking-time analysis from <ref type="bibr" target="#b13">[14]</ref> is less pessimistic and more appropriate when used in conjunction with the unmodified SMLP and a priority-based real-time scheduling algorithm. Lemma 2. The response time of a job of τ i , i.e., the duration from its SMLP lock request to completion, is no longer than</p><formula xml:id="formula_5">L max i + j̸ =i A max j H .<label>(3)</label></formula><p>Proof. Recall that L max i denotes the greatest possible WCET of τ i for all permitted SM-allocation sizes. Thus, the response time of a job of τ i is at most the sum of its blocking time, bounded by (2) from Lem. 1, and L max i . In analysis of real-time systems, response-time bounds such as those derived using Lem. 2 are directly incorporated into the WCET of CPU tasks which launch GPU kernels. This requires additional hardware capacity to be provisioned for such tasks. In addition to affecting the responsiveness of individual tasks, increased GPU response-time bounds make it more difficult for real-time tasks to meet their deadlines, further reducing the system's effective capacity. Thus, in the remainder of this section, we outline a process for measuring values of L i,k and choosing S i correspondingly such that response-time bounds are not unnecessarily inflated.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. WCET Measurement for GPU Kernels</head><p>A prerequisite to determining the ideal S i for a GPU kernel τ i is to estimate L i,k , the WCET of τ i when allocated k SMs, for each possible value of k. These estimates may be obtained by executing GPU kernels for each SM-allocation size and recording the worst-observed execution times. When measuring the execution time of a GPU kernel, any SMs not allocated to the GPU kernel under analysis should execute memoryintensive and compute-intensive dummy kernels to simulate maximal interference from concurrent tasks. Execution time measurements should not include steps before lock or unlock requests (lines 7 and 11 in Alg. 1, respectively). Addressing non-uniformity in SMs. Similar to CPU cores, each SM is not necessarily identical in performance. The specific SMs allocated may impact response times, even for identical allocation sizes. Moreover, other factors such as the physical distance between SMs in the same GPU may also affect response times. Thus, if one is to account for true worstcase performance, all possible SM allocations should be tested.</p><p>Unfortunately, it is often not feasible to test every possible combination of SMs for each GPU kernel. Therefore, to obtain safer, albeit somewhat pessimistic WCETs, we suggest estimating a worst-case slowdown factor to be incorporated into all measured response times. This effect was negligible in our experiments using cuFFT kernels. However, the necessity and magnitude of such a slowdown factor depends on which hardware and GPU kernels are used. Performance trends in cuFFT. To better understand the impact that L i,k values and the selection of S i can have on response times and throughput, we have collected extensive response-time measurements for cuFFT kernels. We estimated the WCET of cuFFT kernels for each input sample size from {2 10 , 2 11 , . . . , 2 24 }, where one sample is a 32-bit floating point value. Our measurements were performed using the random input generation method and hardware platforms detailed in Sec. IV. Each configuration was executed 1,000 times, recording the worst-observed execution times. To simulate maximal GPU saturation, each SM not allocated to the kernel under analysis were configured to execute a cuFFT kernel with 2 12 randomly generated input samples in a loop. From our results, we observe a few key trends. Observation III-1. The benefit of an increased SM-allocation size diminishes at higher SM counts. Fig. <ref type="figure">4</ref> illustrates this (the x-axis represents the SM-allocation size, and the y-axis the measured WCET). For cuFFT kernels of input size 2 24 , measured WCETs decrease roughly proportional to the number of SMs up to about four, but allocating 10 SMs, for instance, is only approximately 6.15 times faster than a single SM. This trend was originally noted in <ref type="bibr" target="#b13">[14]</ref>, which recommends avoiding SM-allocation sizes that offer little incremental execution time reduction. Response times of cuFFT kernels with small input sample sizes (around 2 10 to 2 18 ) scaled poorly with SMallocation sizes greater than one, implying that they could not fully utilize more than one SM. Fig. <ref type="figure">4</ref> only shows results for the RTX 3060 Ti, but these patterns persisted on other GPUs.</p><p>cuFFT kernels likely scale poorly to large numbers of SMs due to some combination of 1) intrinsic algorithmic limitations on the amount of parallelism, 2) the high overhead of synchronizing work across the GPU, and 3) a loss of cache locality (each SM contains its own data, instruction, and constant caches). Observation III-2. Our execution-time graphs deviate somewhat from those attained by <ref type="bibr" target="#b13">[14]</ref>. Ali et al. describe their results in <ref type="bibr" target="#b13">[14]</ref> as imitating a "step-graph," where, as SMallocation sizes increased, measured WCETs did not decrease in a smooth, curve-like manner as shown in Fig. <ref type="figure">4</ref>. Observation III-3. Single-SM allocations consistently produced the lowest worst-case cumulative computation time across SMs. That is, for a cuFFT kernel τ i and k &gt; 1, A i,1</p><p>A i,k . This implies that, with respect to per-SM throughput, A i,1 can serve as reference for the maximum efficiency by which τ i can be completed. SM-allocation sizes k with noticeably greater A i,k values can be inferred to be less efficient and should be avoided.</p><p>Based on these observations, we have developed a simple heuristic technique for cuFFT kernels to select ideal SMallocation sizes. While the trends observed in cuFFT may not be universal to all workloads, we believe our technique to be applicable to most FFT tasks and other GPU kernels that exhibit similar trends.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Finding Ideal SM-Allocation Sizes</head><p>While it is possible to use a one-size-fits-all set of permitted SM-allocation sizes or apply no restrictions at all, inefficient SM allocations may negatively impact the throughput and responsiveness of GPU tasks. In this subsection, we outline how one may derive S i for each GPU kernel for optimized performance and analytical guarantees.</p><p>Recall that values of A max i contribute directly to the summation in (2) and (3). Intuitively, a greater A max i value means that computation of τ i occupies more of the GPU's computational capacity in the worst case, thus leading to increased blockingtime and response-time bounds.</p><p>Additionally, our WCET measurements for cuFFT kernels, described in Sec. III-C, showed response times decreasing roughly proportional to SM-allocation size, to a point. I.e., for cuFFT kernel τ i and small k, l ∈ N, we have</p><formula xml:id="formula_6">k • L i,k ≈ l • L i,l ⇔ A i,k ≈ A i,l .</formula><p>Fig. <ref type="figure" target="#fig_1">5</ref> illustrates the finding that for larger SM-allocation sizes, response times do not always see a commensurate decrease. Thus, large SM allocations may be inefficient.</p><p>Based on these intuitions, we propose the following heuristic for selecting allowable SM-allocation sizes for kernel τ i : SM-allocation size selection method. For each τ i , set</p><formula xml:id="formula_7">S i = {k ∈ [1, H] | A i,k ≤ A i,1 • ρ i } (<label>4</label></formula><formula xml:id="formula_8">)</formula><p>where ρ i ≥ 1 is a real-valued parameter.</p><p>As noted in Observation III-3, our method assumes A i,1 corresponds to a maximally efficient SM-allocation size of one. From Observation III-1, we see that, for some kernels, efficiency is maintained for increased SM-allocation sizes, up to a point. As such, our heuristic allows k SMs to be a permitted allocation size if A i,k is within a tolerated degree of inefficiency specified by ρ i . Such tolerance is necessary, as overly restrictive S i may cause difficulty in the SMLP's allocation of SMs, causing some to be idle. Our proposed strategy selects S i such that A max i is not too large relative to A i,1 while not overly restricting GPU kernels' access to SMs. The exact value of ρ i may be customized for each GPU kernel. A higher ρ i allows for more inefficiency in the system, increasing the blocking-time bound given by ( <ref type="formula" target="#formula_2">2</ref>), but can occasionally improve τ i 's responsiveness, especially when SMs would be idle otherwise.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Application to cuFFT</head><p>We illustrate our SM-allocation size selection and responsetime analysis process by example. We also provide recommendations for S i by target hardware and cuFFT input size. Example 1. Let τ i be a cuFFT kernel whose jobs each process input samples of size 2 24 . Suppose that τ i 's WCETs at different SM-allocation sizes, i.e., values of L i,k , are estimated equal to the measurements plotted in Fig. <ref type="figure">4</ref>.</p><p>Using the heuristic proposed in (4) to select SM-allocation sizes for τ i disqualifies allocation sizes k such that</p><formula xml:id="formula_9">A i,k &gt; A i,1 • ρ i = 9101 • ρ i .</formula><p>We use a value of ρ i = 1.1, allowing SM-allocation sizes that are at most 10% more inefficient compared to executing τ i on a single SM. Applying (4) to k = 4 SMs gives us Applying the heuristic to all possible SM-allocation sizes gives us S i = {1, 2, 3, 4}.</p><formula xml:id="formula_10">A i,4 = 4 • 2501 = 10004 ≤ 10011.1 = 9101 • 1.1 = A i,5 • ρ i , k = 1 A i,1 = 657 µs L i,1 = 657 µs k = 2 A i,2 = 658 µs L i,2 = 329 µs k = 3 A i,3 = 663 µs L i,3 = 221 µs k = 4 A i,4 = 728 µs L i,4 = 182 µs</formula><p>As seen in Ex. 1, our proposed method, alongside a reasonable value of ρ i , can easily winnow out inefficient SMallocation sizes for cuFFT kernels. We have applied this process to our comprehensive measurements of cuFFT described in Sec. III-C using ρ i = 1.1. The recommended permitted SM-allocation sizes we obtain are summarized by target GPU and by cuFFT input sample size in Tab. I.</p><p>Note that our heuristic can be improved upon by testing for specific GPU task sets and by solving for specific optimization goals. However, we show in Sec. IV that the SMLP with SMallocation sizes configured by our method fares well compared to default scheduling of cuFFT kernels.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. EXPERIMENTS</head><p>In this section, we evaluate our approach with experiments on a comprehensive FFT task set. We compare the response times and throughput with and without the SMLP. We use BE-cuFFT and SMLP-cuFFT to refer to results from best-effort scheduling and from using the SMLP, respectively.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Experimental Design</head><p>Hardware platform. We performed our tests using three different NVIDIA GPUs across three product generations: the GTX 1070, RTX 2080 Ti, and RTX 3060 Ti. Each GPU contains 15, 34, and 19 SM partitions, respectively. Input configurations. Our FFT input size (i.e., number of 32-bit floating point samples) for each trial was configured as one of z ∈ {2 10 , 2 11 , . . . , 2 24 }, with the number of concurrent cuFFT-using tasks as one of N ∈ {1, 2, . . . , 21}. We performed 1,000 trials for each combination of input size z and task count N . Input generation. To obtain representative samples for FFT input, each trial, we generated k signals, with k sampled uniformly from <ref type="bibr" target="#b4">[5,</ref><ref type="bibr">50]</ref>. Each generated signal "transmitted" random data using phase-shift keying (PSK), carrier amplitude and phase (QAM), or amplitude keying (ASK). Specifically, each signal used one of the following modulations (bits per symbol) chosen uniformly at random: 4-PSK, 8-PSK, 16-QAM, 256-QAM, 2-ASK, or 4-ASK. Lastly, the input was mixed with additive white Gaussian noise (AWGN) using a signal-to-noise (SNR) ratio selected uniformly at random from the interval <ref type="bibr" target="#b9">[10,</ref><ref type="bibr" target="#b29">30]</ref>.  Methodology. In our experiments, we recorded the response times of cuFFT kernels under BE-cuFFT and SMLP-cuFFT. Each trial synchronously launched N threads, with each thread executing 100 consecutive cuFFT jobs. The response time of each job was recorded, noting the average and worstobserved times across all trials. We additionally computed analytical response-time bounds under the SMLP as described in Sec. III-B and using measurements from Sec. III-C. To configure permitted SM-allocation sizes and calculate response-time bounds, we used the measurements and S i recommendations determined in Sec. III-E (using ρ i = 1.1). We also recorded the throughput of cuFFT kernels, calculated per-trial as the total number of signal samples processed by the trial divided by its aggregate response time.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Results</head><p>Fig. <ref type="figure" target="#fig_2">6</ref> shows the average, worst-case, and analytical bounds for response times and Fig. <ref type="figure" target="#fig_3">7</ref> shows throughput when using an NVIDIA RTX 3060 Ti and z = 2 22 . These figures are representative of trends seen across all configurations. Additional graphs may be found in the full version of this paper <ref type="bibr" target="#b31">[32]</ref>. From our results, we make the following observations. Observation IV-1. The benefit of the SMLP grows as the number of concurrent tasks increases. This applies to worstand average-case times (Fig. <ref type="figure" target="#fig_2">6</ref>), and throughput (Fig. <ref type="figure" target="#fig_3">7</ref>). For a low number of concurrent tasks, SMLP-cuFFT constrains the number of SMs a kernel may access, leaving capacity for other kernels. When few kernels run, extra SMs are left idle, leaving GPU compute capacity unused-a problem that BE-cuFFT does not suffer-explaining the under-performance of SMLP-cuFFT for a small number of concurrent FFTs.</p><p>However, despite the significant under-utilization of GPU compute cores, the slowdown is not proportionate. For example, consider the worst-case response times when running only two concurrent FFT tasks (the leftmost points in Fig. <ref type="figure" target="#fig_2">6</ref>). Under BE-cuFFT, the max response time is 305 µs. For SMLP-cuFFT, the max is 647 µs-a 2.1× slowdown. However, SMLP-cuFFT only uses a SM partition size of up to 3 per FFT (see S i values in Tab. I); up to 6 for two FFTs. The RTX 3060 Ti hardware supports an SM partition size of up to 19, meaning that SMLP-cuFFT uses only 32% of what it could. As BE-cuFFT uses every SM, one would expect SMLP-cuFFT to run 3× slower, rather than the observed 2.1×. This milder slowdown is because cuFFT is not able to effectively utilize the large number of SMs BE-cuFFT provides (see Obs. III-1).</p><p>The point at which SMLP-cuFFT can utilize as many SMs as BE-cuFFT (≈ 6 concurrent FFT tasks) is where SMLP-cuFFT matches the BE-cuFFT response times in Fig. <ref type="figure" target="#fig_2">6</ref>.</p><p>Observation IV-2. The SMLP analytical bounds hold. In no cases have we observed the response time of a SMLP-cuFFT task exceed the analytically guaranteed response-time bound. This is visible in Fig. <ref type="figure" target="#fig_2">6</ref>, as the "Max" line approaches, but does not exceed, the straight "Analytical Max" line.</p><p>Observation IV-3. Applying the SMLP can increase overall system throughput. This is visible in Fig. <ref type="figure" target="#fig_3">7</ref>, where SMLP-cuFFT's average throughput exceeds BE-cuFFT's for five or more concurrent FFT tasks. As in Obs. IV-1, this throughput benefit occurs when all SMs are utilized and can be configured with ρ i . A small value of ρ i constrains each kernel to a small number of SMs (i.e., small S i ), leaving room for more concurrent FFT tasks. For systems containing few concurrent FFT tasks, a higher value of ρ i allows access to more SMs per task. Thus, throughput improvements are obtained with few concurrent FFT tasks and a large ρ i at the cost of reducing the total possible number of concurrently executing FFTs. Why a throughput benefit? With the SMLP, different FFTs are guaranteed to run on mutually exclusive sets of SMs. This can yield a throughput benefit against the default scheduler (which will run different tasks on the same SM) because several caches exist on a per-SM level, and having more homogeneous work on a single SM can allow for greater cache locality and less time spent in memory stalls.</p><p>Across Obs. IV-1 through IV-3, we see that SMLP-cuFFT beats BE-cuFFT on all metrics when SMLP-cuFFT is able to access the entire GPU. The weak performance of SMLP-cuFFT for low levels of concurrency could be addressed in deployed systems by tuning ρ i to suit the expected amount of concurrent work. In our experiments, we intentionally fixed ρ i , no matter the concurrent FFT task count, to target systems with arbitrary numbers of concurrent FFT tasks.</p><p>In summary, we demonstrated that the SMLP provides bounded response times for FFTs, while matching or exceeding the throughput of the default scheduler under high levels of concurrency. This means that the SMLP is not only real-time correct, but suitable for systems where throughput is critical.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. CONCLUSION</head><p>We have demonstrated how FFT execution on GPUs can be improved with respect to predictability and real-time guarantees by incorporating GPU hardware partitioning and real-time locking techniques. We have shown how our approach may be applied without sacrificing, and at times even improving, GPU throughput. Our approach applies to any GPU-based application and our analysis is accessible to existing spectrum sensing systems. In future work, we intend to explore the relationship between real-time scheduling and spectrum sensing accuracy. We also plan to examine ways to improve real-time guarantees and throughput for other signal-processing workloads on the GPU, such as those based on AI/ML techniques.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 3 .</head><label>3</label><figDesc>Fig.3. Example schedule illustrating blocking and response times for a job of GPU kernel τ i . The job of τ i is scheduled after being blocked for no longer than the summation from Lem. 1. Once scheduled, it executes for no longer than L max i and its response time is bounded correspondingly by Lem. 2.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 5 .</head><label>5</label><figDesc>Fig.5. Boxes representing cuFFT kernel execution at SM-allocation sizes k ∈ {1, 2, 3, 4}. The width, height, and area correspond to k, L i,k , and A i,k respectively. While an increase from three SMs to four reduces execution time somewhat, the area, i.e., the total computation time across used SMs increases excessively such that we set 4 / ∈ S i .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 6 .</head><label>6</label><figDesc>Fig. 6. Largest observed and average response times of cuFFT kernels executed concurrently on an NVIDIA RTX 3060 Ti, each with 2 22 input samples. Analytical SMLP response-time bounds are shown in green.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 7 .</head><label>7</label><figDesc>Fig. 7. Total FFT throughput across all concurrently executing cuFFT kernels on a NVIDIA RTX 3060 Ti, each with 2 22 32-bit floating point input samples.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head></head><label></label><figDesc>Samples 224 Samples Fig.4. Largest-observed execution times of cuFFT kernels by number of SMs allocated, measured on an NVIDIA RTX 3060 Ti. Bars highlighted in yellow correspond to permitted SM-allocation sizes we use with the SMLP.</figDesc><table><row><cell>Measured Worst-case Execution Time (µs)</cell><cell>0 1000 2000 3000 4000 5000 6000 7000 8000 9000 10000</cell><cell>2381 9101 1251 4582 848 3211 674 2501 584 2032 1796 1572 1533 1502 1506 1481 1483 523 460 450 403 390 384 380 1 2 3 4 5 6 7 8 9 10 11 12 2 22</cell></row><row><cell></cell><cell></cell><cell>Number of SMs</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head>TABLE I RECOMMENDED</head><label>I</label><figDesc>SM PARTITION SIZES FOR CUFFT BY INPUT SIZE</figDesc><table><row><cell>GPU model</cell><cell>2 10 ∼ 2 13</cell><cell>2 14 ∼ 2 17</cell><cell>2 18</cell><cell>2 19</cell><cell>2 20</cell><cell>2 21</cell><cell>2 22</cell><cell>2 23</cell><cell>2 24</cell></row><row><cell>NVIDIA GTX 1070</cell><cell>{1}</cell><cell>{1, 2}</cell><cell>{1, 2}</cell><cell>{1, 2}</cell><cell>{1, 2}</cell><cell>{1, 2, 3}</cell><cell>{1, 2, 3, 4}</cell><cell cols="2">{1, 2, 3, 4} {1, 2, 3, 4}</cell></row><row><cell>NVIDIA RTX 2080 Ti</cell><cell>{1}</cell><cell>{1}</cell><cell cols="5">{1, 2} {1, 2, 3} {1, 2, 3} {1, 2, 3, 4, 5} {1, 2, 3, 4, 5, 6}</cell><cell>{1, . . . , 7}</cell><cell>{1, . . . , 8}</cell></row><row><cell>NVIDIA RTX 3060 Ti</cell><cell>{1}</cell><cell>{1}</cell><cell>{1, 2}</cell><cell>{1, 2}</cell><cell>{1, 2, 3}</cell><cell>{1, 2, 3}</cell><cell>{1, 2, 3}</cell><cell>{1, 2, 3}</cell><cell>{1, 2, 3, 4}</cell></row></table></figure>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">cuFFT</title>
+		<author>
+			<persName><surname>Nvidia</surname></persName>
+		</author>
+		<ptr target="https://developer.nvidia.com/cufft" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">GPGPU Based Parallel Implementation of Spectral Correlation Density Function</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Marshall</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Vanhoy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Akoglu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Bose</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ryu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Signal Processing Systems</title>
+		<imprint>
+			<biblScope unit="volume">92</biblScope>
+			<biblScope unit="page" from="71" to="93" />
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">GPU-Accelerated Signal Processing for Passive Bistatic Radar</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Jin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Remote Sensing</title>
+		<imprint>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="issue">22</biblScope>
+			<date type="published" when="2023">2023</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">GPU-accelerated non-uniform fast Fourier transform-based compressive sensing spectral domain optical coherence tomography</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Xu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">U</forename><surname>Kang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Opt. Express</title>
+		<imprint>
+			<biblScope unit="volume">22</biblScope>
+			<biblScope unit="issue">12</biblScope>
+			<biblScope unit="page" from="14" to="871" />
+			<date type="published" when="2014-06">Jun 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">GPU Accelerated FFT-Based Registration of Hyperspectral Scenes</title>
+		<author>
+			<persName><forename type="first">Á</forename><surname>Ordóñez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Argüello</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">B</forename><surname>Heras</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="issue">11</biblScope>
+			<biblScope unit="page" from="4869" to="4878" />
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">CudaFilters: A Sig-nalPlant library for GPU-accelerated FFT and FIR filtering</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Nejedly</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Plesinger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Halamek</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Jurak</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software: Practice and Experience</title>
+		<imprint>
+			<biblScope unit="volume">48</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="3" to="9" />
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">A GPU Implementation of the Correlation Technique for Real-time Fourier Domain Pulsar Acceleration Searches</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Dimoudi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Adamek</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Thiagaraj</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">M</forename><surname>Ransom</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Karastergiou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Armour</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="s">The Astrophysical Journal Supplement Series</title>
+		<imprint>
+			<biblScope unit="volume">239</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page">28</biblScope>
+			<date type="published" when="2018-12">dec 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">High Performance GPU-Based Fourier Volume Rendering</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Abdellah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Eldeib</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Sharawi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">International Journal of Biomedical Imaging</title>
+		<imprint>
+			<biblScope unit="volume">2015</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page">590727</biblScope>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">A survey of graphics processing unit (GPU) utilization for radar signal and data processing system</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">S</forename><surname>Perdana</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Sitohang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">B</forename><surname>Suksmono</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2017 6th International Conference on Electrical Engineering and Informatics</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="1" to="6" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Demystifying NVIDIA GPU Internals to Enable Reliable GPU Management</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bakita</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2024 IEEE 30th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2024-05">May 2024</date>
+			<biblScope unit="page" from="294" to="305" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Exploring AMD GPU Scheduling Details by Experimenting With &quot;Worst Practices</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 29th International Conference on Real-Time Networks and Systems, ser. RTNS &apos;21</title>
+		<meeting>the 29th International Conference on Real-Time Networks and Systems, ser. RTNS &apos;21</meeting>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="24" to="34" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Avoiding Pitfalls when Using NVIDIA GPUs for Real-Time Tasks in Autonomous Systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bakita</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">30th Euromicro Conference on Real-Time Systems (ECRTS 2018), ser. Leibniz International Proceedings in Informatics (LIPIcs)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="volume">106</biblScope>
+			<biblScope unit="page">21</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">Real-Time Scheduling for GPUs with Applications in Advanced Automotive Systems</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">A</forename><surname>Elliott</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2015-08">August 2015</date>
+		</imprint>
+		<respStmt>
+			<orgName>University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Predictable GPU Sharing in Component-Based Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">W</forename><surname>Ali</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Tong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">36th Euromicro Conference on Real-Time Systems (ECRTS 2024), ser. Leibniz International Proceedings in Informatics (LIPIcs)</title>
+		<imprint>
+			<date type="published" when="2024">2024</date>
+			<biblScope unit="volume">298</biblScope>
+			<biblScope unit="page">22</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Beyond Sensing: Multi-GHz Realtime Spectrum Analytics</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Shi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Bahl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Katabi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 12th USENIX Conference on Networked Systems Design and Implementation, ser. NSDI&apos;15</title>
+		<meeting>the 12th USENIX Conference on Networked Systems Design and Implementation, ser. NSDI&apos;15</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+			<biblScope unit="page" from="159" to="172" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">On the Feasibility of Effective Opportunistic Spectrum Access</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Kone</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">Y</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Zheng</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 10th ACM SIGCOMM Conference on Internet Measurement, ser. IMC &apos;10</title>
+		<meeting>the 10th ACM SIGCOMM Conference on Internet Measurement, ser. IMC &apos;10</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="151" to="164" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">DeepRadar: A Deep-Learning-based Environmental Sensing Capability Sensor Design for CBRS</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Sarkar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Buddhikot</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Baset</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">K</forename><surname>Kasera</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 27th Annual International Conference on Mobile Computing and Networking, ser. MobiCom &apos;21</title>
+		<meeting>the 27th Annual International Conference on Mobile Computing and Networking, ser. MobiCom &apos;21</meeting>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="56" to="68" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">An RFML Ecosystem: Considerations for the Application of Deep Learning to Spectrum Situational Awareness</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">J</forename><surname>Wong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">H</forename><surname>Clark</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Flowers</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">M</forename><surname>Buehrer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">C</forename><surname>Headley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">J</forename><surname>Michaels</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Open Journal of the Communications Society</title>
+		<imprint>
+			<biblScope unit="volume">2</biblScope>
+			<biblScope unit="page" from="2243" to="2264" />
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Specific Emitter Identification Using Convolutional Neural Network-Based IQ Imbalance Estimators</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">J</forename><surname>Wong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">C</forename><surname>Headley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">J</forename><surname>Michaels</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Access</title>
+		<imprint>
+			<biblScope unit="volume">7</biblScope>
+			<biblScope unit="page">555</biblScope>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Bandwidth intensive 3-D FFT kernel for GPUs using CUDA</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Nukada</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ogata</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Endo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Matsuoka</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">SC &apos;08: Proceedings of the 2008 ACM/IEEE Conference on Supercomputing</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="1" to="11" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">tcFFT: A Fast Half-Precision FFT Library for NVIDIA Tensor Cores</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Cheng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE International Conference on Cluster Computing (CLUSTER)</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="1" to="11" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">An empirically tuned 2D and 3D FFT library on CUDA GPU</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Gu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Siegel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 24th ACM International Conference on Supercomputing, ser. ICS &apos;10</title>
+		<meeting>the 24th ACM International Conference on Supercomputing, ser. ICS &apos;10</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="305" to="314" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Auto-tuning 3-D FFT library for CUDA GPUs</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Nukada</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Matsuoka</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the Conference on High Performance Computing Networking, Storage and Analysis</title>
+		<meeting>the Conference on High Performance Computing Networking, Storage and Analysis</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+	<note>ser. SC &apos;09</note>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<monogr>
+		<title level="m" type="main">Improving Performance of Matrix Multiplication and FFT on GPU</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Cui</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Mei</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2009">2009. 2009</date>
+			<biblScope unit="page" from="42" to="48" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Fast Computation of General Fourier Transforms on GPUs</title>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">B</forename><surname>Lloyd</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Boyd</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Govindaraju</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2008 IEEE International Conference on Multimedia and Expo</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="5" to="8" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Hardware Compute Partitioning on NVIDIA GPUs</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bakita</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2023 IEEE 29th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2023">2023</date>
+			<biblScope unit="page" from="54" to="66" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Fractional GPUs: Software-Based Compute and Memory Bandwidth Reservation for GPUs</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Jain</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Baek</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2019 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="29" to="41" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">GPU Sharing for Image Processing in Embedded Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Miller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Wang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 12th Annual Workshop on Operating Systems Platforms for Embedded Real-Time Applications</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Soft Real-Time on Multiprocessors: Are Analysis-Based Schedulers Really Worth It?</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">J</forename><surname>Kenna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">L</forename><surname>Herman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">F</forename><surname>Mills</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2011 IEEE 32nd Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="93" to="103" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Exploiting skips in periodic tasks for enhancing aperiodic responsiveness</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings Real-Time Systems Symposium</title>
+		<meeting>Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="1997">1997</date>
+			<biblScope unit="page" from="330" to="339" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Multi-model workload specifications and their application to cyber-physical systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Research Directions: Cyber-Physical Systems</title>
+		<imprint>
+			<biblScope unit="volume">2</biblScope>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<monogr>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">W</forename><surname>Ali</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bakita</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chakraborty</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<ptr target="https://jamesanderson.web.unc.edu/papers/" />
+		<title level="m">Concurrent FFT Execution on GPUs in Real-Time,&quot; 2025, full version with additional graphs</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

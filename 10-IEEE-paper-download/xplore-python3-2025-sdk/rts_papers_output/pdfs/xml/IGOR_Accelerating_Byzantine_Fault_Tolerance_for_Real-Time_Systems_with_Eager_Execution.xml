@@ -1,0 +1,2800 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">IGOR: Accelerating Byzantine Fault Tolerance for Real-Time Systems with Eager Execution</title>
+				<funder ref="#_wwraRHC #_bENB2wT">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Andrew</forename><surname>Loveless</surname></persName>
+							<email>loveless@umich.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">University of Michigan</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Ronald</forename><surname>Dreslinski</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">University of Michigan</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Baris</forename><surname>Kasikci</surname></persName>
+							<email>barisk@umich.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">University of Michigan</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Linh</forename><surname>Thi</surname></persName>
+						</author>
+						<author>
+							<persName><forename type="first">Xuan</forename><surname>Phan</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="institution" key="instit1">University of Pennsylvania</orgName>
+								<orgName type="institution" key="instit2">NASA Johnson Space Center</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">IGOR: Accelerating Byzantine Fault Tolerance for Real-Time Systems with Eager Execution</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">88E2C4413449EF561CA261E56C373EC6</idno>
+					<idno type="DOI">10.1109/RTAS52030.2021.00036</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T03:07+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>Byzantine fault tolerance</term>
+					<term>state machine replication</term>
+					<term>speculative execution</term>
+					<term>multi-core</term>
+					<term>real-time systems</term>
+					<term>distributed systems</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Critical real-time systems like spacecraft and aircraft commonly use Byzantine fault-tolerant (BFT) state machine replication (SMR) to mask faulty processors and sensors. Unfortunately, existing BFT SMR techniques require replicas to reach agreement on redundant sensor data and perform source selection before executing, which adds unavoidable latency to every execution and inevitably decreases control performance. The standard way to reduce the latency of BFT SMR in nonreal-time systems is to use speculation, forgoing agreement on inputs altogether, and repeating executions when faults occur. However, this approach is not suitable for real-time systems, since its worst-case latency when faults occur can be even higher than that of non-speculative systems.</p><p>This paper presents IGOR, a new speculative BFT SMR approach that leverages multi-core processors to avoid the added latency inherent to traditional BFT SMR techniques in both the absence and presence of faults. The key idea of IGOR is to eagerly execute on data from redundant sensors in parallel. While these executions are underway, the replicas reach agreement on which execution will determine the system's final state. As a result, IGOR's latency is reduced to the time taken by the executions or by the agreement process, whichever is longer. Our evaluation shows that IGOR reduces latency by up to 1.75× and improves schedulability by 1.88-3.22× compared to the state of the art. We also show that when used to execute spacecraft guidance, navigation, and control software during a dynamic mission phase, IGOR noticeably increases vehicle stability.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Real-time control systems, such as those in spacecraft and aircraft, often use Byzantine fault-tolerant (BFT) state machine replication (SMR) to mask errors due to hardware faults and environmental factors, such as cosmic radiation <ref type="bibr" target="#b0">[1]</ref>- <ref type="bibr" target="#b15">[16]</ref>. In these systems, the same function is performed simultaneously by multiple processors (i.e., replicas), each of which receives data from redundant sensors. To ensure that the replicas maintain the same internal state and produce the same output, care must be taken to ensure they operate on the same input data. This is typically accomplished by having the replicas run an agreement protocol on the data from each sensor <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b14">[15]</ref>, <ref type="bibr" target="#b16">[17]</ref>. The replicas then perform a source selection to choose a single "best" sensor value as the system input <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b14">[15]</ref>, <ref type="bibr" target="#b17">[18]</ref>. The source selection step is typically application-specific, and can be as simple as a mid-value selection <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b14">[15]</ref>. Finally, the replicas execute on the selected input value.</p><p>Unfortunately, this "agree-execute"<ref type="foot" target="#foot_0">1</ref> approach used in traditional BFT SMR systems has a significant drawback: high latency. Since any deterministic agreement protocol requires at least f + 1 rounds of communication to tolerate f faulty replicas <ref type="bibr" target="#b19">[20]</ref>, requiring that the replicas reach agreement on inputs before executing adds at least f + 1 rounds of communication latency to every execution they perform on the incoming data. As we show in §VI, this additional delay can make it impossible to meet certain hard deadlines. Moreover, even when all deadlines can be met, the added latency results in an unavoidable reduction in real-time control performance and system stability, and thus increases the complexity of the control software to compensate for the extra delay <ref type="bibr" target="#b20">[21]</ref>.</p><p>A standard approach to addressing this challenge in nonreal-time systems, such as data centers and blockchains <ref type="bibr" target="#b21">[22]</ref>- <ref type="bibr" target="#b26">[27]</ref>, is to adopt speculative execution, which forgoes agreement on the inputs altogether and assumes the replicas will end up in identical states. In the common case where replicas do not diverge, this approach completely avoids running an agreement protocol. However, when the states do divergewhich can be caused by faulty replicas -the system needs to rollback and repeat previous executions <ref type="bibr" target="#b21">[22]</ref>- <ref type="bibr" target="#b25">[26]</ref>. This outcome is not generally acceptable for real-time systems, since repeating executions can substantially increase worstcase response times, leading to deadline misses.</p><p>In this paper, we present IGOR, a novel speculative BFT SMR approach that leverages the increasing prevalence of multi-core processors in real-time embedded systems <ref type="bibr" target="#b9">[10]</ref>, <ref type="bibr" target="#b27">[28]</ref> to enable speculation without rollback. The key idea behind IGOR is to eagerly execute on the data from redundant sensors simultaneously, without knowing which execution (and thus which sensor) will be used to determine the system's final state. While these executions are underway, the replicas reach agreement on which states to discard and which to keep. As soon as the executions and the agreement process are completed, IGOR can deliver results to the actuators. Thus, when the executions take longer than agreement (which is common in practice, as we show in §VI), IGOR's end-to-end latency (from sensors to actuators) is the same as that of a non-replicated system -that is, IGOR achieves the minimum possible latency. In all other cases, IGOR's ability to overlay agreement and execution inevitably results in latency savings.</p><p>It is not sufficient to simply run an existing agreement protocol concurrently with the speculative executions, however. The reason is that, although the source selection algorithm will still select a single "best" sensor value, we cannot guarantee that the selected sensor value has been executed on by enough nonfaulty replicas, and thus there may not be enough non-faulty replicas with the same state to out-vote the faulty replicas (c.f. §IV-A). We solve this problem by introducing new agreement protocols that allow replicas to simultaneously reach agreement on both <ref type="bibr" target="#b0">(1)</ref> the sensor values they received and (2) how many replicas received each of those sensor values. As such, the protocols are able to guarantee that a given sensor value cannot be selected unless there is a high enough number of replicas claiming to possess the value such that, even if some of those replicas are faulty, a sufficient number of replicas must have executed on the value successfully. Importantly, IGOR can provide this guarantee without sacrificing correctness or using more communication rounds than that of a traditional agreement protocol.</p><p>To evaluate IGOR's performance, we implemented a prototype of IGOR in NASA's Core Flight System (cFS) <ref type="bibr" target="#b28">[29]</ref>, an open-source general-purpose flight software framework used in a variety of real spacecraft, including the Lunar Reconnaissance Orbiter and Parker Solar Probe <ref type="bibr" target="#b29">[30]</ref>. Our experimental evaluation shows that, for realistic system configurations, IGOR reduces latency by up to 1.75× and improves schedulability by 1.88-3.22× compared to the state of the art, and that its latency closely matches the theoretical minimum (produced by a non-replicated system). We also used IGOR to execute simulated guidance, navigation, and control software from a real spacecraft (including multiple genuine flight software components); our evaluation shows that IGOR is able to meet deadlines that existing solutions cannot, leading to improved vehicle stability and performance.</p><p>In summary, we make the following contributions:</p><p>• IGOR: a speculative BFT SMR system with low latencies in both the presence and absence of faults ( §IV). • A prototype of IGOR for NASA's cFS framework ( §V).</p><p>• An experimental evaluation of IGOR, including benchmarks ( §VI-A) and schedulability analysis ( §VI-B).</p><p>• A case study of IGOR in a spaceflight application ( §VI-E).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND AND CHALLENGES</head><p>In this section, we describe how BFT SMR systems are built today and why such a design results in poor performance.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Overview of a BFT SMR System</head><p>A typical BFT SMR system consists of multiple redundant processors (i.e., replicas) that communicate with a variety of redundant input and output devices <ref type="bibr" target="#b0">[1]</ref>- <ref type="bibr" target="#b15">[16]</ref>. Depending on the application, these devices may include inertial measurement units, star trackers, remote interface units, and engine or thruster controllers. In modern systems, all these devices are connected to a single backbone network <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b30">[31]</ref>- <ref type="bibr" target="#b32">[33]</ref>. For simplicity, we refer to all input devices as "sensors" and all Replicas: Sensors: Actuators:  output devices as "actuators". We refer to each input data item from a sensor as a "value".</p><p>To ensure non-faulty replicas never produce conflicting commands, it is necessary to ensure they maintain the same internal state, which in turn requires replicas to operate on the same inputs in the same order. Typically, the ordering of the inputs is known a priori (e.g., because system components are synchronized and tasks and traffic patterns are scheduled offline <ref type="bibr" target="#b33">[34]</ref>). To ensure that the actual content of the inputs is identical, the replicas run an agreement protocol on all inputs before executing <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b16">[17]</ref>.</p><p>Figure <ref type="figure" target="#fig_0">1</ref> illustrates this "agree-execute" approach: 1 Each sensor sends its value to each of the replicas; since sensor 3 is faulty, some replicas receive different values from this sensor. <ref type="foot" target="#foot_1">2</ref> The replicas then use an agreement protocol to agree on the value from each sensor, and<ref type="foot" target="#foot_2">3</ref> perform source selection 2 to choose a single "best" sensor value to use as input for the computation. 4 The replicas then perform the same deterministic computation on the selected input, and thus all non-faulty replicas end up with the same state. The replicas use the state to determine the system output, then send the output to the actuators. 3  5 The actuators use a majority vote to mask the output of a bad replica.</p><p>Notice that if the replicas did not run an agreement protocol before executing, then the source selection could result in different non-faulty replicas using different sensor values as their inputs, which would cause their internal states to diverge.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Drawbacks of the Agree-Execute Approach</head><p>Real-time systems require low latency for tight control loops and hazard response. Unfortunately, traditional BFT SMR systems suffer from high latency, as the replicas must reach agreement before executing and the latency of the agreement protocol is often significant.</p><p>The latency of an agreement protocol depends on two factors: the number of communication rounds in the protocol and the length of each round. A round must be large enough to ensure all messages sent at the start of a round are received by the end of that round <ref type="bibr" target="#b34">[35]</ref>- <ref type="bibr" target="#b36">[37]</ref>. Therefore, the round length must be at least as large as the worst-case traversal time (WCTT) of a message over the network.</p><p>In large systems like spacecraft and aircraft, which commonly have thousands of traffic flows and large networks spanning multiple switches <ref type="bibr" target="#b37">[38]</ref>- <ref type="bibr" target="#b39">[40]</ref>, the message WCTTand thus minimum round length -can be on the order of several milliseconds <ref type="bibr" target="#b37">[38]</ref>- <ref type="bibr" target="#b41">[42]</ref>. For example, in deterministic Ethernet (AFDX <ref type="bibr" target="#b42">[43]</ref>) networks used in avionic systems, the WCTT can be up to 3-4 ms for individual Ethernet frames <ref type="bibr" target="#b37">[38]</ref>, <ref type="bibr" target="#b41">[42]</ref>. Large messages must be fragmented into multiple frames sent at least 1 ms apart <ref type="bibr" target="#b42">[43]</ref>, and more commonly 4+ ms apart <ref type="bibr" target="#b37">[38]</ref>, which can result in message WCTTs that are multiple times that of a single frame <ref type="bibr" target="#b42">[43]</ref>. We note that since agreement protocols often require replicas to send increasingly larger messages in each round <ref type="bibr" target="#b34">[35]</ref>- <ref type="bibr" target="#b36">[37]</ref>, <ref type="bibr" target="#b43">[44]</ref>, <ref type="bibr" target="#b44">[45]</ref>, fragmentation is common, even if the data to agree on is small. For example, agreeing on 250 bytes in a typical 1 fault-tolerant BFT SMR system (4 replicas, where 1 replica may be faulty) requires replicas to broadcast 2250 bytes of data in the second round, which must be fragmented across at least 2 Ethernet frames. Agreeing on 1200 bytes would require 8 fragments.</p><p>Time-triggered networks <ref type="bibr" target="#b45">[46]</ref>- <ref type="bibr" target="#b48">[49]</ref> can reduce frame WCTTs to hundreds of microseconds <ref type="bibr" target="#b30">[31]</ref>, <ref type="bibr" target="#b49">[50]</ref>. However, if the frame WCTT is short, the round length is then dictated by other factors. For example, each round cannot be shorter than the period at which the network schedule lets devices access the network, which is often on the order of milliseconds to avoid delaying or dropping other traffic <ref type="bibr" target="#b30">[31]</ref>, <ref type="bibr" target="#b50">[51]</ref>. Further, the round length cannot be shorter than what the software schedule allows. For example, replicas typically communicate through a dedicated I/O task or partition that executes with a fixed period <ref type="bibr" target="#b51">[52]</ref>, <ref type="bibr" target="#b52">[53]</ref>, which is often 10+ ms to avoid excessive processing overhead <ref type="bibr" target="#b52">[53]</ref>, <ref type="bibr" target="#b53">[54]</ref>. Lastly, large messages still need to be fragmented across multiple time slots <ref type="bibr" target="#b40">[41]</ref>.</p><p>Since a single round can take several milliseconds, and any deterministic agreement protocol must take at least f + 1 rounds <ref type="bibr" target="#b19">[20]</ref>, simply having the replicas agree on sensor data can take upwards of 10 ms even for small values of f . Often, this agreement latency can be as much as, or exceed, the time needed for execution on the agreed upon data <ref type="bibr" target="#b54">[55]</ref>, <ref type="bibr" target="#b55">[56]</ref>, thus resulting in end-to-end latencies that are 1.5-2× higher than that of a non-replicated system (see §VI).</p><p>The standard way to reduce the average latency of BFT SMR in non-real-time systems is to adopt a speculative approach <ref type="bibr" target="#b21">[22]</ref>- <ref type="bibr" target="#b25">[26]</ref> that avoids executing an agreement protocol in the (common) fault-free case. Unfortunately, using this strategy in a real-time system makes little sense, since the maximum latency, which occurs when replicas are faulty and requests need to be re-executed, can be even higher than in traditional BFT SMR systems.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. MODELS</head><p>This section describes our system and failure models. Our models are consistent with real-time systems that rely on BFT in practice <ref type="bibr" target="#b0">[1]</ref>, <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b14">[15]</ref>, <ref type="bibr" target="#b31">[32]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. System Model</head><p>We consider a distributed system of processors, sensors, and actuators (which we collectively refer to as devices) connected to a network. We assume the system is synchronous, i.e., there are known upper bounds on the time needed for processors to perform computations and for messages to traverse the network <ref type="bibr" target="#b35">[36]</ref>, <ref type="bibr" target="#b56">[57]</ref>, <ref type="bibr" target="#b57">[58]</ref>. This is typically accomplished using specialized real-time operating systems <ref type="bibr" target="#b58">[59]</ref>, <ref type="bibr" target="#b59">[60]</ref> and networking protocols <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b42">[43]</ref>, <ref type="bibr" target="#b47">[48]</ref>, <ref type="bibr" target="#b48">[49]</ref>, <ref type="bibr" target="#b60">[61]</ref>, <ref type="bibr" target="#b61">[62]</ref>.</p><p>We assume all devices are synchronized, either via the network <ref type="bibr" target="#b47">[48]</ref>, <ref type="bibr" target="#b48">[49]</ref>, <ref type="bibr" target="#b60">[61]</ref> or external timing equipment <ref type="bibr" target="#b62">[63]</ref>, and that the system progresses in a series of rounds. At the start of each round, devices send messages. At the end of each round, devices read messages and perform computations. Messages are received in the same round they are sent.</p><p>We assume replicas can communicate directly with each other, and with sensors and actuators, over the network. This assumption follows trends in distributed real-time control systems, which are becoming increasingly "flat", with a single backbone network connecting all system components <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b30">[31]</ref>, <ref type="bibr" target="#b31">[32]</ref>, <ref type="bibr" target="#b63">[64]</ref>. The network can use any physical topology, which may include switches <ref type="bibr" target="#b42">[43]</ref>, <ref type="bibr" target="#b47">[48]</ref>, <ref type="bibr" target="#b60">[61]</ref>, buses <ref type="bibr" target="#b48">[49]</ref>, <ref type="bibr" target="#b63">[64]</ref>, or point-to-point links <ref type="bibr" target="#b0">[1]</ref>, <ref type="bibr" target="#b2">[3]</ref>, <ref type="bibr" target="#b7">[8]</ref>. Regardless of topology, we model communication between devices as point-to-point.</p><p>Lastly, we assume a device can identify the sender of any message it receives. This is a necessary assumption in any BFT system <ref type="bibr" target="#b35">[36]</ref>, since otherwise a faulty device could impersonate all the other devices <ref type="bibr" target="#b64">[65]</ref>. The assumption is trivially satisfied in point-to-point networks. In other networks, it is typically satisfied using (1) static routing tables, where the devices connected to each switch port (for example) are known a priori, and switches discard messages that disagree with the table <ref type="bibr" target="#b42">[43]</ref>, <ref type="bibr" target="#b47">[48]</ref>, <ref type="bibr" target="#b60">[61]</ref>, or (2) a time-division multiple access scheme <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b31">[32]</ref>, <ref type="bibr" target="#b61">[62]</ref>, <ref type="bibr" target="#b63">[64]</ref>, in which the sender is implied by the time a message is received.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Failure Model</head><p>We consider the classical Byzantine failure model, where, in a system with n replicas and m sensors, f &lt; n/3 of the replicas <ref type="bibr" target="#b35">[36]</ref> and g &lt; m/2 of the sensors <ref type="bibr" target="#b13">[14]</ref>, <ref type="bibr" target="#b65">[66]</ref> can be faulty. Faulty devices can exhibit any possible behavior, including pretending to have received messages that were never sent, dropping or failing to send messages, sending messages at the wrong time, or sending conflicting messages to different devices. For example, a faulty replica that is supposed to broadcast some value v to all replicas may instead send v to some replicas, v to some other replicas, and no value to the rest of the replicas.</p><p>Byzantine behaviors can have multiple causes in practice, e.g., software errors <ref type="bibr" target="#b66">[67]</ref>, device wear-out <ref type="bibr" target="#b67">[68]</ref>, and bits flips from charged particles <ref type="bibr" target="#b68">[69]</ref>. Broadcast networks can prevent some of these behaviors, since messages are sent only once by the device and replicated by the switch or bus <ref type="bibr" target="#b42">[43]</ref>, <ref type="bibr" target="#b47">[48]</ref>  while others from network B first <ref type="bibr" target="#b3">[4]</ref>. A faulty device can also transmit a marginal signal that is interpreted differently by different receivers receiving the same message <ref type="bibr" target="#b69">[70]</ref>.</p><p>In contrast to the replicas and sensors, we assume the network itself is reliable. This has two implications. First, the network cannot drop messages. This is typically accomplished using automatic retransmissions <ref type="bibr" target="#b60">[61]</ref>, or redundant network planes <ref type="bibr" target="#b42">[43]</ref>, <ref type="bibr" target="#b47">[48]</ref>, <ref type="bibr" target="#b48">[49]</ref>, in which messages are sent over multiple independent networks simultaneously. Second, the network cannot corrupt or create messages. This is typically accomplished by having network cards vote messages from redundant networks <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b4">[5]</ref>, or by using specialized selfchecking switches that are proven to fail silent with sufficiently high probability <ref type="bibr" target="#b31">[32]</ref>, <ref type="bibr" target="#b63">[64]</ref>, <ref type="bibr" target="#b70">[71]</ref>. We note that by not worrying about network failures, we keep IGOR's design general and applicable to a broad range of architectures; there is no reason IGOR could not be analyzed in the context of network failures.</p><p>Finally, in safety-critical systems, where BFT is perhaps most used in practice <ref type="bibr" target="#b0">[1]</ref>- <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b10">[11]</ref>- <ref type="bibr" target="#b14">[15]</ref>, cryptographic methods like digital signatures are typically considered an insufficient means of constraining the behavior of faulty devices <ref type="bibr" target="#b71">[72]</ref>- <ref type="bibr" target="#b74">[75]</ref>. We design IGOR to avoid cryptographic assumptions and to be correct in all possible executions.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. DESIGN</head><p>This section describes IGOR, a new speculative approach for building high-performance BFT SMR systems suitable for real-time applications. In general, IGOR has two main goals:</p><p>• Low latency in all executions -Real-time systems must meet deadlines in the worst-case scenario (i.e., under faults). There is no benefit to being fast in the absence of faults if the system is slow when faults do occur. • Robustness to faulty sensor data -Traditional BFT SMR architectures use a source selection process to reject bad sensor data and select a single "best" input. Despite IGOR's speculative approach, it needs to retain this same robustness to faulty sensor data. IGOR accomplishes these goals using a speculative approach, in which -rather than agreeing on sensor data before executing -replicas eagerly execute on sensor data while simultaneously agreeing on which data to use. The key idea is to keep replicas from wasting time communicating when they could be getting closer to delivering a result. Of course, IGOR's ability to reduce latency relies on the replicas' ability to perform extra computations. However, we believe this is a worthwhile trade-off in critical low-latency applications (e.g., flight control) that could not meet deadlines otherwise. It also lets IGOR take advantage of emerging aerospace processors, which can feature 4, 8, or more cores <ref type="bibr" target="#b9">[10]</ref>, <ref type="bibr" target="#b27">[28]</ref>.</p><p>Figure <ref type="figure" target="#fig_1">2</ref> gives an overview of IGOR's design. 1 Like in traditional BFT SMR systems, the replicas get a value from each sensor; however, they do not run an agreement protocol on the values directly. 2 Instead, each replica delegates each sensor value to a different core and executes on each value simultaneously. Each execution produces a (potentially different) resulting state, which is stored temporarily. 3 While these executions are in progress, the replicas use an agreement protocol to determine which replicas claim to possess the value from each sensor. As a result of the agreement process, the replicas end up with an identical set of "candidate" sensorssensors whose value could be selected as the "trusted" system input. IGOR ensures that if a sensor is non-faulty, it is guaranteed to be in this candidate set. 4 The replicas then perform a source selection process to determine which candidate sensor, and therefore which execution, will be used to determine the system's final state. This process is analogous to the source selection performed in an agree-execute system. <ref type="bibr" target="#b4">5</ref> Once the executions on the sensor values are complete, the replicas commit the state resulting from the chosen execution and discard other states. If an output is required, the replicas reference their (now final) state to determine the output and send it to the actuators. Like in agree-execute systems, the actuators use a majority vote to determine the system output.</p><p>IGOR also uses two key optimizations to make BFT SMR more efficient. First, it uses a binary reduction technique <ref type="bibr" target="#b75">[76]</ref>- <ref type="bibr" target="#b78">[79]</ref> to reduce the problem of agreeing on arbitrarily large sensor data to that of agreeing on a small constant number of bits. This technique enables IGOR to achieve low latencies even when tolerating multiple faults, which would otherwise be impossible due to the added latency of fragmenting large messages (see §VI-A). Second, IGOR exploits the fact that, even though all non-faulty replicas must agree on the system state before the next iteration of the protocol, only a subset of those replicas are needed to deliver correct results to the actuators. Therefore, IGOR can produce an output before the agreement process is actually completed.</p><p>The following sections describe IGOR in detail. We start with a version of IGOR that is optimized for low latency in the single-fault case ( §IV-A). We then modify the protocol using a binary reduction technique to make a version of IGOR optimized for tolerating multiple faults ( §IV-B).  Unfortunately, it is not sufficient for IGOR to simply place a traditional agreement protocol in parallel with the speculative executions. The reason is that, although traditional agreement protocols guarantee all non-faulty replicas end up with the same value, they make no guarantees about how many replicas started with -and thus executed on -that value <ref type="bibr" target="#b34">[35]</ref>, <ref type="bibr" target="#b79">[80]</ref>, <ref type="bibr" target="#b80">[81]</ref>. Even agreement protocols with stronger guarantees <ref type="bibr" target="#b81">[82]</ref>, such as ensuring that a value cannot be decided unless at least one non-faulty replica started with that value, are not sufficient. For example, consider a typical system with 4 replicas (1 faulty) and 3 sensors (1 faulty). The faulty sensor may send a value v to one replica and v to the others, which the replicas start speculatively executing on. After running an agreement protocol, the replicas may decide on the value v from the faulty sensor, and that value may be selected by the source selection process as the system input. However, only one nonfaulty replica actually executed on that value originally, and thus has the resulting state, which is not enough to out-vote a faulty replica when delivering results to the actuators.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Optimizing Eager Execution for the Single-Fault Case</head><p>IGOR's Agreement Stage fixes this problem by having replicas simultaneously agree on both the content of the sensor data and how many replicas received it. This is described in Protocol 1, which the replicas execute on each sensor value. It uses an existing Byzantine agreement (BA) protocol <ref type="bibr" target="#b35">[36]</ref>, <ref type="bibr" target="#b79">[80]</ref>, <ref type="bibr" target="#b80">[81]</ref> as a primitive, which guarantees that, when a faulty replica broadcasts a value, all other non-faulty replicas receive the same value <ref type="bibr" target="#b35">[36]</ref>.</p><p>In Protocol 1, MyValue k is the value the replica received from sensor k. If no value was received, it is set to a predetermined default value. Values k is an n-dimensional vector used to store values other replicas received from sensor k (recall that n is the number of replicas Source Selection Stage. In the Source Selection Stage, the replicas decide which of the candidate sensors will determine the system's final state, using an existing deterministic source selection algorithm. This process is analogous to the source selection process in traditional agree-execute systems, except that it happens in parallel with the executions.</p><p>Protocol 2 describes the Source Selection process. Selected-Source is a variable containing the ID of the selected sensor, which in turn determines the selected state.   We now prove the correctness of the overall protocol. THEOREM 1. Given there are n &gt; 3f replicas and m &gt; 2g sensors: (1) the system always operates on correct sensor data, (2) all non-faulty replicas obtain the same correct state, and (3) all non-faulty actuators obtain the correct system output.</p><p>Proof. We first consider condition <ref type="bibr" target="#b0">(1)</ref>. If the Source Selection Stage selects a value from a non-faulty sensor, (1) is trivially satisfied. Now we consider the case where the selected value comes from a faulty sensor.</p><p>By Lemmas 2 and 3, all non-faulty replicas are guaranteed to agree on C, and C must include all values sent from nonfaulty sensors. Since there are m &gt; 2g sensors, this means that C contains ≥ (2g + 1) -g = g + 1 non-faulty sensor values and up to g faulty sensor values. Thus, as long as a source selection algorithm that tolerates a minority of the sensors being faulty is used, the input to the non-faulty replicas is guaranteed to be correct. For example, in the common case, where source selection is a mid-value selection <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b14">[15]</ref>, <ref type="bibr" target="#b82">[83]</ref>, a faulty sensor value that is selected is guaranteed to be upper and lower bounded by at least one non-faulty sensor value on each side. In other words, the selected value must fall within the range of values from non-faulty sensors.</p><p>We now consider <ref type="bibr" target="#b1">(2)</ref>. Let S happy be the set of non-faulty replicas for which MyAccept SelectedSource = True at the end of the State Consolidation Stage, and S sad be the set of nonfaulty replicas / ∈ S happy . By Lemma 4, |S happy | ≥ n -2f , and all replicas ∈ S happy have the same SavedState s, which they obtained by executing on the (correct, as shown above) value from the selected sensor. In the State Dispersal Stage all replicas ∈ S happy broadcast s to all replicas, and replicas ∈ S sad do not broadcast their states. Thus, at the end of the State Dispersal Stage, all replicas ∈ S sad possess ≥ n -2f copies of s from non-faulty replicas, and at most f states s = s from faulty replicas. Since n &gt; 3f, n -2f &gt; f. Thus s must be the majority of non-⊥ states held by replicas ∈ S sad .</p><p>The correctness of (3) follows from the logic in (2). All replicas ∈ S happy have the same correct SavedState, as shown above. Thus, referencing SavedState produces the same correct output. Each replica ∈ S happy sends the output to the actuators, and replicas ∈ S sad do not send an output. Since |S happy | ≥ f + 1, each actuator gets ≥ f + 1 correct outputs and ≤ f outputs from faulty replicas. Thus the majority of the outputs received by the actuators must be correct.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Scaling Eager Execution for the Multi-Fault Case</head><p>The protocol we described above is fast when tolerating a single fault. However, it requires replicas to broadcast full copies of the sensor data they receive using a Byzantine agreement protocol. As we show in §VI-A, this results in high latency when tolerating multiple faults, since large messages sent in later rounds of the agreement protocol need to be fragmented into multiple frames.</p><p>The multi-fault version of IGOR fixes this problem using a binary reduction technique <ref type="bibr" target="#b75">[76]</ref>- <ref type="bibr" target="#b78">[79]</ref>. The idea is to add an extra stage, which we call Filtering, before the Agreement Stage. The Filtering Stage ensures that no two non-faulty replicas can accept different data from the same sensor, thus reducing the agreement on each sensor value to agreement on a single bit (accepted value, or did not accept value). Since the size of the data to agree on is reduced, fragmentation (and the resulting latency) is reduced as well.</p><p>An outline of the revised protocol is shown in Figure <ref type="figure" target="#fig_2">3</ref>  The replicas run a separate instance of the protocol for each sensor. The protocol uses any existing BA protocol as a primitive <ref type="bibr" target="#b35">[36]</ref>, <ref type="bibr" target="#b79">[80]</ref>, <ref type="bibr" target="#b80">[81]</ref>. Accepts k is an n-dimensional vector used to store MyAccept k bits from other replicas. All elements are initialized to ⊥. Candidates k is a variable indicating if sensor k is a candidate for source selection. It is initialized to False.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Protocol 7: (Revised) Agreement Stage</head><p>• Broadcast MyAccept k to all replicas using a BA protocol</p><formula xml:id="formula_0">• Accepts k [j] ← the bit broadcasted by replica j (if any) if count(True) in Accepts k ≥ n -f then: -Candidate k ← True if MyAccept k = False then:</formula><p>-For all j where Accepts k</p><formula xml:id="formula_1">[j] = False, Values k [j] ← ⊥ -MyValue k ← the most common non-⊥ value in Values k</formula><p>The rest of the stages are the same as in the single-fault optimized protocol. Therefore, to establish the correctness of the multi-fault protocol, we only need to re-prove a few of the lemmas from §IV-A.</p><p>(REVISED) LEMMA 1. For any sensor k, Candidate k is the same for all non-faulty replicas. Further, if Candidate k is True, MyValue k is the same for all non-faulty replicas.</p><p>Proof. Each bit in Accepts k was broadcasted with a BA protocol, and thus is the same for all non-faulty replicas. We next prove the second part of the lemma. As discussed above, ≥ n -f replicas claimed to set MyAccept SelectedSource ← True. In the worst case, all replicas which did not claim to set MyAccept SelectedSource ← True are non-faulty. Thus, at most f non-faulty replicas do not have the state.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. PROTOTYPE IMPLEMENTATION</head><p>To evaluate our solution, we built a prototype of IGOR in NASA's Core Flight System (cFS) <ref type="bibr" target="#b28">[29]</ref>, an open-source software framework used in a variety of real spacecraft <ref type="bibr" target="#b29">[30]</ref> (and planned to be used in several future NASA missions <ref type="bibr" target="#b83">[84]</ref>). Overall, our prototype consists of 5976 lines of C code.</p><p>Our prototype runs on a cluster of Raspberry Pi (RPi) 3B+ computers with 1.4 GHz ARM Cortex-A53 processors. We chose RPis as they use the same processor as NASA's upcoming High Performance Spaceflight Computing (HPSC) chiplet <ref type="bibr" target="#b9">[10]</ref> (though the HPSC will have twice as many cores). Each RPi runs Raspbian 9.4 with kernel version 4.14.34 and the PREEMPT RT patch, with dynamic clock scaling disabled to improve real-time performance. The RPis schedule tasks using the cFS scheduler <ref type="bibr" target="#b53">[54]</ref>, a cyclic executive that triggers tasks to run in predefined time slots of a periodic schedule. The RPis' schedulers are synchronized to a common external timing circuit. To minimize timing variability, one core of each RPi is reserved for inter-replica communication, and the remaining three cores are used for task execution.</p><p>All RPis communicate through a gigabit Ethernet switch. We implemented a software layer in cFS to emulate the AFDX <ref type="bibr" target="#b42">[43]</ref> network found in typical aircraft <ref type="bibr" target="#b84">[85]</ref>. The worstcase Ethernet frame latencies measured in our prototype are a couple of milliseconds, which are similar to those observed in real AFDX networks <ref type="bibr" target="#b37">[38]</ref>, <ref type="bibr" target="#b41">[42]</ref>. Messages that are sent to the same destination in the same round are batched whenever possible to reduce overhead.</p><p>For comparison, we also implemented two state-of-the-art systems, namely OM and TC. OM is an agree-execute system based on Lamport, Shostak, and Pease's Oral Messages agreement protocol <ref type="bibr" target="#b35">[36]</ref>, <ref type="bibr" target="#b36">[37]</ref>, which has the theoretical minimum number of rounds <ref type="bibr" target="#b19">[20]</ref> and is used extensively in practice <ref type="bibr" target="#b0">[1]</ref>- <ref type="bibr" target="#b2">[3]</ref>, <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b7">[8]</ref>. OM is also the basis for all existing Byzantine agreement protocols that meet this lower bound <ref type="bibr" target="#b34">[35]</ref>, <ref type="bibr" target="#b85">[86]</ref>, <ref type="bibr" target="#b86">[87]</ref>. TC is an agree-execute system based on Turpin and Coan's reduction protocol <ref type="bibr" target="#b75">[76]</ref>, which uses a similar reduction approach to IGOR and takes fewer rounds than any existing protocol that uses a binary reduction <ref type="bibr" target="#b76">[77]</ref>, <ref type="bibr" target="#b78">[79]</ref>, <ref type="bibr" target="#b87">[88]</ref>, <ref type="bibr" target="#b88">[89]</ref>. We used OM as the binary agreement primitive in TC, as well as in our IGOR prototype. Lastly, we also implemented a system without replication, NOREP, which provides the theoretical minimum latency.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. EVALUATION</head><p>To evaluate IGOR's performance and practical applicability, we conducted a series of experiments on our prototype. We had four key questions for our evaluation: (1) How effective is IGOR in reducing end-to-end latency? (2) How much can IGOR improve schedulability? (3) What are IGOR's computation and communication overheads? and (4) How well does IGOR perform in a real spaceflight application?</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Latency</head><p>Experimental setup. For this experiment, we considered a range of workload parameters based on practical aircraft systems. Specifically, the sensor data size was distributed in the range {250, 750, 1250} bytes, and the task's worst-case execution time (WCET) was in {5, 10, 15, 20} milliseconds; these values were chosen to match those found in typical aircraft <ref type="bibr" target="#b37">[38]</ref>, <ref type="bibr" target="#b55">[56]</ref>. (Note that the sensor data size is relatively large, since data delivered to the flight computers are often batched by downstream devices <ref type="bibr" target="#b31">[32]</ref>, <ref type="bibr" target="#b82">[83]</ref>.) We set the actuator data size, task's state size, and source selection time to be 500 bytes, 1500 bytes, and 1 ms, respectively, based on NASA's Orion Ascent Abort-2 system used in our case study ( §VI-E). The number of sensors was 3, the typical redundancy level found in aircraft and spacecraft <ref type="bibr" target="#b13">[14]</ref>. The band allocation gap (BAG) -i.e., the minimum time between AFDX frames sent on the same virtual link -was 1 ms, which is the minimum allowed by the AFDX standard <ref type="bibr" target="#b42">[43]</ref>.</p><p>The workloads executed on the experimental platform described in §V. We used a 500 Hz cFS schedule (2 ms per slot), the highest rate that can be achieved with our timing circuit (and also the upper limit of what is typically seen in practice <ref type="bibr" target="#b40">[41]</ref>, <ref type="bibr" target="#b53">[54]</ref>, <ref type="bibr" target="#b89">[90]</ref>). One of the RPis acted as the sensors and actuators, and the remaining RPis were used as replicas. We considered two fault settings: f = 1, with 4 RPis serving as replicas; and f = 2, with 7 RPis serving as replicas.</p><p>To determine the schedule table for each system (IGOR, OM, TC, NOREP), we first measured the maximum time required to execute each stage of the system (e.g., reading from sensors, agreement, and execution) over 100 iterations, then added 10% margin to each measured value. We then rounded each quantity up to the next time slot and scheduled the stages in sequence. Finally, we validated that the resulting schedule worked on our hardware cluster as expected (e.g., without causing any message drops or overrun of task's WCET). We measured the latency as the time between the instant the sensors were scheduled to transmit their data and the instant the actuators were scheduled to read outputs from the replicas. Results. Figure <ref type="figure" target="#fig_5">4</ref> shows the results of all four systems under each fault setting, as we varied the task's execution time and sensor data size. As shown in the figure, IGOR achieves a latency very close to, or the same as, that of NOREP (the theoretical minimum) in all cases. For example, under the f = 1 setting, its latency is equal to NOREP's for all execution times of 10 ms and above. Moreover, IGOR's Filtering ( §IV-B) approach makes it especially fast when tolerating multiple faults: IGOR's latency when tolerating 2 faults is even lower than the latency of the best existing system (OM) when tolerating 1 fault for all execution times of 10 ms and above. The next fastest system (TC) has a 1.5-1.75× higher latency than IGOR's. Thus, IGOR not only delivers close-to-optimal latency but also substantially reduces latency compared to existing systems. Its benefits also increase with more faults.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Schedulability</head><p>Next, we evaluated whether IGOR could be used to improve the schedulability of a BFT SMR system. Experimental setup. We considered application workloads consisting of independent constrained-deadline periodic BFT tasks, which are distributed over 3 cores on each replica (as on our RPis). We varied the workload utilization per core from 0.1 to 1, in steps of 0.1. For each utilization, we randomly generated 1000 tasksets. The tasks' WCETs were randomly selected from {5, 10, 15, 20} ms (the same range used in our latency experiments). The task periods were randomly selected from {200, 100, 50, 25} ms, which are commonly used in practice <ref type="bibr" target="#b52">[53]</ref>. The tasks' deadlines (i.e., the maximum time allowed between reading a sensor input and producing a result) were uniformly distributed between their WCETs and periods. Notice that a task's deadline is also the maximum allowed time to finish all of the filtering, agreement, and execution stages.</p><p>We scheduled tasks using a common heuristic, where we organized tasks into rate groups and scheduled tasks with higher rates first <ref type="bibr" target="#b90">[91]</ref>. Per cFS' design, tasks were scheduled without splitting into smaller sub-tasks. We used 2.5 ms slots to accommodate the tasks' periods. We determined the WCET for each protocol stage, such as filtering and agreement, from our earlier latency experiment.</p><p>We assumed sensor data is available whenever the BFT tasks expect it; in other words, the network imposes no additional constraints on the scheduling. As in our prototype, all interreplica communication is handled by a separate core. Since we focused on the schedulability of execution tasks on the replicas, to simplify the analysis, we assumed that the source selection and the communication with sensors/actuators take negligible processor time; however, our results should apply to the general setting as well.</p><p>For each schedule, we determined whether the fastest existing BFT protocol (OM for f = 1, TC for f &gt; 1) can feasibly schedule all BFT tasks. If not, we used IGOR instead for those tasks that were unschedulable (while still using the fastest existing protocol for tasks that were schedulable), and we checked whether the system would then become schedulable. For each task scheduled by IGOR, we replaced it with three speculative copies (assuming 3 redundant sensors). The IGOR tasks were scheduled in the same time slots on all 3 cores, at the start of their respective rate group. Besides meeting deadlines, IGOR tasks were also required to complete state dispersal by the end of their periods. Results. Figure <ref type="figure" target="#fig_4">5</ref> shows our results for the two cases: when the best protocol is used alone, and when it is used in conjunction with IGOR. As expected, as the utilization increases, the fraction of schedulable tasksets also decreases for both cases. Notice that, in our workloads, tasks' deadlines can be much smaller than their periods, which explains the large drop in the number of schedulable tasksets at higher utilizations.</p><p>The results show that IGOR is able to substantially increase the number of schedulable tasksets, compared to using the best existing protocol alone: it is able to schedule 1.88× and 3.22× more tasksets under the single-fault and twofault settings, respectively. This demonstrates that, even with the potential computation overhead for speculative execution, IGOR's efficiency in reducing overall latency also results in a substantial increase in the schedulability of the overall system.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Computation Overhead</head><p>Experimental setup. To evaluate IGOR's computation overhead, we repeated the same experiment as in §VI-B. For each BFT taskset, we calculated the remaining available CPU capacity per core after having scheduled the taskset, and we report the average across all tasksets that were schedulable at each workload utilization. (Note that we excluded unschedulable tasksets, as we focus on hard real-time systems and hence a taskset is only accepted to run if it is schedulable.) As in our schedulability evaluation, our goal was to compare between (1) a system that used the fastest existing protocol on its own, and (2) a system that used the fastest existing protocol together with IGOR, where IGOR was used for the tasks that could not meet deadlines in <ref type="bibr" target="#b0">(1)</ref>. Results. Figure <ref type="figure">6</ref> shows our results. In the figure, a higher remaining capacity corresponds to a higher resource use efficiency and thus a smaller overhead. The difference between the green/purple column (case 1) and the red column (case 2) represents the computation overhead added by IGOR.</p><p>When tolerating 1 fault, using IGOR results in only 1.1-20% reduction in remaining average capacity than a system that uses only OM. When tolerating 2 faults, using IGOR results in a slightly higher overhead, at 3.3-38% lower average remaining capacity. Note, however, that the computation costs in both fault settings are reasonably small compared to IGOR's substantial improvements in latency and schedulability reported in Figures <ref type="figure" target="#fig_5">4</ref> and<ref type="figure" target="#fig_4">5</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Communication Cost</head><p>Experimental setup. Network bandwidth is often at a premium in real-time embedded systems. To evaluate IGOR's bandwidth usage, we sniffed all traffic entering the Ethernet switch and counted the total number of bytes (including Ethernet headers) over 100 iterations of each of the four systems (IGOR, OM, TC, and NOREP) on our prototype. Our AFDX layer uses Ethernet broadcast to emulate VL multicasting in AFDX networks, so each frame broadcasted by a given RPi was counted only once. We used 3 sensors in our tests, each generating 750 bytes (both numbers are the defaults in our latency evaluation).</p><p>Results. Figure <ref type="figure">7</ref> shows our results. In general, IGOR communicates roughly the same number of bytes as the existing stateof-the-art systems in both the single-and two-fault settings.</p><p>The reason for IGOR's slightly higher communication cost is its need to distribute the state after each execution. IGOR's bandwidth usage could be reduced by dispersing only deltas from the previous state, or by not transferring parts of the state that are known not to change based on the sensor data being processed. Both of these techniques are commonly used in existing BFT protocols <ref type="bibr" target="#b18">[19]</ref>, and could be integrated into our prototype. The reason for IGOR's high communication efficiency in the multi-fault case is its use of a Filtering Stage. When minimizing network bandwidth is a priority, the Filtering Stage could also be used in the single-fault case. However, this would result in a slightly higher latency (about 2 ms in our tests).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Case Study: Orion Ascent Abort-2</head><p>To evaluate how well IGOR performs in a real spaceflight application, we conducted a case study of NASA's Ascent Abort-2 (AA-2) flight test. The AA-2 test was performed in 2019 to exercise the launch abort system (LAS) for Orion, a spacecraft intended to take astronauts to lunar orbit. The purpose of the LAS is to pull the spacecraft away from the rocket if an emergency happens during ascent. In the AA-2 test, the LAS was intentionally activated, and it carried the spacecraft away and jettisoned the craft into the ocean. We ported a simulation of the Orion guidance, navigation, and control software (GNC) to 4 RPis in our cluster. The software included multiple genuine Orion flight software components, including code for absolute navigation, optical navigation, propellant balancing, and abort functionality <ref type="bibr" target="#b40">[41]</ref>. The software ran against a high-fidelity simulation, which models the vehicle's trajectory, as well as the sensors and actuators. Figure <ref type="figure" target="#fig_8">8</ref> shows a screenshot of the simulation.</p><p>The GNC software ran in a 40 Hz control loop. Every 25 ms, it read sensor data (e.g., from inertial measurement units, barometric altimeters), performed GNC computations, and commanded the actuators. We batched the sensor data into three redundant groups, each 772 bytes, to simulate batching from remote interface units or data concentrators. The GNC computations took roughly 9.6 ms and maintained 1304 bytes of internal state. The actuator data totaled 376 bytes.</p><p>We determined the schedule using the same process as in our latency evaluation (e.g., measured the worst-case execution time, added 10% margin), except that we used 2.5 ms time slots to accommodate the 40 Hz control loop. State consolidation was performed before sending to the actuators.</p><p>Our results are shown in Figure <ref type="figure" target="#fig_9">9</ref>. As expected, IGOR adds no additional latency compared to a non-replicated system. In contrast, OM (the fastest existing protocol) adds 10 ms of latency. Therefore, in order to run at a 40 Hz rate, OM has to overlap sending to the actuators with reading from the sensors. This means that feedback from the output of a given GNC execution cannot be incorporated into the inputs of the next execution, which causes a noticeable reduction in vehicle stability. This was observed during our experiment, where the LAS tower rocked back and forth after igniting instead of traveling in a straight path. The results demonstrate that IGOR's ability to minimize latency not only improves schedulability but also enables much better control performance and system stability compared to state-of-the-art techniques.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. RELATED WORK</head><p>Speculation to avoid agreement. Several BFT SMR protocols designed for data centers use speculation to avoid the overhead of executing an agreement protocol <ref type="bibr" target="#b21">[22]</ref>- <ref type="bibr" target="#b25">[26]</ref>. In these systems, replicas execute client requests directly and are assumed to produce consistent states. If state divergence occurs, then the system rolls back to a previous state and repeats the execution. This approach makes sense in non-real-time systems that prioritize graceful executions over the worst case. However, it is a poor fit for real-time systems, which require low latency in all executions. IGOR's speculation is completely different in that it is eager rather than predictive. This way, IGOR gets the benefits of speculation in all executions, albeit at the expense of extra computation.</p><p>Overlapping agreement and execution. Several protocols use speculation as a way to overlap agreement with executing client requests <ref type="bibr" target="#b91">[92]</ref>- <ref type="bibr" target="#b95">[96]</ref>. In these systems, replicas execute while an agreement protocol is run in the background. If the agreement protocol detects inconsistency, the system rolls back and the computations are repeated. IGOR also uses speculation to overlay agreement and execution. However, since IGOR's speculation is not predictive, there is no need to rollback. Other predictive protocols avoid the need for rollback by generating an optimistic (possibly incorrect) result quickly, and a guaranteed correct result after some delay <ref type="bibr" target="#b96">[97]</ref>. Unlike these systems, IGOR never exposes incorrect results to the actuators, and it uses speculation to reduce the latency of generating a guaranteed correct result (and not just an optimistic one).</p><p>Multi-core state machine replication. Several solutions increase the performance of SMR on multi-core processors by allowing replicas to execute independent requests in parallel <ref type="bibr" target="#b18">[19]</ref>, <ref type="bibr" target="#b97">[98]</ref>- <ref type="bibr" target="#b102">[103]</ref>. This approach greatly increases throughput when requests are mostly independent, but does not significantly reduce the latency of executing individual requests.</p><p>In general, IGOR is orthogonal to these techniques, but it does significantly reduce latency. Execute-Verify <ref type="bibr" target="#b18">[19]</ref> systems allow multi-core replicas to execute dependent requests nondeterministically; however, they require replicas to run an agreement protocol afterwards to detect state divergence. In contrast, IGOR assumes deterministic execution, and parallelizes execution and agreement. Byzantine extension protocols. Several Byzantine agreement protocols are built as extension protocols, i.e., they use techniques that reduce the problem of agreeing on arbitrarily large values to that of agreeing on a small number of bits <ref type="bibr" target="#b75">[76]</ref>- <ref type="bibr" target="#b78">[79]</ref>, <ref type="bibr" target="#b103">[104]</ref>- <ref type="bibr" target="#b112">[113]</ref>. As a result, these protocols can often achieve low communication complexities when the value to agree on is sufficiently large. IGOR also uses a reductionbased technique, but for the purpose of reducing latency by preventing message fragmentation. To our knowledge, IGOR's Filtering and Agreement Stages take fewer rounds than any other reduction-based Byzantine agreement protocol <ref type="bibr" target="#b75">[76]</ref>. Non-equivocation. Several protocols use a combination of cryptography and trusted hardware to restrict a faulty device's ability to send conflicting information to other devices (i.e., equivocate), thus making agreement less expensive <ref type="bibr" target="#b110">[111]</ref>, <ref type="bibr" target="#b113">[114]</ref>- <ref type="bibr" target="#b118">[119]</ref>. Other protocols prevent equivocation by having devices echo values they receive to one another, and make decisions based on a quorum of matching echoes <ref type="bibr" target="#b64">[65]</ref>, <ref type="bibr" target="#b119">[120]</ref>- <ref type="bibr" target="#b122">[123]</ref>. IGOR also uses the idea of echoing values in its Filtering Stage to prevent faulty sensors from equivocating, without relying on cryptography or trusted hardware assumptions.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. CONCLUSION</head><p>This paper presented IGOR, a new speculative BFT SMR approach that leverages multi-core processors to achieve low latency in both the presence and absence of faults. IGOR provides systems a means of meeting tight deadlines that would otherwise be impossible with classical BFT SMR approaches.</p><p>Our experiments show that IGOR achieves up to 1.75× lower latency than the state of the art, often matching the latency of a non-replicated system, and improves the schedulability of BFT tasks by 1.88-3.22×. We show that IGOR has immediate benefits when used for a real spaceflight application, and we believe it is broadly applicable to other BFT systems seeking improved real-time control performance.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 :</head><label>1</label><figDesc>Fig. 1: Overview of traditional agree-execute BFT SMR systems. Sensor 3 and replica 4 are faulty.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: High-level design of IGOR. Sensor 3 is faulty.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Figure 3</head><label>3</label><figDesc>Figure3shows an outline of the protocol, which proceeds in multiple stages. The Agreement and Source Selection Stages are executed in parallel with the speculative executions. The State Dispersal Stage is executed concurrently with delivering results to the actuators. We now describe each stage in detail.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Protocol 3 :</head><label>3</label><figDesc>State Consolidation Stage• if MyAcceptSelectedSource = True then: -SavedState ← TempStateSelectedSource • Discard TempState k for all k = 1, ..., m LEMMA 4. At least n -2f non-faulty replicas have MyAccept SelectedSource = True and have the same SavedState. At most f non-faulty replicas have MyAccept SelectedSource = False (i.e., do not have the state).Proof. By Lemma 2, all non-faulty replicas set SelectedSource to the same sensor k from set C. A sensor k is only in C if Candidate k = True, which means ≥ n -f replicas Byzantine broadcasted the same value v from that sensor to all replicas in the Agreement Stage. Of these replicas, ≤ f may be faulty. Thus, ≥ n-2f non-faulty replicas started with MyValue k = v, and thus set MyAccept k ← True. Moreover, these ≥ n -2f non-faulty replicas all speculatively executed on v (since they started with it). Since they all perform the same computation on v in the same state (shown later), they produce the same state TempState k , which they then store in SavedState.Now we prove the second part of the lemma. Above we said ≥ n -2f non-faulty replicas possess the same SavedState. Since there are ≤ f faulty replicas and n total replicas, there are ≥ n -f non-faulty replicas, and thus at most(n -f ) -(n -2f ) = f non-faulty replicas do not have the state. State Dispersal Stage. At the end of the Stage Consolidation stage, at least n -2f non-faulty replicas possess the final state and can deliver results to the actuators. However, up to f non-faulty replicas still do not possess the updated state. The purpose of the State Dispersal Stage is to provide the updated state to those replicas. Importantly, this state dispersal process happens simultaneously with sending results to the actuators, so does not contribute to the end-to-end latency. Moreover, it can be overlaid with the process of receiving sensor data in the next iteration of the protocol, as long as the state is finished updating before the next speculative executions begin. Protocol 4 describes the State Dispersal Stage. States is an n-dimensional vector used to store the SavedState from each replica. All elements are initialized to ⊥. Protocol 4: State Dispersal Stage • if MyAcceptSelectedSource = True then: -Broadcast SavedState to all replicas • if MyAcceptSelectedSource = False then: -States[j] ← the state broadcasted by replica j (if any) -SavedState ← the majority of the non-⊥ states in StatesThe correctness of the protocol will be shown in Theorem 1. Deliver Outputs. At the same time as the State Dispersal Stage, the replicas deliver outputs to the actuators. The protocol is shown in Protocol 5. The actuators use a majority vote of the outputs to resolve the final system output.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Protocol 5 :</head><label>5</label><figDesc>Deliver Outputs• if MyAcceptSelectedSource = True then: -Reference SavedState to determine the output -Send the output to actuators</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: End-to-end latencies of IGOR and other state-of-the-art protocols compared to a non-replicated system. Plots (a) and (b) use 750 bytes of sensor data with 3 sensors. Plots (c) and (d) use 12 ms execution times with 3 sensors.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: Increase in schedulability when using IGOR.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 6 :Fig. 7 :</head><label>67</label><figDesc>Fig.6: Available compute capacity when using IGOR.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: Orion AA-2 simulation moments after the crew module (left) separates from the launch abort system (right).</figDesc><graphic coords="11,57.29,72.86,102.79,70.15" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Fig. 9 :</head><label>9</label><figDesc>Fig. 9: Time slot allocations for IGOR and OM when running the AA-2 flight software in the single-fault case.</figDesc><graphic coords="11,159.41,72.86,102.79,70.15" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head></head><label></label><figDesc>Agreement Stage. Each replica starts executing on the value from sensor k immediately after receiving it, with the execution assigned to core k. However, since sensor k may be faulty, and thus can send different values to different replicas, two non-faulty replicas may execute on different values on their k-th core. The goal of the Agreement Stage is to detect these kinds of inconsistencies and to ensure replicas agree on the content of the data.</figDesc><table><row><cell>Sensor k</cell><cell></cell><cell>Sensor k</cell><cell></cell></row><row><cell></cell><cell></cell><cell></cell><cell>Filtering Stage</cell></row><row><cell></cell><cell>Agreement Stage</cell><cell></cell><cell></cell></row><row><cell>Speculatively</cell><cell></cell><cell>Speculatively</cell><cell>(Revised)</cell></row><row><cell>execute on core k</cell><cell></cell><cell>execute on core k</cell><cell>Agreement Stage</cell></row><row><cell></cell><cell>Source Selection</cell><cell></cell><cell></cell></row><row><cell></cell><cell>Stage</cell><cell></cell><cell>Source Selection</cell></row><row><cell></cell><cell></cell><cell></cell><cell>Stage</cell></row><row><cell>State Consolidation</cell><cell></cell><cell>State Consolidation</cell><cell></cell></row><row><cell>Stage</cell><cell></cell><cell>Stage</cell><cell></cell></row><row><cell>State Dispersal</cell><cell>Send result to</cell><cell>State Dispersal</cell><cell>Send result to</cell></row><row><cell>Stage</cell><cell>actuators</cell><cell>Stage</cell><cell>actuators</cell></row><row><cell cols="4">Fig. 3: Stages of IGOR optimized for the single (left) and</cell></row><row><cell cols="3">multiple (right) fault-tolerant cases.</cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head></head><label></label><figDesc>). All elements are initialized to ⊥ to indicate the values are missing. Candidate k and MyAccept k are variables indicating whether sensor k's value is a candidate for source selection and whether the replica executed on that value originally, respectively. Both are initialized to False. Note that broadcasting includes logically sending to one's self. Broadcast MyValue k to all replicas using a BA protocol • Values k [j] ← the value broadcasted by replica j (if any) if ≥ nf values in Values k are the same then: -Candidate k ← True -Let v be the value with ≥ nf matching copies if MyValue k = v then: MyAccept k ← True else: MyValue k ← v LEMMA 1. For any sensor k, Candidate k is the same for all non-faulty replicas. Further, if Candidate k is True, MyValue k is the same for all non-faulty replicas. We next prove the second part of the lemma. Suppose two non-faulty replicas R i and R j end up with different values for MyValue k . Since Candidate k is True, the two replicas must have received different sets of ≥ n -f values that match the MyValue k they end up with. Since the values were broadcasted with a BA protocol, each replica must possess the same values in Values k . However, any two sets of ≥ n -f values must overlap at ≥ n -2f values, which is ≥ 1. Hence, R i and R j could not have received different sets of ≥ n -f matching values, which is a contradiction.</figDesc><table><row><cell>Protocol 1: Agreement Stage</cell></row></table><note><p><p>•</p>Proof. Each value in Values k was broadcasted with a BA protocol; hence, it is the same for all non-faulty replicas. Thus, if one non-faulty replica sets Candidate k ← True, so do all non-faulty replicas. Otherwise, Candidate k is False.</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head></head><label></label><figDesc>Let C be a set of tuples of the form (k, MyValue k ), where Candidate k = True for each tuple • Use the source selection algorithm to select the sensor with the "best" value in C SelectedSource ← the ID of the selected sensor LEMMA 2. All non-faulty replicas have the same set C and the same SelectedSource. as the source selection algorithm is deterministic, all non-faulty replicas select the same sensor. LEMMA 3. If some sensor k is non-faulty and sends value v, then set C contains sensor k (and its value v). Proof. Since sensor k is non-faulty, all non-faulty replicas set MyValue k ← v and broadcast v in the Agreement Stage. Since ≤ f replicas are faulty, each non-faulty replica receives ≥ nf copies of v, sets Candidate k ← True, and keeps MyValue k as v. Thus, for all non-faulty replicas, set C contains (k, v). State Consolidation Stage. Once Source Selection is over, all non-faulty replicas know which sensor value was selected as the input. During State Consolidation, replicas that executed on that value commit the resulting state, and all replicas discard states resulting from the other speculative executions. Protocol 3 describes the State Consolidation Stage. Saved-State is a variable containing the current system state, which persists to the next iteration of the protocol. TempState k is the temporary state resulting from executing on sensor k's value.</figDesc><table><row><cell>Protocol 2: Source Selection Stage</cell></row></table><note><p><p>•</p>Proof. By Lemma 1, if one non-faulty replica includes sensor k in C, then all non-faulty replicas do too. Also, by the same lemma, MyValue k is the same for any sensor k included in C. Thus, set C is the same for all non-faulty replicas, and as long</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head></head><label></label><figDesc>(right picture). The Filtering Stage, as a well as a new Agreement Stage, replace the Agreement Stage in the earlier protocol optimized for single faults. The other stages (State Dispersal, Consolidation, etc.) remain the same. Below, we describe the new Filtering and Agreement Stages in detail. Filtering Stage. The protocol for the Filtering Stage is shown in Protocol 6, which the replicas execute on each sensor value. The output of the protocol is a single bit indicating whether the value is accepted (True) or not accepted (False).MyValue k is the value the replica received from sensor k. If no value was received, it is set to ⊥ (missing). Values k is an ndimensional vector used to store values other replicas received from sensor k. All elements are initialized to ⊥. MyAccept k is a variable indicating whether to accept the value from sensor k. It is initialized to False. MyValue k = ⊥ then:-Send MyValue k to all replicas • Values k [j] ← the value sent from replica j (if any) if ≥ n -f non-⊥ values in Values k match MyValue k then: -MyAccept Since sensor k is non-faulty, all non-faulty replicas receive v and store it in MyValue k . Then, all non-faulty replicas forward v to all replicas. Since there are ≥ n -f non-faulty replicas, all non-faulty replicas receive ≥ n -f values that match MyValue k and set MyAccept k ← True LEMMA 6. MyValue k is the same for all non-faulty replicas that set MyAccept k ← True. Proof. Suppose two non-faulty replicas R i and R j accept different values from sensor k. That means each replica received ≥ n -f values from distinct replicas that match its own value. Any two sets of n -f replicas intersect at ≥ 2(n -f ) -n = n -2f replicas. That means ≥ n -2f of the matching values for R i and R j came from the same replicas. Since n &gt; 3f , at least one of those replicas must be non-faulty. A non-faulty replica sends the same values to all replicas. Thus, R i and R j accepted the same value, which is a contradiction. (Revised) Agreement Stage. At the end of the Filtering Stage, each replica chose to accept or reject the value from each sensor. In the Agreement Stage, the replicas use this information, along with values leftover from the Filtering Stage, to agree on (1) which sensors are candidates for source selection and (2) what values those sensors sent. The Agreement Stage is shown in Protocol 7.</figDesc><table><row><cell>Protocol 6: Filtering Stage</cell></row></table><note><p><p>• if k ← True After the Filtering Stage, we have the following guarantees: LEMMA 5. If sensor k is non-faulty and sends v, all non-faulty replicas set MyValue k ← v and MyAccept k ← True.</p>Proof.</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_6"><head></head><label></label><figDesc>Hence, either all non-faulty replicas set Candidate k ← True or they all keep it False. Now we prove the second part of the lemma. Let S happy be the set of non-faulty replicas that set MyAccept k to True in the Filtering Stage. Let S sad be the set of all non-faulty replicas / ∈ S happy . By Lemma 6, MyValue k is the same for all R i ∈ S happy . Call this value v. Each R i ∈ S happy sent v to all replicas in the Filtering Stage and broadcasted True in the Agreement Stage. Since Candidate k is True, |S happy | ≥ (n -f ) -f = n -2f . Thus, at the end of the stage, each R i ∈ S sad has ≥ n -2f copies of v in Values k . Also, since all R i ∈ S sad broadcasted False, no R i ∈ S sad possesses a non-⊥ value from an R j ∈ S sad . Thus, for each R i ∈ S sad , any v = ⊥ that is not v came from a faulty replica. Since ≤ f replicas are faulty, each R i ∈ S sad has ≤ f such v values. Since n &gt; 3f , we know |S happy |, which is at least n -2f , is &gt; f. Thus, for all R i ∈ S sad , v is the most common non-⊥ value in Values k . (REVISED) LEMMA 3. If some sensor k is non-faulty and sends value v, then set C contains sensor k (and its value v). Proof. If sensor k is non-faulty and sends v, then by Lemma 5, all non-faulty replicas set MyValue k ← v and MyAccept k ← True. All non-faulty replicas then broadcast True with a BA protocol, which each non-faulty replica stores in Accepts k .</figDesc><table /><note><p>As there are ≥ n -f non-faulty replicas, Accepts k contains ≥ n-f True bits for all non-faulty replicas. Thus, all non-faulty replicas set Candidate k ← True, and C contains (k, v). (REVISED) LEMMA 4. At least n -2f non-faulty replicas have MyAccept SelectedSource = True and have the same Saved-State. At most f non-faulty replicas have MyAccept SelectedSource = False (i.e., do not have the state). Proof. By Lemma 2, all non-faulty replicas set SelectedSource to the same sensor k from C. A sensor k is in C only if Candidate k = True, which means ≥ n-f replicas claimed to set MyAccept k ← True. Up to f of these replicas are faulty, so ≥ n -2f non-faulty replicas actually did set MyAccept k ← True. By Lemma 6, these ≥ n -2f non-faulty replicas all had the same MyValue k at the start of the protocol, which they speculatively executed on. Since the replicas perform the same computation on the same value in the same state, they produce the same state TempState k , which they store in SavedState.</p></note></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>We borrow the term "agree-execute" from<ref type="bibr" target="#b18">[19]</ref>, but narrow its meaning to refer specifically to BFT systems that agree on inputs before executing.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_1"><p>The source selection process is typically application-specific; it could be as simple as a mid-value selection<ref type="bibr" target="#b14">[15]</ref>.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_2"><p>A state change does not always require an output to be sent to the actuators.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGEMENTS</head><p>We thank the anonymous reviewers for their helpful suggestions on improving the paper. This research was supported in part by the <rs type="funder">NSF</rs> <rs type="grantName">Graduate Research Fellowship (award DGE</rs> <rs type="grantNumber">1256260</rs>) and <rs type="funder">NSF</rs> grant <rs type="grantNumber">CNS-1750158</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_wwraRHC">
+					<idno type="grant-number">1256260</idno>
+					<orgName type="grant-name">Graduate Research Fellowship (award DGE</orgName>
+				</org>
+				<org type="funding" xml:id="_bENB2wT">
+					<idno type="grant-number">CNS-1750158</idno>
+				</org>
+			</listOrg>
+
+			<div type="availability">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>AVAILABILITY</head><p>The IGOR implementation used in our evaluation is available at https://github.com/efeslab/igor-ae.</p></div>
+			</div>
+
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">DMS-R, the Brain of the ISS: 10 Years of Continuous Successful Operation in Space</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Wolff</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Scheffers</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. DASIA, Drubrovnik</title>
+		<meeting>DASIA, Drubrovnik<address><addrLine>Croatia</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2012-08">Aug. 2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Ares I Avionics Introduction</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Marchant</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. NASA/ARMY Software and Systems Forum</title>
+		<meeting>NASA/ARMY Software and Systems Forum<address><addrLine>Huntsville, AL, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2009-11">Nov. 2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">The X-38 Spacecraft Fault-Tolerant Avionics System</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Kouba</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Buscher</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Busa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. MAPLD</title>
+		<meeting>MAPLD<address><addrLine>Washington, DC, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2003-08">Aug. 2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">A Proposed Byzantine Fault-Tolerant Voting Architecture using Time-Triggered Ethernet</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Loveless</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Fidi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Wernitznigg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. SAE AeroTech</title>
+		<meeting>SAE AeroTech<address><addrLine>Fort Worth, TX, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2017-09">Sep. 2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title level="m" type="main">Notional 1FT Voting Architecture with Time-Triggered Ethernet</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Loveless</surname></persName>
+		</author>
+		<ptr target="https://ntrs.nasa.gov/citations/20170001652" />
+		<imprint>
+			<date type="published" when="2016-11">Nov. 2016</date>
+			<pubPlace>Houston, TX, USA</pubPlace>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Redundancy Management Software Services for Seawolf Ship Control System</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">T</forename><surname>Sims</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc, FTCS</title>
+		<meeting>FTCS<address><addrLine>Seattle, WA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1997-06">Jun. 1997</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">A Byzantine Resilient Fault Tolerant Computer for Nuclear Power Plant Applications</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Lala</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. FTCS</title>
+		<meeting>FTCS<address><addrLine>Vienna, Austria</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1986-07">Jul. 1986</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">ROBUS-2: A Fault-Tolerant Broadcast Communication System</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Torres-Pomales</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">R</forename><surname>Malekpour</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">S</forename><surname>Miner</surname></persName>
+		</author>
+		<ptr target="https://ntrs.nasa.gov/citations/20050158766" />
+	</analytic>
+	<monogr>
+		<title level="j">NASA Langley Research Center</title>
+		<imprint>
+			<date type="published" when="2005">2005-213540, Mar. 2005</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep. NASA/TM</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">SIFT: Design and Analysis of a Fault-tolerant Computer for Aircraft Control</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Wensley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Lamport</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goldberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">W</forename><surname>Green</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">N</forename><surname>Levitt</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">M</forename><surname>Melliar-Smith</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">E</forename><surname>Shostak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">B</forename><surname>Weinstock</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. IEEE</title>
+		<meeting>IEEE</meeting>
+		<imprint>
+			<date type="published" when="1978-10">Oct. 1978</date>
+			<biblScope unit="volume">66</biblScope>
+			<biblScope unit="page" from="1240" to="1255" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<monogr>
+		<title level="m" type="main">High-Performance Spaceflight Computing (HPSC) Project Overview</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Powell</surname></persName>
+		</author>
+		<ptr target="https://ntrs.nasa.gov/citations/20180007636" />
+		<imprint>
+			<date type="published" when="2018-11">Nov. 2018</date>
+			<pubPlace>Phoenix, AZ, USA</pubPlace>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">Space Shuttle Avionics System</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Hanaway</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Moorehead</surname></persName>
+		</author>
+		<ptr target="https://ntrs.nasa.gov/citations/19900015844" />
+		<imprint>
+			<date type="published" when="1989-01">Jan. 1989</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep. NASA SP-504</note>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Ultra-Reliable Real-Time Control Systems -Future Trends</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Hammett</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. DASC</title>
+		<meeting>DASC<address><addrLine>Bellevue, WA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1998-10">Oct. 1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Automatic Performance Monitoring Enhances Seawolf Submarine Ship Control Maintainability</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Hammett</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Coakley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Sevigny</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Zamojski</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Naval Engineers Journal</title>
+		<imprint>
+			<biblScope unit="volume">110</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="49" to="59" />
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Heavy Lift Vehicle (HLV) Avionics Flight Computing Architecture Study</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Hodson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Morgan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Butler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sdhuh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Petelle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Gwaltney</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Coe</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Koelbl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Nguyen</surname></persName>
+		</author>
+		<idno>NASA/TM-2011-217168</idno>
+		<ptr target="https://ntrs.nasa.gov/citations/20110014793" />
+		<imprint>
+			<date type="published" when="2011-08">Aug. 2011</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep.</note>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Architectural Principles for Safety-Critical Real-Time Applications</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Lala</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">E</forename><surname>Harper</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. IEEE</title>
+		<meeting>IEEE</meeting>
+		<imprint>
+			<date type="published" when="1994-01">Jan. 1994</date>
+			<biblScope unit="volume">82</biblScope>
+			<biblScope unit="page" from="25" to="40" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Human Mars Lander Design for NASA&apos;s Evolvable Mars Campaign</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Polsgrove</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Chapman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Sutherlin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Taylor</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Fabisinski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Collins</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Dwyer Cianciolo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Samareh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Robertson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Studak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Vitalpur</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Rakow</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. AeroConf</title>
+		<meeting>AeroConf<address><addrLine>Big Sky, MT, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2016-03">Mar. 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Fault-Tolerant Parallel Processor</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">E</forename><surname>Harper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Lala</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. Guid. Control Dyn</title>
+		<imprint>
+			<biblScope unit="volume">14</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="554" to="563" />
+			<date type="published" when="1991-05">May 1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">Digital Signatures for a Byzantine Resilient Computer System</title>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">E</forename><surname>Stine</surname></persName>
+		</author>
+		<ptr target="http://dspace.mit.edu/handle/1721.1/36578" />
+		<imprint>
+			<date type="published" when="1995">1995</date>
+		</imprint>
+		<respStmt>
+			<orgName>Massachusetts Institute of Technology</orgName>
+		</respStmt>
+	</monogr>
+	<note>Master&apos;s thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">All about Eve: Execute-Verify Replication for Multi-Core Servers</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Kapritsos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Quema</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Clement</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Alvisi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Dahlin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. OSDI</title>
+		<meeting>OSDI<address><addrLine>Hollywood, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2012-10">Oct. 2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">A Lower Bound for the Time to Assure Interactive Consistency</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">J</forename><surname>Fischer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><forename type="middle">A</forename><surname>Lynch</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Inf. Process. Lett</title>
+		<imprint>
+			<biblScope unit="volume">14</biblScope>
+			<biblScope unit="page" from="183" to="186" />
+			<date type="published" when="1982">1982</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Comparison of Event-Triggered and Time-Triggered Concepts with Regard to Distributed Control Systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Albert</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Embedded World</title>
+		<imprint>
+			<biblScope unit="volume">171902</biblScope>
+			<biblScope unit="page" from="235" to="252" />
+			<date type="published" when="2004-01">Jan. 2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Zyzzyva: Speculative Byzantine Fault Tolerance</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Kotla</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Alvisi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Dahlin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Clement</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Wong</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. SOSP</title>
+		<meeting>SOSP<address><addrLine>Stevenson, Washington, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2007-10">Oct. 2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Zzyzx: Scalable fault Tolerance through Byzantine Locking</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Hendricks</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Sinnamohideen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">R</forename><surname>Ganger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">K</forename><surname>Reiter</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. DSN</title>
+		<meeting>DSN<address><addrLine>Chicago, IL, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2010-06">Jun. 2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Zeno: Eventually Consistent Byzantine-Fault Tolerance</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Singh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Fonseca</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Kuznetsov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rodrigues</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Maniatis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc NSDI</title>
+		<meeting>NSDI<address><addrLine>Boston, MA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2009-04">Apr. 2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">hBFT: Speculative Byzantine Fault Tolerance with Minimum Cost</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Duan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Peisert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">N</forename><surname>Levitt</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Dependable Secure Comput</title>
+		<imprint>
+			<biblScope unit="volume">12</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="58" to="70" />
+			<date type="published" when="2015-01">Jan. 2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">The Next 700 BFT Protocols</title>
+		<author>
+			<persName><forename type="first">P.-L</forename><surname>Aublin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Guerraoui</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Knežević</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Quéma</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Vukolić</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Comput. Syst</title>
+		<imprint>
+			<biblScope unit="volume">32</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="1" to="12" />
+			<date type="published" when="2015-01">Jan. 2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Hyperledger Fabric: A Distributed Operating System for Permissioned Blockchains</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Androulaki</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Barger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bortnikov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Cachin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Christidis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">De</forename><surname>Caro</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Enyeart</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Ferris</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Laventman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Manevich</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Muralidharan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Murthy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Nguyen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sethi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Singh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Smith</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Sorniotti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Stathakopoulou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Vukolić</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">W</forename><surname>Cocco</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Yellick</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. EuroSys</title>
+		<meeting>EuroSys<address><addrLine>Porto, Portugal</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2018-04">Apr. 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Comparative Analysis of Present and Future Space-Grade Processors with Device Metrics</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">M</forename><surname>Lovelly</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">D</forename><surname>George</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. Aerosp. Inf. Syst</title>
+		<imprint>
+			<biblScope unit="volume">14</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="184" to="197" />
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<monogr>
+		<title level="m" type="main">NASA/GSFC&apos;s Flight Software Core Flight System</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Mccomas</surname></persName>
+		</author>
+		<ptr target="https://ntrs.nasa.gov/citations/20130013412" />
+		<imprint>
+			<date type="published" when="2012-11">Nov. 2012</date>
+			<pubPlace>San Antonio, TX, USA</pubPlace>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<monogr>
+		<title level="m" type="main">NASA&apos;s Core Flight Software -A Reusable Real-Time Framework</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Prokop</surname></persName>
+		</author>
+		<ptr target="https://ntrs.nasa.gov/citations/20140017040" />
+		<imprint>
+			<date type="published" when="2014-11">Nov. 2014</date>
+			<pubPlace>Houston, TX, USA</pubPlace>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Insights on the Performance and Configuration of AVB and TSN in Automotive Ethernet Networks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Migge</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Villanueva</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Navet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Boyer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. ERTS</title>
+		<meeting>ERTS<address><addrLine>San Jose, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2018-01">Jan. 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Progression of an Open Architecture: From Orion to Altair and LSS</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Fletcher</surname></persName>
+		</author>
+		<idno>S65-5000-20-0</idno>
+	</analytic>
+	<monogr>
+		<title level="j">Honeywell, International, Tech. Rep</title>
+		<imprint>
+			<date type="published" when="2009-05">May 2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">International Deep Space Interoperability Standards</title>
+		<ptr target="https://www.internationaldeepspacestandards.com/" />
+	</analytic>
+	<monogr>
+		<title level="j">National Aeronautics and Space Administration, Tech. Rep. Software Standard</title>
+		<imprint>
+			<date type="published" when="2019-06">Jun. 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<monogr>
+		<title level="m" type="main">Industrial Communication Technology Handbook</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Zurawski</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2014-08">Aug. 2014</date>
+			<publisher>CRC Press</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">Synchronous Byzantine Agreement with Nearly a Cubic Number of Communication Bits</title>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">R</forename><surname>Kowalski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Mostéfaoui</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. PODC</title>
+		<meeting>PODC<address><addrLine>Montreal, Canada</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2013-07">Jul. 2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">The Byzantine Generals Problem</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Lamport</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Shostak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Pease</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Program. Lang. Syst</title>
+		<imprint>
+			<biblScope unit="volume">4</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<date type="published" when="1982-07">Jul. 1982</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">Shifting Gears: Changing Algorithms on the Fly to Expedite Byzantine Agreement</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bar-Noy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dolev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Dwork</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><forename type="middle">R</forename><surname>Strong</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. PODC</title>
+		<meeting>PODC<address><addrLine>Vancouver, Canada</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1987-08">Aug. 1987</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Dimensioning of Civilian Avionics Networks</title>
+		<author>
+			<persName><forename type="first">J.-L</forename><surname>Scharbarg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Fraboul</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">The Industrial Communication Technology Handbook</title>
+		<imprint>
+			<publisher>CRC Press</publisher>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">Timing Verification of Real-Time Automotive Ethernet Networks: What Can We Expect from Simulation?</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Navet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Seyler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Migge</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. SAE WCX</title>
+		<meeting>SAE WCX<address><addrLine>Detroit, MI</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2015-04">Apr. 2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">Breaking vs. Solving: Analysis and Routing of Real-Time Networks with Cyclic Dependencies using Network Calculus</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Finzi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">S</forename><surname>Craciunas</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. RTNS</title>
+		<meeting>RTNS<address><addrLine>Toulouse, France</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2019-11">Nov. 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<analytic>
+		<title level="a" type="main">On TTEthernet for Integrated Fault-Tolerant Spacecraft Networks</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Loveless</surname></persName>
+		</author>
+		<ptr target="https://ntrs.nasa.gov/citations/20170009923" />
+	</analytic>
+	<monogr>
+		<title level="m">Proc. AIAA SPACE</title>
+		<meeting>AIAA SPACE<address><addrLine>Pasadena, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2015-08">Aug. 2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<analytic>
+		<title level="a" type="main">Performance Impact of the Interactions Between Time-Triggered and Rate-Constrained Transmissions in TTEthernet</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Boyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Daigmorte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Navet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Migge</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. ERTS</title>
+		<meeting>ERTS<address><addrLine>Toulouse, France</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2016-01">Jan. 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">Aircraft Data Network Part 7 Avionics Full-Duplex Switched Ethernet Network</title>
+	</analytic>
+	<monogr>
+		<title level="j">Aeronautical Radio</title>
+		<imprint>
+			<biblScope unit="volume">664</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<date type="published" when="2009-09">Sep. 2009</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep</note>
+	<note>ARINC. Incorporated (AR-INC</note>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<analytic>
+		<title level="a" type="main">Efficient Distributed Consensus with N = (3 + Epsilon)T Processors (Extended Abstract)</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Berman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">A</forename><surname>Garay</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. WDAG</title>
+		<meeting>WDAG<address><addrLine>Delphi, Greece</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1991-10">Oct. 1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b44">
+	<analytic>
+		<title level="a" type="main">Fully Polynomial Byzantine Agreement for Processors in Rounds</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Garay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Moses</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIAM J. Comput</title>
+		<imprint>
+			<biblScope unit="volume">27</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="247" to="290" />
+			<date type="published" when="1998-02">Feb. 1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b45">
+	<monogr>
+		<title level="m" type="main">Standard for Local and Metropolitan Area Networks-Media Access Control (MAC) Bridges and Virtual Bridged Local Area Networks Amendment: Enhancements for Scheduled Traffic</title>
+		<idno>802.1Qbv-2015</idno>
+		<imprint>
+			<date type="published" when="2016-05">May 2016</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep. IEEE Std</note>
+	<note>Institute of Electrical and Electronics Engineers</note>
+</biblStruct>
+
+<biblStruct xml:id="b46">
+	<analytic>
+		<title level="a" type="main">Road vehicles -FlexRay communications system -Part 1: General information and use case definition</title>
+		<idno>ISO 17458-1:2013</idno>
+	</analytic>
+	<monogr>
+		<title level="j">International Organization for Standardization</title>
+		<imprint>
+			<date type="published" when="2013-02">Feb. 2013</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep.</note>
+</biblStruct>
+
+<biblStruct xml:id="b47">
+	<analytic>
+		<title level="a" type="main">Time-Triggered Ethernet</title>
+	</analytic>
+	<monogr>
+		<title level="j">SAE International, Tech. Rep. SAE AS</title>
+		<imprint>
+			<biblScope unit="volume">6802</biblScope>
+			<date type="published" when="2016-11">Nov. 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b48">
+	<analytic>
+		<title level="a" type="main">TTP Communication Protocol</title>
+	</analytic>
+	<monogr>
+		<title level="j">SAE International, Tech. Rep. SAE AS</title>
+		<imprint>
+			<biblScope unit="volume">6003</biblScope>
+			<date type="published" when="2011-02">Feb. 2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b49">
+	<analytic>
+		<title level="a" type="main">A Test Bed Study of Network Determinism for Heterogeneous Traffic Using Time-Triggered Ethernet</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Starke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Kumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Ford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mcnair</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bell</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. MILCOM</title>
+		<meeting>MILCOM<address><addrLine>Baltimore, MD</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2017-10">Oct. 2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b50">
+	<analytic>
+		<title level="a" type="main">Design of Automotive X-by-Wire Systems</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Wilwert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Navet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Song</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Simonot-Lion</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">The Industrial Communication Technology Handbook</title>
+		<imprint>
+			<publisher>CRC Press</publisher>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b51">
+	<monogr>
+		<title level="m" type="main">Core Flight System (cFS) Background and Overview</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Mccomas</surname></persName>
+		</author>
+		<ptr target="https://cfs.gsfc.nasa.gov/cFS-OviewBGSlideDeck-ExportControl-Final.pdf" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b52">
+	<analytic>
+		<title level="a" type="main">Requirements-Based Execution Time Prediction of a Partitioned Real-Time System Using I/O and SLOC Estimates</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">E</forename><surname>Prokop</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">L</forename><surname>Hirsh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Pagan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Innov. Syst. Softw. Eng</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="309" to="320" />
+			<date type="published" when="2012-12">Dec. 2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b53">
+	<monogr>
+		<title level="m" type="main">Core Flight System Scheduler (SCH) Application Design Review</title>
+		<ptr target="https://github.com/nasa/SCH" />
+		<imprint>
+			<date type="published" when="2019-10">Oct. 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b54">
+	<analytic>
+		<title level="a" type="main">Real-Time Distributed Simulations in an HLA Framework: Application to Aircraft Simulation</title>
+		<author>
+			<persName><forename type="first">J.-B</forename><surname>Chaudron</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Saussié</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Siron</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Adelantado</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Simulation</title>
+		<imprint>
+			<biblScope unit="volume">90</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="627" to="643" />
+			<date type="published" when="2014-06">Jun. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b55">
+	<analytic>
+		<title level="a" type="main">End-to-End Latency and Temporal Consistency Analysis in Networked Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lauer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Boniol</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Pagetti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Ermont</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">International Journal of Critical Computer-Based Systems</title>
+		<imprint>
+			<biblScope unit="volume">5</biblScope>
+			<biblScope unit="issue">3/4</biblScope>
+			<biblScope unit="page" from="172" to="196" />
+			<date type="published" when="2014-09">Sep. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b56">
+	<monogr>
+		<title level="m" type="main">A Modular Approach to Fault-Tolerant Broadcasts and Related Problems</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Hadzilacos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Toueg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1994-05">May 1994</date>
+		</imprint>
+		<respStmt>
+			<orgName>Cornell University, Tech. Rep.</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b57">
+	<analytic>
+		<title level="a" type="main">Exploiting Omissive Faults in Synchronous Approximate Agreement</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">H</forename><surname>Azadmanesh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">M</forename><surname>Kieckhafer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Comput</title>
+		<imprint>
+			<biblScope unit="volume">49</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="1031" to="1042" />
+			<date type="published" when="2000-10">Oct. 2000</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b58">
+	<analytic>
+		<title level="a" type="main">How Fast Is Fast Enough? Choosing Between Xenomai and Linux for Real-Time Applications</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Brown</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Martin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. Real-Time Linux Workshop</title>
+		<meeting>Real-Time Linux Workshop<address><addrLine>Nairobi, Kenya</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2010-10">Oct. 2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b59">
+	<analytic>
+		<title level="a" type="main">Performance Analysis of VxWorks and RTLinux</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ip</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Tech. Rep</title>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+		<respStmt>
+			<orgName>Columbia University</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b60">
+	<analytic>
+		<title level="a" type="main">SpaceFibre Networks: SpaceFibre, Long Paper</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Parkes</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Mcclements</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Mclaren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">F</forename><surname>Florit</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">G</forename><surname>Villafranca</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. International SpaceWire Conference</title>
+		<meeting>International SpaceWire Conference<address><addrLine>Yokohama, Japan</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2016-10">Oct. 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b61">
+	<analytic>
+		<title level="a" type="main">Flexray -A Communication Network for Automotive Control Systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Makowitz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Temple</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. WFCS</title>
+		<meeting>WFCS<address><addrLine>Torino, Italy</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2006-06">Jun. 2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b62">
+	<analytic>
+		<title level="a" type="main">Research on Methods to Improve Precise Time Synchronization for IRIG-B Code Encoder</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Zeng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. APPEEC</title>
+		<meeting>APPEEC<address><addrLine>Shanghai, China</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2012-03">Mar. 2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b63">
+	<analytic>
+		<title level="a" type="main">SAFEbus</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Hoyme</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Driscoll</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. DASC</title>
+		<meeting>DASC<address><addrLine>Seattle, WA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1992-10">Oct. 1992</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b64">
+	<analytic>
+		<title level="a" type="main">Resilient Consensus Protocols</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Bracha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Toueg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. PODC</title>
+		<meeting>PODC<address><addrLine>Montreal, Canada</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1983-08">Aug. 1983</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b65">
+	<monogr>
+		<title level="m" type="main">Authenticated Messages for a Real-Time Fault-Tolerant Computer System</title>
+		<author>
+			<persName><forename type="first">D</forename></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chi-Shing</forename><surname>Chau</surname></persName>
+		</author>
+		<ptr target="http://dspace.mit.edu/handle/1721.1/36909" />
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+		<respStmt>
+			<orgName>Massachusetts Institute of Technology</orgName>
+		</respStmt>
+	</monogr>
+	<note>Master&apos;s thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b66">
+	<analytic>
+		<title level="a" type="main">Practical Byzantine Fault Tolerance</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Castro</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Liskov</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. OSDI</title>
+		<meeting>OSDI<address><addrLine>Berkeley, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1999-02">Feb. 1999</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b67">
+	<monogr>
+		<title level="m" type="main">Testing Byzantine Faults</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Bhadviya</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+		<respStmt>
+			<orgName>University of Michigan, Tech. Rep.</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b68">
+	<analytic>
+		<title level="a" type="main">Self-Stabilizing Byzantine Clock Synchronization with Optimal Precision</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Khanchandani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lenzen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Theory Comput. Syst</title>
+		<imprint>
+			<biblScope unit="volume">63</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="261" to="305" />
+			<date type="published" when="2019-02">Feb. 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b69">
+	<analytic>
+		<title level="a" type="main">The Real Byzantine Generals</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Driscoll</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Hall</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Paulitsch</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Zumsteg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Sivencrona</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. DASC</title>
+		<meeting>DASC<address><addrLine>Salt Lake City, UT, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2004-10">Oct. 2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b70">
+	<monogr>
+		<title level="m" type="main">Time-Triggered Communication</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Obermaisser</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<publisher>CRC Press</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b71">
+	<analytic>
+		<title level="a" type="main">Data Network Evaluation Criteria Handbook</title>
+		<idno>DOT/FAA/AR-09/24</idno>
+	</analytic>
+	<monogr>
+		<title level="m">Federal Aviation Administration</title>
+		<imprint>
+			<date type="published" when="2009-06">Jun. 2009</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep.</note>
+</biblStruct>
+
+<biblStruct xml:id="b72">
+	<analytic>
+		<title level="a" type="main">Coverage and the Use of Cyclic Redundancy Codes in Ultra-Dependable Systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Paulitsch</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Morris</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Hall</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Driscoll</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Latronico</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Koopman</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. DSN</title>
+		<meeting>DSN<address><addrLine>Yokohama, Japan</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2005-06">Jun. 2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b73">
+	<analytic>
+		<title level="a" type="main">Byzantine Fault Tolerance, From Theory to Reality</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Driscoll</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Hall</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Sivencrona</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Zumsteg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. SAFECOMP</title>
+		<meeting>SAFECOMP<address><addrLine>Edinburgh, Scotland</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2003-09">Sep. 2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b74">
+	<analytic>
+		<title level="a" type="main">Byzantine Agreement with Authentication: Observations and Applications in Tolerating Hybrid and Link Faults</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Gong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Lincoln</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Rushby</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Dependable Computing for Critical Applications</title>
+		<imprint>
+			<date type="published" when="1995-09">Sep. 1995</date>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="page" from="139" to="157" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b75">
+	<analytic>
+		<title level="a" type="main">Extending Binary Byzantine Agreement to Multivalued Byzantine Agreement</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Turpin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">A</forename><surname>Coan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Inf. Process. Lett</title>
+		<imprint>
+			<biblScope unit="volume">18</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="73" to="76" />
+			<date type="published" when="1984-02">Feb. 1984</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b76">
+	<monogr>
+		<title level="m" type="main">Optimal and Error-Free Multi-Valued Byzantine Consensus Through Parallel Execution</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Loveless</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Dreslinski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Kasikci</surname></persName>
+		</author>
+		<ptr target="https://eprint.iacr.org/2020/322" />
+		<imprint>
+			<date type="published" when="2020-03">Mar. 2020</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep.</note>
+</biblStruct>
+
+<biblStruct xml:id="b77">
+	<monogr>
+		<title level="m" type="main">Optimal Extension Protocols for Byzantine Broadcast and Agreement</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Ganesh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Patra</surname></persName>
+		</author>
+		<ptr target="https://eprint.iacr.org/2017/063" />
+		<imprint>
+			<date type="published" when="2017-03">Mar. 2017</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep.</note>
+</biblStruct>
+
+<biblStruct xml:id="b78">
+	<analytic>
+		<title level="a" type="main">Error-free Multi-valued Broadcast and Byzantine Agreement with Optimal Communication Complexity</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Patra</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. OPODIS</title>
+		<meeting>OPODIS<address><addrLine>Toulouse, France</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2011-12">Dec. 2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b79">
+	<analytic>
+		<title level="a" type="main">Bit Optimal Distributed Consensus</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Berman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">A</forename><surname>Garay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">J</forename><surname>Perry</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Computer Science: Research and Applications</title>
+		<imprint>
+			<biblScope unit="page" from="313" to="321" />
+			<date type="published" when="1992">1992</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b80">
+	<analytic>
+		<title level="a" type="main">Modular Construction of a Byzantine Agreement Protocol with Optimal Message Bit Complexity</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">A</forename><surname>Coan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">L</forename><surname>Welch</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Inf. Comput</title>
+		<imprint>
+			<biblScope unit="volume">97</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="61" to="85" />
+			<date type="published" when="1992-03">Mar. 1992</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b81">
+	<analytic>
+		<title level="a" type="main">Distributed Consensus Protocols and Algorithms</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xiao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Lou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><forename type="middle">T</forename><surname>Hou</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Blockchain for Distributed Systems Security</title>
+		<imprint>
+			<publisher>Wiley</publisher>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="25" to="50" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b82">
+	<monogr>
+		<title level="m" type="main">The Avionics Handbook</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Spitzer</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+			<publisher>CRC Press</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b83">
+	<analytic>
+		<title level="a" type="main">International Deep Space Interoperability Standards</title>
+		<ptr target="https://www.internationaldeepspacestandards.com/" />
+	</analytic>
+	<monogr>
+		<title level="j">National Aeronautics and Space Administration, Tech. Rep. Avionics Standard</title>
+		<imprint>
+			<date type="published" when="2019-03">Mar. 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b84">
+	<analytic>
+		<title level="a" type="main">The Evolution of Avionics Networks From ARINC 429 to AFDX</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">M</forename><surname>Fuchs</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. Seminars Future Internet, Innovative Internet Technologies and Mobile Communication, and Aerospace Networks</title>
+		<meeting>Seminars Future Internet, Innovative Internet Technologies and Mobile Communication, and Aerospace Networks<address><addrLine>Munich, Germany</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b85">
+	<analytic>
+		<title level="a" type="main">Coordinated Traversal: (t+1)-round Byzantine Agreement in Polynomial Time</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Moses</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Waarts</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. FOCS</title>
+		<meeting>FOCS<address><addrLine>White Plains, NY, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1988-10">Oct. 1988</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b86">
+	<analytic>
+		<title level="a" type="main">Fully Polynomial Byzantine Agreement in t + 1 Rounds</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">A</forename><surname>Garay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Moses</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. STOC</title>
+		<meeting>STOC<address><addrLine>San Diego, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1993-05">May 1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b87">
+	<analytic>
+		<title level="a" type="main">Broadcast Extensions with Optimal Communication and Round Complexity</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Ganesh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Patra</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. PODC</title>
+		<meeting>PODC<address><addrLine>Chicago, IL, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2016-07">Jul. 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b88">
+	<monogr>
+		<title level="m" type="main">Improved Extension Protocols for Byzantine Broadcast and Agreement</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Nayak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Ren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Shi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><forename type="middle">H</forename><surname>Vaidya</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Xiang</surname></persName>
+		</author>
+		<ptr target="https://arxiv.org/abs/2002.11321v1" />
+		<imprint>
+			<date type="published" when="2020-02">Feb. 2020</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep.</note>
+</biblStruct>
+
+<biblStruct xml:id="b89">
+	<monogr>
+		<title level="m" type="main">Wireless Reconfigurability of Fault-Tolerant Processing Systems</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">Y</forename><surname>Tang</surname></persName>
+		</author>
+		<ptr target="https://dspace.mit.edu/handle/1721.1/53168" />
+		<imprint>
+			<date type="published" when="2008-09">Sep. 2008</date>
+		</imprint>
+		<respStmt>
+			<orgName>Massachusetts Institute of Technology</orgName>
+		</respStmt>
+	</monogr>
+	<note>Master&apos;s thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b90">
+	<analytic>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Shaw</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">The Cyclic Executive Model and Ada</title>
+		<imprint>
+			<date type="published" when="1989-06">Jun. 1989</date>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="page" from="7" to="25" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b91">
+	<analytic>
+		<title level="a" type="main">Designing Distributed Systems Using Approximate Synchrony in Data Center Networks</title>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">R K</forename><surname>Ports</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><forename type="middle">K</forename><surname>Sharma</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Krishnamurthy</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. NSDI</title>
+		<meeting>NSDI<address><addrLine>Oakland, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2015-05">May 2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b92">
+	<analytic>
+		<title level="a" type="main">High Performance State-Machine Replication</title>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">J</forename><surname>Marandi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Primi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Pedone</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. DSN</title>
+		<meeting>DSN<address><addrLine>Hong Kong</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2011-06">Jun. 2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b93">
+	<analytic>
+		<title level="a" type="main">Improving the Scalability of Fault-Tolerant Database Clusters</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Jimenez-Peris</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Patino-Martinez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Kemme</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Alonso</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. ICDCS</title>
+		<meeting>ICDCS<address><addrLine>Vienna, Austria</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2002-07">Jul. 2002</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b94">
+	<analytic>
+		<title level="a" type="main">Processing Transactions Over Optimistic Atomic Broadcast Protocols</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Kemme</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Pedone</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Alonso</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Schiper</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. ICDCS</title>
+		<meeting>ICDCS<address><addrLine>Austin, Texas, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1999-06">Jun. 1999</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b95">
+	<analytic>
+		<title level="a" type="main">Optimistic Atomic Broadcast</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Pedone</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Schiper</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. DISC</title>
+		<meeting>DISC<address><addrLine>Andros, Greece</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1998-09">Sep. 1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b96">
+	<monogr>
+		<title level="m" type="main">Providing Scalability and Low Latency in State Machine Replication</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">E</forename><surname>Bezerra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Pedone</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Van Renesse</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Geyer</surname></persName>
+		</author>
+		<idno>USI-INF-TR- 2015/06</idno>
+		<imprint>
+			<date type="published" when="2015-12">Dec. 2015</date>
+			<pubPlace>Lugano, Switzerland</pubPlace>
+		</imprint>
+		<respStmt>
+			<orgName>Università della Svizzera Italiana</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Tech. Rep.</note>
+</biblStruct>
+
+<biblStruct xml:id="b97">
+	<analytic>
+		<title level="a" type="main">Checkpointing in Parallel State-Machine Replication</title>
+		<author>
+			<persName><forename type="first">O</forename><forename type="middle">M</forename><surname>Mendizabal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Jalili</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">L</forename><surname>Marandi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Dotti</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Pedone</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. OPODIS</title>
+		<meeting>OPODIS<address><addrLine>Cortina d&apos;Ampezzo, Italy</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2014-12">Dec. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b98">
+	<analytic>
+		<title level="a" type="main">Rethinking State-Machine Replication for Parallelism</title>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">J</forename><surname>Marandi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">E</forename><surname>Bezerra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Pedone</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. ICDCS</title>
+		<meeting>ICDCS<address><addrLine>Madrid, Spain</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2014-06">Jun. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b99">
+	<analytic>
+		<title level="a" type="main">High Throughput Byzantine Fault Tolerance</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Kotla</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Dahlin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. DSN</title>
+		<meeting>DSN<address><addrLine>Florence, Italy</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2004-06">Jun. 2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b100">
+	<analytic>
+		<title level="a" type="main">Archie: A Speculative Replicated Transactional System</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Hirve</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Palmieri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ravindran</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. Middleware</title>
+		<meeting>Middleware<address><addrLine>Bordeaux, France</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2014-12">Dec. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b101">
+	<analytic>
+		<title level="a" type="main">Achieving High-Throughput State Machine Replication in Multi-core Systems</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Santos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Schiper</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. ICDCS</title>
+		<meeting>ICDCS<address><addrLine>Philadelphia, Pennsylvania, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2013-07">Jul. 2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b102">
+	<analytic>
+		<title level="a" type="main">Rex: Replication at the Speed of Multi-Core</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Guo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Hong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Zhuang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. EuroSys</title>
+		<meeting>EuroSys<address><addrLine>Amsterdam, The Netherlands</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2014-04">Apr. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b103">
+	<analytic>
+		<title level="a" type="main">Optimally Efficient Multi-Valued Byzantine Agreement</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Fitzi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hirt</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc PODC</title>
+		<meeting>PODC<address><addrLine>Denver, CO, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2006-07">Jul. 2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b104">
+	<analytic>
+		<title level="a" type="main">Perfectly-Secure MPC with Linear Communication Complexity</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Beerliová-Trubíniová</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hirt</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. TCC</title>
+		<meeting>TCC<address><addrLine>New York, NY, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b105">
+	<analytic>
+		<title level="a" type="main">Experimental Performance Comparison of Byzantine Fault-Tolerant Protocols for Data Centers</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Liang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Sommer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Vaidya</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. INFOCOM</title>
+		<meeting>INFOCOM<address><addrLine>Orlando, FL, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2012-03">Mar. 2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b106">
+	<analytic>
+		<title level="a" type="main">Error-Free Multi-Valued Consensus with Byzantine Failures</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Liang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Vaidya</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. PODC</title>
+		<meeting>PODC<address><addrLine>San Jose, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2011-06">Jun. 2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b107">
+	<analytic>
+		<title level="a" type="main">Communication Optimal Multi-valued Asynchronous Broadcast Protocol</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Patra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">P</forename><surname>Rangan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. LATINCRYPT</title>
+		<meeting>LATINCRYPT<address><addrLine>Puebla, Mexico</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2010-08">Aug. 2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b108">
+	<monogr>
+		<title level="m" type="main">Communication Optimal Multivalued Asynchronous Byzantine Agreement with Optimal Resilience</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Patra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Rangan</surname></persName>
+		</author>
+		<ptr target="https://eprint.iacr.org/2009/433.pdf" />
+		<imprint>
+			<date type="published" when="2011-01">Jan. 2011</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep.</note>
+</biblStruct>
+
+<biblStruct xml:id="b109">
+	<monogr>
+		<title level="m" type="main">Byzantine Broadcast Under a Selective Broadcast Model for Single-hop Wireless Networks</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Tseng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Vaidya</surname></persName>
+		</author>
+		<ptr target="https://arxiv.org/abs/1502.00075" />
+		<imprint>
+			<date type="published" when="2015-01">Jan. 2015</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep.</note>
+</biblStruct>
+
+<biblStruct xml:id="b110">
+	<analytic>
+		<title level="a" type="main">Multi-Valued Asynchronous Reliable Broadcast with a Strict Honest Majority</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Choudhury</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. ICDCN</title>
+		<meeting>ICDCN<address><addrLine>Hyderabad, India</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2017-01">Jan. 2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b111">
+	<analytic>
+		<title level="a" type="main">Multi-valued Byzantine Broadcast: The t&lt;n Case</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hirt</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Raykov</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. ASIACRYPT</title>
+		<meeting>ASIACRYPT<address><addrLine>Kaoshiung, Taiwan</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2014-12">Dec. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b112">
+	<analytic>
+		<title level="a" type="main">Information-Theoretic Broadcast with Dishonest Majority for Long Messages</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Chongchitmate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ostrovsky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. TCC</title>
+		<meeting>TCC<address><addrLine>Goa, India</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2018-11">Nov. 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b113">
+	<analytic>
+		<title level="a" type="main">Attested Append-only Memory: Making Adversaries Stick to Their Word</title>
+		<author>
+			<persName><forename type="first">B.-G</forename><surname>Chun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Maniatis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Shenker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Kubiatowicz</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. SOSP</title>
+		<meeting>SOSP<address><addrLine>Stevenson, WA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2007-10">Oct. 2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b114">
+	<analytic>
+		<title level="a" type="main">On the (Limited) Power of Non-Equivocation</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Clement</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Junqueira</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rodrigues</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. PODC</title>
+		<meeting>PODC<address><addrLine>Madeira, Portugal</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2012-07">Jul. 2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b115">
+	<analytic>
+		<title level="a" type="main">Asynchronous Byzantine Consensus with 2F+1 Processes</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Correia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">S</forename><surname>Veronese</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">C</forename><surname>Lung</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. SAC</title>
+		<meeting>SAC<address><addrLine>Sierre, Switzerland</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b116">
+	<analytic>
+		<title level="a" type="main">CheapBFT: Resourceefficient Byzantine Fault Tolerance</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Kapitza</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Behl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Cachin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Distler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kuhnle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">V</forename><surname>Mohammadi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Schröder-Preikschat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Stengel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. EuroSys</title>
+		<meeting>EuroSys<address><addrLine>Bern</addrLine></address></meeting>
+		<imprint>
+			<publisher>Switzerland</publisher>
+			<date type="published" when="2012-04">Apr. 2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b117">
+	<analytic>
+		<title level="a" type="main">TrInc: Small Trusted Hardware for Large Distributed Systems</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Levin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">R</forename><surname>Douceur</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">R</forename><surname>Lorch</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Moscibroda</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. NSDI</title>
+		<meeting>NSDI<address><addrLine>Boston, MA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2009-04">Apr. 2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b118">
+	<analytic>
+		<title level="a" type="main">Asynchronous MPC with a Strict Honest Majority Using Non-Equivocation</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Backes</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Bendun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Choudhury</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kate</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. PODC</title>
+		<meeting>PODC<address><addrLine>Paris, France</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2014-07">Jul. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b119">
+	<analytic>
+		<title level="a" type="main">The Byzantine Generals Strike Again</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dolev</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Algorithms</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="14" to="30" />
+			<date type="published" when="1982-03">Mar. 1982</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b120">
+	<analytic>
+		<title level="a" type="main">Randomized Byzantine Agreements</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Toueg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. PODC</title>
+		<meeting>PODC<address><addrLine>Vancouver, Canada</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1984-08">Aug. 1984</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b121">
+	<analytic>
+		<title level="a" type="main">Signature-Free Broadcast-Based Intrusion Tolerance: Never Decide a Byzantine Value</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Mostéfaoui</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. OPODIS</title>
+		<meeting>OPODIS<address><addrLine>Tozeur, Tunisia</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2010-12">Dec. 2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b122">
+	<analytic>
+		<title level="a" type="main">Secure and Efficient Asynchronous Broadcast Protocols</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Cachin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Kursawe</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Petzold</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Shoup</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. CRYPTO</title>
+		<meeting>CRYPTO<address><addrLine>Santa Barbara, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2001-08">Aug. 2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

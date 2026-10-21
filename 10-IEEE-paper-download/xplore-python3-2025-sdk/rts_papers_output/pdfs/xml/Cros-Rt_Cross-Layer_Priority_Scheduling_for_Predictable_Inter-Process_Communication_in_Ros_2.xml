@@ -1,0 +1,972 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">CROS-RT: Cross-Layer Priority Scheduling for Predictable Inter-Process Communication in ROS 2</title>
+				<funder ref="#_SEECXAF">
+					<orgName type="full">National Research Foundation of Korea</orgName>
+					<orgName type="abbreviated">NRF</orgName>
+				</funder>
+				<funder ref="#_n5EG5vJ #_27Qd3ey #_hpG42pF #_tZSEdvy">
+					<orgName type="full">unknown</orgName>
+				</funder>
+				<funder ref="#_kftdXUR">
+					<orgName type="full">Korea government (MSIT)</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Sohyun</forename><surname>Kim</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Daegu Gyeongbuk Institute of Science and Technology (DGIST)</orgName>
+								<address>
+									<country key="KR">Republic of Korea</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Juho</forename><surname>Song</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Daegu Gyeongbuk Institute of Science and Technology (DGIST)</orgName>
+								<address>
+									<country key="KR">Republic of Korea</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Kilho</forename><surname>Lee</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="institution">Soongsil University</orgName>
+								<address>
+									<country key="KR">Republic of Korea</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Sangeun</forename><surname>Oh</surname></persName>
+							<affiliation key="aff2">
+								<orgName type="institution">Korea University</orgName>
+								<address>
+									<country key="KR">Republic of Korea</country>
+								</address>
+							</affiliation>
+						</author>
+						<author role="corresp">
+							<persName><forename type="first">Hoon</forename><forename type="middle">Sung</forename><surname>Chwa</surname></persName>
+							<email>chwahs@dgist.ac.kr</email>
+							<affiliation key="aff0">
+								<orgName type="department">Daegu Gyeongbuk Institute of Science and Technology (DGIST)</orgName>
+								<address>
+									<country key="KR">Republic of Korea</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">CROS-RT: Cross-Layer Priority Scheduling for Predictable Inter-Process Communication in ROS 2</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">33D297E572D62AAE3480FFFFA676BF0D</idno>
+					<idno type="DOI">10.1109/RTAS65571.2025.00029</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T02:45+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>The Robot Operating System 2 (ROS 2) is a popular middleware for distributed robotic applications. However, achieving real-time guarantees in ROS 2 is challenging due to unpredictable delays and priority inversions. We reveal that these issues arise from the lack of consistent priority propagation across ROS 2's multi-layered communication architecture, particularly down to the kernel layer. To address this, we present CROS-RT, the first cross-layer scheduler explicitly designed to tackle the unpredictability in ROS 2 inter-process communication caused by multi-layer priority misalignment. CROS-RT ensures consistent, priority-based scheduling across the application, middleware, and kernel layers, introducing mechanisms for priority propagation, kernel-level message prioritization, and dynamic kernel thread adjustment. We have implemented and evaluated CROS-RT on the current stable release of ROS 2. Experiments demonstrate that CROS-RT enhances communication predictability, reducing the worst-case response time by up to 89.3% over a baseline (vanilla ROS 2). Additionally, we provide an analytical model to derive upper bounds on response times, ensuring reliable realtime performance for safety-critical applications.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>The Robot Operating System 2 (ROS 2) is a popular middleware for complex robotic systems such as autonomous vehicles, drones, and industrial automation <ref type="bibr" target="#b0">[1]</ref>. Its modular design, based on a distributed publish-subscribe communication mechanism, offers flexibility and scalability. However, ROS 2's layered architecture-comprising the application, middleware (Data Distribution Service, DDS), and kernel layersposes challenges for achieving reliable real-time performance, which is essential for safety-critical systems.</p><p>One of the primary obstacles is the unpredictability introduced by ROS 2's multi-layered communication model. This model, while flexible, lacks a mechanism to consistently maintain the priorities of processing tasks, called callbacks, across different layers of the architecture. Specifically, there is a misalignment of priority information between the applicationlevel executors (which manage callbacks), middleware-level DDS threads, and kernel-level network processing threads. This misalignment can cause severe priority inversion, where high-priority tasks are delayed by lower-priority tasks, leading to missed deadlines and unpredictable behavior.</p><p>To address this challenge, we conduct an in-depth analysis of ROS 2's inter-process communication mechanism across higher-priority messages are processed ahead of lower-priority ones, regardless of their arrival order. This mechanism helps prevent high-priority tasks from being blocked by low-priority traffic. The dynamic kernel handlers (RT and non-RT handlers) dynamically adjust kernel thread priorities to match the realtime requirements of the incoming messages, adapting to varying system loads and maintaining consistent priority-based scheduling for real-time tasks. Our framework extends the existing ROS 2 architecture by aligning the execution priorities of application threads, DDS threads, and kernel-level packet processing threads to mitigate priority inversion across these layers. This approach guarantees that high-priority chains are always processed before lower-priority ones, preserving a consistent priority-based execution flow and reducing unpredictability throughout the system.</p><p>We implement CROS-RT on top of ROS 2 Humble [14] (the latest stable version) using eProsima's FastDDS <ref type="bibr" target="#b13">[15]</ref> (one of the most popular DDS implementations). We evaluate CROS- RT through comprehensive experiments under various workload conditions, including mixed-criticality scenarios with both real-time (RT) and non-real-time (non-RT) communication chains. Our results demonstrate that CROS-RT significantly enhances the predictability of inter-process communication and achieves up to an 89.3% reduction in the end-to-end latency of high-priority chains compared to the default ROS 2 system. Moreover, we provide an analytical model to derive upper bounds on the response times of processing chains, enabling system designers to predict timing behaviors accurately under different configurations.</p><p>Contribution. To the best of our knowledge, this paper presents the first framework to explicitly address the unpredictability in ROS 2 inter-process communication due to multilayer priority misalignment, ensuring predictable communication for safety-critical applications. The contributions are summarized as follows:</p><p>• We analyze ROS 2's inter-process communication mechanism in depth, identifying priority inversion in the kernel layer as the root cause of unpredictability due to priority misalignment across layers (Sec. III). • We propose CROS-RT, a cross-layer priority scheduling framework that enforces consistent priority-driven scheduling, mitigating priority inversion and ensuring predictable end-to-end latency for high-priority tasks (Sec. IV). • We develop an analytical model to derive upper bounds for the end-to-end response time of real-time chains (Sec. V). • We implement CROS-RT and conduct experiments under various workload conditions, showing an effective reduction in end-to-end latency for high-priority chains compared to default ROS 2 system (Sec. VI).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND AND TARGET SYSTEM</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. ROS 2 Architecture</head><p>ROS 2 provides a multi-layered architecture, as shown in Fig. <ref type="figure">1</ref>. ROS 2 applications consist of multiple nodes, which communicate using a publish-subscribe mechanism. Nodes </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Middleware Layer</head><p>Fig. <ref type="figure">1</ref>: ROS 2 inter-process communication flow across layers publish data on specific topics, which serve as channels for message exchange, and other nodes can subscribe to these topics to receive the messages. A publisher in a node sends messages to a topic, while a subscriber listens for messages from the topic. Each node contains callbacks, each of which is executed in response to a specific event or message arrival. Callbacks are handled non-preemptively by an executor that the node has been assigned to.</p><p>The communication between nodes is managed by the Data Distribution Service (DDS), an abstraction layer that connects the client library (rcl) to the underlying communication system, including intra-process APIs and DDS mechanisms. Each executor in ROS 2 is mapped to a corresponding participant in DDS, which in turn is mapped to a process in the kernel layer. Therefore, executors (or participants) are OS-level schedulable entities managed by the OS scheduler. Additionally, each publisher or subscriber callback in ROS 2 is mapped to a corresponding DataWriter or DataReader in DDS, respectively.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. ROS 2 Communication Process</head><p>In ROS 2, communication between publishers and subscribers occurs in two ways: intra-process and inter-process communication. Intra-process communication facilitates direct message exchange between publishers and subscribers within the same executor, bypassing DDS by leveraging ROS 2's API. Inter-process communication, on the other hand, involves publishers and subscribers in different executors, whether on the same machine or across different machines. This form of communication relies on DDS and transmits messages over the network. By default, a UDP channel is used for remote inter-process communication, while a shared memory channel is used for local inter-process communication. In this work, we focus on the remote inter-process communication as it introduces high delays and involves complex interactions across multiple layers.</p><p>Fig. <ref type="figure">1</ref> provides an overview of the remote inter-process communication process within the layered structure. A message is passed through threads assigned to each layer as follows: The application thread on the publisher side 2 203 generates a message and stores it in the history buffer, linking a callback in ROS 2 to a DataWriter in DDS; The DDS thread retrieves the message from the history buffer and places it into the transmission buffer (TX buffer), sending it via a socket using the UDP protocol; On the receiver side, the message is placed into the kernel's ring buffer, which temporarily stores incoming data until it is ready to be processed; The kernel packet processing thread transfers the message from the ring buffer to the subscriber's socket and notifies the DDS thread on the subscriber side; The DDS thread then stores the message in the subscriber's history buffer, linking a DataReader to the callback on the subscriber side; Finally, the subscriber's application thread processes the message by executing the associated callback function. <ref type="foot" target="#foot_0">1</ref>Note that the application thread is unique to each executor and manages all callbacks associated with that executor. The DDS thread on the publisher (or receiver) side is unique to each participant and handles all DataWriters (or DataReaders) within the participant, processing messages in a FIFO manner. The kernel packet processing thread, located in the kernel layer, is shared across all executors and other processes running on the same machine and is managed by the kernel interrupt handling mechanism, detailed in Sec. III-C.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Target System</head><p>We consider ROS 2 applications as a set of processing chains consisting of callbacks. Following the time-triggered ROS 2 chain model <ref type="bibr" target="#b2">[3]</ref>, <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b7">[8]</ref>, a chain begins with a timer callback and is followed by a sequence of subscriber callbacks. A chain instance is released when an instance of the first callback is triggered. The first callback publishes a message to its assigned topic, activating the next callback in the chain. Each triggered callback is then scheduled by its executor and, upon execution, publishes a message to its topic, following the layered communication process described in Fig. <ref type="figure">1</ref>. This, in turn, triggers the next callback, continuing the chain process. The response time of a chain is defined as the maximum response time among the released callback instances, i.e., the longest interval between the release time of the first callback and the completion of the last callback in the chain.</p><p>Callbacks in ROS 2 are scheduled through a two-level hierarchical system. At the first level, the OS scheduler manages the execution of executors by determining the order in which their associated application and DDS threads run. Additionally, the OS scheduler handles threads not tied to any executor, such as the kernel packet processing thread. Once an executor is scheduled, the second level of scheduling takes place within the executor itself. Here, the executor determines the execution order of its callbacks. By default, callback priority is based first on the type of callback (e.g., timer, subscription, service, client, or waitable), and then on the order in which the callbacks are registered in the code within each type.</p><p>We assume that chain priorities are assigned by the system designer based on the criticality or importance of each chain. However, the standard ROS 2 framework does not explicitly support chain-level prioritization. As discussed in <ref type="bibr" target="#b7">[8]</ref>, the priorities of callbacks and executors are not always aligned with the criticality of their corresponding chains. To mitigate this, we adopt PiCAS <ref type="bibr" target="#b7">[8]</ref> as a baseline, assigning callback and executor priorities explicitly according to their chain priorities. Each executor is then given a unique OS-level realtime priority using SCHED_FIFO, which is inherited by the executor's associated application and DDS threads. Despite this, the inherent unpredictability of ROS 2's inter-process communication remains a challenge that PiCAS and similar techniques cannot fully resolve, as discussed in Sec. III.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. UNPREDICTABILITY ON ROS 2</head><p>The layered structure of ROS 2, while flexible, introduces unpredictability that can hinder real-time guarantees. In this section, we experimentally demonstrate how this unpredictability in message processing leads to missed deadlines, exacerbated by the increasing number of real-time (RT) chains and the presence of non-RT messages.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Motivational Experiment</head><p>To illustrate the unpredictability in ROS 2, we set up a motivational experiment involving two processing chains with different priorities. Each chain consists of two callbacks-a publisher and a subscriber-executing in separate executors and communicating through remote inter-process communication, as depicted in Fig. <ref type="figure">1</ref>. The high-priority chain has a period of 20 ms and a subscriber callback processing time of 5 ms, while the low-priority chain has a period of 200 ms and a subscriber callback processing time of 20 ms. We conduct our experiments on two Nvidia Jetson Orin Nano devices running ROS 2 Humble [14], eProsima's FastDDS <ref type="bibr" target="#b13">[15]</ref>, and the Linux kernel 5.15, interconnected via an Ethernet link with a network propagation delay of 0.1 ms.</p><p>We measure the response time of both chains to evaluate system predictability. Ideally, the high-priority chain should maintain consistent latency around 5 ms without interruption from the low-priority chain. The low-priority chain, in contrast, may be delayed by the high-priority chain but should maintain an average latency of approximately 30 ms (each instance delayed by 10 ms from two high-priority instances).  <ref type="figure" target="#fig_1">2a</ref> shows the response times for both chains. However, our results reveal deviations from the expected behavior. In some cases, the response time of the high-priority chain exceeds 5 ms, while the low-priority chain shows a shorter response time despite both chains being released simultaneously. This indicates that the low-priority chain occasionally executes before the high-priority chain, which clearly demonstrates unpredictability. Even with this simple setup, our results show that ROS 2 can exhibit unpredictable behavior, leading to potential deadline misses.</p><p>To understand the root cause of this unpredictability, we analyze message processing across ROS 2 layers. Fig. <ref type="figure" target="#fig_1">2b</ref> breaks down the response times by layer and shows a 17.3 ms difference between best-and worst-case response times, occurring entirely to the kernel layer. This points to the kernel as the source of unpredictability. While the application and middleware layers schedule threads based on executor priorities, ensuring orderly message handling, the kernel packet processing thread integrates messages from multiple executors without considering their priorities, causing delays for highpriority messages. Consequently, these messages may not reach the upper layers in time, leading to unpredictable system behavior and potential deadline misses. The kernel layer fails to prioritize messages due to two reasons. First, it cannot identify which executor a message originates from, making it impossible to determine the priority, thus resulting in FIFO processing. Second, the kernel packet processing thread's priority depends on network load rather than message priority, creating a mismatch with upper-layer priorities.</p><p>The unpredictability in ROS 2 communication worsens as the number of chains and message sizes increase. Fig. <ref type="figure" target="#fig_2">3a</ref> shows the impact of adding low-priority chains, each with a unique priority, on the highest-priority chain's response time. As the number of chains increases from 1 to 10, the response time of the highest-priority chain rises from 5.2 ms to 122.0 ms. Fig. <ref type="figure" target="#fig_2">3b</ref> highlights the effect of increasing message sizes in three low-priority chains. Messages larger than 64 KB are fragmented by ROS 2's UDP protocol, significantly increasing packets in the ring buffer and causing the response time of the The following subsections will explore these root causes in detail, focusing on the FIFO nature of kernel message handling and the behavior of the kernel packet processing thread.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Kernel FIFO: Unpredictable Message Delays</head><p>The kernel layer schedules messages using a FIFO mechanism, disregarding message priority due to limited access to priority information during processing. While the application layer links executors to specific sockets with embedded destination information, the kernel cannot use this information to prioritize messages in the ring buffer. This lack of priority awareness causes high-priority messages to be delayed if they arrive after lower-priority ones, as messages are processed strictly in the order they are enqueued. This inability to prioritize, along with the kernel packet processing thread's behavior discussed in Sec. III-C, worsens the overall unpredictability.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Kernel Thread: Unpredictable Execution Delays</head><p>Another root cause of unpredictability in ROS 2 communication lies in how the kernel packet processing thread is scheduled, which depends on network load rather than message priority. To understand this, we need to examine interrupt handling, as the kernel packet processing thread manages the bottom-half of interrupt handling in ROS 2's inter-process communication, as shown in Fig. <ref type="figure">1</ref>.</p><p>When a message arrives at the NIC, it is copied to the ring buffer via Direct Memory Access (DMA), triggering a network interrupt. The interrupt handling process is divided into two parts: top-half and bottom-half. As shown in Fig. <ref type="figure">1</ref>, the top-half (hardIRQ) is managed by the IRQ handler, which quickly acknowledges the interrupt and notifies the NAPI (New API <ref type="bibr" target="#b14">[16]</ref>) scheduler of a new message. This part runs in the interrupt context. Afterward, the bottom-half (softIRQ) is scheduled by the NAPI scheduler to transfer the message from the ring buffer to the socket. This bottom-half is executed by the kernel packet processing thread, which can be either the currently executing thread in softirq context or ksoftirqd 4 205 thread in process context, depending on network load. Note that softirq context is fast and non-blocking, used for immediate processing, while process context can block or sleep, used to manage heavy loads flexibly but with lower priority.</p><p>We analyze the differences between softirq and process contexts and their impact on message delays using Ker-nelShark <ref type="bibr" target="#b15">[17]</ref> under the same conditions as Sec. III-A. Ker-nelShark provides visibility into IRQ events and thread execution, allowing us to observe thread scheduling when a highpriority chain message arrives at t 1 , while the low-priority chain's application thread is currently running (see Fig. <ref type="figure" target="#fig_3">4</ref>). Fig. <ref type="figure" target="#fig_3">4a</ref> shows the scheduling results when the bottom-half runs in the softirq context. The network interrupt immediately triggers the bottom-half at t 2 , running in the currently executing thread's context (τ L ). Once completed, the high-priority middleware and application threads execute, followed by the low-priority chain. In contrast, Fig. <ref type="figure" target="#fig_3">4b</ref> illustrates the process context. When a high-priority message arrives, the bottomhalf is deferred until the low-priority chain completes at time t 2 . Consequently, the high-priority chain experiences priority inversion, waiting for the low-priority chain to finish. This delay results from the ksoftirqd thread offloading processing after reaching certain thresholds (e.g., processing 10 packets or 2 ms), and being scheduled by the Completely Fair Scheduler (CFS), which has lower priority than real-time threads, leading to unpredictable delays in message delivery to the upper layers.</p><p>These delays are further exacerbated by the FIFO mechanism described in Sec. III-B. In systems with multiple lowpriority chains or network-intensive non-RT tasks, the ring buffer may fill with lower-priority messages before highpriority ones, causing prolonged delays. High-priority messages must wait for all earlier low-priority messages to complete in the application layer before they can be processed, which intensifies the unpredictability as observed in Fig. <ref type="figure" target="#fig_2">3a</ref>.</p><p>An alternative approach is to process all messages in the softirq context, avoiding the process context entirely. However, this has its drawbacks. In the softirq context, the bottom-half runs until all messages in the ring buffer are processed, with interrupts remaining enabled. A high number of low-priority messages can trigger continuous interrupts, quickly filling the ring buffer. Consequently, bottom-half processing dominates the CPU to handle all messages, including low-priority ones, which blocks high-priority DDS and application (upper-layer) threads, resulting in delays and priority inversion.</p><p>Summary. The unpredictability in ROS 2's inter-process communication stems from two key factors: FIFO-based message scheduling in the kernel layer and the behavior of the kernel packet processing thread. The lack of priority-based scheduling in the kernel layer results in delays for high-priority messages, and the network load-dependent behavior of the ksoftirqd thread introduces additional delays. While processing messages solely in the softirq context might mitigate some issues, it ultimately fails under heavy low-priority/non-RT messages due to frequent interrupts and prolonged bottomhalf execution. A more sophisticated approach is needed to ensure consistent priority-based scheduling across all layers R1. Enable priority awareness in the kernel layer: The kernel must recognize and prioritize messages, as its current FIFO-based scheduling treats all messages equally, causing delays for high-priority chains. To resolve this, priority information must be propagated from the higher layers to the kernel, allowing it to differentiate and prioritize messages.</p><p>R2. Align kernel packet processing with message priority: The ksoftirqd thread must adjust its scheduling to prioritize high-priority messages, rather than basing its execution solely on network load. This ensures high-priority messages are processed promptly, minimizing delays from low-priority or non-RT traffic.</p><p>R3. Maximize non-RT message throughput: While R1 and R2 focus on priority-based real-time scheduling, it is also essential to maintain high throughput for non-RT messages. Prioritizing only RT messages can limit resources for non-RT tasks, which is undesirable. A balance must be achieved to efficiently process non-RT messages without compromising RT chain deadlines.</p><p>As shown in Fig. <ref type="figure" target="#fig_4">5</ref>, our framework, CROS-RT, introduces several components to fulfill the requirements for prioritybased scheduling in ROS 2, extending the existing communication structure with four key components (highlighted in yellow in Fig. <ref type="figure" target="#fig_4">5</ref>). To address R1, two key components are introduced: The cross-layer priority identifier propagates priority information from the application layer (where executor priority is defined) through the middleware layer (via port numbers) down to the kernel layer, ensuring that the kernel is aware of each message's priority as it arrives for processing.  The message selector uses the propagated priority information along with the metadata of each message in the ring buffer to assign a specific priority to each message. For R2, the RT handler dynamically adjusts the priority of the kernel packet processing thread according to the priority of the message being processed. For R3, the non-RT handler operates the kernel packet processing thread in a polling server mode <ref type="bibr" target="#b16">[18]</ref>, maximizing non-RT message throughput by dedicating specific intervals to non-RT message processing while ensuring RT messages meet their timing constraints.</p><p>The key principles behind CROS-RT are a cross-layer design for priority propagation and unified, consistent priority-based scheduling across all layers. By adhering to these principles, CROS-RT mitigates priority inversion and ensures predictable communication timing throughout the ROS 2 stack.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Cross-layer Priority Identifier</head><p>The cross-layer priority identifier integrates priority-related information generated at each layer and shares it across the entire ROS 2 communication stack. In vanilla ROS 2, each layer operates independently, limiting information sharing. Although the application layer provides priorities for each executor, this information is not shared with the middleware or kernel layers. Fig. <ref type="figure" target="#fig_5">6</ref> shows the call stack for each layer when a message is received by the subscriber. In the application layer, the spin function retrieves messages from the history buffer, but only the message content is passed, without priority information. In the middleware layer, functions like Receive and OnDataReceived handle message transfer from the socket to the history buffer, processing only socket addresses, port numbers, and message content. Similarly, in the kernel layer, functions such as do_softirq and udp_rcv process messages from the ring buffer and direct them to the appropriate socket based on the destination port, ignoring priority details. Thus, while the application layer has executor priorities and thread IDs, the DDS and kernel layers only access the destination port from the UDP header. This lack of shared priority information complicates consistent prioritybased scheduling. To address this, a global mapping between port numbers and message priorities is needed.</p><p>Modifying all function calls in Fig. <ref type="figure" target="#fig_5">6</ref> to pass priority information would require extensive changes across the kernel, propose the cross-layer priority identifier, which establishes a mapping between executors, threads, socket port numbers, and messages. This creates a port-priority map, integrating priority data from the application layer and linking it to the middleware and kernel layers. when an executor is created, the cross-layer priority identifier collects executor priority, thread IDs, and associated sockets, and registers them in the portpriority map via a system call. This design avoids modifying nested functions and allows the kernel to efficiently determine message priorities using the port-priority map. Storing the map in the kernel requires only one system call during executor creation, enabling consistent propagation of priority information across all layers with minimal overhead.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Message Selector</head><p>The message selector is responsible for prioritizing ROS 2 messages that were previously processed in a FIFO manner without considering priority. Using the port-priority map created by the cross-layer priority identifier, the message selector assigns priorities to messages.</p><p>As shown in Fig. <ref type="figure" target="#fig_6">7</ref>, the message selector extracts the destination port from the UDP header and references the portpriority map, implemented as a hash table, to determine each message's priority. After retrieving a message from the ring buffer, the selector assigns it a priority and places it in the RT handler's appropriate priority queue. The message selector runs in the softirq context as soon as a message arrives, incurring minimal overhead (detailed in Sec. VI-E).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. RT Handler</head><p>The RT handler addresses the limitations of the traditional kernel packet processing mechanism, which lacks message prioritization. As described in R2, the current kernel packet processing thread, particularly the ksoftirqd thread, schedules messages based on network load rather than their priority, resulting in unpredictable delays.</p><p>To solve this, the RT handler dynamically adjusts the priority of the kernel packet processing thread to match the priority of the ROS 2 messages being processed. Static priority assignments can lead to significant issues. If the kernel 6 207 packet processing thread always runs at the highest priority, it may preempt upper-layer threads to process lower-priority messages, causing delays for high-priority messages in the upper layers. Conversely, if the thread always runs at a low priority, high-priority messages in the kernel may be delayed by upper-layer threads processing lower-priority messages, resulting in priority inversion similar to that caused by the ksoftirqd thread. This requires dynamic adjustment of the kernel thread's priority to match the highest-priority messages in the queue, enabling priority-based real-time scheduling.</p><p>The RT handler is activated when a message is enqueued by the message selector into the priority queue. It examines the queue, finds the highest-priority message, and adjusts its priority accordingly. Priority adjustment occurs under two conditions: (1) when a higher-priority message arrives, triggering the RT handler to increase its priority to match the highestpriority message in the queue; and (2) when all messages at the current priority level are processed, allowing the RT handler to lower its priority to the next highest level. This mechanism ensures that upper-layer threads can preempt the RT handler if they have higher-priority messages, maintaining priority-based scheduling across layers. The RT handler remains inactive when no messages are present, conserving system resources until the message selector enqueues a new message.</p><p>To implement this dynamic adjustment, the RT handler defines two kernel threads: kmond and krtd. As shown in Fig. <ref type="figure" target="#fig_6">7</ref>, the kmond thread runs at the highest priority (SCHED_FIFO 99), operates in the process context, and monitors the priority queue, adjusting the priority of the krtd thread based on the highest-priority message in the queue. When a new message is added, the kmond thread is activated by the message selector, adjusts the priority of the krtd thread, and returns to sleep. The krtd thread is a new kernel packet processing thread that processes messages from the priority queue and sends them to the appropriate socket. It processes all messages at its priority level before stepping down as needed. This twothread approach is necessary because the message selector, which operates in the softirq context, cannot perform dynamic priority adjustments. Finally, the ksoftirqd thread is disabled.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Non-RT Handler</head><p>The non-RT handler maximizes non-RT message throughput without compromising the timely execution of RT messages. As discussed in R3, while ensuring priority-based real-time scheduling is crucial, maintaining high throughput for non-RT messages is also important in systems where both types of messages coexist. By default, the non-RT handler activates when the RT priority queue is empty. It operates as a background server, processing non-RT messages with the lowest priority, preventing delays to RT message processing but resulting in longer non-RT response times.</p><p>To improve non-RT throughput, the non-RT handler runs as a polling server <ref type="bibr" target="#b16">[18]</ref>, periodically with a fixed budget and defined period for each cycle. During each cycle, the server processes pending non-RT messages within the allocated budget. If the budget is exceeded, processing is postponed to the next cycle, ensuring non-RT processing stays within its limits and does not interfere with RT message handling.</p><p>The non-RT handler determines the polling server's budget and period using the response time analysis in Sec. V. The polling server is treated as a virtual RT chain with a fixed period and highest priority. A binary search is used to find the maximum allowable budget that ensures all RT chains meet their deadlines. This approach enables the non-RT handler to efficiently manage non-RT messages while maintaining RT chain timing guarantees.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Implementation</head><p>The port-priority mapping table, RT priority queue, and non-RT FIFO queue are implemented in the kernel network driver. A new system call is defined to register port-priority information to the mapping table using napi_struct. The message selector, implemented in the network driver, retrieves port numbers from the ring buffer via ip_hdr and udp_hdr, and activates the RT handler using wake_up_process. The RT/non-RT handlers, implemented as kernel modules, interact with the network driver through napi_struct. The kmond thread adjusts krtd thread priority using sched_setscheduler.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>F. Discussion</head><p>Priority assignment. We build on PiCAS <ref type="bibr" target="#b7">[8]</ref> to support chain-level prioritization by assigning priorities to callbacks and mapping them to executors according to chain priority. To ensure chain-level prioritization, we follow four key principles. (P1) callbacks in higher-priority chains have higher priorities, and within a chain, later callbacks have higher priorities than earlier ones. (P2) if executor A has a higher priority than executor B, then all callbacks within executor A must have higher priorities than those in executor B. PiCAS, however does not account for callback-executor mapping across different machines, particularly in remote inter-process communication, which affects P2. To address this, our approach ensures that (P3) each executor contains callbacks from only a single chain per machine, making it easier to maintain P1 and P2. (P4) executors then inherit their associated chain's priority, and application and DDS threads inherit their priority from the executor. This setup, combined with CROS-RT, guarantees that higher-priority chains always execute before lower-priority ones across all layers. While CROS-RT does not rely on a specific priority assignment, our approach significantly reduces the end-to-end response times of high-priority chains with predictable bounds, as discussed in Sec. V.</p><p>Loopback compatibility. Our framework supports loopback configurations for local inter-process communication, as used by SROS 2 <ref type="bibr" target="#b17">[19]</ref>, ROS 2's security module. Loopback communication faces similar challenges as remote communication regarding packet processing and prioritization. CROS- RT effectively manages these, ensuring secure and consistent communication even in SROS 2 environments.</p><p>Applicability to other DDS implementations. Our framework is compatible with different DDS implementations in 7 208 ROS 2, such as RTI's Connext DDS <ref type="bibr" target="#b18">[20]</ref>, and Eclipse Cyclone DDS <ref type="bibr">[21]</ref>. While we used FastDDS, the approach is applicable to other DDS options due to their similar thread configurations.</p><p>Comparison with other Linux kernel patches/tools. Preempt-RT <ref type="bibr" target="#b19">[22]</ref> is a widely-used Linux kernel patch that implements real-time computing capabilities. It assigns a static SCHED_FIFO priority (typically 50) to the ksoftirqd thread. However, as noted in Sec.IV-C, this static assignment cannot fully eliminate priority inversion, leading to unpredictable delays in processing high-priority tasks. Linux Traffic Control <ref type="bibr" target="#b20">[23]</ref> manages packet prioritization at the internet layer (L3) through queuing disciplines (qdiscs) but still relies on ksoftirqd for packet processing (L2-L4), which can result in priority inversion and delays.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. END-TO-END RESPONSE TIME ANALYSIS</head><p>We now derive an upper bound for the end-to-end response time of an RT chain under CROS-RT. Consider a system with N processing chains, where each chain τ i ∈ τ is defined as</p><formula xml:id="formula_0">τ i = (V i , Λ i , T i , D i , π i ).</formula><p>Here, V i is a sequence of callbacks, Λ i is a sequence of communications between two consecutive callbacks, T i is the period (triggered by its first timer callback), D i is the relative deadline (D i ≤ T i ), and π i is the chain's priority, with lower values indicating higher priority. The k-th callback in V i is denoted as τ i,k , while each communication λ i,k ∈ Λ i represents the message exchange between τ i,k (the publisher) and τ i,k+1 (the subscriber). Communications in Λ i are categorized into three disjoint sets based on the type of communication: intra-process (Λ I i ), local inter-process (Λ L i ), and remote inter-process (Λ R i ). The communications follow precedence constraints, meaning that λ i,k+1 cannot start until λ i,k completes (except for the first one in the chain).</p><p>Priority assignments follow P1-P4 as described in Sec. IV-F. Each chain τ i generates an infinite sequence of instances, with each instance separated by at least T i time units and requiring completion within D i of its release. We assume each machine executes one single-threaded executor at a time, with executors scheduled using SCHED_FIFO (fixedpriority preemptive scheduling). Callback execution within an executor is non-preemptive.</p><p>We denote the worst-case processing times of a message in λ i,k for intra-process, local inter-process, and remote interprocess communication as</p><formula xml:id="formula_1">C I i,k , C L i,k</formula><p>, and C R i,k , respectively:</p><formula xml:id="formula_2">C I i,k = e pub app (τ i,k ) + e sub app (τ i,k+1 ),<label>(1)</label></formula><formula xml:id="formula_3">C L i,k = C I i,k + e pub dds (τ i,k ) + e sub dds (τ i,k+1 ),<label>(2)</label></formula><formula xml:id="formula_4">C R i,k = C L i,k + e sub RT (τ i,k+1 ) + e sub sel (τ i,k+1 ) + δ net i,k ,<label>(3)</label></formula><p>Here, e x (τ i,k ) and e y (τ i,k+1 ), where x ∈ {pub app, pub dds} and y ∈ {sub app, sub dds, sub RT, sub sel}, are the worst-case times of the corresponding threads (application, DDS, RT handler, and message selector) on the publisher (τ i,k ) and subscriber (τ i,k+1 ) sides, respectively. δ net i,k is the network propagation delay for a message in λ i,k transmitted between different machines. Note that e x (τ i,k ), e y (τ i,k+1 ), and δ net i,k are proportional to the message size and can be estimated using linear regression. The cumulative processing time of all communications in Λ i for τ i , denoted as C i , is given by:</p><formula xml:id="formula_5">Ci = λ i,a ∈Λ I i C I i,a + λ i,b ∈Λ L i C L i,b + λ i,c ∈Λ R i C R i,c . (<label>4</label></formula><formula xml:id="formula_6">)</formula><p>Under CROS-RT with the priority assignment (P1-P4), the worst-case response time (WCRT), R i of chain τ i can be calculated iteratively as:</p><formula xml:id="formula_7">R (a+1) i = C i + I i (R (a) i ) + B i , (<label>5</label></formula><formula xml:id="formula_8">)</formula><p>where</p><formula xml:id="formula_9">I i (R (a)</formula><p>i ) is the cumulative interference on communications in Λ i caused by higher-priority chains, and B i is the cumulative blocking delay caused by lower-priority chains. The initial value R Let hp(τ i ) be the set of all communications that satisfy the following conditions: (i) they belong to chains with higher priority than τ i , and (ii) they are processed on any machine that also processes communications from τ i . Based on the priority assignment rules (P1-P4), communications in τ i can be delayed by all higher-priority communications in hp(τ i ) across all layers. The number of instances of a higher-priority chain τ h that can be released during the response time R</p><formula xml:id="formula_10">(0) i is set to C i + B i ,</formula><formula xml:id="formula_11">(a) i of τ i is bounded by R (a) i T h . Therefore, the cumulative interference I i (R (a)</formula><p>i ) experienced by τ i can be expressed as:</p><formula xml:id="formula_12">I i (R (a) i ) = λ h,k ∈hp(τi) R (a) i T h • C z h,k<label>(6)</label></formula><p>where z ∈ {I, L, R} indicates the communication type of λ h,k . In addition to interference from higher-priority chains, we also examine potential blocking from lower-priority chains. Since all threads involved in each communication λ i,k are scheduled using SCHED_FIFO (which is preemptive), lowerpriority chains cannot block higher-priority ones (as per P1, P2, and P4). Although callback execution within an executor is non-preemptive, each executor only manages callbacks from a single chain per machine (as per P3), and callbacks later in the chain have higher priority than earlier ones (as per P1). Since callbacks from a single chain are executed sequentially, there cannot be an active lower-priority callback when a higherpriority callback is released.</p><p>However, a message in λ i,k can still experience blocking at the kernel level, specifically in the message selector, due to messages from lower-priority chains. The message selector processes messages from the ring buffer in a FIFO manner, which is shared across all chains on the same machine. When a message arrives, the selector checks the port-priority map and assigns the message to the appropriate priority queue for processing by the RT handler. Since the ring buffer is shared and follows a FIFO policy for incoming messages, higherpriority messages in Λ R i can be delayed by messages from lower-priority chains that arrived earlier. These lower-priority 8  messages are then held in their respective priority queues until the RT handler processes all higher-priority messages. Thus, for each message communication in Λ R i , at most one message from each lower-priority chain can block a highpriority message, resulting in a maximum of Ni messages from Ni lower-priority chains causing blocking.</p><p>Lastly, a release of a new chain instance can be blocked by its prior instance, as discussed in <ref type="bibr" target="#b7">[8]</ref>. According to P1 and P2, a new chain instance can only start after the previous one completes. If the WCRT R i exceeds the chain period T i , the next instance can be delayed by at most one cycle due to the ROS 2 overload handling mechanism [24], which publishes only the most recent delayed message. If R i ≤ T i , no blocking occurs for the next instance. Therefore, the cumulative blocking delay B i of τ i can be expressed as:</p><formula xml:id="formula_13">Bi = |Λ R i | • (N -i) • max λ l,k ∈lp(τ i )∩Λ R l e sub sel (τ l,k ) + σi • Ti. (<label>7</label></formula><formula xml:id="formula_14">)</formula><p>where |Λ R i | is the number of remote communications in τ i , lp(τ i ) is the set of communications from lower-priority chains processed on the same machines as τ i , and σ i is a binary indicator, set to 1 if R i &gt; T i (indicating blocking from a prior chain instance) and 0 otherwise.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. EVALUATION</head><p>We evaluate CROS-RT by examining its ability to enhance the predictability of RT chains in ROS 2, even under non-RT, network-intensive tasks. We also assess its impact on non-RT task throughput while guaranteeing RT chain response times, as well as the runtime overhead compared to vanilla ROS 2.</p><p>Experimental setup. Our implementation of CROS-RT is based on ROS 2 Humble [14] with eProsima's FastDDS <ref type="bibr" target="#b13">[15]</ref> and Linux kernel 5.15. Experiments are conducted on two Nvidia Jetson Orin Nano [25] devices, equipped with an ARM Cortex-A78AE processor running at 1.5GHz, interconnected via a 100Mbps Ethernet link. For non-RT network-intensive tasks, we use iperf to generate UDP traffic between devices with an input bandwidth of 60 Mbps unless otherwise specified. Each experiment is based on 10,000 instances per chain.</p><p>For comparison, we consider three approaches:</p><p>• Vanilla: default ROS 2 setup;</p><p>• Preempt-RT: ROS 2 with the Preempt-RT patch <ref type="bibr" target="#b19">[22]</ref>; and</p><p>• CROS-RT: our proposed cross-layer priority-based scheduler. Vanilla uses the default network interrupt handling mechanism, where the bottom-half is typically processed by the currently executing thread in softirq context and messages in the ring buffer are handled in FIFO order. If more than 10 packets are processed consecutively or execution exceeds 2 ms, the ksoftirqd thread, managed by the CFS scheduler (lower priority than SCHED_FIFO), handles the messages. Preempt-RT assigns a static priority (SCHED_FIFO 95) to the ksoftirqd thread. CROS-RT processes messages according to their priority using the message selector, while the RT handler dynamically adjusts the kernel packet processing thread's priority to align with the highest-priority message in the queue. The non-RT handler uses a polling server to manage non-RT network traffic. For fairness, all approaches employ the same callback priority assignment and executor mapping principles (P1-P4).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Case Study 1: NAV2 Predictability</head><p>We evaluate the predictability of RT chains in the NAV2 <ref type="bibr" target="#b21">[26]</ref>, which includes four RT chains <ref type="bibr" target="#b7">[8]</ref> prioritized from highest (τ 1 ) to lowest (τ 4 ), as shown in Fig. <ref type="figure" target="#fig_9">8</ref>, along with non-RT tasks generated by iperf. The RT chains involve six remote and two local inter-process communications. Fig. <ref type="figure" target="#fig_10">9</ref> shows the average end-to-end latency of the four chains using Vanilla, Preempt-RT, and CROS-RT (indicated with a cross), along with the distribution of observed latency (represented by candlesticks), which depicts max/min values and the interquartile range (25th to 75th percentiles) as boxes. Outliers are shown separately as dots for clarity. The latency includes both callback execution and communication times. The red dotted line indicates the analytically derived end-to-end response time for each real-time (RT) chain, computed using Eq. ( <ref type="formula" target="#formula_7">5</ref>).</p><p>We observe that both Vanilla and Preempt-RT exhibit high latency fluctuations across all RT chains, with differences reaching up to 431.0 ms. In contrast, CROS-RT consistently achieves lower and more stable latency for high-priority chains (τ 1 , τ 2 , and τ 3 ) and significantly reduces worst-case latency. Specifically, for τ 1 , CROS-RT achieves a worst-case latency of 19.4 ms, which is 89.3% and 88.3% lower than Vanilla (181.3 ms) and Preempt-RT (166.0 ms), respectively. Note that, under CROS-RT, the lowest-priority chain (τ 4 ) experiences increased latency due to strict priority enforcement. Moreover, CROS-RT ensures that the observed latency of all RT chains remains within the analytically bounded response time, which also 9 Both Vanilla and Preempt-RT suffer from severe priority inversion: under Vanilla, high-priority messages in the kernel can be delayed by lower-priority messages handled by upper-layer threads, due to the ksoftirqd thread's lower priority; under Preempt-RT, high-priority threads in the upper layers can be delayed by the ksoftirqd thread handling lower-priority messages. In contrast, CROS-RT enforces priority-driven scheduling across all layers, processing messages by their priorities and dynamically adjusting the kernel thread's priority. As a result, CROS-RT enhances overall system predictability.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Case Study 2: Inverted Pendulum</head><p>We evaluate the impact of increasing low-priority chains on the performance of the highest-priority chain using the ROS2 inverted pendulum demo <ref type="bibr">[27]</ref>. Each chain consists of two nodes (motor and controller) communicating through remote inter-process communication with a period of 0.97 ms. The motor node continuously senses the pendulum's position and sends it to the controller node, which computes corrective commands to stabilize the pendulum. We measure the settling time, defined as the time required for the pendulum to stabilize within ±5% of the setpoint (1.57). Fig. <ref type="figure" target="#fig_11">10</ref> shows the settling times of the highest-priority chain under Vanilla and CROS-RT, while varying the number of chains from 1 to 6. 2 Under Vanilla, settling times increase significantly with additional low-priority chains, reaching up to 428.7 s with six chains. In contrast, CROS-RT maintains stable and significantly shorter settling times (up to 116.5 s), regardless of the increasing number of low-priority chains. These results highlight CROS-RT's effectiveness in preserving system predictability and ensuring consistent control performance in multi-chain scenarios.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Randomly Generated Chains</head><p>To demonstrate the general effectiveness of CROS-RT, we evaluate its predictability on randomly generated RT chains. In the first test, we create 250 chain sets containing 2 to 10 chains, using the UUniFast <ref type="bibr" target="#b22">[28]</ref> algorithm. Each chain consists of three callbacks, with each callback involving a 1 KB message transfer via remote inter-process communication. 2 Results for Preempt-RT (similar to Vanilla) are omitted for brevity. Given a total utilization of 0.5 for each chain set, the utilization of each chain (C i /T i ) is generated using UUniFast, and its period (T i = D i ) is uniformly selected between 10 and 1000 ms, with processing time (C i ) adjusted to satisfy its utilization. Chains with shorter periods are assigned higher priorities. We use the difference between each chain's worst-case response time (WCRT) and best-case response time (BCRT) as the performance metric, as it reflects the predictability and consistency of end-to-end latency. Fig. <ref type="figure" target="#fig_12">11a</ref> shows the distribution of the difference between WCRT and BCRT for the highest-priority chain, as the number of chains in the generated sets increases from 2 to 10. Each candlestick illustrates the distribution of observed differences, depicting max/min values along with the interquartile range (25th to 75th percentiles). The average value is marked with a cross. Under Vanilla and Preempt-RT, this difference grows with the number of chains due to the accumulation of messages in the receiver-side ring buffer, which are processed without priority awareness, leading to frequent priority inversions for the highest-priority chain. In contrast, CROS-RT maintains a low 10 Fig. <ref type="figure" target="#fig_1">12</ref>: WCRT-BCRT difference distribution of the highestpriority chain with increasing message sizes and consistent difference of around 4 ms across varying chain numbers, owing to its consistent priority-based scheduling.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>The Number of Chains</head><p>Fig. <ref type="figure" target="#fig_12">11b</ref> shows the distribution of WCRT-BCRT differences for each chain in sets containing six chains, indexed from 0 (highest priority) to 5 (lowest priority). Under both Vanilla and Preempt-RT, WCRT-BCRT differences exhibit significant variability across all priority levels due to mutual interference among chains. In contrast, CROS-RT achieves consistently lower differences for high-priority chains, demonstrating effective priority-based scheduling. Notably, the lowest-priority chain (index 5) under CROS-RT exhibits increased variance, as its execution depends heavily on the variable interference from higher-priority chains across different chain-set combinations. Overall, these results confirm that CROS-RT substantially enhances predictability compared to both Vanilla and Preempt-RT.</p><p>In the next experiment, we vary the ROS 2 message sizes within a chain set to assess their impact on system predictability. Using the same chain sets from the previous experiment, each with four chains, we vary the message sizes ranging from 64 KB to 512 KB. Fig. <ref type="figure" target="#fig_1">12</ref> compares the WCRT-BCRT difference for the highest-priority chain with varying message sizes. Both Vanilla and Preempt-RT show increasing average differences and higher variability as message sizes grow. This is primarily due to the segmentation of large messages into multiple parts, based on the maximum transmission unit size. Consequently, more copy operations are required from the kernel to the middleware layer, which prolongs the effects of priority inversion. In contrast, CROS-RT consistently outperforms the other approaches, maintaining a stable WCRT-BCRT difference irrespective of message size. This is because CROS- RT dynamically adjusts the priority of the ksoftirqd thread, preventing priority inversions.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Non-RT Task Throughput</head><p>We evaluate the throughput achieved by CROS-RT for non-RT network-intensive tasks while ensuring the response times of RT chains. To do this, based on the generated chain sets, each with four chains, we create non-RT traffic using iperf, varying the bandwidth from 30 Mbps to 90 Mbps. We also add CROS-RT w/o Polling as a comparison, where the non-RT handler operates as a background server instead of a polling server, to assess the impact of the polling approach on non-RT handling. Throughput is further assessed using the packet delivery ratio Fig. <ref type="figure" target="#fig_13">13</ref> shows the average WCRT-BCRT difference for the highest-priority RT chain (bar graph) and the PDR of non-RT traffic (line graph) under different bandwidths. Both Vanilla and Preempt-RT achieve high PDRs of over 90%; however, as the bandwidth of the non-RT task increases, the WCRT-BCRT difference also increases, indicating frequent interruptions of the highest-priority chain by heavy non-RT traffic. CROS-RT w/o Polling maintains small, stable WCRT-BCRT differences but experiences a significant drop in PDR to 71% at a non-RT bandwidth of 90 Mbps. This drop is due to the non-RT handler being activated only when the RT priority queue is empty, which causes non-RT messages to be processed at the lowest priority, resulting in non-RT traffic starvation and inefficient resource use. In contrast, CROS-RT maximizes non-RT task throughput without compromising RT guarantees for RT chains. Under CROS-RT, the WCRT-BCRT difference for the RT chain remains stable, irrespective of non-RT bandwidth, thanks to the polling method, which processes non-RT messages periodically within a fixed budget while respecting realtime constraints.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Overhead Analysis</head><p>We evaluate the runtime overhead of CROS-RT in three areas: port-priority map registration by the cross-layer priority identifier, per-packet processing by the message selector, and dynamic priority adjustment by the RT handler. During initialization, when an executor is first created, the crosslayer priority identifier registers the executor's socket port number into the kernel's port-priority map via a single system call, resulting in an average delay of 13.8 μs. For message 11 handling, the message selector incurs an average overhead of 1.1 μs per packet for metadata checks. Additionally, the RT handler introduces an average delay of 5.7 μs for dynamic priority adjustments. These overheads are minimal compared to ROS 2 callback execution times, which are typically in the millisecond range.</p><p>Fig. <ref type="figure" target="#fig_3">14</ref> presents the measured worst-case remote interprocess communication time across different message sizes, broken down by processing thread type at each layer. The processing time of each thread increases proportionally with message size, ranging from 150 μs to 4,474 μs for sizes between 1 KB and 1 MB. This proportional relationship is utilized in the response time analysis in Sec.V, where Eqs.</p><p>(1)-( <ref type="formula" target="#formula_4">3</ref>) are estimated using regression based on message size.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. RELATED WORK</head><p>Real-time scheduling in ROS 2. Recent studies on improving real-time performance in ROS 2 have largely focused on enhancing executor behavior and timing analysis for callback scheduling. Casini et al. <ref type="bibr" target="#b1">[2]</ref> modeled the ROS 2 singlethreaded executor to analyze its timing behavior and proposed response time analysis of processing chains. Subsequent works extended the analysis by incorporating callback priorities <ref type="bibr" target="#b2">[3]</ref>, execution time variations <ref type="bibr" target="#b3">[4]</ref>, and round-robin-like scheduling features <ref type="bibr" target="#b4">[5]</ref>. PiCAS <ref type="bibr" target="#b7">[8]</ref> introduced a priority-driven scheduler for the executor, strictly enforcing fixed chain priorities for predictability. Arafat et al. <ref type="bibr" target="#b23">[29]</ref> proposed a dynamic-priority scheduler to enhance chain latency, particularly under overload conditions. Additional efforts, such as in <ref type="bibr" target="#b24">[30]</ref>, <ref type="bibr" target="#b25">[31]</ref>, provided end-to-end latency analysis for cause-effect chains where callbacks have independent timers. ROSLlama <ref type="bibr" target="#b8">[9]</ref> provided a tool for managing latency at runtime through dynamic scheduling adjustments. Studies in <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b6">[7]</ref> addressed real-time scheduling under multi-threaded executors. More recent works <ref type="bibr" target="#b9">[10]</ref>, <ref type="bibr" target="#b10">[11]</ref> focused on GPU/TPU management within ROS 2 environments to enhance real-time performance. However, these studies mainly concentrate on workload scheduling within a single machine and do not consider the network processing delays inherent in remote inter-process communication, which is critical in distributed ROS 2 systems.</p><p>Inter-process communication in DDS. Concerning remote inter-process communication, some studies modeled DDS for analyzing latency between executors <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b12">[13]</ref>. A detailed analysis of ROS 2's inter-process communication provided insights into worst-case delay estimation and examined default policies. However, these approaches largely focus on the DDS layer and do not address priority inversion that arises across the broader communication stack, specifically in kernel-level packet handling. Our work bridges these gaps by targeting the entire communication pipeline, explicitly addressing interprocess communication delays, priority misalignment, and inversion across all layers of the ROS 2 architecture. By offering a cross-layer approach, we provide a comprehensive solution to real-time challenges in ROS 2 distributed systems.</p><p>Unpredictablility in the Linux network stack. Beyond ROS 2-specific issues, unpredictability in the Linux network stack has been widely studied. Existing solutions mainly focus on controlling packet transmission timing or configuring queuing disciplines (Qdisc) at specific network layers. For example, Qdisc implementations apply scheduling algorithms at the network layer to manage packet sequencing <ref type="bibr" target="#b26">[32]</ref>, while Time-Sensitive Networking (TSN) employs time-aware scheduling at the MAC layer for deterministic Ethernet communication <ref type="bibr" target="#b27">[33]</ref>, <ref type="bibr" target="#b28">[34]</ref>. However, these methods typically focus on packet handling within transmission buffers, rather than addressing scheduling of kernel threads responsible for packet processing. Without aligning kernel thread priorities with message criticality, high-priority packets may still experience delays due to lower-priority tasks, leading to priority inversion.</p><p>Several studies <ref type="bibr" target="#b29">[35]</ref>, <ref type="bibr" target="#b30">[36]</ref> have observed that kernel threads such as ksoftirqd introduce significant latency under varying CPU and network load conditions. Methods proposed to mitigate these delays include assigning fixed real-time priorities (usually lower than ROS 2 threads) to ksoftirqd and applying CPU pinning. However, these approaches do not dynamically adjust kernel thread priorities in response to changing workloads. Alternative solutions involve modifications to the interrupt-handling mechanisms, such as performing all network-related tasks within the hardIRQ context <ref type="bibr" target="#b31">[37]</ref> or leveraging hardware-based isolation to offload critical traffic to dedicated processing units <ref type="bibr" target="#b32">[38]</ref>. However, these solutions either face scalability limitations due to hardware constraints (limited priority levels) or compatibility issues. Additionally, DPDK <ref type="bibr" target="#b33">[39]</ref> bypasses the kernel network stack entirely to achieve high performance but poses significant integration challenges with ROS 2's socket-based architecture.</p><p>In contrast, our work explicitly addresses these kernel-level scheduling concerns by dynamically adjusting softIRQ thread priorities based on message criticality. We ensure priority consistency by propagating ROS 2 chain priorities down to kernel-level packet processing, effectively mitigating priority inversion throughout the communication pipeline. Our solution complements existing network-layer scheduling approaches, such as Qdisc and TSN, providing end-to-end real-time guarantees beyond packet transmission into the kernel's packetprocessing threads.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. CONCLUSION</head><p>We proposed CROS-RT, a priority-based framework for predictable inter-process communication in ROS 2, addressing inherent unpredictability caused by its multi-layered architecture. CROS-RT ensures that priority information is propagated across all communication layers, allowing for consistent priority-driven message scheduling. Our evaluation demonstrated that CROS-RT significantly improves the end-to-end response time for high-priority chains, achieving up to an 89.3% reduction in response time compared to the default ROS 2 system. We also provided analytical bounds to predict end-to-end latency. These improvements make our framework a promising solution for enhancing real-time capabilities in safety-critical robotic applications. <ref type="bibr" target="#b11">12</ref> </p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Response time of processing chains</figDesc><graphic coords="3,311.75,61.34,123.88,81.43" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: Response time of highest-priority chain</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: Kernel packet processing by (a) current thread in softirq context and (b) Ksoftirqd thread in process context highest-priority chain to grow from 10.3 ms (128 B messages) to 118.5 ms (2048 KB messages). These results show that increased chains and larger message sizes amplify kernel-level unpredictability in ROS 2 communication.The following subsections will explore these root causes in detail, focusing on the FIFO nature of kernel message handling and the behavior of the kernel packet processing thread.</figDesc><graphic coords="4,58.73,132.68,231.68,70.09" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: System architecture overview of CROS-RT</figDesc><graphic coords="5,332.51,130.10,74.95,101.35" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 6 :</head><label>6</label><figDesc>Fig. 6: Function call flow on the subscriber side across layers</figDesc><graphic coords="6,311.99,53.24,114.91,105.67" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 7 :</head><label>7</label><figDesc>Fig. 7: Structures of message selector and RT handler</figDesc><graphic coords="6,456.65,53.54,106.51,105.67" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: Chain configuration on NAV2</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Fig. 9 :</head><label>9</label><figDesc>Fig. 9: NAV2 case study: end-to-end chain latency distribution</figDesc><graphic coords="9,455.27,50.54,108.07,126.67" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_11"><head>Fig. 10 :</head><label>10</label><figDesc>Fig. 10: Inverted pendulum case study: settling time serves as a tight upper bound as observed in experiments. For example, for chain τ 3 , the worst-case observed latency under CROS-RT is 74.8 ms, below the analytical bound of 127.2 ms.Both Vanilla and Preempt-RT suffer from severe priority inversion: under Vanilla, high-priority messages in the kernel can be delayed by lower-priority messages handled by upper-layer threads, due to the ksoftirqd thread's lower priority; under Preempt-RT, high-priority threads in the upper layers can be delayed by the ksoftirqd thread handling lower-priority messages. In contrast, CROS-RT enforces priority-driven scheduling across all layers, processing messages by their priorities and dynamically adjusting the kernel thread's priority. As a result, CROS-RT enhances overall system predictability.</figDesc><graphic coords="10,81.23,60.32,154.68,88.81" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_12"><head>Fig. 11 :</head><label>11</label><figDesc>Fig. 11: WCRT-BCRT difference distribution with increasing number of chains</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_13"><head>Fig. 13 :</head><label>13</label><figDesc>Fig. 13: RT predictability and non-RT throughput with increasing non-RT traffic</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>Socket Port Number Available Info. Socket Port Number Available Info. Socket History Available Info.</head><label></label><figDesc></figDesc><table><row><cell>Application Layer</cell><cell cols="2">Middleware Layer</cell><cell>Kernel Layer</cell></row><row><cell>Executor Priority,</cell><cell></cell><cell></cell><cell></cell></row><row><cell>Thread ID</cell><cell></cell><cell></cell><cell></cell></row><row><cell>spin</cell><cell cols="2">perform_listen_operation</cell><cell>do_softirq</cell></row><row><cell></cell><cell></cell><cell></cell><cell>Network Interrupt</cell></row><row><cell>execute_any _executable</cell><cell>OnDataReceived</cell><cell>Receive</cell><cell>net_rx_action</cell></row><row><cell>Callback Pointer</cell><cell>received_change</cell><cell></cell><cell>napi_gro_receive</cell></row><row><cell>rcl_take</cell><cell>_keep_last</cell><cell></cell><cell></cell></row><row><cell>History Pointer</cell><cell></cell><cell></cell><cell>udp_rcv</cell></row><row><cell>take</cell><cell>add_change</cell><cell></cell><cell></cell></row><row><cell>Executor</cell><cell>History Pointer</cell><cell>Socket Pointer</cell><cell></cell></row><row><cell>Callback</cell><cell></cell><cell></cell><cell></cell></row><row><cell>(sub)</cell><cell></cell><cell></cell><cell></cell></row></table><note><p>5 206 Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 01:30:26 UTC from IEEE Xplore. Restrictions apply.</p></note></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>Local inter-process communication is simpler, as steps and are bypassed by using shared memory between the two DDS threads.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="204" xml:id="foot_1"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 01:30:26 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_2"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 01:30:26 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGEMENT</head><p>This work was supported in part by (1) the <rs type="funder">National Research Foundation of Korea (NRF)</rs> grant (<rs type="grantNumber">RS-2023- 00213309</rs>, <rs type="grantNumber">RS-2024-00438248</rs>) and (2) <rs type="grantName">Institute of Information &amp; communications Technology Planning &amp; Evaluation (IITP) grant</rs> (<rs type="grantNumber">RS-2024-00398157</rs>, <rs type="grantNumber">IITP-2025-RS-2020-II201819</rs>, <rs type="grantNumber">IITP-2025-RS- 2022-00156360</rs>, <rs type="grantNumber">IITP-2025-RS-2024-00426853</rs>) funded by the <rs type="funder">Korea government (MSIT)</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_SEECXAF">
+					<idno type="grant-number">RS-2023- 00213309</idno>
+				</org>
+				<org type="funding" xml:id="_n5EG5vJ">
+					<idno type="grant-number">RS-2024-00438248</idno>
+					<orgName type="grant-name">Institute of Information &amp; communications Technology Planning &amp; Evaluation (IITP) grant</orgName>
+				</org>
+				<org type="funding" xml:id="_27Qd3ey">
+					<idno type="grant-number">RS-2024-00398157</idno>
+				</org>
+				<org type="funding" xml:id="_hpG42pF">
+					<idno type="grant-number">IITP-2025-RS-2020-II201819</idno>
+				</org>
+				<org type="funding" xml:id="_tZSEdvy">
+					<idno type="grant-number">IITP-2025-RS- 2022-00156360</idno>
+				</org>
+				<org type="funding" xml:id="_kftdXUR">
+					<idno type="grant-number">IITP-2025-RS-2024-00426853</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Robot operating system 2: Design, architecture, and uses in the wild</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Macenski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Foote</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Gerkey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lalancette</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Woodall</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Science robotics</title>
+		<imprint>
+			<biblScope unit="volume">7</biblScope>
+			<biblScope unit="issue">66</biblScope>
+			<biblScope unit="page">6074</biblScope>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Responsetime analysis of ROS 2 processing chains under reservation-based scheduling</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lütkebohle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Response time analysis and priority assignment of processing chains on ROS2 executors</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Feng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lv</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Deng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">A ROS 2 response-time analysis exploiting starvation freedom and execution-time variance</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bozhko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Real-Time Performance Analysis of Processing Systems on ROS 2 Executors</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Luo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTAS</title>
+		<imprint>
+			<date type="published" when="2023">2023</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling and analysis of processing chains on multi-threaded executor in ros 2</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ji</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Wang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Timing analysis and priority-driven enhancements of ros 2 multi-threaded executors</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Sobhani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTAS</title>
+		<imprint>
+			<date type="published" when="2023">2023</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">PiCAS: New design of priority-driven chain-aware scheduling for ROS2</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTAS</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Automatic latency management for ROS 2: Benefits, challenges, and open problems</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blass</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Lange</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTAS</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Rosgm: A real-time gpu management framework with plug-in policies for ros 2</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Hu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Xing</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Deng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2023">2023</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">PAAM: A Framework for Coordinated and Priority-Driven Accelerator Management in ROS 2</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Enright</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTAS</title>
+		<imprint>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Bounding the Data-Delivery Latency of DDS Messages in Real-Time Applications</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Sciangula</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Scordino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">Di</forename><surname>Natale</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2023">2023</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Modeling and Analysis of Inter-Process Communication Delay in ROS 2</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Luo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Liang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2023">2023</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title/>
+		<author>
+			<orgName type="collaboration">eProsima fast DDS Documentation</orgName>
+		</author>
+		<ptr target="https://fast-dds.docs.eprosima.com/en/latest/fastdds/ros2/ros2.html" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<monogr>
+		<ptr target="https://wiki.linuxfoundation.org/networking/napi" />
+		<title level="m">New API (NAPI)</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Kernelshark</surname></persName>
+		</author>
+		<ptr target="https://kernelshark.org/" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">The deferrable server algorithm for enhanced aperiodic responsiveness in hard real-time environments</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">K</forename><surname>Strosnider</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">44</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="73" to="91" />
+			<date type="published" when="1995">1995</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">On the (in) security of secure ros2</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Deng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Xu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM CCS</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<monogr>
+		<title/>
+		<author>
+			<persName><forename type="first">Dds</forename><surname>Rti Connext</surname></persName>
+		</author>
+		<ptr target="https://community.rti.com/ros" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">The real-time linux kernel: A survey on preempt rt</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Reghenzani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Massari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Fornaciari</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Computing Surveys (CSUR)</title>
+		<imprint>
+			<biblScope unit="volume">52</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="1" to="36" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">An evaluation of switched ethernet and linux traffic control for real-time transmission</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Vila-Carbó</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Tur-Masanet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Hernandez-Orallo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ETFA</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">The marathon 2: A navigation system</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Macenski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Martín</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>White</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">G</forename><surname>Clavero</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IROS</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Measuring the performance of schedulability tests</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-time systems</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="129" to="154" />
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Response time analysis for dynamic priority scheduling in ROS2</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">A</forename><surname>Arafat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Vaidhun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">M</forename><surname>Wilson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Guo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">DAC</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">End-to-end timing analysis in ROS2</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Teper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Günzel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Ueter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">End-To-End Timing Analysis and Optimization of Multi-Executor ROS 2 Systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Teper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Betz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Günzel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ebner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Von Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Betz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">An evaluation of software-based tsn traffic shapers using linux tc</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">T</forename><surname>Borda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Ermont</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">WFCS</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Fixedpriority scheduling and controller co-design for time-sensitive networks</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Dai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><forename type="middle">S</forename><surname>Hu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Chang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ICCAD</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">No-wait packet scheduling for ieee timesensitive networks (tsn)</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Dürr</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><forename type="middle">G</forename><surname>Nayak</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTNS</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<monogr>
+		<title level="m" type="main">Real-time linux communications: an evaluation of the linux communication stack for real-time robotic applications</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">S V</forename><surname>Gutiérrez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">U S</forename><surname>Juan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><forename type="middle">Z</forename><surname>Ugarte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><forename type="middle">M</forename><surname>Vilches</surname></persName>
+		</author>
+		<idno type="arXiv">arXiv:1808.10821</idno>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<monogr>
+		<title level="m" type="main">Towards a distributed and real-time framework for robots: Evaluation of ros 2.0 communications for real-time robotic applications</title>
+		<idno type="arXiv">arXiv:1809.02595</idno>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">in arXiv preprint</note>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Investigating the network performance of a real-time linux kernel</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Kiraly</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real Time Linux Workshop (RTLWS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Efficient timing isolation for mixed-criticality communication stacks in performance architectures</title>
+		<author>
+			<persName><forename type="first">K.-B</forename><surname>Gemlau</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Sperling</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ETFA</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<monogr>
+		<title level="m" type="main">3ds: An efficient dpdk-based data distribution service for distributed real-time applications</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Xu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Wu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Zheng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Tan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Ren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<ptr target="HPCC/DSS/SmartCity/DependSys" />
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

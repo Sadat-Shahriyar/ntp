@@ -1,0 +1,1158 @@
+{
+  "paper_name": "Scheduling Real-Time Packets with Non-Preemptive Regions on Priority-based NoCs",
+  "paper_description": "This paper proposes a modified framework for Network-on-Chip (NoC) scheduling that introduces non-preemptive regions to real-time packets. By strategically increasing the non-preemptive region of packets, the framework aims to reduce packet response times and improve the overall schedulability and utilization of NoCs compared to traditional flit-level preemptive scheduling. It presents an extended Response Time Analysis (RTA) and algorithms for selecting optimal non-preemptive region lengths.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Flow Schedulability",
+      "formal_description": {
+        "statement": "A flow flow_i is defined as schedulable, if its response_time_i is no larger than the deadline D_i (i.e., response_time_i <= D_i).",
+        "variables": {
+          "flow_i": "A real-time packet flow",
+          "response_time_i": "The worst-case response time (end-to-end latency) of flow_i",
+          "D_i": "The relative deadline of flow_i"
+        },
+        "assumptions": [],
+        "conclusion": "Flow flow_i meets its timing requirements."
+      },
+      "informal_sketch": {
+        "intuition": "A single packet flow is considered 'on time' or 'schedulable' if it completes its transmission from source to destination within its specified deadline.",
+        "steps": [
+          "Calculate the worst-case time it takes for flow_i to complete (response_time_i).",
+          "Compare this calculated time with the maximum allowed time (D_i).",
+          "If response_time_i is less than or equal to D_i, the flow is schedulable."
+        ],
+        "pseudocode": "def is_flow_schedulable(flow_i, response_time_i, D_i):\n    return response_time_i <= D_i",
+        "key_insights": [
+          "The core condition for real-time guarantees is meeting deadlines.",
+          "Response time analysis is crucial to determine if this condition is met."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Flow Set Schedulability",
+      "formal_description": {
+        "statement": "The flow set F is defined as schedulable, if all the flows in F can meet their deadlines (response_time_i <= D_i, for all flow_i in F).",
+        "variables": {
+          "F": "A set of real-time packet flows",
+          "flow_i": "An individual flow within the set F",
+          "response_time_i": "The worst-case response time of flow_i",
+          "D_i": "The relative deadline of flow_i"
+        },
+        "assumptions": [],
+        "conclusion": "All flows in the set F meet their timing requirements."
+      },
+      "informal_sketch": {
+        "intuition": "A collection of packet flows is schedulable if every single flow within that collection is individually schedulable.",
+        "steps": [
+          "For each flow flow_i in the flow set F:",
+          "  Check if flow_i is schedulable (i.e., response_time_i <= D_i).",
+          "If all flows are schedulable, then the entire flow set F is schedulable."
+        ],
+        "pseudocode": "def is_flow_set_schedulable(flow_set_F):\n    for flow_i in flow_set_F:\n        if not is_flow_schedulable(flow_i, flow_i.response_time, flow_i.D):\n            return False\n    return True",
+        "key_insights": [
+          "System-level schedulability requires all individual components to meet their guarantees.",
+          "This is a conjunctive condition: all must pass."
+        ]
+      },
+      "dependencies": [
+        "Flow Schedulability"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Basic Transmission Time (C_i)",
+      "formal_description": {
+        "statement": "The basic transmission time (i.e., without any blocking or interference) of flow_i over its route_i (denoted by C_i) is computed as: C_i = (L_i / flit_size + num_hops(source_node_i, dest_node_i)) * flit_tx_time",
+        "variables": {
+          "C_i": "Basic transmission time of flow_i",
+          "L_i": "Complete packet size of flow_i (in flits)",
+          "flit_size": "Size of a single flit (implicitly 1 flit unit for L_i)",
+          "num_hops(source_node_i, dest_node_i)": "Number of hops along the route of flow_i",
+          "flit_tx_time": "Transmission time of a single flit over one link"
+        },
+        "assumptions": [
+          "Wormhole-switching NoC",
+          "Fixed bandwidth links",
+          "Flit-level transmission"
+        ],
+        "conclusion": "C_i represents the ideal, uninterrupted transmission duration for flow_i."
+      },
+      "informal_sketch": {
+        "intuition": "This is the best-case time a packet takes to travel its entire path, assuming no delays from other packets. It accounts for the time to send all its flits and the propagation delay across all hops.",
+        "steps": [
+          "Calculate the number of flits in the packet (L_i / flit_size).",
+          "Add the number of hops to account for the pipeline effect in wormhole switching (each hop adds a flit_tx_time delay for the header to advance).",
+          "Multiply the total effective flit transmissions by the time it takes to transmit one flit over one link (flit_tx_time)."
+        ],
+        "pseudocode": "def calculate_basic_transmission_time(flow_i, flit_size, flit_tx_time):\n    num_flits = flow_i.L / flit_size\n    num_hops_val = num_hops(flow_i.source_node, flow_i.dest_node)\n    C_i = (num_flits + num_hops_val) * flit_tx_time\n    return C_i",
+        "key_insights": [
+          "Wormhole switching allows pipelined transmission, so the total time is not just (packet_size * num_hops).",
+          "The 'num_hops' term accounts for the initial latency to establish the worm across the path."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Blocking Delay (B_i)",
+      "formal_description": {
+        "statement": "The blocking delay B_i can be calculated as: B_i = sum(for all L in route_i) max(for all flow_p in blocking_flow_set_i such that L in route_p) blocking_length_p",
+        "variables": {
+          "B_i": "Total blocking delay experienced by flow_i",
+          "route_i": "The transmission path of flow_i",
+          "L": "A specific link in the network",
+          "blocking_flow_set_i": "A set of flows that can cause blocking to flow_i (typically lower priority flows)",
+          "flow_p": "A flow in blocking_flow_set_i",
+          "route_p": "The transmission path of flow_p",
+          "blocking_length_p": "The length of blocking that flow_p can cause to flow_i at each hop. Under flit-level preemptive mechanism, blocking_length_p equates to flit_tx_time."
+        },
+        "assumptions": [
+          "Fixed-priority scheduling",
+          "Lower priority flows can block higher priority flows at shared links."
+        ],
+        "conclusion": "B_i represents the maximum cumulative delay flow_i experiences due to lower priority flows."
+      },
+      "informal_sketch": {
+        "intuition": "A higher priority packet can be delayed if a lower priority packet is already transmitting on a shared link. This formula sums up the worst-case blocking that can happen on each link along the packet's path.",
+        "steps": [
+          "Initialize B_i to 0.",
+          "For each link L in flow_i's route_i:",
+          "  Find all lower priority flows (flow_p in blocking_flow_set_i) that also use link L.",
+          "  Determine the maximum blocking_length_p that any of these lower priority flows can cause on link L (e.g., one flit transmission time in flit-level preemption).",
+          "  Add this maximum blocking to B_i."
+        ],
+        "pseudocode": "def calculate_blocking_delay(flow_i, blocking_flow_set_i, flit_tx_time):\n    B_i = 0\n    for link_L in flow_i.route:\n        max_blocking_on_link = 0\n        for flow_p in blocking_flow_set_i:\n            if link_L in flow_p.route:\n                # In flit-level preemption, delta_p is flit_tx_time\n                max_blocking_on_link = max(max_blocking_on_link, flit_tx_time) \n        B_i += max_blocking_on_link\n    return B_i",
+        "key_insights": [
+          "Blocking is a critical component of response time for fixed-priority scheduling.",
+          "It's the maximum single non-preemptable section of a lower priority task that can delay a higher priority task.",
+          "In flit-level preemption, this is typically the transmission time of one flit."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Interference Delay (I_i)",
+      "formal_description": {
+        "statement": "The interference delay of flow_i within a time duration of busy_period_i can then be computed as: I_i(busy_period_i) = sum(for all flow_j in direct_interference_flow_set_i) ceil((busy_period_i + interference_jitter_j) / T_j) * C_j",
+        "variables": {
+          "I_i(busy_period_i)": "Total interference delay experienced by flow_i within busy_period_i",
+          "busy_period_i": "The length of the i-level busy-period",
+          "direct_interference_flow_set_i": "Set of flows with higher priorities than flow_i that share links with flow_i",
+          "flow_j": "A flow in direct_interference_flow_set_i",
+          "interference_jitter_j": "Extra jitter added to flow_j to account for indirect interference (upper-bounded by response_time_j - C_j)",
+          "T_j": "Period or minimum inter-arrival time of flow_j",
+          "C_j": "Basic transmission time of flow_j"
+        },
+        "assumptions": [
+          "Fixed-priority scheduling",
+          "Higher priority flows can preempt or delay lower priority flows."
+        ],
+        "conclusion": "I_i(busy_period_i) quantifies the cumulative delay flow_i experiences due to higher priority flows during its busy period."
+      },
+      "informal_sketch": {
+        "intuition": "Higher priority packets can interrupt or delay the current packet. This formula calculates the total time that higher priority packets will occupy the shared resources during the period when the current packet is trying to transmit.",
+        "steps": [
+          "Initialize I_i to 0.",
+          "For each higher priority flow flow_j that shares a link with flow_i (direct_interference_flow_set_i):",
+          "  Calculate the number of times flow_j can interfere within the current busy_period_i, considering its jitter (ceil((busy_period_i + interference_jitter_j) / T_j)).",
+          "  Multiply this number by flow_j's basic transmission time (C_j) to get its total interference contribution.",
+          "  Add this contribution to I_i."
+        ],
+        "pseudocode": "def calculate_interference_delay(flow_i, busy_period_i, direct_interference_flow_set_i):\n    I_i = 0\n    for flow_j in direct_interference_flow_set_i:\n        # Assuming ceil for number of interfering jobs\n        num_interfering_jobs = math.ceil((busy_period_i + flow_j.interference_jitter) / flow_j.T)\n        I_i += num_interfering_jobs * flow_j.C\n    return I_i",
+        "key_insights": [
+          "Interference is a major factor in response time for preemptive scheduling.",
+          "Jitter accounts for variations in arrival times of interfering tasks, making the analysis more pessimistic but safe.",
+          "The calculation is iterative because busy_period_i itself depends on I_i."
+        ]
+      },
+      "dependencies": [
+        "Basic Transmission Time (C_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "i-level Busy-Period (W_i)",
+      "formal_description": {
+        "statement": "The maximum length of the i-level busy-period (W_i) can be computed as: W_i = B_i + ceil(W_i / T_i) * C_i + I_i(W_i)",
+        "variables": {
+          "W_i": "The length of the i-level busy-period for flow_i",
+          "B_i": "Blocking delay of flow_i",
+          "T_i": "Period or minimum inter-arrival time of flow_i",
+          "C_i": "Basic transmission time of flow_i",
+          "I_i(W_i)": "Interference delay of flow_i within W_i"
+        },
+        "assumptions": [
+          "Fixed-point iteration is used to solve this equation.",
+          "The calculation starts with W_i(0) = B_i + C_i and terminates when W_i(n-1) = W_i(n)."
+        ],
+        "conclusion": "W_i represents the longest continuous interval during which the resource is busy processing flow_i or higher priority flows, starting from a critical instant of flow_i."
+      },
+      "informal_sketch": {
+        "intuition": "The busy period is the time from when a packet (or a higher priority packet) arrives until all pending work for that packet and all higher priority packets is completed. This equation is solved iteratively because the interference depends on the length of the busy period itself.",
+        "steps": [
+          "Initialize busy_period_i_current = B_i + C_i.",
+          "Loop until convergence:",
+          "  busy_period_i_next = B_i + ceil(busy_period_i_current / T_i) * C_i + calculate_interference_delay(flow_i, busy_period_i_current, direct_interference_flow_set_i).",
+          "  If busy_period_i_next == busy_period_i_current, then busy_period_i_current is the converged W_i.",
+          "  Else, set busy_period_i_current = busy_period_i_next and continue."
+        ],
+        "pseudocode": "def calculate_busy_period(flow_i, B_i, C_i, T_i, direct_interference_flow_set_i):\n    busy_period_i_current = B_i + C_i\n    while True:\n        # Assuming ceil for the number of instances of flow_i itself within the busy period\n        # This term is usually for the *current* instance's execution, so it's k*C_i, not ceil(W_i/T_i)*C_i\n        # The paper's formula (1) is a common simplification for the first instance's busy period.\n        # For general k-th instance, it's k*C_i. For W_i, it's usually just C_i for the current instance.\n        # Let's follow the paper's formula (1) directly, assuming it's for the total work of flow_i and its subsequent instances.\n        # However, standard RTA for W_i is W_i = B_i + C_i + I_i(W_i). The (W_i/T_i)*C_i term is unusual for W_i itself.\n        # Re-reading: \"The maximum length of the i-level busy-period can be computed as W_i = B_i + W_i/T_i * C_i + I_i(W_i)\"\n        # This looks like the total demand in a busy period, where W_i/T_i * C_i is the demand of flow_i itself.\n        # This implies W_i is the length of the busy period, and W_i/T_i is the number of instances of flow_i that *could* occur.\n        # Let's assume ceil for W_i/T_i for consistency with interference.\n        demand_flow_i = math.ceil(busy_period_i_current / T_i) * C_i\n        interference = calculate_interference_delay(flow_i, busy_period_i_current, direct_interference_flow_set_i)\n        busy_period_i_next = B_i + demand_flow_i + interference\n        if busy_period_i_next == busy_period_i_current:\n            return busy_period_i_next\n        busy_period_i_current = busy_period_i_next",
+        "key_insights": [
+          "The busy period calculation is a fixed-point iteration, meaning it's solved by repeatedly applying the formula until the value stabilizes.",
+          "It captures the cumulative effect of blocking, self-demand, and higher-priority interference.",
+          "This is a fundamental concept in real-time scheduling theory."
+        ]
+      },
+      "dependencies": [
+        "Blocking Delay (B_i)",
+        "Basic Transmission Time (C_i)",
+        "Interference Delay (I_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Number of Instances (K_i)",
+      "formal_description": {
+        "statement": "Once busy_period_i is calculated, the number of instances within the largest i-level busy-period can be computed accordingly as: K_i = floor(busy_period_i / T_i)",
+        "variables": {
+          "K_i": "Number of instances of flow_i within the i-level busy-period",
+          "busy_period_i": "The length of the i-level busy-period for flow_i",
+          "T_i": "Period or minimum inter-arrival time of flow_i"
+        },
+        "assumptions": [],
+        "conclusion": "K_i determines how many instances of flow_i need to be checked for their response times within the critical busy period."
+      },
+      "informal_sketch": {
+        "intuition": "After determining the total length of the busy period, we can figure out how many times flow_i itself would be released and need to be processed during that period.",
+        "steps": [
+          "Divide the total busy_period_i by flow_i's period T_i.",
+          "Take the floor of this result to get the integer number of instances."
+        ],
+        "pseudocode": "def calculate_num_instances(busy_period_i, T_i):\n    K_i = math.floor(busy_period_i / T_i)\n    return K_i",
+        "key_insights": [
+          "The busy period can contain multiple instances of the same flow.",
+          "Each of these instances must be checked for schedulability."
+        ]
+      },
+      "dependencies": [
+        "i-level Busy-Period (W_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Finishing Time of Instance (F_i_k)",
+      "formal_description": {
+        "statement": "Assume that the first instance of flow_i (i.e., denoted by flow_i_1) is released at time 0, then the finishing time of any instance flow_i_k (for all k in K_i) within the i-level busy-period can be calculated as: F_i_k = B_i + k * C_i + I_i(F_i_k)",
+        "variables": {
+          "F_i_k": "Finishing time of the k-th instance of flow_i",
+          "B_i": "Blocking delay of flow_i",
+          "k": "The instance number (1 to K_i)",
+          "C_i": "Basic transmission time of flow_i",
+          "I_i(F_i_k)": "Interference delay of flow_i within F_i_k"
+        },
+        "assumptions": [
+          "Fixed-point iteration is used to solve this equation.",
+          "The calculation starts with F_i_k(0) = B_i + k * C_i and terminates when F_i_k(n-1) = F_i_k(n)."
+        ],
+        "conclusion": "F_i_k determines when the k-th instance of flow_i completes its execution, considering blocking and interference."
+      },
+      "informal_sketch": {
+        "intuition": "This is similar to the busy period calculation but specifically for the k-th instance. It sums up the initial blocking, the execution time of the first 'k' instances of flow_i, and all interference from higher priority flows up to the point the k-th instance finishes.",
+        "steps": [
+          "Initialize finish_time_i_k_current = B_i + k * C_i.",
+          "Loop until convergence:",
+          "  interference = calculate_interference_delay(flow_i, finish_time_i_k_current, direct_interference_flow_set_i).",
+          "  finish_time_i_k_next = B_i + k * C_i + interference.",
+          "  If finish_time_i_k_next == finish_time_i_k_current, then finish_time_i_k_current is the converged F_i_k.",
+          "  Else, set finish_time_i_k_current = finish_time_i_k_next and continue."
+        ],
+        "pseudocode": "def calculate_finish_time_instance(flow_i, k, B_i, C_i, direct_interference_flow_set_i):\n    finish_time_i_k_current = B_i + k * C_i\n    while True:\n        interference = calculate_interference_delay(flow_i, finish_time_i_k_current, direct_interference_flow_set_i)\n        finish_time_i_k_next = B_i + k * C_i + interference\n        if finish_time_i_k_next == finish_time_i_k_current:\n            return finish_time_i_k_next\n        finish_time_i_k_current = finish_time_i_k_next",
+        "key_insights": [
+          "Each instance within a busy period needs its own response time calculation.",
+          "The fixed-point iteration accounts for the recursive nature of interference."
+        ]
+      },
+      "dependencies": [
+        "Blocking Delay (B_i)",
+        "Basic Transmission Time (C_i)",
+        "Interference Delay (I_i)",
+        "Number of Instances (K_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Response Time of Instance (R_i_k)",
+      "formal_description": {
+        "statement": "The response time of each instance can then be computed as: R_i_k = F_i_k - (k - 1) * T_i",
+        "variables": {
+          "R_i_k": "Response time of the k-th instance of flow_i",
+          "F_i_k": "Finishing time of the k-th instance of flow_i",
+          "k": "The instance number (1 to K_i)",
+          "T_i": "Period or minimum inter-arrival time of flow_i"
+        },
+        "assumptions": [
+          "The k-th instance is assumed to be released at (k-1) * T_i relative to the start of the busy period."
+        ],
+        "conclusion": "R_i_k is the actual time taken by the k-th instance from its release to its completion."
+      },
+      "informal_sketch": {
+        "intuition": "The response time for a specific instance is simply the time it finishes minus the time it was released. Since we assume the first instance is released at time 0, the k-th instance is released at (k-1)*T_i.",
+        "steps": [
+          "Calculate the release time of the k-th instance: (k - 1) * T_i.",
+          "Subtract this release time from its finishing time F_i_k."
+        ],
+        "pseudocode": "def calculate_response_time_instance(F_i_k, k, T_i):\n    release_time_k = (k - 1) * T_i\n    R_i_k = F_i_k - release_time_k\n    return R_i_k",
+        "key_insights": [
+          "Response time is always measured from the instance's release.",
+          "This formula normalizes the finishing time relative to the instance's own arrival."
+        ]
+      },
+      "dependencies": [
+        "Finishing Time of Instance (F_i_k)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Worst-Case Response Time (R_i)",
+      "formal_description": {
+        "statement": "Accordingly, the Worst-Case Response Time (WCRT) is calculated as: R_i = max(for all k in [1, K_i]) (R_i_k)",
+        "variables": {
+          "R_i": "Worst-Case Response Time (WCRT) of flow_i",
+          "K_i": "Number of instances of flow_i within the i-level busy-period",
+          "R_i_k": "Response time of the k-th instance of flow_i"
+        },
+        "assumptions": [],
+        "conclusion": "R_i is the maximum possible response time flow_i can experience under worst-case conditions."
+      },
+      "informal_sketch": {
+        "intuition": "To guarantee schedulability, we must consider the absolute worst-case. This means finding the longest response time among all instances of a flow that could occur during its critical busy period.",
+        "steps": [
+          "Calculate R_i_k for every instance k from 1 to K_i.",
+          "The largest of these R_i_k values is the WCRT for flow_i."
+        ],
+        "pseudocode": "def calculate_wcrt(flow_i, K_i, B_i, C_i, T_i, direct_interference_flow_set_i):\n    max_R_i_k = 0\n    for k in range(1, K_i + 1):\n        F_i_k = calculate_finish_time_instance(flow_i, k, B_i, C_i, direct_interference_flow_set_i)\n        R_i_k = calculate_response_time_instance(F_i_k, k, T_i)\n        max_R_i_k = max(max_R_i_k, R_i_k)\n    return max_R_i_k",
+        "key_insights": [
+          "Schedulability tests must be based on worst-case scenarios.",
+          "The WCRT is the value compared against the deadline D_i."
+        ]
+      },
+      "dependencies": [
+        "Number of Instances (K_i)",
+        "Response Time of Instance (R_i_k)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Last Interference Node (N_last_I_i)",
+      "formal_description": {
+        "statement": "The non-preemptive region of a flow flow_i is completely non-preemptive, when the head of the non-preemptive region starts its transmission on the output-link of N_last_I_i. N_last_I_i is the first node in route_i, after which no more flows with higher priorities can encounter flow_i for the first time.",
+        "variables": {
+          "N_last_I_i": "The last node on flow_i's route where it can first encounter a higher priority flow",
+          "route_i": "The transmission path of flow_i",
+          "flow_i": "A real-time packet flow"
+        },
+        "assumptions": [
+          "Wormhole-switched NoC",
+          "Fixed-priority scheduling",
+          "Non-preemptive regions are introduced to packets."
+        ],
+        "conclusion": "N_last_I_i defines the point on the route where the non-preemptive region truly becomes immune to preemption by higher priority flows."
+      },
+      "informal_sketch": {
+        "intuition": "Even if a packet has a non-preemptive region, it can still be delayed by higher priority packets that arrive at routers further down its path. N_last_I_i is the last router where such a 'first encounter' with a higher priority packet can happen. After this node, the non-preemptive region is truly safe from preemption.",
+        "steps": [
+          "Trace flow_i's route_i from source to destination.",
+          "For each node on route_i, identify all higher priority flows that could potentially 'meet' flow_i at that node for the first time (i.e., their paths intersect at or after this node, and they haven't intersected before).",
+          "N_last_I_i is the last such node on route_i where such a first encounter is possible."
+        ],
+        "pseudocode": "def find_last_interference_node(flow_i, higher_priority_flows):\n    last_node = None\n    for node_idx in range(len(flow_i.route) - 1, -1, -1): # Iterate backwards\n        current_node = flow_i.route[node_idx]\n        is_first_encounter_node = False\n        for hp_flow in higher_priority_flows:\n            if hp_flow.priority > flow_i.priority:\n                # Check if current_node is the first intersection point for hp_flow and flow_i\n                # This requires a more complex path intersection logic\n                # For simplicity, assume a helper function `is_first_intersection(flow1, flow2, node)`\n                if is_first_intersection(flow_i, hp_flow, current_node):\n                    is_first_encounter_node = True\n                    break\n        if is_first_encounter_node:\n            last_node = current_node\n            break\n    return last_node",
+        "key_insights": [
+          "Non-preemptive regions in NoCs are more complex than on single-core processors due to distributed nature.",
+          "The 'truly non-preemptive' property only holds after a certain point on the path.",
+          "This definition is critical for correctly modeling the impact of non-preemptive regions."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Response Time Decomposition",
+      "formal_description": {
+        "statement": "The response time of the k-th instance of flow_i (response_time_i_k) is divided into two parts: 1) response_time_preemptive_i_k, the time duration until the non-preemptive region is about to be transmitted on N_last_I_i; 2) response_time_non_preemptive_i, the time duration from when the non-preemptive region starts transmission on N_last_I_i until flow_i_k completely arrives at dest_node_i. Thus: response_time_i_k = response_time_preemptive_i_k + response_time_non_preemptive_i",
+        "variables": {
+          "response_time_i_k": "Total response time of the k-th instance of flow_i",
+          "response_time_preemptive_i_k": "Response time of the preemptive part of flow_i_k",
+          "response_time_non_preemptive_i": "Transmission time of the non-preemptive region of flow_i (constant for all instances)",
+          "N_last_I_i": "Last Interference Node for flow_i",
+          "dest_node_i": "Destination node of flow_i"
+        },
+        "assumptions": [
+          "Non-preemptive region is placed at the end of each packet.",
+          "Transmission before N_last_I_i is flit-level preemptive."
+        ],
+        "conclusion": "This decomposition simplifies analysis by separating the behavior of the preemptive and non-preemptive parts of a packet's transmission."
+      },
+      "informal_sketch": {
+        "intuition": "A packet with a non-preemptive tail effectively has two phases: an initial phase where it can be preempted flit-by-flit, and a final phase where it cannot be preempted once its non-preemptive region starts at a critical point on its path. The total response time is the sum of these two phases.",
+        "steps": [
+          "Calculate the time for the packet's initial, preemptive flits to reach N_last_I_i (response_time_preemptive_i_k).",
+          "Calculate the time for the non-preemptive region to transmit from N_last_I_i to dest_node_i (response_time_non_preemptive_i).",
+          "Sum these two times for the total response_time_i_k."
+        ],
+        "pseudocode": "def calculate_total_response_time_decomposed(response_time_preemptive_i_k, response_time_non_preemptive_i):\n    return response_time_preemptive_i_k + response_time_non_preemptive_i",
+        "key_insights": [
+          "The non-preemptive region's behavior is different, requiring a separate analysis.",
+          "The point N_last_I_i is crucial for defining the boundary between these two behaviors."
+        ]
+      },
+      "dependencies": [
+        "Last Interference Node (N_last_I_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Preemptive Part Busy-Period (S_npe_i_k)",
+      "formal_description": {
+        "statement": "The starting time of the non-preemptive region of a packet flow_i_k (for all k in K_i) can be computed by: S_npe_i_k = B_i + k * C_i - response_time_non_preemptive_i + I_i(S_npe_i_k) where I_i(S_npe_i_k) = sum(for all flow_j in direct_interference_flow_set_i) ceil((S_npe_i_k + interference_jitter_j) / T_j) * C_j",
+        "variables": {
+          "S_npe_i_k": "The time when the non-preemptive region of flow_i_k is about to start transmission on N_last_I_i (relative to flow_i_k's critical instant)",
+          "B_i": "Blocking delay of flow_i",
+          "k": "The instance number (1 to K_i)",
+          "C_i": "Basic transmission time of flow_i",
+          "response_time_non_preemptive_i": "Transmission time of the non-preemptive region of flow_i",
+          "I_i(S_npe_i_k)": "Interference delay of flow_i within S_npe_i_k",
+          "direct_interference_flow_set_i": "Set of flows with higher priorities than flow_i",
+          "interference_jitter_j": "Interference jitter of flow_j",
+          "T_j": "Period of flow_j",
+          "C_j": "Basic transmission time of flow_j"
+        },
+        "assumptions": [
+          "Fixed-point iteration is used to solve this equation.",
+          "The calculation starts with S_npe_i_k(0) = B_i + k * C_i - response_time_non_preemptive_i."
+        ],
+        "conclusion": "S_npe_i_k determines the completion time of the preemptive part of flow_i_k, which is when its non-preemptive region is ready to transmit from N_last_I_i."
+      },
+      "informal_sketch": {
+        "intuition": "This is a modified busy-period calculation for the *preemptive part* of the packet. It's the total work that needs to be done (blocking + k instances of flow_i's basic transmission + interference) *minus* the time taken by the non-preemptive region itself, because that part is handled separately.",
+        "steps": [
+          "Initialize busy_period_preemptive_part_i_k_current = B_i + k * C_i - response_time_non_preemptive_i.",
+          "Loop until convergence:",
+          "  interference = calculate_interference_delay(flow_i, busy_period_preemptive_part_i_k_current, direct_interference_flow_set_i).",
+          "  busy_period_preemptive_part_i_k_next = B_i + k * C_i - response_time_non_preemptive_i + interference.",
+          "  If busy_period_preemptive_part_i_k_next == busy_period_preemptive_part_i_k_current, then busy_period_preemptive_part_i_k_current is the converged S_npe_i_k.",
+          "  Else, set busy_period_preemptive_part_i_k_current = busy_period_preemptive_part_i_k_next and continue."
+        ],
+        "pseudocode": "def calculate_preemptive_part_busy_period(flow_i, k, B_i, C_i, response_time_non_preemptive_i, direct_interference_flow_set_i):\n    busy_period_preemptive_part_i_k_current = B_i + k * C_i - response_time_non_preemptive_i\n    while True:\n        interference = calculate_interference_delay(flow_i, busy_period_preemptive_part_i_k_current, direct_interference_flow_set_i)\n        busy_period_preemptive_part_i_k_next = B_i + k * C_i - response_time_non_preemptive_i + interference\n        if busy_period_preemptive_part_i_k_next == busy_period_preemptive_part_i_k_current:\n            return busy_period_preemptive_part_i_k_next\n        busy_period_preemptive_part_i_k_current = busy_period_preemptive_part_i_k_next",
+        "key_insights": [
+          "This is the core RTA modification for limited preemption.",
+          "The non-preemptive region's duration is subtracted from the total work to find the completion time of the preemptive part.",
+          "This value is then used to calculate the response time of the preemptive part."
+        ]
+      },
+      "dependencies": [
+        "Blocking Delay (B_i)",
+        "Basic Transmission Time (C_i)",
+        "Interference Delay (I_i)",
+        "Response Time Decomposition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Preemptive Part Response Time (R_pe_i_k)",
+      "formal_description": {
+        "statement": "The response_time_preemptive_i_k of flow_i_k can then be computed by: response_time_preemptive_i_k = S_npe_i_k - (k - 1) * T_i",
+        "variables": {
+          "response_time_preemptive_i_k": "Response time of the preemptive part of flow_i_k",
+          "S_npe_i_k": "The time when the non-preemptive region of flow_i_k is about to start transmission on N_last_I_i",
+          "k": "The instance number (1 to K_i)",
+          "T_i": "Period or minimum inter-arrival time of flow_i"
+        },
+        "assumptions": [
+          "The k-th instance is assumed to be released at (k-1) * T_i relative to the start of the busy period."
+        ],
+        "conclusion": "response_time_preemptive_i_k is the time taken by the preemptive part of flow_i_k from its release until its non-preemptive region is ready to transmit from N_last_I_i."
+      },
+      "informal_sketch": {
+        "intuition": "Similar to the general response time calculation, this is the completion time of the preemptive part minus its release time. It tells us how long the initial, preemptible portion of the packet takes.",
+        "steps": [
+          "Calculate the release time of the k-th instance: (k - 1) * T_i.",
+          "Subtract this release time from S_npe_i_k."
+        ],
+        "pseudocode": "def calculate_preemptive_part_response_time(S_npe_i_k, k, T_i):\n    release_time_k = (k - 1) * T_i\n    response_time_preemptive_i_k = S_npe_i_k - release_time_k\n    return response_time_preemptive_i_k",
+        "key_insights": [
+          "This value is a component of the total response time.",
+          "It reflects the delays experienced by the packet before its non-preemptive region takes effect."
+        ]
+      },
+      "dependencies": [
+        "Preemptive Part Busy-Period (S_npe_i_k)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Total Response Time (R_i_k) with Non-Preemptive Regions",
+      "formal_description": {
+        "statement": "The response_time_i_k is therefore: response_time_i_k = S_npe_i_k - (k - 1) * T_i + response_time_non_preemptive_i",
+        "variables": {
+          "response_time_i_k": "Total response time of the k-th instance of flow_i",
+          "S_npe_i_k": "The time when the non-preemptive region of flow_i_k is about to start transmission on N_last_I_i",
+          "k": "The instance number (1 to K_i)",
+          "T_i": "Period or minimum inter-arrival time of flow_i",
+          "response_time_non_preemptive_i": "Transmission time of the non-preemptive region of flow_i"
+        },
+        "assumptions": [],
+        "conclusion": "This formula provides the complete response time for an instance, combining its preemptive and non-preemptive phases."
+      },
+      "informal_sketch": {
+        "intuition": "This is the combined response time, directly derived from the preemptive part's completion time and the fixed duration of the non-preemptive part.",
+        "steps": [
+          "Calculate the response time of the preemptive part: S_npe_i_k - (k - 1) * T_i.",
+          "Add the fixed duration of the non-preemptive region: response_time_non_preemptive_i."
+        ],
+        "pseudocode": "def calculate_total_response_time_instance_npe(S_npe_i_k, k, T_i, response_time_non_preemptive_i):\n    response_time_i_k = (S_npe_i_k - (k - 1) * T_i) + response_time_non_preemptive_i\n    return response_time_i_k",
+        "key_insights": [
+          "This is the final response time value for a specific instance, used for schedulability checks.",
+          "It directly reflects the impact of the non-preemptive region on the total latency."
+        ]
+      },
+      "dependencies": [
+        "Preemptive Part Busy-Period (S_npe_i_k)",
+        "Response Time Decomposition"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 1",
+      "formal_description": {
+        "statement": "Decreasing the length of the non-preemptive region of a flow flow_i in a fixed-priority based wormhole-switched NoC cannot decrease the response time of flow_i while all the other parameters remain the same. (i.e., if response_time_non_preemptive_i' < response_time_non_preemptive_i, then response_time_i_k' >= response_time_i_k)",
+        "variables": {
+          "flow_i": "A real-time packet flow",
+          "response_time_non_preemptive_i": "Original transmission time of the non-preemptive region of flow_i",
+          "response_time_non_preemptive_i'": "New (decreased) transmission time of the non-preemptive region of flow_i",
+          "response_time_i_k": "Original response time of the k-th instance of flow_i",
+          "response_time_i_k'": "New response time of the k-th instance of flow_i"
+        },
+        "assumptions": [
+          "Fixed-priority based wormhole-switched NoC",
+          "All other parameters (blocking, interference from higher priority flows, etc.) remain constant."
+        ],
+        "conclusion": "A larger non-preemptive region for a flow flow_i itself is always beneficial or neutral for flow_i's own response time."
+      },
+      "informal_sketch": {
+        "intuition": "Making a part of a packet non-preemptive means it won't be interrupted by higher priority packets once it starts. If you make this non-preemptive part shorter, it means more of the packet can be interrupted, which can only increase its own completion time, not decrease it. The proof shows this by induction on the fixed-point iteration for the preemptive part's completion time.",
+        "steps": [
+          "Assume a decrease in `response_time_non_preemptive_i` by `delta_r`.",
+          "This directly increases the initial value of `busy_period_preemptive_part_i_k(0)` by `delta_r` (since `response_time_non_preemptive_i` is subtracted).",
+          "Since the interference function `I_i` is non-decreasing, each subsequent iteration of `busy_period_preemptive_part_i_k` will also be greater by at least `delta_r`.",
+          "Therefore, the converged `busy_period_preemptive_part_i_k` will be greater by at least `delta_r`.",
+          "Substituting this into the total response time formula (`response_time_i_k = busy_period_preemptive_part_i_k - (k - 1) * T_i + response_time_non_preemptive_i`), the increase in `busy_period_preemptive_part_i_k` will offset or exceed the decrease in `response_time_non_preemptive_i`, leading to a non-decreasing total response time."
+        ],
+        "pseudocode": "def prove_theorem_1(flow_i, original_response_time_npe, delta_r):\n    # This is a conceptual sketch of the proof logic, not a direct computation\n    new_response_time_npe = original_response_time_npe - delta_r\n    \n    # Step 1: Initial S_npe_i_k(0)\n    original_S_npe_i_k_0 = B_i + k * C_i - original_response_time_npe\n    new_S_npe_i_k_0 = B_i + k * C_i - new_response_time_npe\n    # new_S_npe_i_k_0 = original_S_npe_i_k_0 + delta_r\n    \n    # Step 2: Inductive step for S_npe_i_k(q)\n    # Assume new_S_npe_i_k(q) >= original_S_npe_i_k(q) + delta_r\n    # Since I_i is non-decreasing, I_i(new_S_npe_i_k(q)) >= I_i(original_S_npe_i_k(q))\n    # This implies new_S_npe_i_k(q+1) >= original_S_npe_i_k(q+1) + delta_r\n    \n    # Step 3: Converged S_npe_i_k\n    # Let S_npe_i_k_converged_original be the original converged value\n    # Let S_npe_i_k_converged_new be the new converged value\n    # We have S_npe_i_k_converged_new >= S_npe_i_k_converged_original + delta_r\n    \n    # Step 4: Total Response Time\n    # original_R_i_k = S_npe_i_k_converged_original - (k - 1) * T_i + original_response_time_npe\n    # new_R_i_k = S_npe_i_k_converged_new - (k - 1) * T_i + new_response_time_npe\n    # Substitute: new_R_i_k >= (S_npe_i_k_converged_original + delta_r) - (k - 1) * T_i + (original_response_time_npe - delta_r)\n    # new_R_i_k >= S_npe_i_k_converged_original - (k - 1) * T_i + original_response_time_npe\n    # new_R_i_k >= original_R_i_k\n    \n    return True # The theorem holds",
+        "key_insights": [
+          "This theorem provides a fundamental insight: for a given flow, making its non-preemptive region longer is always better or equal for its *own* response time.",
+          "The trade-off comes from the increased blocking it might cause to *higher* priority flows.",
+          "This justifies the strategy of maximizing non-preemptive regions up to a point where higher priority flows are not negatively impacted beyond their tolerance."
+        ]
+      },
+      "dependencies": [
+        "Total Response Time (R_i_k) with Non-Preemptive Regions",
+        "Preemptive Part Busy-Period (S_npe_i_k)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Blocking Tolerance (beta_i)",
+      "formal_description": {
+        "statement": "The blocking tolerance of flow_i (i.e., denoted by beta_i) is the maximum blocking delay that flow_i can tolerate without causing a deadline miss.",
+        "variables": {
+          "beta_i": "Maximum blocking delay flow_i can tolerate",
+          "flow_i": "A real-time packet flow",
+          "D_i": "Deadline of flow_i"
+        },
+        "assumptions": [],
+        "conclusion": "beta_i defines the upper limit on blocking that flow_i can endure while remaining schedulable."
+      },
+      "informal_sketch": {
+        "intuition": "Every packet has a certain 'slack' in its schedule. This slack can be used to absorb blocking delays. The blocking tolerance is the largest amount of blocking a packet can experience before it misses its deadline.",
+        "steps": [
+          "Calculate the minimum required time for flow_i to complete its own work and suffer interference from higher priority flows.",
+          "Subtract this from its deadline D_i.",
+          "The remaining time is the maximum blocking it can tolerate."
+        ],
+        "pseudocode": "def conceptual_calculate_blocking_tolerance(flow_i, D_i, C_i, I_i_max, R_npe_i):\n    # This is a conceptual idea, the actual calculation is more complex (see beta_i_k and beta_i)\n    min_required_time = flow_i.C + I_i_max + R_npe_i # Simplified\n    beta_i = D_i - min_required_time\n    return beta_i",
+        "key_insights": [
+          "Blocking tolerance is a crucial metric for managing limited preemption.",
+          "It allows for a quantitative trade-off: increasing non-preemptive regions of lower priority flows is acceptable as long as it doesn't exceed the blocking tolerance of higher priority flows."
+        ]
+      },
+      "dependencies": [
+        "Flow Schedulability"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Critical Instants Set (Pi_i_k)",
+      "formal_description": {
+        "statement": "We define critical_instants_set_i_k as the set of release times of flows in direct_interference_flow_set_i within the time duration since a packet flow_i_k is released with its critical instant until the deadline of flow_i_k is reached. Assume that the i-level busy-period starts at time 0, then critical_instants_set_i_k can be defined as: critical_instants_set_i_k = [(k - 1) * T_i, (k - 1) * T_i + D_i - response_time_non_preemptive_i] intersect {max(0, (p - 1) * T_j - interference_jitter_j), for all p in N, for all flow_j in direct_interference_flow_set_i} union {(k - 1) * T_i + D_i - response_time_non_preemptive_i}",
+        "variables": {
+          "critical_instants_set_i_k": "Set of critical time instants for the k-th instance of flow_i",
+          "k": "The instance number (1 to K_i)",
+          "T_i": "Period or minimum inter-arrival time of flow_i",
+          "D_i": "Relative deadline of flow_i",
+          "response_time_non_preemptive_i": "Transmission time of the non-preemptive region of flow_i",
+          "p": "Instance number of an interfering flow_j",
+          "T_j": "Period of interfering flow_j",
+          "interference_jitter_j": "Interference jitter of interfering flow_j",
+          "direct_interference_flow_set_i": "Set of flows with higher priorities than flow_i"
+        },
+        "assumptions": [
+          "The i-level busy-period starts at time 0.",
+          "The deadline for the preemptive part is D_i - response_time_non_preemptive_i."
+        ],
+        "conclusion": "critical_instants_set_i_k identifies specific time points that are relevant for checking the schedulability condition of flow_i_k."
+      },
+      "informal_sketch": {
+        "intuition": "When checking if a packet meets its deadline, we don't need to check every single microsecond. We only need to check specific 'critical instants' – these are typically the release times of higher priority packets, or the deadline itself. This set defines those critical points within the relevant window for the k-th instance.",
+        "steps": [
+          "Define the relevant time window for the k-th instance's preemptive part: from its release `(k-1)*T_i` to its effective deadline `(k-1)*T_i + D_i - response_time_non_preemptive_i`.",
+          "Collect all adjusted release times of higher priority flows (`max(0, (p-1)*T_j - interference_jitter_j)`) that fall within this window.",
+          "Include the effective deadline itself in the set.",
+          "The union of these points forms `critical_instants_set_i_k`."
+        ],
+        "pseudocode": "def calculate_critical_instants_set(k, T_i, D_i, response_time_non_preemptive_i, direct_interference_flow_set_i):\n    start_window = (k - 1) * T_i\n    end_window = (k - 1) * T_i + D_i - response_time_non_preemptive_i\n    \n    critical_instants = set()\n    critical_instants.add(end_window) # Add the deadline itself\n    \n    for flow_j in direct_interference_flow_set_i:\n        # Iterate through possible instances 'p' of flow_j\n        # A more robust implementation would iterate 'p' until release time exceeds end_window\n        for p in range(1, int(math.ceil((end_window + flow_j.interference_jitter) / flow_j.T)) + 2): # +2 for safety margin\n            release_time_j_p = max(0, (p - 1) * flow_j.T - flow_j.interference_jitter)\n            if start_window <= release_time_j_p <= end_window:\n                critical_instants.add(release_time_j_p)\n            elif release_time_j_p > end_window:\n                break # No more instances of flow_j will fall in the window\n    \n    return sorted(list(critical_instants))",
+        "key_insights": [
+          "This set significantly reduces the search space for schedulability analysis.",
+          "It focuses on points where the system's state (e.g., pending interference) might change critically.",
+          "The deadline of the preemptive part is the key boundary."
+        ]
+      },
+      "dependencies": [
+        "Response Time Decomposition",
+        "Interference Delay (I_i)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 2",
+      "formal_description": {
+        "statement": "A NoC flow flow_i is schedulable if for all k in [1, K_i], there exists t in critical_instants_set_i_k, such that B_i + k * C_i - response_time_non_preemptive_i + I_i(t) <= t",
+        "variables": {
+          "flow_i": "A real-time packet flow",
+          "k": "The instance number (1 to K_i)",
+          "K_i": "Number of instances of flow_i within the i-level busy-period",
+          "t": "A time instant in critical_instants_set_i_k",
+          "critical_instants_set_i_k": "Set of critical time instants for the k-th instance of flow_i",
+          "B_i": "Blocking delay of flow_i",
+          "C_i": "Basic transmission time of flow_i",
+          "response_time_non_preemptive_i": "Transmission time of the non-preemptive region of flow_i",
+          "I_i(t)": "Interference delay of flow_i within time t"
+        },
+        "assumptions": [
+          "The analysis considers the completion of the preemptive part of the packet.",
+          "If the workload exceeds 't', new arrivals can still preempt."
+        ],
+        "conclusion": "This theorem provides a sufficient condition for schedulability by checking if the preemptive part of each instance can complete before its effective deadline, considering all relevant critical instants."
+      },
+      "informal_sketch": {
+        "intuition": "For a packet to be schedulable, its preemptive part must finish by its effective deadline (D_i - response_time_non_preemptive_i). This theorem states that if we can find *any* time point 't' within the relevant window where the cumulative work (blocking + self-execution + interference) is less than or equal to 't', then the preemptive part can finish by 't', and thus before its deadline. If the workload exceeds 't', it means the packet is still busy, and new higher-priority arrivals at 't' could further delay it.",
+        "steps": [
+          "For each instance k from 1 to K_i:",
+          "  For each time instant t in critical_instants_set_i_k:",
+          "    Calculate the total workload up to time t: `workload = B_i + k * C_i - response_time_non_preemptive_i + calculate_interference_delay(flow_i, t, direct_interference_flow_set_i)`.",
+          "    If `workload <= t`, then this instance k is schedulable (at least its preemptive part). Break and move to the next instance.",
+          "  If no such 't' is found for instance k, then flow_i is unschedulable.",
+          "If all instances k are found to be schedulable, then flow_i is schedulable."
+        ],
+        "pseudocode": "def is_flow_schedulable_theorem_2(flow_i, K_i, B_i, C_i, response_time_non_preemptive_i, direct_interference_flow_set_i, D_i, T_i):\n    for k in range(1, K_i + 1):\n        critical_instants = calculate_critical_instants_set(k, T_i, D_i, response_time_non_preemptive_i, direct_interference_flow_set_i)\n        instance_k_schedulable = False\n        for t in critical_instants:\n            workload = B_i + k * C_i - response_time_non_preemptive_i + calculate_interference_delay(flow_i, t, direct_interference_flow_set_i)\n            if workload <= t:\n                instance_k_schedulable = True\n                break\n        if not instance_k_schedulable:\n            return False # Instance k misses its deadline\n    return True # All instances are schedulable",
+        "key_insights": [
+          "This theorem provides a direct schedulability test, avoiding the iterative response time calculation for each instance if a suitable 't' is found.",
+          "It leverages the concept of critical instants to bound the search space.",
+          "The condition `workload <= t` implies that all work up to `t` can be completed by `t`, allowing the non-preemptive region to start."
+        ]
+      },
+      "dependencies": [
+        "Blocking Delay (B_i)",
+        "Basic Transmission Time (C_i)",
+        "Interference Delay (I_i)",
+        "Response Time Decomposition",
+        "Critical Instants Set (Pi_i_k)",
+        "Number of Instances (K_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Blocking Tolerance for Instance (beta_i_k)",
+      "formal_description": {
+        "statement": "An upper-bound of B_i for a specific instance k, which can guarantee that flow_i_k can meet its deadline, can be computed as: blocking_tolerance_i_k = max(for all t in critical_instants_set_i_k) (t - k * C_i + response_time_non_preemptive_i - I_i(t))",
+        "variables": {
+          "blocking_tolerance_i_k": "Maximum blocking delay flow_i_k can tolerate",
+          "t": "A time instant in critical_instants_set_i_k",
+          "critical_instants_set_i_k": "Set of critical time instants for the k-th instance of flow_i",
+          "k": "The instance number (1 to K_i)",
+          "C_i": "Basic transmission time of flow_i",
+          "response_time_non_preemptive_i": "Transmission time of the non-preemptive region of flow_i",
+          "I_i(t)": "Interference delay of flow_i within time t"
+        },
+        "assumptions": [
+          "Derived from Theorem 2's condition: B_i + k * C_i - response_time_non_preemptive_i + I_i(t) <= t"
+        ],
+        "conclusion": "blocking_tolerance_i_k provides the maximum blocking that a specific instance k can withstand without missing its deadline."
+      },
+      "informal_sketch": {
+        "intuition": "Rearranging the schedulability condition from Theorem 2, we can find the maximum `B_i` that satisfies it for any given `t`. Since we want the *maximum* tolerance, we take the `max` over all relevant `t` in `critical_instants_set_i_k`.",
+        "steps": [
+          "For each `t` in `critical_instants_set_i_k`:",
+          "  Calculate `tolerance_at_t = t - k * C_i + response_time_non_preemptive_i - calculate_interference_delay(flow_i, t, direct_interference_flow_set_i)`.",
+          "  Keep track of the maximum `tolerance_at_t` found.",
+          "This maximum value is `blocking_tolerance_i_k`."
+        ],
+        "pseudocode": "def calculate_blocking_tolerance_instance(flow_i, k, C_i, response_time_non_preemptive_i, direct_interference_flow_set_i, D_i, T_i):\n    critical_instants = calculate_critical_instants_set(k, T_i, D_i, response_time_non_preemptive_i, direct_interference_flow_set_i)\n    max_tolerance = -float('inf') # Initialize with a very small number\n    \n    for t in critical_instants:\n        interference = calculate_interference_delay(flow_i, t, direct_interference_flow_set_i)\n        tolerance_at_t = t - k * C_i + response_time_non_preemptive_i - interference\n        max_tolerance = max(max_tolerance, tolerance_at_t)\n        \n    return max_tolerance",
+        "key_insights": [
+          "This formula directly quantifies the 'slack' available for blocking for each instance.",
+          "It's a direct inversion of the schedulability test to find the maximum allowable blocking."
+        ]
+      },
+      "dependencies": [
+        "Theorem 2",
+        "Critical Instants Set (Pi_i_k)",
+        "Basic Transmission Time (C_i)",
+        "Interference Delay (I_i)",
+        "Response Time Decomposition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Overall Blocking Tolerance (beta_i)",
+      "formal_description": {
+        "statement": "An upper-bound of B_i, which can guarantee that all the instances of flow_i can meet deadlines, can then be computed as: blocking_tolerance_i = min(for all k in [1, K_i]) blocking_tolerance_i_k",
+        "variables": {
+          "blocking_tolerance_i": "Overall maximum blocking delay flow_i can tolerate",
+          "K_i": "Number of instances of flow_i within the i-level busy-period",
+          "blocking_tolerance_i_k": "Maximum blocking delay flow_i_k can tolerate"
+        },
+        "assumptions": [],
+        "conclusion": "blocking_tolerance_i is the most restrictive blocking limit that ensures all instances of flow_i meet their deadlines."
+      },
+      "informal_sketch": {
+        "intuition": "Since all instances of a flow must meet their deadlines, the flow can only tolerate as much blocking as its *most sensitive* instance can handle. Therefore, we take the minimum of all individual instance blocking tolerances.",
+        "steps": [
+          "Calculate `blocking_tolerance_i_k` for every instance k from 1 to K_i.",
+          "The smallest of these `blocking_tolerance_i_k` values is the overall `blocking_tolerance_i`."
+        ],
+        "pseudocode": "def calculate_overall_blocking_tolerance(flow_i, K_i, C_i, response_time_non_preemptive_i, direct_interference_flow_set_i, D_i, T_i):\n    min_blocking_tolerance = float('inf') # Initialize with a very large number\n    \n    for k in range(1, K_i + 1):\n        blocking_tolerance_k = calculate_blocking_tolerance_instance(flow_i, k, C_i, response_time_non_preemptive_i, direct_interference_flow_set_i, D_i, T_i)\n        min_blocking_tolerance = min(min_blocking_tolerance, blocking_tolerance_k)\n        \n    return min_blocking_tolerance",
+        "key_insights": [
+          "System-level guarantees require satisfying the worst-case for all components.",
+          "This ensures that even the most stressed instance of a flow will meet its deadline."
+        ]
+      },
+      "dependencies": [
+        "Blocking Tolerance (beta_i)",
+        "Blocking Tolerance for Instance (beta_i_k)",
+        "Number of Instances (K_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Blocking Links Set (phi_i)",
+      "formal_description": {
+        "statement": "The set of links, where flow_i may experience blocking delays, are denoted as blocking_links_set_i, which is defined as: blocking_links_set_i def == for all flow_j in blocking_flow_set_i (route_i intersect route_j)",
+        "variables": {
+          "blocking_links_set_i": "Set of links where flow_i can be blocked",
+          "flow_i": "A real-time packet flow",
+          "blocking_flow_set_i": "Set of flows that can cause blocking to flow_i (lower priority flows)",
+          "route_i": "Transmission path of flow_i",
+          "route_j": "Transmission path of flow_j"
+        },
+        "assumptions": [],
+        "conclusion": "blocking_links_set_i identifies all physical links where flow_i might suffer blocking from lower priority flows."
+      },
+      "informal_sketch": {
+        "intuition": "A packet can only be blocked on a link if a lower priority packet is using that same link. This definition identifies all such 'vulnerable' links along a packet's path.",
+        "steps": [
+          "Initialize `blocking_links_set_i` as an empty set.",
+          "For each lower priority flow `flow_j` in `blocking_flow_set_i`:",
+          "  Find the intersection of `flow_i.route` and `flow_j.route` (i.e., common links).",
+          "  Add these common links to `blocking_links_set_i`."
+        ],
+        "pseudocode": "def calculate_blocking_links_set(flow_i, blocking_flow_set_i):\n    blocking_links_set_i = set()\n    for flow_j in blocking_flow_set_i:\n        common_links = set(flow_i.route).intersection(set(flow_j.route))\n        blocking_links_set_i.update(common_links)\n    return blocking_links_set_i",
+        "key_insights": [
+          "Blocking is a localized phenomenon, occurring only on shared resources.",
+          "This set helps in distributing blocking tolerance and calculating minimum unavoidable blocking."
+        ]
+      },
+      "dependencies": [
+        "Blocking Delay (B_i)"
+      ]
+    },
+    {
+      "type": "algorithm",
+      "identifier": "Algorithm 1: Compute Blocking Tolerance (beta_i)",
+      "formal_description": {
+        "statement": "Algorithm 1 computes the overall blocking tolerance (blocking_tolerance_i) for a flow flow_i. It handles circular dependencies by first approximating K_i using blocking_tolerance_i_1, then refining the calculation for all instances.",
+        "variables": {
+          "flow_i": "The flow for which to compute blocking tolerance",
+          "blocking_tolerance_i": "The computed overall blocking tolerance for flow_i",
+          "blocking_tolerance_i_k": "Blocking tolerance for instance k of flow_i",
+          "num_blocking_links_i": "Number of links in blocking_links_set_i",
+          "flit_tx_time": "Transmission time of a single flit over one link",
+          "K_i": "Number of instances of flow_i within the i-level busy-period (approximate and refined)",
+          "Eq_13": "Formula for blocking_tolerance_i_k",
+          "Eq_14": "Formula for blocking_tolerance_i",
+          "Eq_1": "Formula for busy_period_i",
+          "Eq_5": "Formula for K_i"
+        },
+        "assumptions": [
+          "The non-preemptive region time (response_time_non_preemptive_i) is known for flow_i.",
+          "Other flow parameters (C_i, T_i, D_i, J_I_j, etc.) are known."
+        ],
+        "conclusion": "Returns the maximum blocking delay flow_i can tolerate, or 'Unschedulable' if it cannot meet its deadline even with minimal blocking."
+      },
+      "informal_sketch": {
+        "intuition": "Calculating blocking tolerance (beta_i) requires knowing the number of instances (K_i), which in turn depends on the busy period (W_i), which depends on blocking (B_i). This circular dependency is broken by first calculating a preliminary beta_i for the first instance (beta_i_1), using it to estimate K_i, and then refining beta_i for all instances.",
+        "steps": [
+          "1. **Compute initial blocking_tolerance_i_1:** Calculate `blocking_tolerance_i_1` using `Eq_13` for `k=1`.",
+          "2. **Check basic schedulability:** If `blocking_tolerance_i_1` is less than the minimum unavoidable blocking (`num_blocking_links_i * flit_tx_time`), return 'Unschedulable'.",
+          "3. **Approximate K_i:** Use `blocking_tolerance_i_1` as `B_i` in `Eq_1` to calculate `busy_period_i`, then use `Eq_5` to get an approximate `K_i`.",
+          "4. **Compute blocking_tolerance_i_k for all instances:** For each `k` from 2 to `K_i`:",
+          "   a. Calculate `blocking_tolerance_i_k` using `Eq_13`.",
+          "   b. If `blocking_tolerance_i_k` is less than `num_blocking_links_i * flit_tx_time`, return 'Unschedulable'.",
+          "5. **Compute overall blocking_tolerance_i:** Select the minimum of all `blocking_tolerance_i_k` values (including `blocking_tolerance_i_1`) using `Eq_14`.",
+          "6. Return `blocking_tolerance_i`."
+        ],
+        "pseudocode": "def compute_blocking_tolerance_alg1(flow_i, C_i, T_i, D_i, response_time_non_preemptive_i, direct_interference_flow_set_i, blocking_links_set_i, flit_tx_time):\n    num_blocking_links_i = len(blocking_links_set_i)\n    min_unavoidable_blocking = num_blocking_links_i * flit_tx_time\n\n    # 1. Compute beta_i_1\n    blocking_tolerance_i_1 = calculate_blocking_tolerance_instance(flow_i, 1, C_i, response_time_non_preemptive_i, direct_interference_flow_set_i, D_i, T_i)\n\n    # 2. Check basic schedulability\n    if blocking_tolerance_i_1 < min_unavoidable_blocking:\n        return 'Unschedulable'\n\n    # 3. Approximate K_i using beta_i_1 as B_i\n    # Need a helper function for busy_period_i that takes B_i as an argument\n    def calculate_busy_period_with_B(current_B_i):\n        # This is a simplified version of the busy_period_i calculation from Definition 'i-level Busy-Period (W_i)'\n        # It needs to use the B_i passed as argument, not the flow_i.B_i\n        busy_period_current = current_B_i + C_i # Initial guess for W_i\n        while True:\n            demand_flow_i = math.ceil(busy_period_current / T_i) * C_i\n            interference = calculate_interference_delay(flow_i, busy_period_current, direct_interference_flow_set_i)\n            busy_period_next = current_B_i + demand_flow_i + interference\n            if busy_period_next == busy_period_current:\n                return busy_period_next\n            busy_period_current = busy_period_next\n\n    approx_busy_period_i = calculate_busy_period_with_B(blocking_tolerance_i_1)\n    approx_K_i = math.floor(approx_busy_period_i / T_i)\n\n    # 4. Compute beta_i_k for all instances\n    all_blocking_tolerances_k = [blocking_tolerance_i_1]\n    for k in range(2, approx_K_i + 1):\n        blocking_tolerance_i_k = calculate_blocking_tolerance_instance(flow_i, k, C_i, response_time_non_preemptive_i, direct_interference_flow_set_i, D_i, T_i)\n        if blocking_tolerance_i_k < min_unavoidable_blocking:\n            return 'Unschedulable'\n        all_blocking_tolerances_k.append(blocking_tolerance_i_k)\n\n    # 5. Compute overall beta_i\n    blocking_tolerance_i = min(all_blocking_tolerances_k)\n    return blocking_tolerance_i",
+        "key_insights": [
+          "Addresses the circular dependency in RTA by using an iterative approximation.",
+          "Includes a check for basic schedulability against unavoidable blocking.",
+          "Ensures that the computed blocking tolerance is valid for all instances of the flow."
+        ]
+      },
+      "dependencies": [
+        "Blocking Tolerance (beta_i)",
+        "Blocking Tolerance for Instance (beta_i_k)",
+        "Overall Blocking Tolerance (beta_i)",
+        "Blocking Links Set (phi_i)",
+        "i-level Busy-Period (W_i)",
+        "Number of Instances (K_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Non-Preemptive Region Transmission Time per Link (c_npe_i)",
+      "formal_description": {
+        "statement": "The blocking delay, that flow_i can cause to any flows with higher priorities over one physical link, can then be computed as: non_preemptive_region_tx_time_per_link_i = non_preemptive_region_length_i / flit_size * flit_tx_time",
+        "variables": {
+          "non_preemptive_region_tx_time_per_link_i": "Transmission time of flow_i's non-preemptive region over one link",
+          "non_preemptive_region_length_i": "Length of the non-preemptive region of flow_i (in flits)",
+          "flit_size": "Size of a single flit",
+          "flit_tx_time": "Transmission time of a single flit over one link"
+        },
+        "assumptions": [],
+        "conclusion": "non_preemptive_region_tx_time_per_link_i quantifies the blocking duration caused by flow_i's non-preemptive region on a single link."
+      },
+      "informal_sketch": {
+        "intuition": "The non-preemptive region of a packet, when transmitting on a link, will block any higher priority packets that arrive at that link. This value is the duration of that blocking on a single link.",
+        "steps": [
+          "Divide the non-preemptive region's length (in flits) by the flit size (which is 1 flit unit, so it's just the length).",
+          "Multiply by the time it takes to transmit one flit over a link."
+        ],
+        "pseudocode": "def calculate_non_preemptive_region_tx_time_per_link(non_preemptive_region_length_i, flit_size, flit_tx_time):\n    return (non_preemptive_region_length_i / flit_size) * flit_tx_time",
+        "key_insights": [
+          "This is the direct measure of the 'cost' of a non-preemptive region in terms of blocking other flows.",
+          "It's a fundamental parameter for selecting the length of non-preemptive regions."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Total Non-Preemptive Region Time (R_npe_i)",
+      "formal_description": {
+        "statement": "Accordingly, response_time_non_preemptive_i can then be calculated as: response_time_non_preemptive_i = non_preemptive_region_tx_time_per_link_i + (num_hops(N_last_I_i, dest_node_i) - 1) * flit_tx_time",
+        "variables": {
+          "response_time_non_preemptive_i": "Total transmission time of the non-preemptive region of flow_i",
+          "non_preemptive_region_tx_time_per_link_i": "Transmission time of flow_i's non-preemptive region over one link",
+          "num_hops(N_last_I_i, dest_node_i)": "Number of hops from N_last_I_i to dest_node_i",
+          "flit_tx_time": "Transmission time of a single flit over one link",
+          "N_last_I_i": "Last Interference Node for flow_i",
+          "dest_node_i": "Destination node of flow_i"
+        },
+        "assumptions": [
+          "Wormhole-switching behavior for the non-preemptive region after N_last_I_i."
+        ],
+        "conclusion": "response_time_non_preemptive_i is the total time taken for the non-preemptive region to traverse from N_last_I_i to the destination."
+      },
+      "informal_sketch": {
+        "intuition": "Once the non-preemptive region starts at N_last_I_i, it behaves like a mini-packet. Its total transmission time is its own length plus the pipelining delay across the remaining hops to the destination.",
+        "steps": [
+          "Start with the time to transmit the non-preemptive region over one link (`non_preemptive_region_tx_time_per_link_i`).",
+          "Add the pipelining delay for the remaining hops: `(num_hops from N_last_I_i to dest_node_i - 1) * flit_tx_time`."
+        ],
+        "pseudocode": "def calculate_total_non_preemptive_region_time(non_preemptive_region_tx_time_per_link_i, N_last_I_i, dest_node_i, flit_tx_time):\n    hops_remaining = num_hops(N_last_I_i, dest_node_i)\n    if hops_remaining > 0:\n        R_npe_i = non_preemptive_region_tx_time_per_link_i + (hops_remaining - 1) * flit_tx_time\n    else: # If N_last_I_i is the destination\n        R_npe_i = non_preemptive_region_tx_time_per_link_i\n    return R_npe_i",
+        "key_insights": [
+          "This accounts for the distributed nature of NoC communication even for non-preemptive segments.",
+          "The 'N_last_I_i' is the starting point for this calculation."
+        ]
+      },
+      "dependencies": [
+        "Non-Preemptive Region Transmission Time per Link (c_npe_i)",
+        "Last Interference Node (N_last_I_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Max Packet Transmission Time per Link (c_i)",
+      "formal_description": {
+        "statement": "max_packet_tx_time_per_link_i represents the maximum transmission time of a whole packet of flow_i over one link which can be computed as: max_packet_tx_time_per_link_i = L_i / flit_size * flit_tx_time",
+        "variables": {
+          "max_packet_tx_time_per_link_i": "Maximum transmission time of a whole packet of flow_i over one link",
+          "L_i": "Complete packet size of flow_i (in flits)",
+          "flit_size": "Size of a single flit",
+          "flit_tx_time": "Transmission time of a single flit over one link"
+        },
+        "assumptions": [],
+        "conclusion": "max_packet_tx_time_per_link_i is the maximum blocking duration a flow_i could cause on a single link if its entire packet were non-preemptive."
+      },
+      "informal_sketch": {
+        "intuition": "This is the longest possible blocking duration a packet could cause on a single link if it were entirely non-preemptive. It's the total time to transmit all its flits over one link.",
+        "steps": [
+          "Divide the total packet length (in flits) by the flit size.",
+          "Multiply by the time to transmit one flit over a link."
+        ],
+        "pseudocode": "def calculate_max_packet_tx_time_per_link(L_i, flit_size, flit_tx_time):\n    return (L_i / flit_size) * flit_tx_time",
+        "key_insights": [
+          "This value serves as an upper bound for the `non_preemptive_region_tx_time_per_link_i`.",
+          "It represents the 'fully non-preemptive' scenario for a single link."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Blocking Tolerance per Link (beta_u_i)",
+      "formal_description": {
+        "statement": "The blocking tolerance assigned to each link in blocking_links_set_i is computed as: blocking_tolerance_per_link_i = blocking_tolerance_i / max(1, num_blocking_links_i)",
+        "variables": {
+          "blocking_tolerance_per_link_i": "Blocking tolerance of flow_i evenly distributed per link",
+          "blocking_tolerance_i": "Overall blocking tolerance of flow_i",
+          "num_blocking_links_i": "Number of links in blocking_links_set_i"
+        },
+        "assumptions": [
+          "Even Distribution of Blocking Tolerance (EDBT) approach."
+        ],
+        "conclusion": "blocking_tolerance_per_link_i is the maximum blocking that flow_i can tolerate on any single link, assuming its total tolerance is spread evenly."
+      },
+      "informal_sketch": {
+        "intuition": "If a packet can tolerate a total amount of blocking, and it might experience blocking on several links, one simple strategy is to divide that total tolerance equally among all the links where blocking could occur.",
+        "steps": [
+          "Get the overall `blocking_tolerance_i`.",
+          "Divide it by the number of links where blocking can occur (`num_blocking_links_i`).",
+          "Use `max(1, ...)` to avoid division by zero if there are no blocking links."
+        ],
+        "pseudocode": "def calculate_blocking_tolerance_per_link_edbt(blocking_tolerance_i, blocking_links_set_i):\n    num_blocking_links_i = len(blocking_links_set_i)\n    return blocking_tolerance_i / max(1, num_blocking_links_i)",
+        "key_insights": [
+          "This is a simple heuristic for distributing blocking tolerance.",
+          "It's part of the EDBT strategy for selecting non-preemptive region lengths."
+        ]
+      },
+      "dependencies": [
+        "Overall Blocking Tolerance (beta_i)",
+        "Blocking Links Set (phi_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Non-Preemptive Region Length Selection (EDBT)",
+      "formal_description": {
+        "statement": "At each link, the transmission time of a non-preemptive region of flow_i should not cause blocking to any flow_j (for all flow_j in direct_interference_flow_set_i) more than blocking_tolerance_per_link_j. Therefore, the transmission time of the non-preemptive region of flow_i over one link can be calculated as: non_preemptive_region_tx_time_per_link_i = min(max_packet_tx_time_per_link_i, min(for all flow_j in direct_interference_flow_set_i) (blocking_tolerance_per_link_j))",
+        "variables": {
+          "non_preemptive_region_tx_time_per_link_i": "Selected transmission time of flow_i's non-preemptive region over one link",
+          "max_packet_tx_time_per_link_i": "Maximum transmission time of a whole packet of flow_i over one link",
+          "direct_interference_flow_set_i": "Set of flows with higher priorities than flow_i",
+          "flow_j": "A flow in direct_interference_flow_set_i",
+          "blocking_tolerance_per_link_j": "Blocking tolerance of flow_j evenly distributed per link"
+        },
+        "assumptions": [
+          "Even Distribution of Blocking Tolerance (EDBT) approach.",
+          "The non-preemptive region of flow_i should not cause any higher priority flow_j to miss its deadline."
+        ],
+        "conclusion": "This formula selects the largest possible non_preemptive_region_tx_time_per_link_i for flow_i that does not violate the per-link blocking tolerance of any higher priority flow."
+      },
+      "informal_sketch": {
+        "intuition": "Flow_i wants to make its non-preemptive region as long as possible (up to its full packet size) to reduce its own response time. However, it cannot cause too much blocking to higher priority flows. So, it must choose a length that is less than or equal to the per-link blocking tolerance of *all* higher priority flows it might block. It takes the minimum of these limits.",
+        "steps": [
+          "Initialize `min_allowed_blocking_from_hp_flows = infinity`.",
+          "For each higher priority flow `flow_j` in `direct_interference_flow_set_i`:",
+          "  Calculate `blocking_tolerance_per_link_j` for `flow_j`.",
+          "  Update `min_allowed_blocking_from_hp_flows = min(min_allowed_blocking_from_hp_flows, blocking_tolerance_per_link_j)`.",
+          "The `non_preemptive_region_tx_time_per_link_i` is then the minimum of `max_packet_tx_time_per_link_i` (its own maximum possible length) and `min_allowed_blocking_from_hp_flows`."
+        ],
+        "pseudocode": "def select_non_preemptive_region_length_edbt(flow_i, max_packet_tx_time_per_link_i, direct_interference_flow_set_i, all_flows_blocking_tolerance_per_link):\n    min_allowed_blocking_from_hp_flows = float('inf')\n    for flow_j in direct_interference_flow_set_i:\n        # Assuming all_flows_blocking_tolerance_per_link is a dictionary mapping flow_id to beta_u_j\n        min_allowed_blocking_from_hp_flows = min(min_allowed_blocking_from_hp_flows, all_flows_blocking_tolerance_per_link[flow_j.id])\n    \n    non_preemptive_region_tx_time_per_link_i = min(max_packet_tx_time_per_link_i, min_allowed_blocking_from_hp_flows)\n    return non_preemptive_region_tx_time_per_link_i",
+        "key_insights": [
+          "This is a greedy approach: maximize `flow_i`'s non-preemptive region without violating higher priority flows' *evenly distributed* blocking tolerance.",
+          "It's a key part of the EDBT schedulability test."
+        ]
+      },
+      "dependencies": [
+        "Max Packet Transmission Time per Link (c_i)",
+        "Blocking Tolerance per Link (beta_u_i)"
+      ]
+    },
+    {
+      "type": "algorithm",
+      "identifier": "Algorithm 2: Schedulability Test with EDBT",
+      "formal_description": {
+        "statement": "Algorithm 2 performs a schedulability test for a set of flows by selecting non-preemptive region lengths using the Even Distribution of Blocking Tolerance (EDBT) approach. It iterates through flows in descending order of priorities.",
+        "variables": {
+          "flow_set_F": "The set of all real-time packet flows",
+          "flow_i": "A flow from flow_set_F",
+          "blocking_tolerance_i": "Overall blocking tolerance of flow_i",
+          "num_blocking_links_i": "Number of links in blocking_links_set_i",
+          "flit_tx_time": "Transmission time of a single flit over one link",
+          "blocking_tolerance_per_link_i": "Blocking tolerance of flow_i evenly distributed per link",
+          "non_preemptive_region_tx_time_per_link_i": "Selected transmission time of flow_i's non-preemptive region over one link",
+          "response_time_non_preemptive_i": "Total transmission time of the non-preemptive region of flow_i",
+          "Alg_1": "Algorithm 1: Compute Blocking Tolerance (beta_i)",
+          "Eq_16": "Formula for Total Non-Preemptive Region Time (R_npe_i)",
+          "Eq_17": "Formula for Blocking Tolerance per Link (beta_u_i)",
+          "Eq_18": "Formula for Non-Preemptive Region Length Selection (EDBT)"
+        },
+        "assumptions": [
+          "Flows are processed in descending order of priority.",
+          "The `calculate_wcrt` function (from Definition 'Worst-Case Response Time (R_i)') is used to verify schedulability after non-preemptive regions are set."
+        ],
+        "conclusion": "Returns 'Schedulable' if all flows meet their deadlines with the selected non-preemptive regions, otherwise 'Unschedulable'."
+      },
+      "informal_sketch": {
+        "intuition": "This algorithm tries to find non-preemptive region lengths for all packets such that the entire system remains schedulable. It works from highest priority to lowest. For each packet, it first calculates how much blocking it can tolerate (beta_i). Then, it determines the maximum non-preemptive region it can have without violating the *already calculated* blocking tolerances of *higher* priority flows. Finally, it checks if the packet itself is still schedulable with this chosen non-preemptive region.",
+        "steps": [
+          "1. **Initialize:** Create a data structure to store `blocking_tolerance_per_link_j` for all flows.",
+          "2. **Iterate flows (descending priority):** For each `flow_i` in `flow_set_F` (from highest to lowest priority):",
+          "   a. **Calculate `blocking_tolerance_i`:** Call `Alg_1` to compute `blocking_tolerance_i` for `flow_i`. If `Alg_1` returns 'Unschedulable', then the entire system is 'Unschedulable'.",
+          "   b. **Calculate `blocking_tolerance_per_link_i`:** Compute `blocking_tolerance_per_link_i` using `Eq_17` and store it.",
+          "   c. **Select `non_preemptive_region_tx_time_per_link_i`:** Use `Eq_18` to determine the length of `flow_i`'s non-preemptive region. This depends on `flow_i`'s own `max_packet_tx_time_per_link_i` and the `blocking_tolerance_per_link_j` of *higher priority* flows (which have already been calculated and stored).",
+          "   d. **Calculate `response_time_non_preemptive_i`:** Compute the total non-preemptive region time using `Eq_16`.",
+          "   e. **Verify schedulability:** Calculate `flow_i`'s `response_time_i` (WCRT) using the extended RTA (which now uses the selected `response_time_non_preemptive_i`). If `response_time_i > flow_i.D`, return 'Unschedulable'.",
+          "3. **Return 'Schedulable':** If all flows are processed without returning 'Unschedulable'."
+        ],
+        "pseudocode": "def schedulability_test_edbt(flow_set_F, flit_size, flit_tx_time):\n    # Sort flows by priority in descending order (highest priority first)\n    sorted_flows = sorted(flow_set_F, key=lambda f: f.priority, reverse=True)\n    \n    # Store per-link blocking tolerance for higher priority flows\n    all_flows_blocking_tolerance_per_link = {} \n    \n    for flow_i in sorted_flows:\n        # 1. Calculate blocking_tolerance_i (Alg 1)\n        # This requires flow_i.response_time_non_preemptive to be set, but it's what we're trying to find.\n        # This implies an outer loop or an initial guess for R_npe_i, or that Alg 1 is called with a *hypothetical* R_npe_i.\n        # The paper implies R_npe_i is known when Alg 1 is called. This is a circular dependency.\n        # A common approach is to iterate on R_npe_i or assume R_npe_i=0 initially for beta_i calculation.\n        # Let's assume for this sketch that R_npe_i is passed to Alg 1, and we're finding the *optimal* R_npe_i.\n        # The paper's structure suggests R_npe_i is determined *after* beta_i.\n        # Re-reading: 'The size of the non-preemptive region of each packet is computed offline (more details in Section V)'.\n        # 'We first revise the RTA... Then we propose a solution to compute the blocking tolerance... Finally, the size of the non-preemptive region... can be selected based on the computed blocking tolerance.'\n        # This means beta_i is computed *without* knowing L_npe_i, so R_npe_i in beta_i calculation is 0 or a default.\n        # Let's assume Alg 1 is called with R_npe_i = 0 for initial beta_i calculation.\n        # This is a simplification for the sketch, the full implementation would need to handle this.\n        \n        # For the purpose of this sketch, let's assume R_npe_i is iteratively refined or a fixed value for beta_i calculation.\n        # The paper's Alg 1 takes R_npe_i as an implicit parameter via calculate_blocking_tolerance_instance.\n        # Let's assume R_npe_i is 0 for the initial beta_i calculation, then updated.\n        \n        # Step 1: Calculate blocking_tolerance_i (Alg 1)\n        # This is the tricky part. Alg 1 needs R_npe_i. But R_npe_i depends on c_npe_i, which depends on beta_j.\n        # The paper's flow is: beta_i -> c_npe_i -> R_npe_i.\n        # So, when Alg 1 is called, R_npe_i for flow_i is *not yet known*.\n        # This implies that the beta_i calculation in Alg 1 must be done with a *placeholder* R_npe_i (e.g., 0)\n        # or that the entire process is iterative.\n        # The paper states: 'While calculating K_i using Eq. 5, we need to know the blocking delay (see Eq. 1). As a result, before computing beta_i using Eq. 14, we need to know the value of K_i which depends on an unknown blocking delay.'\n        # This is the circular dependency for B_i and K_i.\n        # The dependency for R_npe_i is separate.\n        # Let's assume for Alg 2, when we call Alg 1 for flow_i, we use flow_i.response_time_non_preemptive (which is 0 initially, or some default).\n        \n        # Initialize flow_i's non-preemptive region to 0 for initial beta_i calculation\n        flow_i.response_time_non_preemptive = 0 \n        \n        blocking_tolerance_i = compute_blocking_tolerance_alg1(flow_i, flow_i.C, flow_i.T, flow_i.D, \n                                                                flow_i.response_time_non_preemptive, \n                                                                flow_i.direct_interference_flow_set, \n                                                                flow_i.blocking_links_set, flit_tx_time)\n        if blocking_tolerance_i == 'Unschedulable':\n            return 'Unschedulable'\n        \n        # 2. Calculate blocking_tolerance_per_link_i (Eq 17)\n        flow_i.blocking_tolerance_per_link = calculate_blocking_tolerance_per_link_edbt(blocking_tolerance_i, flow_i.blocking_links_set)\n        all_flows_blocking_tolerance_per_link[flow_i.id] = flow_i.blocking_tolerance_per_link\n        \n        # 3. Select non_preemptive_region_tx_time_per_link_i (Eq 18)\n        # This requires beta_u_j for higher priority flows (already in all_flows_blocking_tolerance_per_link)\n        # and flow_i.max_packet_tx_time_per_link\n        flow_i.max_packet_tx_time_per_link = calculate_max_packet_tx_time_per_link(flow_i.L, flit_size, flit_tx_time)\n        \n        higher_priority_flows_for_interference = [f for f in sorted_flows if f.priority > flow_i.priority]\n        \n        min_hp_beta_u = float('inf')\n        for hp_flow in higher_priority_flows_for_interference:\n            if hp_flow.id in all_flows_blocking_tolerance_per_link:\n                min_hp_beta_u = min(min_hp_beta_u, all_flows_blocking_tolerance_per_link[hp_flow.id])\n        \n        flow_i.non_preemptive_region_tx_time_per_link = min(flow_i.max_packet_tx_time_per_link, min_hp_beta_u)\n        \n        # 4. Calculate response_time_non_preemptive_i (Eq 16)\n        flow_i.response_time_non_preemptive = calculate_total_non_preemptive_region_time(\n            flow_i.non_preemptive_region_tx_time_per_link, flow_i.last_interference_node, flow_i.dest_node, flit_tx_time)\n        \n        # 5. Verify schedulability (using extended RTA with new R_npe_i)\n        # This requires re-calculating WCRT with the *new* flow_i.response_time_non_preemptive\n        # This is the final check for flow_i's own schedulability.\n        # The paper implies this check is done implicitly by the process, but a direct check is safer.\n        # Let's assume a function `calculate_wcrt_with_npe` that uses the extended RTA.\n        \n        # For the purpose of this sketch, we assume the beta_i calculation already ensures schedulability\n        # if the blocking caused by lower priority flows (which includes the non-preemptive regions)\n        # does not exceed beta_i. The algorithm ensures that flow_i's non-preemptive region\n        # does not cause higher priority flows to exceed their beta_j.\n        # The final check for flow_i itself is if its *actual* blocking (from lower priority flows)\n        # is <= its own beta_i. This is implicitly handled if the overall system is constructed correctly.\n        # The paper states: 'If the algorithm terminates without returning 'Unschedulable', the flow set is guaranteed to be schedulable'.\n        # This implies the checks within Alg 1 (beta_i < nr(phi_i)*tau) are sufficient.\n        \n    return 'Schedulable'",
+        "key_insights": [
+          "Iterative approach, processing flows by priority, is common in fixed-priority scheduling.",
+          "The EDBT strategy simplifies the distribution of blocking tolerance.",
+          "The algorithm ensures that higher priority flows are not excessively blocked by lower priority flows' non-preemptive regions."
+        ]
+      },
+      "dependencies": [
+        "Algorithm 1: Compute Blocking Tolerance (beta_i)",
+        "Blocking Tolerance per Link (beta_u_i)",
+        "Non-Preemptive Region Length Selection (EDBT)",
+        "Total Non-Preemptive Region Time (R_npe_i)",
+        "Max Packet Transmission Time per Link (c_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Non-Preemptive Region Length Selection (HPDBT)",
+      "formal_description": {
+        "statement": "The transmission time of the non-preemptive region of flow_i over one link can thus be calculated as: non_preemptive_region_tx_time_per_link_i = min(max_packet_tx_time_per_link_i, min(for all flow_j in direct_interference_flow_set_i) (min(for all l in (route_i intersect route_j)) (remaining_blocking_tolerance_j / num_common_links(route_i, route_j) + assigned_blocking_tolerance_on_link_l_for_j)))",
+        "variables": {
+          "non_preemptive_region_tx_time_per_link_i": "Selected transmission time of flow_i's non-preemptive region over one link",
+          "max_packet_tx_time_per_link_i": "Maximum transmission time of a whole packet of flow_i over one link",
+          "direct_interference_flow_set_i": "Set of flows with higher priorities than flow_i",
+          "flow_j": "A flow in direct_interference_flow_set_i",
+          "l": "A common link between route_i and route_j",
+          "route_i": "Transmission path of flow_i",
+          "route_j": "Transmission path of flow_j",
+          "num_common_links(route_i, route_j)": "Number of common links between route_i and route_j",
+          "remaining_blocking_tolerance_j": "Remaining blocking tolerance of flow_j (not yet assigned to specific links)",
+          "assigned_blocking_tolerance_on_link_l_for_j": "Blocking tolerance of flow_j already assigned to link l"
+        },
+        "assumptions": [
+          "Higher-Priorities-Favored Distribution of Blocking Tolerance (HPDBT) approach.",
+          "Blocking tolerance of flow_j is separated into assigned (beta_j_l) and remaining (beta_minus_j) parts."
+        ],
+        "conclusion": "This formula selects the largest possible non_preemptive_region_tx_time_per_link_i for flow_i by dynamically distributing the remaining blocking tolerance of higher priority flows across shared links."
+      },
+      "informal_sketch": {
+        "intuition": "Unlike EDBT, HPDBT doesn't just evenly distribute blocking tolerance. It tries to be smarter. When `flow_i` wants to increase its non-preemptive region, it looks at the specific links it shares with higher priority flows (`flow_j`). For each such link, it considers `flow_j`'s *already assigned* blocking tolerance on that link, plus a share of `flow_j`'s *remaining* unassigned tolerance. `flow_i` then chooses the maximum non-preemptive region length that respects the tightest of these limits across all shared links and all higher priority flows.",
+        "steps": [
+          "Initialize `min_allowed_blocking_from_hp_flows = infinity`.",
+          "For each higher priority flow `flow_j` in `direct_interference_flow_set_i`:",
+          "  For each common link `l` between `route_i` and `route_j`:",
+          "    Calculate the effective blocking tolerance `flow_j` can offer on link `l`: `flow_j.remaining_blocking_tolerance / num_common_links(route_i, route_j) + flow_j.assigned_blocking_tolerance_on_link[l]`.",
+          "    Update `min_allowed_blocking_from_hp_flows = min(min_allowed_blocking_from_hp_flows, effective_tolerance_on_link_l)`.",
+          "The `non_preemptive_region_tx_time_per_link_i` is then the minimum of `max_packet_tx_time_per_link_i` and `min_allowed_blocking_from_hp_flows`."
+        ],
+        "pseudocode": "def select_non_preemptive_region_length_hpdbt(flow_i, max_packet_tx_time_per_link_i, direct_interference_flow_set_i, all_flows_blocking_info):\n    min_allowed_blocking_from_hp_flows = float('inf')\n    \n    for flow_j in direct_interference_flow_set_i:\n        common_links = set(flow_i.route).intersection(set(flow_j.route))\n        num_common_links = len(common_links)\n        \n        if num_common_links == 0:\n            continue # No shared links, no blocking caused by flow_i to flow_j on these links\n            \n        for link_l in common_links:\n            # all_flows_blocking_info[flow_j.id] contains { 'beta_minus': ..., 'beta_l': {link_id: val, ...}}\n            beta_minus_j = all_flows_blocking_info[flow_j.id]['beta_minus']\n            beta_j_l = all_flows_blocking_info[flow_j.id]['beta_l'].get(link_l, 0) # Default to 0 if not assigned\n            \n            # This is the available blocking tolerance on link_l for flow_j\n            effective_tolerance_on_link_l = (beta_minus_j / num_common_links) + beta_j_l\n            min_allowed_blocking_from_hp_flows = min(min_allowed_blocking_from_hp_flows, effective_tolerance_on_link_l)\n            \n    non_preemptive_region_tx_time_per_link_i = min(max_packet_tx_time_per_link_i, min_allowed_blocking_from_hp_flows)\n    return non_preemptive_region_tx_time_per_link_i",
+        "key_insights": [
+          "HPDBT is a more sophisticated distribution strategy, aiming for better schedulability.",
+          "It considers the specific links shared and the current state of blocking tolerance distribution.",
+          "The 'remaining' and 'assigned' blocking tolerance allows for dynamic allocation."
+        ]
+      },
+      "dependencies": [
+        "Max Packet Transmission Time per Link (c_i)",
+        "Blocking Tolerance (beta_i)",
+        "Blocking Links Set (phi_i)"
+      ]
+    },
+    {
+      "type": "algorithm",
+      "identifier": "Algorithm 3: Schedulability Test with HPDBT",
+      "formal_description": {
+        "statement": "Algorithm 3 performs a schedulability test for a set of flows by selecting non-preemptive region lengths using the Higher-Priorities-Favored Distribution of Blocking Tolerance (HPDBT) approach. It iterates through flows in descending order of priorities and dynamically updates blocking tolerance capacities.",
+        "variables": {
+          "flow_set_F": "The set of all real-time packet flows",
+          "flow_i": "A flow from flow_set_F",
+          "blocking_tolerance_i": "Overall blocking tolerance of flow_i",
+          "num_blocking_links_i": "Number of links in blocking_links_set_i",
+          "flit_tx_time": "Transmission time of a single flit over one link",
+          "assigned_blocking_tolerance_on_link_l_for_i": "Blocking tolerance of flow_i assigned to link l",
+          "remaining_blocking_tolerance_i": "Remaining blocking tolerance of flow_i",
+          "non_preemptive_region_tx_time_per_link_i": "Selected transmission time of flow_i's non-preemptive region over one link",
+          "response_time_non_preemptive_i": "Total transmission time of the non-preemptive region of flow_i",
+          "Alg_1": "Algorithm 1: Compute Blocking Tolerance (beta_i)",
+          "Eq_16": "Formula for Total Non-Preemptive Region Time (R_npe_i)",
+          "Eq_19": "Formula for Non-Preemptive Region Length Selection (HPDBT)"
+        },
+        "assumptions": [
+          "Flows are processed in descending order of priority.",
+          "Blocking tolerance is dynamically managed per link and as a remaining pool."
+        ],
+        "conclusion": "Returns 'Schedulable' if all flows meet their deadlines with the selected non-preemptive regions, otherwise 'Unschedulable'."
+      },
+      "informal_sketch": {
+        "intuition": "This algorithm is similar to EDBT in its overall structure (iterating by priority) but uses a more granular and dynamic approach to manage blocking tolerance. For each flow, it calculates its total blocking tolerance. Then, when selecting its non-preemptive region length, it considers the specific blocking tolerance available on each shared link from higher priority flows, and updates those higher priority flows' remaining tolerance accordingly. This 'favors' higher priority flows by ensuring their tolerance is respected more precisely.",
+        "steps": [
+          "1. **Initialize:** Create a data structure `all_flows_blocking_info` to store `remaining_blocking_tolerance` and `assigned_blocking_tolerance_on_link` for all flows.",
+          "2. **Iterate flows (descending priority):** For each `flow_i` in `flow_set_F` (from highest to lowest priority):",
+          "   a. **Calculate `blocking_tolerance_i`:** Call `Alg_1` to compute `blocking_tolerance_i` for `flow_i` (using `flow_i.response_time_non_preemptive = 0` for initial calculation). If 'Unschedulable', return 'Unschedulable'.",
+          "   b. **Initialize `flow_i`'s blocking info:** Set `flow_i.assigned_blocking_tolerance_on_link` to 0 for all links and `flow_i.remaining_blocking_tolerance = blocking_tolerance_i`.",
+          "   c. **Select `non_preemptive_region_tx_time_per_link_i`:** Use `Eq_19` to determine the length of `flow_i`'s non-preemptive region. This involves looking at the `remaining_blocking_tolerance_j` and `assigned_blocking_tolerance_on_link_l_for_j` of *higher priority* flows.",
+          "   d. **Calculate `response_time_non_preemptive_i`:** Compute the total non-preemptive region time using `Eq_16`.",
+          "   e. **Update blocking tolerance of higher priority flows:** For each higher priority flow `flow_j` that `flow_i` might block on a link `l`:",
+          "      i. Calculate `delta_beta_j_l = max(0, non_preemptive_region_tx_time_per_link_i - flow_j.assigned_blocking_tolerance_on_link[l])` (the extra blocking `flow_i` causes on link `l`).",
+          "      ii. Update `flow_j.assigned_blocking_tolerance_on_link[l] = max(flow_j.assigned_blocking_tolerance_on_link[l], non_preemptive_region_tx_time_per_link_i)`.",
+          "      iii. Update `flow_j.remaining_blocking_tolerance = flow_j.remaining_blocking_tolerance - delta_beta_j_l`.",
+          "   f. **Verify schedulability:** (Implicitly handled by Alg 1's checks and the update mechanism, similar to EDBT).",
+          "3. **Return 'Schedulable':** If all flows are processed without returning 'Unschedulable'."
+        ],
+        "pseudocode": "def schedulability_test_hpdbt(flow_set_F, flit_size, flit_tx_time):\n    sorted_flows = sorted(flow_set_F, key=lambda f: f.priority, reverse=True)\n    \n    # Store blocking info for all flows: {flow_id: {'beta_minus': val, 'beta_l': {link_id: val}}}\n    all_flows_blocking_info = {} \n    \n    for flow_i in sorted_flows:\n        # Initialize flow_i's non-preemptive region to 0 for initial beta_i calculation\n        flow_i.response_time_non_preemptive = 0 \n        \n        blocking_tolerance_i = compute_blocking_tolerance_alg1(flow_i, flow_i.C, flow_i.T, flow_i.D, \n                                                                flow_i.response_time_non_preemptive, \n                                                                flow_i.direct_interference_flow_set, \n                                                                flow_i.blocking_links_set, flit_tx_time)\n        if blocking_tolerance_i == 'Unschedulable':\n            return 'Unschedulable'\n        \n        # Initialize flow_i's blocking capacity\n        all_flows_blocking_info[flow_i.id] = {\n            'beta_minus': blocking_tolerance_i,\n            'beta_l': {link_l: 0 for link_l in flow_i.blocking_links_set}\n        }\n        \n        # Select non_preemptive_region_tx_time_per_link_i (Eq 19)\n        flow_i.max_packet_tx_time_per_link = calculate_max_packet_tx_time_per_link(flow_i.L, flit_size, flit_tx_time)\n        \n        higher_priority_flows_for_interference = [f for f in sorted_flows if f.priority > flow_i.priority]\n        \n        flow_i.non_preemptive_region_tx_time_per_link = select_non_preemptive_region_length_hpdbt(\n            flow_i, flow_i.max_packet_tx_time_per_link, higher_priority_flows_for_interference, all_flows_blocking_info)\n        \n        # Calculate response_time_non_preemptive_i (Eq 16)\n        flow_i.response_time_non_preemptive = calculate_total_non_preemptive_region_time(\n            flow_i.non_preemptive_region_tx_time_per_link, flow_i.last_interference_node, flow_i.dest_node, flit_tx_time)\n        \n        # Update blocking tolerance capacities of higher priority flows (line 3-9 in Alg 3)\n        for hp_flow in higher_priority_flows_for_interference:\n            common_links = set(flow_i.route).intersection(set(hp_flow.route))\n            for link_l in common_links:\n                current_beta_j_l = all_flows_blocking_info[hp_flow.id]['beta_l'].get(link_l, 0)\n                delta_beta_j_l = max(0, flow_i.non_preemptive_region_tx_time_per_link - current_beta_j_l)\n                \n                all_flows_blocking_info[hp_flow.id]['beta_l'][link_l] = max(current_beta_j_l, flow_i.non_preemptive_region_tx_time_per_link)\n                all_flows_blocking_info[hp_flow.id]['beta_minus'] -= delta_beta_j_l\n                \n                # Check if hp_flow's remaining_blocking_tolerance goes below 0, implying unschedulable\n                if all_flows_blocking_info[hp_flow.id]['beta_minus'] < 0:\n                    return 'Unschedulable' # This is an implicit check from the paper's logic\n                    \n    return 'Schedulable'",
+        "key_insights": [
+          "HPDBT is a more advanced and generally more effective strategy than EDBT.",
+          "It allows for flexible distribution of blocking tolerance, prioritizing higher priority flows.",
+          "The dynamic update of `remaining_blocking_tolerance` and `assigned_blocking_tolerance_on_link` is key to its effectiveness."
+        ]
+      },
+      "dependencies": [
+        "Algorithm 1: Compute Blocking Tolerance (beta_i)",
+        "Non-Preemptive Region Length Selection (HPDBT)",
+        "Total Non-Preemptive Region Time (R_npe_i)",
+        "Max Packet Transmission Time per Link (c_i)"
+      ]
+    }
+  ]
+}

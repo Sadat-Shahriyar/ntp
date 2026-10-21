@@ -1,0 +1,675 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">On Spin Locks in AUTOSAR: Blocking Analysis of FIFO, Unordered, and Priority-Ordered Spin Locks</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Alexander</forename><surname>Wieder</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems (MPI-SWS)</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems (MPI-SWS)</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">On Spin Locks in AUTOSAR: Blocking Analysis of FIFO, Unordered, and Priority-Ordered Spin Locks</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">2BC9CAB9DA4F4B319600146AF9A196B2</idno>
+					<idno type="DOI">10.1109/RTSS.2013.13</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-13T21:39+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Motivated by the widespread use of spin locks in embedded multiprocessor real-time systems, the worst-case blocking in spin locks is analyzed using mixed-integer linear programming. Four queue orders and two preemption models are studied: (i) FIFO-ordered spin locks, (ii) unordered spin locks, (iii) priorityordered spin locks with unordered tie-breaking, and (iv) priorityordered spin locks with FIFO-ordered tie-breaking, each analyzed assuming both preemptable and non-preemptable spinning. Of the eight lock types, seven have not been analyzed in prior work. Concerning the sole exception (non-preemptable FIFO spin locks), the new analysis is asymptotically less pessimistic and typically much more accurate since no critical section is accounted for more than once. The eight lock types are empirically compared in schedulability experiments. While the presented analysis is generic in nature and applicable to real-time systems in general, it is specifically motivated by the recent inclusion of spin locks into the AUTOSAR standard, and four concrete suggestions for an improved AUTOSAR spin lock API are derived from the results.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Spin locks are widely used in (embedded) multiprocessor realtime systems to coordinate mutually exclusive access to shared resources. For instance, the use of spin locks is mandated by the AUTOSAR real-time operating system (RTOS) standard <ref type="bibr" target="#b0">[1]</ref> for inter-core synchronization. Unfortunately, although many different types of spin locks are used in practice, worst-case blocking analysis is available only for a single spin lock type, namely FIFO-ordered spin locks <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b7">8,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b15">16]</ref>. In this work, we fill this gap by developing a novel worst-case blocking analysis approach suitable for analyzing a wide range of different spin lock types. Notably, this analysis approach can be applied even if the type of spin lock is unknown. While our analysis is generic in nature and applicable to real-time systems in general, it is motivated specifically by the recent inclusion of spin locks into the AUTOSAR standard, which we consider in this paper as a representative case study indicative of current industrial practice.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Motivation: Spin Locks in Theory and Practice</head><p>From an implementation point of view, spin locks are highly attractive in embedded systems because they require little OS support and typically cause very low runtime overheads. However, in hard real-time embedded systems (such as many of the automotive systems targeted by AUTOSAR), low runtime overheads by themselves are insufficient. Rather, it is equally important for an RTOS to guarantee predictable blocking times. That is, it must be possible to derive a priori bounds on each task's worst-case response time, which in turn requires bounding the maximum delays due to lock contention. To this end, formal blocking analysis of the employed locking primitives is required.</p><p>Unfortunately, such analysis is not yet available for all relevant lock types. Prior analysis of spin locks in real-time systems (reviewed in Sec. I-C) has focused on non-preemptable FIFO spin locks, where jobs busy-wait non-preemptably in FIFO order in case of contention. Such locks are easy to analyze, and appropriate bounds on worst-case blocking have been derived <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b7">8,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b15">16]</ref>. However, while non-preemptable FIFO spin locks are analytically most convenient, other sometimes incompletely specified spin lock types are also used in practice.</p><p>For instance, AUTOSAR mandates the availability of spin locks, but does not specify any particular type. Hence, instead of FIFO-ordered locks, AUTOSAR-compliant RTOSs may in fact offer priority-ordered spin locks, or even unordered spin locks without any progress guarantees. In particular, unordered spin locks are likely used frequently in practice due to their simple implementation and minimal space requirements, as we review in Sec. II. To the best of our knowledge, no suitable worst-case analysis for unordered and priority-ordered non-preemptable spin locks has been proposed to date. Thus, while desirable from an implementation point of view, these spin lock types currently cannot be employed in predictable hard real-time systems.</p><p>Another limitation in existing analysis is the reliance on non-preemptable spinning, which can be unacceptable in the presence of latency-sensitive tasks (i.e., tasks that must be scheduled immediately when activated) as such spinning can cause scheduling latencies linear in the number of processors. To avoid long non-preemptable sections, prior work has explored the design and implementation of preemptable spin locks <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b18">19]</ref>, where busy-waiting jobs can be preempted at any time and only the actual critical sections are executed non-preemptably. The primary benefit of preemptable spinning is that the maximum non-preemptable section length is independent of the number of processors (which, given rising core counts, is highly desirable), albeit at the cost of increased worst-case blocking, which arises because preempted jobs must "reissue" their lock requests after a preemption (e.g., in FIFO-ordered spin locks, preempted jobs must re-queue again at the end of the queue <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b11">12]</ref>). While preemptable spinning may be unavoidable in demanding latencysensitive applications, no analysis of the associated increase in blocking has been proposed to date, which renders such locks unsafe in the context of predictable hard real-time systems.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Contributions</head><p>In this paper, we address the lack of blocking analysis for common spin lock types with a comprehensive framework for the formal analysis of spin delays under partitioned fixedpriority (P-FP) scheduling, <ref type="foot" target="#foot_0">1</ref> a scheduling approach widely employed in practice (e.g., in AUTOSAR <ref type="bibr" target="#b0">[1]</ref>). In particular, we provide new blocking analysis for eight types of spin locks: (i) FIFO-ordered spin locks, (ii) unordered spin locks, (iii) priority-ordered spin locks with unordered tie-breaking, and (iv) priority-ordered spin locks with FIFO-ordered tie-breaking, each analyzed assuming both preemptable and non-preemptable spinning. Of the eight considered spin lock types, seven have not been formally analyzed in prior work.</p><p>The second major contribution of this paper pertains to how delays due to spin locks are analyzed. A key problem with spin locks is that they give rise to transitive blocking-when a high-priority job busy-waits due to a spin lock, it occupies a processor and prevents lower-priority jobs from executing, which are thus transitively delayed by lock contention encountered by the higher-priority job. To obtain sound bounds on worst-case blocking, such transitive delays must be fully accounted for. Prior analysis <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b7">8,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b15">16]</ref> has dealt with this issue by inflating job execution costs. That is, prior to computing response-time bounds, each task's worst-case execution time is inflated to reflect the maximum time spent busy-waiting. This is safe, but, as we show in Sec. III, also pessimistic as it can cause the impact of individual critical sections to be overestimated by a factor of Ω(n • φ), where n is the number of tasks and φ is the ratio of the longest and the shortest period. In this paper, we propose a new, asymptotically less pessimistic analysis approach that ensures that no critical section is accounted for more than once. Our approach extends a recently proposed analysis technique for semaphore protocols <ref type="bibr" target="#b8">[9]</ref> based on linear programming, and is shown to yield often much improved blocking bounds (Sec. V).</p><p>Finally, we provide guidelines-backed by empirical evidence based on the new analysis-as to when each of the eight considered lock types is most appropriate (Secs. IV and V), and conclude with suggestions for possible future improvements of AUTOSAR's spin lock API (Sec. VI).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Related Work</head><p>Spin lock algorithms have long been studied in the literature on general-purpose multiprocessing; comprehensive overviews of classic solutions to the shared-memory mutual exclusion problem are provided by Raynal <ref type="bibr" target="#b23">[24]</ref> and Anderson et al. <ref type="bibr" target="#b3">[4]</ref>. The seminal work on efficient, list-based spin locks with FIFO semantics is due to Mellor-Crummey and Scott <ref type="bibr" target="#b21">[22]</ref>. Based on their technique, priority-ordered variants for use in real-time systems were later developed <ref type="bibr" target="#b11">[12,</ref><ref type="bibr" target="#b17">18,</ref><ref type="bibr" target="#b20">21]</ref>, as were extensions that allow spinning jobs to be preempted <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b18">19]</ref>. Most preemptable spin locks, and especially list-based spin locks, require OS support to reliably detect preempted jobs <ref type="bibr" target="#b18">[19]</ref>. If preempted, spinning jobs are automatically dequeued in such locks, thus forcing them to requeue after the preemption, which may occur repeatedly during a single lock acquisition attempt.</p><p>Takada and Sakamura <ref type="bibr" target="#b26">[27]</ref> proposed a preemptable FIFO spin lock in which preempted tasks are not dequeued, but merely skipped (i.e., preempted jobs do not requeue at the end of the FIFO queue after a preemption), which lessens the delay incurred by the preempted job. However, skipping also leads to worse blocking bounds for tasks that are not preempted since, in the worst case, up to n -1 other tasks may already be queued and become eligible in time to block later-queued tasks. Due to this inherent pessimism, we do not consider skipping-based preemptable spin locks any further. We also do not consider "spin-lock-like" synchronization mechanisms based on restartable critical sections <ref type="bibr" target="#b16">[17]</ref> or helping techniques <ref type="bibr" target="#b27">[28]</ref>, because such mechanisms are less general than ordinary spin locks (e.g., neither approach can deal gracefully with side effects in critical sections such as writes to shared I/O ports) and thus are ill-suited for use as a generic, RTOS-provided locking primitive.</p><p>Gai et al. <ref type="bibr" target="#b15">[16]</ref> were the first to formally analyze blocking due to spin locks in partitioned multiprocessor real-time systems. They proposed the Multiprocessor Stack Resource Policy (MSRP), which combines Baker's classic uniprocessor Stack Resource Policy <ref type="bibr" target="#b5">[6]</ref> for processor-local synchronization with non-preemptable FIFO spin locks for inter-processor synchronization, and derived corresponding bounds on worstcase blocking. Notably, if a task contains more than one critical section, Gai et al.'s analysis considers each critical section individually. We review the MSRP in Sec. II.</p><p>Devi et al. <ref type="bibr" target="#b12">[13]</ref> presented an analysis of non-preemptable FIFO spin locks analogous to Gai et al.'s analysis <ref type="bibr" target="#b15">[16]</ref> assuming global instead of partitioned scheduling. Non-preemptable FIFO spin locks were also integrated into Block et al.'s Flexible Multiprocessor Locking Protocol (FMLP) <ref type="bibr" target="#b6">[7]</ref>, which supports both global and partitioned scheduling. Motivated by the FMLP and subsequently developed protocols, holistic blocking analysis was developed [8, Ch. 5], which improves upon Gai et al.'s and Devi et al.'s approach <ref type="bibr" target="#b12">[13,</ref><ref type="bibr" target="#b15">16]</ref> by considering all of a task's critical sections together to reduce pessimism in the presence of infrequent long critical sections. Nonetheless, holistic analysis of spin locks <ref type="bibr" target="#b7">[8]</ref> is still subject to considerable pessimism because it requires inflating each task's execution cost (see Sec. II). The new analysis in Sec. III overcomes this limitation.</p><p>A well-studied alternative to spin locks are semaphore protocols, wherein blocked tasks yield the processor to lowerpriority tasks by suspending instead of busy-waiting until the lock becomes available. While busy-waiting conceptually wastes processor cycles, it has the dual advantage of maintaining cache affinity (cache contents are likely perturbed when tasks suspend) and of avoiding scheduler invocations and context switches (which can be costly compared to typical spin lock overheads). Provided that critical sections are suitably short, spin locks are often more efficient in practice <ref type="bibr" target="#b7">[8]</ref>. For inherently long critical sections, semaphore protocols are more appropriate. (See e.g. <ref type="bibr" target="#b7">[8]</ref> for a recent survey of such protocols.)</p><p>Two notable hybrid approaches exist. Lakshmanan et al. <ref type="bibr" target="#b19">[20]</ref> proposed the Multiprocessor Priority Ceiling Protocol with Virtual Spinning, a semaphore protocol that emulates busywaiting by letting suspended tasks "virtually spin" to prevent other tasks from acquiring locks. Their analysis still assumes that tasks suspend and is thus not directly applicable to actual spin locks. And finally, Faggioli et al. <ref type="bibr" target="#b14">[15]</ref> proposed a locking protocol for reservation-based schedulers that includes preemptable spinning. Their protocol differs from the preemptable spin locks considered herein in that even lock holders remain preemptable, which in turn requires considerable scheduling machinery to ensure resource-holder progress. In contrast, we focus on true lightweight spin locks that do not require scheduler invocations.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. System Model and Notation</head><p>We consider a real-time workload consisting of n sporadic tasks τ = {T 1 , . . . , T n } scheduled on m identical processors P 1 , . . . , P m . We denote a task T i 's worst-case execution time (WCET) as e i and its period as p i , and let J i denote a job of T i . A task's utilization is defined as u i = e i /p i . A job J i is pending from its release until it completes. T i 's worst-case response time r i denotes the maximum duration that any J i remains pending. For simplicity, we assume implicit deadlines and that tasks do not self-suspend (i.e., pending jobs are always ready). We define φ to be the ratio of the maximum and the minimum period; formally φ = max i {p i }/ min i {p i }.</p><p>We assume P-FP scheduling. Each task is statically assigned to a processor, and each processor schedules pending jobs preemptably in order of decreasing task priority (unless preemptions are temporarily restricted, see Sec. II). We let P (T i ) denote the processor to which T i has been assigned, and let π i denote the scheduling priority of T i , where π i &lt; π x implies that T i has higher priority than T x .</p><p>Besides the m processors, the tasks share a set Q of n r serially-reusable resources Q = { 1 , . . . , nr } (e.g., I/O ports, data structures, etc.). We let N i,q denote the maximum number of times that any J i accesses q , and let L i,q denote T i 's maximum critical section length, that is, the maximum time that any J i uses q as part of a single access (L i,q = 0 if N i,q, = 0). We assume that jobs must be scheduled in order to use shared resources, and that jobs release all shared resources prior to completion.</p><p>Finally, we make the simplifying assumption that jobs request and hold at most one resource at a time. That is, we do not consider nested critical sections in this paper. Nested critical sections are certainly relevant in practice, but cause severe analytical challenges even when considering only "nesting-friendly" spin lock types. Given that our focus is a comprehensive exploration of all major spin lock types, we postpone a discussion of nesting support, which we are actively investigating, to future work. None of the prior detailed analyses of spin locks <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b7">8,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b15">16,</ref><ref type="bibr" target="#b28">29]</ref> supports fine-grained nested critical sections. 2   </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. SPIN LOCKS IN PRACTICE</head><p>Although the blocking analysis presented in this work is of general relevance, we focus in the following on AUTOSAR as a representative example of spin lock support in practice.</p><p>In partitioned multiprocessor systems, there are two types of shared resources: local resources and global resources, with the distinction that global resources are used on multiple processors, whereas local resources are shared only among tasks on a single processor. Local resources are simpler to deal with since they require only uniprocessor synchronization, for which optimal locking protocols such as the Priority Ceiling Protocol (PCP) 2 Nesting can be trivially supported under any locking protocol with group locks <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b7">8]</ref>, which reduce fine-grained resource nesting to coarse-grained, unnested (group) locking, albeit with a loss of parallelism and analysis accuracy. Ward and Anderson <ref type="bibr" target="#b28">[29]</ref> recently showed how to support nested critical sections without loss of asymptotic optimality under a variety of locking protocols, including non-preemptable FIFO spin locks. Their technique, however, requires additional runtime support (a partial order of all resources that may be nested is required to defer certain requests), which puts it beyond the realm of AUTOSAR for now. Further, <ref type="bibr" target="#b28">[29]</ref> does not include fine-grained analysis (the focus of <ref type="bibr" target="#b28">[29]</ref> is asymptotic optimality), which puts it outside the scope of this paper.</p><p>Algorithm 1 Non-preemptable spin lock in AUTOSAR.</p><p>1: SuspendAllInterrupts() 2: GetSpinLock(lock) 3: // critical section 4: ReleaseSpinLock(lock) 5: ResumeAllInterrupts() <ref type="bibr" target="#b25">[26]</ref> and the Stack Resource Policy (SRP) <ref type="bibr" target="#b5">[6]</ref> have long been known. In AUTOSAR, local resources are managed with the PCP via the GetResource() and ReleaseResource() APIs.</p><p>Global resources are more challenging to support as they require inter-core synchronization. As discussed in Sec. I, the AUTOSAR standard mandates spin locks for this purpose. In particular, the AUTOSAR API <ref type="bibr">[1, p.110</ref>] includes the functions GetSpinLock() and ReleaseSpinLock() to acquire and release a spin lock. When a task T x holds the lock for a global resource q and a second task T i tries to acquire the lock for q with GetSpinLock(), T i busy-waits (i.e., spins) until it successfully acquires the lock. After obtaining the associated lock for a resource, a critical section can safely be executed without interference from other tasks.</p><p>To ensure a timely completion of critical sections, preemptions due to higher-priority tasks during the execution of a critical section must be avoided. To this end, AUTOSAR provides the SuspendAllInterrupts() API to temporarily disable interrupts <ref type="bibr">[1, p.46</ref>]. After the critical section, interrupts must be re-enabled with the ResumeAllInterrupts() call. With this API, non-preemptable spin locks can be trivially implemented in AUTOSAR by disabling all interrupts prior to calling GetSpinLock(), as illustrated in Algorithm 1.</p><p>Notably, AUTOSAR mandates the availability of spin locks, but does not specify a concrete algorithm or specific spin lock semantics (beyond the assurance of mutual exclusion). That is, spin locks in AUTOSAR are not required to satisfy lock requests in any specific order. This leaves considerable leeway to OS implementors, who can choose whichever algorithm and semantics are easiest to support on their target platforms, but is problematic from the point of view of worst-case analysis.</p><p>However, if GetSpinLock() ensures that conflicting critical sections are executed in FIFO order, then Gai et al.'s analysis of spin locks <ref type="bibr" target="#b15">[16]</ref> is applicable to AUTOSAR, as we review next.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. The Multiprocessor Stack Resource Policy</head><p>Gai et al. introduced the Multiprocessor Stack Resource Policy (MSRP) <ref type="bibr" target="#b15">[16]</ref>, a multiprocessor extension of the classic SRP <ref type="bibr" target="#b5">[6]</ref>. Under the MSRP, non-preemptable FIFO-ordered spin locks are used to coordinate access to global resources, and the SRP is used for local resources. While AUTOSAR mandates the PCP (and not the SRP), the two protocols are in fact quite similar and result in equivalent worst-case blocking. Thus, assuming spin locks are employed as illustrated in Algorithm 1, and assuming that GetSpinLock() implements spin locks with FIFO semantics (e.g., ticket or queue locks <ref type="bibr" target="#b21">[22]</ref>), Gai et al.'s analysis of the MSRP <ref type="bibr" target="#b15">[16]</ref> directly applies to AUTOSAR as well.</p><p>Under the MSRP, jobs are subject to three types of blocking: local blocking due to the SRP, and non-preemptive blocking and remote blocking due to spin locks. The former two types both cause priority inversions <ref type="bibr" target="#b9">[10,</ref><ref type="bibr" target="#b25">26]</ref>, whereas the latter results in spinning. We briefly review the analysis of each blocking type.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>a) Local Blocking:</head><p>The SRP (and the PCP) are based on resource ceilings. The resource ceiling Π( q ) of a local resource q is the highest priority among all tasks accessing q : Π( q ) = min Ti {π i |N i,q &gt; 0}. Further, a dynamic system ceiling Π(t) is defined to be the highest resource ceiling of any resource in use at time t: Π(t) = min q {Π( q )| q is locked at time t} ∪ {n + 1} , where Π(t) = n + 1 indicates that no resource is locked.</p><p>The key scheduling rule of the SRP is that a newly released job J i may only start executing at time t if π i &lt; Π(t), which ensures the availability of all local resources that J i might access.</p><p>A job J i incurs local blocking if, at the time of J i 's release, a job of a local lower-priority task T l executes a request for a local resource q with Π( q ) ≤ π i . Under the SRP, T l 's request for q causes the system ceiling Π(t) to be set to at least Π( q ). If T i releases a job while T l is holding q , J i is delayed since Π(t) ≤ π i , and hence J i is blocked by T l 's job.</p><p>Each job of T i can be locally blocked at most once (upon release) for a duration of at most β loc i time units, where</p><formula xml:id="formula_0">β loc i = max Tl,q {L l,q |N l,q &gt; 0 ∧ Π( q ) ≤ π i &lt; π l ∧ q is local}.</formula><p>For brevity of notation, we define max(∅) 0 in this paper.</p><p>b) Remote Blocking: When using non-preemptable spin locks, a job J i that requested a global resource q spins nonpreemptably until gaining access. Due to the strong progress guarantee of FIFO spin locks, the maximum spin time per request, denoted as S i,q , is bounded by the sum of the maximum critical section lengths on each other processor (w.r.t. q ):</p><formula xml:id="formula_1">S i,q = ⎧ ⎨ ⎩ Pk =P (Ti) max{L x,q |P (T x ) = P k } if N i,q &gt; 0, 0 if N i,q = 0.</formula><p>This implies an upper bound β rem i on the maximal total remote blocking incurred by any J i , where β rem i = q N i,q • S i,q . c) Non-Preemptive Blocking: A lower-priority job J l spinning or executing non-preemptably can cause a job of T i to incur a priority inversion upon release. The maximum duration β NP i of such blocking is bounded by T l 's worst-case spin time and critical length for a single request:</p><formula xml:id="formula_2">β NP i = max S l,q + L l,q | P (T i ) = P (T l ) ∧ π i &lt; π l ∧ q is global .</formula><p>d) Schedulability Analysis: Finally, response-time analysis <ref type="bibr" target="#b4">[5]</ref> is used to check if T i is schedulable. Under the MSRP, a safe bound on T i 's maximum response time r i is given by a solution to the following recurrence <ref type="bibr" target="#b15">[16]</ref>:</p><formula xml:id="formula_3">r i = e i + β rem i + max β NP i , β loc i + πh&lt;πi P (Ti)=P (Th) r i p h • e h ,</formula><p>where e h = e h + β rem h denotes T h 's inflated execution cost. Given the response-time bound r i , T i is schedulable if r i ≤ p i . Thus, schedulability under AUTOSAR can be verified a priori, provided that GetSpinLock() implements FIFO semantics.</p><p>However, as noted in Sec. I, non-preemptable FIFO spin locks can have a detrimental effect on worst-case scheduling latencies. This is apparent in the above analysis: the worst-case non-Algorithm 2 Preemptable unordered spin lock in AUTOSAR. ResumeAllInterrupts()</p><formula xml:id="formula_4">4:</formula><p>go to 1 5: // critical section 6: ReleaseSpinLock(lock) 7: ResumeAllInterrupts() preemptive blocking β NP i depends on the remote blocking S l,q of any lower-priority tasks T l , and S l,q in turn depends on the sum of the maximum critical section length on each processor. The worst-case scheduling latency (i.e., max(</p><formula xml:id="formula_5">β NP i , β LOC i )) can thus increase linearly with m.</formula><p>Given the trend towards rising core counts, non-preemptable spinning is thus unlikely to be the appropriate choice in all cases. To avoid tying β NP i to the number of processors, the preemption of spinning jobs must be permitted. While not explicitly supported, this can be readily realized with the current AUTOSAR specification, as described next.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Unordered Preemptable Spin Locks</head><p>First of all, it is worth emphasizing that even in the case of preemptable spinning, the actual critical section must still be executed non-preemptably (e.g., see <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b26">27]</ref>). This is required to avoid the preemption of a lock-holding job, which could result in excessive delays (i.e., if lock holders could be preempted, bounds on worst-case blocking would have to reflect entire job execution costs, which is undesirable since job execution costs are typically much larger than critical sections). Therefore, it is not sufficient to simply exchange lines 1 and 2 in Algorithm 1, because then a task that successfully acquired a spin lock could still be preempted just before calling SuspendAllInterrupts(), thereby allowing the lockholder preemption problem to occur. That is, simply calling GetSpinLock() with interrupts enabled-although permitted by AUTOSAR-does not yield a proper predictable spin lock.</p><p>However, it is possible to implement preemptable spin locks within the scope of AUTOSAR using the TryToGetSpinLock() API [1, p.105], which acquires the requested lock if it is available, and otherwise fails immediately without spinning. As illustrated in Algorithm 2, the TryToGetSpinLock() procedure can be used to realize proper preemptable spin locks.</p><p>The presented approach allows for preemptions during spinning (lines 3 and 4), yet still ensures that lock holders are not preempted. Unfortunately, this is only possible at the expense of all ordering guarantees (if any): even if the underlying spin lock implementation serves requests in a specific order (e.g., in FIFO order as considered in Sec. II-A), the construction shown in Algorithm 2 does not preserve this ordering, nor does it guarantee any particular order. The resulting lack of any ordering guarantees makes it challenging to derive non-trivial bounds on worst-case blocking, and to the best of our knowledge, no analysis of such unordered spin locks has been proposed to date.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. A Hypothetical API For Preemptable Spin Locks</head><p>Of course, preemptable spinning does not inherently imply a lack of ordering guarantees <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b26">27]</ref>. However, the current Algorithm 3 Proposed API for preemptable spin locks. AUTOSAR specification <ref type="bibr" target="#b0">[1]</ref> does not provide a high-level API suitable for accommodating spin locks that both are preemptable and ensure a specific order, which would be much more analysisfriendly. To address this shortcoming, we assume the availability of a hypothetical API for spin locks with preemptable spinning: GetPreemptableSpinLock().</p><p>To facilitate analysis, GetPreemptableSpinLock() is defined to have the following semantics. In the presence of contention, GetPreemptableSpinLock() ensures that the task remains fully preemptable, as is the case in Algorithm 2. However, there are important differences. First, unlike GetSpinLock(), the envisioned GetPreemptableSpinLock() API atomically disables interrupts as part of acquiring the lock (which may require OS support <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b26">27]</ref>). Second, unlike Algorithm 2, we assume that GetPreemptableSpinLock() enforces a specified order among conflicting critical sections. Algorithm 3 shows how the envisioned API could be used to combine preemptable spinning with arbitrary order guarantees.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Considered Spin Lock Types</head><p>A primary motivation driving this work is that AUTOSAR does not specify any particular ordering for GetSpinLock(); a compliant RTOS can thus implement any order. Similarly, the envisioned API for preemptable spin locks, GetPreemptableSpinLock(), can be combined with any order. This poses the question: when implementing an AUTOSARcompliant OS, which order should be chosen (from a real-time point of view)? Further, should the AUTOSAR specification itself perhaps mandate a specific order?</p><p>We have identified four orderings that warrant closer study for reasons of either practical relevance or analytical suitability: unordered, FIFO-ordered, and two variants of priority-ordered spin locks (explained below). Each of these four orderings can be combined with either non-preemptable spinning (Algorithm 1) or preemptable spinning (Algorithm 3), for a total of eight considered lock types, as summarized in Table <ref type="table">I</ref>.</p><p>The inclusion of FIFO-ordered spin locks is obvious given that they offer the strongest progress guarantee-starvation freedom-and given that applicable analysis already exists <ref type="bibr" target="#b15">[16]</ref>.</p><p>Unordered spin locks (i.e., spin locks that do not guarantee any particular order) are decidedly unattractive from an analytical point of view, but have practical relevance nonetheless. First, since AUTOSAR does not specify any particular ordering for GetSpinLock(), unordered spin locks must be assumed when analyzing current systems. (Assuming unordered spin locks is a safe assumption, as any analysis of unordered spin locks is necessarily also correct for any specific order.) Second, basic testand-set (TAS) locks, which are "the simplest mutual exclusion lock[s] found in all operating system textbooks and widely used in practice" <ref type="bibr" target="#b21">[22]</ref>, are inherently unordered. TAS locks are further attractive because they can be realized with minimal memory, namely only a single bit, which makes them suitable for even the most memory-constrained environments (e.g., TAS locks can be embedded into other data structures). And finally, Algorithm 2 yields unordered preemptable spin locks, regardless of the underlying spin lock implementation.</p><p>Finally, in a real-time system, it is natural to consider priorityordered spin locks, based on the intuition that urgent tasks with higher scheduling priorities should also receive preferential treatment when contending for resources other than processor time <ref type="bibr" target="#b11">[12,</ref><ref type="bibr" target="#b17">18,</ref><ref type="bibr" target="#b20">21]</ref>. However, a task's scheduling priority and the locking priority considered for request ordering do not necessarily have to coincide. For one, depending on the employed implementation, the number of available distinct locking priorities may be limited, and further, as we show in Sec. V, it can be beneficial to apply locking priorities only selectively. It is thus necessary to specify how to break ties in locking priority, that is, how to order conflicting critical sections of equal priority. In list-based priority-ordered spin locks <ref type="bibr" target="#b11">[12,</ref><ref type="bibr" target="#b17">18,</ref><ref type="bibr" target="#b20">21]</ref>, FIFOordered tie-breaking is natural. However, it is also possible to construct priority-ordered spin locks using other techniques <ref type="bibr" target="#b22">[23]</ref> (or simply from TAS locks), in which case unordered tiebreaking must be assumed (i.e., critical sections of equal priority are executed in arbitrary order). We consider both tie-breaking variants in this paper.</p><p>For brevity, we refer to each of the eight lock types using a short name as listed in Table I. To the best of our knowledge, only F|N locks (i.e., FIFO locks with non-preemptable spinning) have been considered in the context of worst-case blocking analysis before. As part of this work, we derived new blocking analysis for all of the eight spin lock types listed in Table <ref type="table">I</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. AN IMPROVED ANALYSIS OF SPIN LOCKS</head><p>All prior analyses of spin locks <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b7">8,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b15">16]</ref> rely on inflating job execution costs to (indirectly) account for transitive blocking effects (e.g., the delay that a job incurs when a higher-priority spinning job occupies the processor). While this approach is attractively simple, we chose to follow a different, more explicit approach <ref type="bibr" target="#b8">[9]</ref> in our analysis instead.</p><p>The fundamental weakness in inflating job execution costs is that an individual critical section may be accounted for multiple times. In particular, in the analysis of a job J i that is repeatedly preempted by jobs of a higher-priority task T h , any inflation of the execution cost of T h will be reflected r i /p h times due to the mechanics of response-time analysis. With Ω(n) higher-priority tasks and r i /p h ≈ φ, considerable pessimism accumulates. We summarize this observation as follows (a formal proof is given in Appendix A ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Theorem 1. Any blocking analysis relying on the inflation of job execution costs can be pessimistic by a factor of Ω(φ • n).</head><p>To avoid such inherent pessimism altogether, we instead extend a recent analysis framework for semaphores <ref type="bibr" target="#b8">[9]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. A Mixed-Integer Linear Program to Bound Blocking</head><p>In a nutshell, our blocking analysis works by constructing a mixed-integer linear program (ILP) to bound the maximum cumulative blocking that any job of a task T i can incur.</p><p>We distinguish between two blocking types: spin delay and arrival blocking. A request for resource q can cause a job J i to incur spin delay in two cases: (S1) J i requests q and busywaits until it gains access to q ; or (S2) a local higher-priority job requests q , busy-waits until it gains access, and by this transitively delays J i 's job. Requests from local lower-priority jobs may cause J i to incur arrival blocking if at the time that J i is released (A1) a local lower-priority job is non-preemptably busy-waiting or executes a critical section pertaining to a global resource, or (A2) a local lower-priority job is accessing a local resource with a priority ceiling higher or equal to T i 's priority.</p><p>To analyze the worst-case blocking incurred by an arbitrary job J i of T i , we enumerate all requests of other tasks that could overlap with the interval during which J i is pending, and we define two blocking variables <ref type="bibr" target="#b8">[9]</ref> for each such request. Let R x,q,v denote the v th request of task T x for resource q while J i is pending. For each request R x,q,v , we define two blocking variables X S</p><p>x,q,v and X A x,q,v that give R x,q,v 's contribution to T i 's spin delay and arrival blocking, resp.</p><p>These blocking variables have the following interpretation: with respect to an arbitrary, but fixed schedule, R x,q,v contributes to J i 's arrival blocking (resp., spin delay) with exactly X A x,q,v • L x,q (resp., X A</p><p>x,q,v • L x,q ) time units. Thus, if X A x,q,v = 0, then R x,q,v does not cause any arrival blocking (in the fixed schedule). Similarly, if X S x,q,v = 0.5, then R x,q,v contributes L x,q /2 time units to J i 's spin delay (again, in the fixed schedule). Given a concrete schedule (i.e., a trace of the task set), it is trivial to determine the values of each critical section's blocking variables.</p><p>The blocking analysis approach that we adopt <ref type="bibr" target="#b8">[9]</ref> uses blocking variables to express constraints on the set of all possible schedules. In particular, each blocking variable is used as a variable in a linear program that, when maximized, yields a safe upper bound on the worst-case blocking incurred by any J i .</p><p>More specifically, our goal is to compute for each task T i a blocking bound b i (r 1 , . . . , r n ) such that the recurrence</p><formula xml:id="formula_6">r i = e i + b i (r 1 , . . . , r n ) + I i (r i )</formula><p>yields a safe upper bound on T i 's maximum response time r i , where I i (r i ) denotes the worst-case interference due to preemptions by local higher-priority jobs, excluding any blocking these jobs may incur, and where b i (r 1 , . . . , r n ) denotes a bound on all blocking that affects T i (either directly or transitively).</p><p>With P-FP scheduling, the worst-case interference</p><formula xml:id="formula_7">I i (r i ) is simply I i (r i ) = Th∈τ lh ri ph</formula><p>• e h <ref type="bibr" target="#b4">[5]</ref>, where τ lh {T h | P (T h ) = P (T i ) ∧ π h &lt; π i } denotes the set of local higher-priority tasks. Finding b i (r 1 , . . . , r n ) is the purpose of the analysis presented in the following. It should be noted that, in contrast to Gai et al.'s MSRP analysis <ref type="bibr" target="#b15">[16]</ref> and similar to Brandenburg's holistic analysis <ref type="bibr" target="#b7">[8]</ref>, the blocking term b i (r 1 , . . . , r n ) set of all tasks assigned to processor P k τ R set of all remote tasks τ ll / τ lh set of lower-priority / higher-priority tasks on P (Ti)</p><formula xml:id="formula_8">Q / Q g / Q l set of all / global / local resources pc(Ti)</formula><p>set of resources with priority ceiling at least πi</p><formula xml:id="formula_9">N i</formula><p>Tx,q number of requests by Tx for q while Ji is pending ncs(Ti, q) maximum number of requests for q issued by any jobs of tasks in τ lh ∪ {Ti} while Ji is pending Rx,q,v vth request issued by jobs of Tx while Ji is pending X S x,q,v contribution of Rx,q,v to Ti's spin delay X A x,q,v contribution of Rx,q,v to Ti's arrival blocking njobs(Tx, t) maximum number of jobs of Tx pending in any interval of length t depends on the response times of all tasks, which implies that blocking bounds and response-time bounds must be determined iteratively in alternating fashion until a fixpoint is reached <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b8">9]</ref>. Nonetheless, for brevity, we denote the blocking term simply as b i in the following. The response time r i is then given by</p><formula xml:id="formula_10">r i = e i + b i + Th∈τ lh r i p h • e h .</formula><p>Note that this recurrence does not rely on inflated execution costs; b i must thus reflect all possible transitive delays. For brevity, let τ i τ \ {T i } (see Table <ref type="table">II</ref> for a summary of notation). Further, let N i x,q denote an upper bound on the number of requests for q issued by jobs of task T x while a job of T i is pending, and let njobs(T x , t) denote an upper bound on the number of jobs of T x that can be pending in any interval of length t. Then N i</p><p>x,q = njobs(T x , r i ) • N x,q . For a sporadic task T x , njobs(T x , t) is given by njobs(T x , t) t+rx px <ref type="bibr" target="#b7">[8]</ref>. The optimization objective is then to maximize</p><formula xml:id="formula_11">b i Tx∈τ i q ∈Q N i x,q v=1 X S x,q,v + X A x,q,v • L x,q , (<label>1</label></formula><formula xml:id="formula_12">)</formula><p>where X A x,q,v ∈ [0, 1] and X S x,q,v ∈ [0, 1] for each R x,q,v . Note that only njobs(T x , t) ties b i to the sporadic task model. By substituting a proper definition of njobs(T x , t), our analysis can be applied to more expressive task models as well (e.g., <ref type="bibr" target="#b24">[25]</ref>).</p><p>When maximized, Eq. ( <ref type="formula" target="#formula_11">1</ref>) yields the maximum blocking possible across the set of all schedules not shown to be impossible. In the following, we impose constraints on the blocking variables that b i depends on to rule out scenarios that we prove to be impossible. Note that this approach substantially differs from approaches that directly compute an upper bound on worst-case blocking by enumerating critical sections that can block (e.g., <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b15">16]</ref>)-in our analysis, all critical sections are presumed to be blocking unless shown otherwise, which is more robust <ref type="bibr" target="#b8">[9]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Generic Constraints Applicable to All Spin Lock Types</head><p>With the objective function in place, we next specify constraints to eliminate impossible scenarios. We begin by observing that direct spin delay and (indirect) arrival blocking are mutually exclusive. To ensure that each request R x,q,v is counted at most once in b i , we establish the following constraint. Constraint 1. In any schedule of τ :</p><formula xml:id="formula_13">∀T x ∈ τ i : ∀ q ∈ Q : ∀v : X A</formula><p>x,q,v + X S x,q,v ≤ 1. Proof: Suppose not. Then there exists a schedule such that a single request R x,q,v causes T i to incur both spin delay and arrival blocking simultaneously at some point in time t. Both arrival blocking conditions A1 and A2 require a lower-priority job to be scheduled on processor P (T i ) at time t, whereas spin delay condition S1 (resp., S2) requires J i (resp., a higher-priority job) to be scheduled on P (T i ) at time t. However, at any point in time, at most one job can be scheduled on T i 's processor.</p><p>We consider arrival blocking next. Since a job is released only once (and since we assume that jobs do not self-suspend), each job can incur arrival blocking only once (upon release). To express this, we require an indicator variable A q , with the following interpretation: given a fixed, concrete schedule, A q = 1 if and only if J i incurred arrival blocking due to a critical section accessing q , and A q = 0 otherwise. In an ILP interpretation, each A q is a binary decision variable. This allows us to formalize that at most one resource causes arrival blocking.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Constraint 2. In any schedule of τ :</head><p>q ∈Q A q ≤ 1. Proof: Suppose not. Then there exists a schedule in which requests for two different resources 1 and 2 both contribute to T i 's arrival blocking. Arrival blocking conditions A1 and A2 require a lower-priority job J l to be scheduled on processor P (T i ). Since we assume that J i does not self-suspend, this is only possible if J l was already scheduled at the time of J i 's release. Clearly, only one such J l exists. Since jobs become preemptable at the end of a critical section, J l would have to be accessing 1 and 2 simultaneously. Since we assume that jobs hold at most one resource at a time, this is impossible.</p><p>Of course, in order for a resource q to cause arrival blocking, it must actually be accessed by local lower-priority tasks. Let τ ll {T l | P (T l ) = P (T i ) ∧ π l &gt; π i } denote such tasks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Constraint 3. In any schedule of τ :</head><formula xml:id="formula_14">∀ q ∈ Q : A q ≤ Tx∈τ ll N x,q</formula><p>Proof: Suppose not. Then, since A q is binary, 1 = A q &gt; Tx∈τ ll N x,q = 0 for some resource q . By the definition of A q , this implies that T i incurs arrival blocking due to requests for q by local lower-priority jobs although q is not accessed by any local lower-priority tasks, which is clearly impossible.</p><p>In a similar vein, we can rule out arrival blocking due to local resources with priority ceilings lower than π i (condition A2). To this end, we define the conflict set pc(T i ) of T i to be the set of local resources with a priority ceiling of at least T i 's priority. Let Q l denote the set of local resources on processor P (T i ). Then pc(T i )</p><formula xml:id="formula_15">q q ∈ Q l ∧ Π( q ) ≤ π i .</formula><p>Constraint 4. In any schedule of τ :</p><formula xml:id="formula_16">∀ q ∈ Q l \ pc(T i ) : A q ≤ 0</formula><p>Proof: Follows from the definitions of the conflict set pc(T i ) and each A q , as A q = 1 only if J i is arrival-blocked due to a request for q , which is possible only if q ∈ pc(T i ).</p><p>Another straightforward constraint on arrival blocking is that requests from local higher-priority tasks cannot arrival-block T i . Constraint 5. In any schedule of τ :</p><formula xml:id="formula_17">Tx∈τ lh q N i x,q v=1 X A</formula><p>x,q,v ≤ 0.</p><p>Proof: Follows immediately from conditions A1 and A2, which require a lower-priority job to be scheduled on P (T i ), whereas any job of tasks in τ lh has higher priority than J i .</p><p>As a final generic constraint pertaining to arrival blocking, we link the indicator variable A q with the blocking variables for q . Constraint 6. In any schedule of τ :</p><formula xml:id="formula_18">∀ q ∈ Q : Tx∈τ ll N i x,q v=1 X A</formula><p>x,q,v ≤ A q .</p><p>Proof: Suppose not. If A q = 0, this would imply, by definition of X A</p><p>x,q,v , that in some schedule R x,q,v arrival-blocked J i , even though by definition of A q no request for q arrivalblocked J i , which is clearly impossible. If A q = 1, at least two requests by local lower-priority tasks caused arrival blocking. Analogously to Constraint 2, this is impossible because at most one request can be in progress on P (T i ) when J i is released.</p><p>Finally, we observe that spin delay is necessarily due to remote tasks, since it is impossible to spin while waiting for local tasks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Constraint 7. In any schedule of τ :</head><formula xml:id="formula_19">Tx∈τ ll ∪τ lh q N i x,q v=1 X S</formula><p>x,q,v ≤ 0.</p><p>Proof: Suppose not. Then there exists a schedule in which at some point in time t the execution of a request R x,q,v issued by a local task T x causes J i to incur spin delay. By conditions S1 and S2, a job on processor P (T i ) is also spinning at time t. However, the job scheduled on P (T i ) at time t cannot both be spinning and executing R x,q,v at the same time.</p><p>This concludes our discussion of generic constraints. The above constraints are generic in that they apply to all considered spin lock types. Next, we derive constraints specific to individual spin lock types. We focus on three lock types herein: F|N locks, F|P locks, and P|N locks, which together illustrate the main analysis techniques employed in this work. Due to space constraints, analyses of the other lock types, which are analyzed using simple combinations of the techniques developed for F|N, F|P, and P|N locks, can be found online <ref type="bibr" target="#b29">[30]</ref>.</p><p>We begin with F|N locks, because they are the easiest to analyze, and because baseline analysis exists in the form of Gai et al.'s classic MSRP analysis (recall Sec. II-A).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Constraints for FIFO-ordered Non-Preemptable Spin Locks</head><p>As discussed in Sec. III-A, our analysis must explicitly account for transitive delays to avoid the pessimism inherent in inflating job execution costs (Theorem 1). In particular, the final blocking bound b i must represent all delays that J i may "accumulate" when higher-priority jobs that preempted J i spin. Thus, not only do we need to consider J i 's requests for global resources, but also any requests issued by higher-priority tasks. To this end, we let ncs(T i , q) denote an upper bound on the number of requests (or number of critical sections) for q issued by either by J i itself or by preempting higher-priority jobs (while J i is pending): ncs(T i , q) N i,q + Th∈τ lh N i x,q . In conjunction with the strong progress guarantee in F|N locks, ncs(T i , q) implies an immediate upper bound on the number of requests for q that cause J i to incur spin delay. Let τ (P k ) {T x | P (T x ) = P k } be the set of tasks assigned to P k . Constraint 8. In any schedule of τ with F|N locks:</p><formula xml:id="formula_20">∀ q ∈ Q : ∀P k , P k = P (T i ) : Tx∈τ (Pk) N i x,q v=1 X S</formula><p>x,q,v ≤ ncs(T i , q).</p><p>Proof: Suppose not. Then there exists a schedule in which more than ncs(T i , q) requests for some q of tasks on processor P k cause J i to incur spin delay. Then, by the pigeon-hole principle, at least one request for q issued by T i or a local higher-priority task is delayed by more than one request for q from processor P k . However, since jobs spin non-preemptably, and since F|N locks serve requests in FIFO order, each request for q can be preceded by at most one request for q from each other processor. Contradiction.</p><p>The above constraint, even though it may appear to be quite simple, is considerably more effective at limiting blocking than prior analyses, as will become evident in Sec. V. Next, we apply the reasoning underlying Constraint 8 to arrival blocking.</p><p>A remote job J r can contribute to J i 's arrival blocking if a local lower-priority job J l spins non-preemptably while waiting for J r to release a lock. However, at most one request from each processor can contribute to J i 's arrival blocking in this way. Constraint 9. In any schedule of τ with F|N locks:</p><formula xml:id="formula_21">∀P k , P k = P (T i ) : ∀ q ∈ Q : Tx∈τ (Pk) N i x,q v=1 X A x,q,v ≤ A q .</formula><p>Proof: Suppose not. If A q = 0, then some request from a remote processor P k for resource q causes J i to incur arrival blocking. However, by the definition of A q , no requests for q causes J i to incur arrival blocking if A q = 0. If A q = 1, then at least two requests for q issued from processor P k contribute to T i 's arrival blocking. Analogously to Constraint 2, at most one request of a local lower-priority job J l causes J i to incur arrival blocking. Hence, at least two requests from P k must delay J l . Analogously to Constraint 8, this is impossible in F|N locks.</p><p>This concludes our analysis of F|N locks. As is apparent in Constraints 8 and 9, FIFO-ordering is a strong property, as is non-preemptable spinning. We relax the latter aspect next.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Constraints for FIFO-ordered Preemptable Spin Locks</head><p>In contrast to non-preemptable spin locks analyzed so far, preemptable spin locks allow jobs to be preempted while busywaiting for global resources. Hence, while busy-waiting, jobs are subject to normal fixed-priority scheduling; spinning thus never causes a priority inversion. Requests from remote tasks thus cannot cause (transitive) arrival blocking.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Constraint 10. In any schedule of τ with preemptable spin locks: Tx∈τ</head><formula xml:id="formula_22">R q ∈Q N i x,q v=1 X A</formula><p>x,q,v ≤ 0. Proof: Follows from the preceding discussion. Preemptable spinning solves the transitive arrival blocking problem, but it does so at the expense of increasing spin delays. To accurately account for "retries" due to preemptions, we introduce a new indicator variable: for each resource q , with respect to an arbitrary, but fixed schedule, let C q denote the number of times that a request for resource q by J i or a job of a task in τ lh is cancelled due to a preemption. From an ILP point of view, each C q is an integer variable. A trivial bound on the sum of all C q is given by the number of higher-priority job releases that can possibly occur while J i is pending.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Constraint 11. In any schedule of τ with preemptable spin locks:</head><p>q C q ≤ Th∈τ lh ri ph . Another trivial observation is that C q = 0 if neither J i nor any higher-priority jobs access q .</p><p>Constraint 12. In any schedule of τ with preemptable spin locks: ∀ q if ncs(T i , q) = 0 then C q = 0.</p><p>As C q bounds the number of times that a particular resource is re-requested, we can almost directly apply the argument of Constraint 8; the only change is that each time that q is rerequested, other processors may "skip ahead" once.</p><p>Constraint 13. In any schedule of τ with F|P locks: ∀ q ∈ Q : ∀P k , P k = P (T i ) :</p><formula xml:id="formula_23">Tx∈τ (Pk) N i x,q v=1 X S</formula><p>x,q,v ≤ ncs(T i , q) + C q .</p><p>Proof: Suppose not. Then more than ncs(T i , q) + C q requests by tasks on a remote processor P k for a resource q contribute to T i 's spin delay. As requests are issued sequentially and served in FIFO order, T i and local higher-priority jobs issue at most ncs(T i , q) + C q requests for q (counting requests reissued after a preemption as individual requests). By the pigeonhole principle, this implies that one uninterrupted request for q was blocked by more than one request issued by jobs on P k . With FIFO-ordered spin locks, this is impossible.</p><p>This concludes our analysis of F|P locks. Preemptable spinning increases the analysis complexity (additional integer variables are required) and increases spin delays (Constraint 13 permits more blocking than Constraint 8), but with our ILPbased analysis approach, both aspects can be easily integrated. To the best of our knowledge, this is the first analysis of preemptable spin locks from a worst-case blocking point of view. Next, we shift the focus away from FIFO-ordered spin locks and present our analysis of priority-ordered spin locks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Priority-ordered Non-Preemptable Spin Locks</head><p>P|N locks ensure that a request is blocked at most once by another request with lower priority at the expense that there is no immediate bound on the number of blocking higher-priority requests. In the following, we denote the locking priority of requests for resource q issued by jobs of a task T x as π x,q .</p><p>We apply response-time analysis <ref type="bibr" target="#b4">[5]</ref> on a per-request basis to obtain an upper bound on per-request delay. For a resource q and task T i , let W P|N q (T i , π) denote the smallest positive value (if any) that satisfies the following recurrence:</p><formula xml:id="formula_24">W P|N q (T i , π) = S( q , π) + LP ( q , π) + 1 where (2) S( q , π) = Tx∈τ R ∧πx,q≤π njobs(T x , W P|N q (T i , π)) • N x,q • L x,q , LP ( q , π) = max Tx∈τ R {L x,q |π x,q &gt; π}.</formula><p>Lemma 1. Let t 0 be the time a job J i of task T i attempts to lock resource q with locking priority π, and let t 1 be the time that J i subsequently acquires q . With P|N locks, t 1t 0 ≤ W P|N q (T i , π). Proof: Analogous to the response-time analysis of nonpreemptive fixed-priority scheduling. The response-time of J i 's request-that is, the maximum wait time W P|N q (T i , π)depends on the maximum length of one lower-priority request LP ( q , π) and all higher-priority requests of all remote tasks issued during an interval of length W P|N q (T i , π), that is, S( q , π). Thus after at most W P|N q (T i , π) time units q is available. To simplify the notation of the following constraints, we define π minLP q max Tx∈τ ll {π x,q |N x,q &gt; 0} and π minHP q max Tx∈(τ lh ∪{Ti}) {π x,q |N x,q &gt; 0} to be the minimum locking priority of any lower-priority and higher-priority task, resp., on T i 's processor that accesses the global resource q .</p><p>Given W P|N q (T i , π) (i.e., if it exists), we can constrain the the number of requests for q that can contribute to T i 's spin delay. First, we consider requests issued with higher or equal priority. Constraint 14. In any schedule of τ with P|N locks:</p><formula xml:id="formula_25">∀P k , P k = P (T i ): ∀ q ∈ Q g : ∀T x ∈ τ (P k ), π x,q ≤ π minHP q : N i x,q v=1 X S</formula><p>x,q,v ≤ njobs(T x ,W P|N q (T i , π minHP q ))•N x,q •ncs(T i , q).</p><p>Proof: Let R denote a request for a resource q by T i or a local higher-priority task. By the definition of π minHP q , R has at least the locking priority π minHP q and, by Lem. 1, is hence delayed by at most W P|N q (T i , π minHP q ) time units (note that W P|N q</p><formula xml:id="formula_26">(T i , π minHP q ) ≥ W P|N q (T h , π h,q ) if T h ∈ τ lh and π minHP q ≥ π h,q ). During an interval of length W P|N q (T i , π minHP q</formula><p>), jobs of a remote task T x issue at most njobs(T x , W P|N q (T i , π minHP q )) • N x,q requests for q . The stated bound follows as at most ncs(T i , q) such requests R for q are issued by T i or local higher-priority tasks.</p><p>Requests with lower priority cause J i to incur (transitive) spin delay at most once for each request by T i or a task in τ lh . Constraint 15. In any schedule of τ with P|N locks:</p><formula xml:id="formula_27">∀ q ∈ Q g : Tx∈τ R πx,q&gt;π minHP q N i x,q v=1 X S</formula><p>x,q,v ≤ ncs(T i , q). Proof: Suppose not. Then at least one request for global resource q issued by T i or a local higher-priority task is delayed more than once by a request for q from a different processor issued with a lower priority. However, by definition P|N locks ensure that each request is blocked at most once by a lowerpriority request for the same resource. Contradiction. Next, we consider arrival blocking. The number of lowerpriority requests that cause arrival blocking is bounded by A q .</p><p>Constraint 16. In any schedule of τ with P|N locks:</p><formula xml:id="formula_28">∀ q ∈ Q g : Tx∈τ R πx,q&gt;π minLP q N i x,q v=1 X A</formula><p>x,q,v ≤ A q .</p><p>Proof: Suppose not. In case A q = 0, by definition of A q , T i incurs transitive arrival blocking due to a request for q , although no access for q from a local lower-priority task causes T i to incur arrival blocking, which is impossible. In case A q = 1, a request for q with priority at least π minLP q is delayed more than once by requests for q issued on other processors with a locking priority of less than π minLP q . However, with P|N locks, a request for a resource q cannot be delayed by more than one lower-priority request for q . Contradiction.</p><p>Next, we constrain the arrival blocking due to requests with higher priority issued on other processors. Constraint 17. In any schedule of τ with P|N locks:</p><formula xml:id="formula_29">∀ q ∈ Q g : ∀T x ∈ τ R , π x,q ≤ π minLP q : N i x,q v=1 X A x,q,v ≤ njobs(T x , W P|N q (T i , π minLP q )) • N x,q • A q</formula><p>Proof: Let R denote the request by a local lower-priority job that causes T i to incur arrival blocking. By definition of π minLP q , R has a priority of at least π minLP q , and, by Lem. 1, is hence delayed by at most W P|N q (T i , π minLP q ) time units (note that W P|N q (T i , π minLP q ) ≥ W P|N q (T l , π l,q ) if T l ∈ τ ll and π minLP q ≥ π l,q ). During an interval of length W P|N q (T i , π minLP q ), jobs of a remote task T x issue at most njobs(T x , W P|N q (T i , π minLP q )) • N x,q requests for q . The bound follows as T i is arrival-blocked via q only if A q = 1.</p><p>Note that the preceding analysis does not assume any particular ordering among requests issued with the same locking priority. This fact can be leveraged to analyze unordered spin locks: if all tasks have the same locking priority (for all resources), no particular ordering among requests can be assumed, just as with unordered spin locks. Therefore, we do not explicitly present constraints for unordered spin locks and instead treat the unordered spin lock types (i.e., U|N and U|P locks) as special cases of the corresponding priority-ordered spin locks with unordered tie-breaking (i.e., P|N and P|P locks) in which all tasks have the lowest-possible locking priority. Due to space constraints, we provide the analysis of the remaining spin lock types (i.e., P|P, PF|N, and PF|P locks) online <ref type="bibr" target="#b29">[30]</ref>.</p><p>IV. QUALITATIVE COMPARISON OF SPIN LOCK TYPES With analysis available for eight different lock types, it may be challenging to select an appropriate lock for a given application.</p><p>The choice of spin lock algorithm depends on many factors in practice, among them hardware-dependent considerations such as memory availability and support for atomic operations. Besides such engineering concerns, there are also analytical concerns that may force the use of a specific lock type.</p><p>Clearly, there are no analytical reasons to choose unordered spin locks, but our ILP-based analysis makes it possible to tolerate locks with such weak guarantees. In contrast, FIFOordered spin locks offer strong progress guarantees, which not only allow for an effective analysis, but also completely rule out starvation effects without a need to assign locking priorities or other parameters-FIFO-ordered locks are a simple, appealing solution, and particularly so with non-preemptable spinning.</p><p>However, despite their many benefits, FIFO-ordered locks are fundamentally unsuitable for some workloads. For instance, suppose an engine control unit is being realized on a (future) 16-core platform, and a high-frequency, hard real-time control task with a period of 250μs and a worst-case execution cost of at least 110μs shares a data structure (e.g., a message box) with tasks on every other core. Even with a short maximum critical section length of only 10μs, the system is inherently infeasible when using FIFO-ordered locks. In general, if some tasks have less than (m -1) • L max slack, where L max denotes the maximum (task-independent) critical section length, then FIFO-ordered locks are inappropriate and locking priorities are fundamentally required.</p><p>Similarly, there exist (practical) workloads in which preemptable spinning is unavoidable. For example, suppose the above 250μs-task must be co-hosted with a 1000ms maintenance task that accesses a shared resource with a maximum critical section length of 100μs. Regardless of which lock order is employed, the (lower-priority) maintenance task must not spin without allowing preemptions, for otherwise the maximum arrival blocking of the control task would be at least 200μs, rendering it unschedulable. Preemptable spinning is fundamentally required in the presence of latency-sensitive tasks.</p><p>However, for workloads in which none of the lock types can be ruled out based on qualitative considerations, the choice is considerably more difficult. To provide guidance in such scenarios, we present an empirical comparison.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EMPIRICAL COMPARISON OF SPIN LOCK TYPES</head><p>We implemented the proposed ILP-based analysis using the GNU Linear Programming Kit and conducted a large-scale schedulability study to (i) determine whether the proposed analysis improves upon prior approaches, and (ii) to empirically compare the eight considered spin lock types in a variety of different scenarios in which each choice was potentially viable. Our implementation is freely available as part of the SchedCAT open source project <ref type="bibr" target="#b1">[2]</ref>. a) Setup: We considered platforms with m ∈ {4, 8, 16} processors; quad-core embedded processors are readily available today, whereas 8-core and 16-core platforms are slightly more forward-looking scenarios. Task sets with up to 10 tasks per processor (i.e., n ∈ {m, 2m, . . . , 10m}) were generated using Emberson et al.'s task set generator <ref type="bibr" target="#b13">[14]</ref>. Periods were randomly chosen from a log-uniform distribution over the interval [1ms, 1000ms], which covers a wide range of periods commonly encountered in automotive applications <ref type="bibr" target="#b10">[11]</ref>. We assigned rate-monotonic scheduling priorities.</p><p>Each task set shared either m/2, m, or 2m resources. For each resource q , we randomly determined rsf • n tasks to access q , where the resource sharing factor rsf was varied across rsf ∈ {0.1, 0.25, 0.4, 0.75}. The accessing tasks were chosen independently for each resource. If a task T i was determined to access a resource q , the number of requests per job N i,q was chosen uniformly at random from the range [1, . . . , N max ], where N max was varied across N max ∈ {1, 2, 5, 10, 15}, unless specified otherwise. The critical section length L i,q was chosen randomly from either [1μs, 15μs] (short) or [1μs, 100μs] (medium). To ensure plausibility, we enforced that e i ≥ q N i,q • L i,q . Locking priorities were assigned by first assigning all tasks the same priority and by then iteratively raising priorities to benefit unschedulable tasks as described in Appendix B in <ref type="bibr" target="#b29">[30]</ref>.</p><p>We conducted two sets of experiments. First, to study the impact of increasing load, we evaluated schedulability as a function of n with a task-set-size-dependent total utilization of U ∈ {0.1n, 0.2n, 0.3n}. In the second set of experiments, to study the impact of increasing contention, we fixed the total utilization at U = 0.5m, set the number of tasks to n ∈ {U/0.1, U/0.2, U/0.3} (rounding up if necessary), and then varied N max across <ref type="bibr" target="#b0">[1,</ref><ref type="bibr">40]</ref>.</p><p>In total, we evaluated 1296 different parameter configurations, and generated and tested at least 1000 task sets for each choice of n (resp., N max ) in the first (resp., second) set of experiments. For each configuration and each n (resp., N max ), we applied eleven blocking analyses: the eight ILP-based analyses from Sec. III (labeled as listed in Table <ref type="table">I</ref>), Gai et al.'s classic <ref type="bibr" target="#b15">[16]</ref> and Brandenburg's holistic <ref type="bibr" target="#b7">[8]</ref> analysis of F|N locks (labeled "MSRP-classic" and "MSRP-holistic," resp.), and a configuration labeled "no blocking," which reflects best-case schedulability assuming all resources are private (i.e., the schedulability of independent tasks). In the case of F|N and PF|N locks, we first applied the computationally cheap holistic analysis of F|N locks <ref type="bibr" target="#b7">[8]</ref>, and applied our ILP-based analysis of F|N and PF|N locks only if the holistic analysis resulted in an unschedulable task set. This approach is possible for PF|N locks as task sets schedulable with F|N locks are schedulable with PF|N locks as well. <ref type="foot" target="#foot_3">3</ref> All results are available online <ref type="bibr" target="#b29">[30]</ref>; due to the large volume of results, we focus herein on major trends and discuss selected graphs that exhibit the discussed effects. We start with the impact of increasing load.</p><p>b) Varying n: First of all, we note that if blocking is not a "bottleneck" for timeliness-for instance, in case of low resource contention-then the choice of spin lock type is of course irrelevant. However, even with moderate contention, significant differences become apparent with increasing system load.</p><p>Fig. <ref type="figure" target="#fig_0">1</ref> depicts such a case, which is representative for a wide range of the evaluated configurations. Here, the holistic analysis of F|N locks leads to somewhat higher schedulability than Gai et al.'s MSRP analysis <ref type="bibr" target="#b15">[16]</ref>, due to a modest decrease in pessimism. In contrast, with our new ILP-based analysis of the same lock type, a much larger number of tasks can be supportedin the scenario depicted in Fig. <ref type="figure" target="#fig_0">1</ref>, more than ten additional tasks  can be supported on the same platform-which highlights the typically much less pessimistic nature of our ILP-based analysis.</p><p>Interestingly, the ILP-based analysis of unordered spin locks (i.e., U|N locks) also yields equal or even slightly higher schedulability than both prior MSRP analysese in this configuration. This is particularly remarkable since the ILP-based analysis of U|N locks cannot make any assumptions about the ordering of requests for global resources, while the analysis of the MSRP can exploit the guaranteed FIFO ordering. Of course, U|N locks are not always preferable to the classic MSRP analysis, but the fact that they are sometimes preferable at all shows that the ILP approach is typically much more accurate.</p><p>Adding locking priorities (i.e., comparing U|N to P|N locks and F|N to PF|N locks) leads to slight improvements. In this configuration, as in many others, PF|N locks yield the highest schedulability. The schedulability results for preemptable spin locks, shown in Fig. <ref type="figure" target="#fig_1">2</ref>, exhibit in large parts the same trends as their non-preemptable counterparts (Fig. <ref type="figure" target="#fig_0">1</ref>). This shows that, for the considered parameter ranges, arrival blocking is rarely the deciding factor. Nonetheless, we note that preemptable spinning can have a significant impact in the presence of latency-sensitive tasks (i.e., if some tasks simply cannot tolerate scheduling delays due to non-preemptable spinning).</p><p>A general trend observed in a wide range of different configurations is that FIFO-ordered spin locks (i.e., F|N, PF|N, F|P, and PF|P locks) generally achieve significantly higher schedulability than the other lock types, which highlights the analytical benefits of strong progress guarantees. Also, as might be expected, the use of unordered spin locks generally results in equal or lower schedulability than priority-ordered spin locks. c) Varying N max : In our second set of experiments, we studied the impact of increasing contention for a given number of tasks. The results for one representative configuration are shown in Fig. <ref type="figure" target="#fig_2">3</ref>. In general, the trends mostly follow the patterns already observed in the first set of experiments. In Fig. <ref type="figure" target="#fig_2">3</ref>, PF|N locks again perform slightly better than F|N locks, and both  FIFO-ordered choices perform much better than either U|N or P|N locks (and also better than F|N locks under prior analysis).</p><p>Interestingly, the effect of enabling preemptions during spinning is highly dependent on the configuration and the type of spin lock. For instance, Fig. <ref type="figure" target="#fig_3">4</ref> depicts a case wherein, in the same configuration, preemptable spinning improves schedulability for prioritized spin locks (with unordered tie-breaking), while it decreases the schedulability of FIFO-ordered spin locks. We conclude from such effects that preemptable spinning, while helpful or even essential for some workloads, it is not a magic bullet that is universally applicable to all real-time workloads.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. CONCLUSION AND RECOMMENDATIONS</head><p>Motivated by the widespread use of spin locks for synchronization in embedded multiprocessor systems, we studied eight types of spin locks from a blocking analysis point of view, seven of which had not been previously considered in this context. Notably, we derived a novel analysis method that is asymptotically less pessimistic than prior analyses since it never accounts for any critical section more than once.</p><p>Based on qualitative and quantitative considerations, we explored the suitability of the various lock types in the context of AUTOSAR, which we selected as a representative case study. In short, the status quo is highly undesirable from a real-time perspective, as unordered spin locks-the only safe assumption if no order is specified, and which could not be efficiently analyzed prior to our ILP-based analysis-yield generally the lowest schedulability of all spin lock types.</p><p>On the basis of our results, we arrive at the following recommendations for improved spin lock support in AUTOSAR.</p><p>(1) AUTOSAR should fully specify the semantics of the spin locks provided, to enable an efficient worst-case analysis such as the one that we have presented in Sec. III.</p><p>(2) AUTOSAR should mandate the availability of FIFOordered spin locks since they achieve the highest schedulability in a wide range of scenarios (Sec. V). Nevertheless,</p><p>(3) AUTOSAR should also provide flexible priority-ordered spin locks, as there exist workloads that inherently require such locks (Sec. IV). Importantly, locking priorities should not depend on scheduling priorities (Appendix B in <ref type="bibr" target="#b29">[30]</ref>). And, finally, (4) the AUTOSAR API should be extended to allow preemptable spinning without sacrificing request ordering guarantees. Preemptable spinning is unavoidable for some latency-sensitive workloads (Sec. IV), but from an analysis perspective, the benefits of preemptable spinning can be completely voided by the loss of ordering guarantees. Hence, the API should allow explicit control over preemptability without affecting the request ordering, as proposed in Sec. II-C and Algorithm 3.</p><p>In future work, we will extend our analysis to support nested locking, and plan to apply our approach to reader-writer locks.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 .</head><label>1</label><figDesc>Fig. 1. Schedulability under non-preemptable spin locks for m = 16, U = 0.1n, 16 shared resources, rsf = 0.4, N max = 2, and short critical sections.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 .</head><label>2</label><figDesc>Fig. 2. Schedulability under preemptable spin locks for m = 16, U = 0.1n , 8 shared resources, rsf = 0.25, N max = 10, and short critical sections.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 3 .</head><label>3</label><figDesc>Fig. 3. Schedulability under non-preemptable spin locks for m = 16, U = 0.1n, 8 shared resources, rsf = 0.25, and short critical sections.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 4 .</head><label>4</label><figDesc>Fig. 4. Schedulability under preemptable spin locks for m = 16, U = 0.1n, 32 shared resources, rsf = 0.10, and short critical sections.</figDesc></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>Under partitioned scheduling, each task is statically allocated to a processor and each processor is scheduled using a uniprocessor policy. In contrast, under global scheduling, all processors serve a single ready queue and tasks migrate.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_1"><p>1052-8725/13 $26.00 © 2013 IEEE DOI 10.1109/RTSS.2013.13</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_2"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 01:47:56 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_3"><p>F|N can be considered as a special case of PF|N locks in which all requests are issued with the same locking priority.</p></note>
+		</body>
+		<back>
+			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Proof of Theorem 1</head><p>Let α denote a given, arbitrary non-negative integer parameter. We construct a scenario in which Ω(n • α) delay is accounted for, actual blocking is O <ref type="bibr" target="#b0">(1)</ref>, and where φ = α.</p><p>Consider a system consisting of two processors, P 1 and P 2 , a single shared resource 1 , and a task set consisting of n ≥ 3 tasks. The tasks T 1 , . . . , T n-2 are assigned to P 1 and have parameters p i = 2n -3 and e i = 1, and and access 1 once per job with a negligible critical section length of L i,1 = &gt; 0. Task T n-1 is assigned to P 2 and has parameters p n-1 = α • (2n -3) and e n-1 = 1, and requests 1 once per job with L n-1,1 = 1. Finally, the lowest-priority task T n with p n = α • (2n -3) and e n = α is assigned to P 1 and does not access 1 .</p><p>Let r inf n denote T n 's response-time bound obtained by inflating execution costs. We have</p><p>where e h denotes the inflated execution time of T h . Since each T h ∈ {T 1 , . . . , T n2 } directly conflicts with T n-1 via 1 , we have e h ≥ e h + L n-1,1 = e h + 1 under any (mutual exclusion) locking protocol. Suppose e h = e h + 1 = 2. Then</p><p>Observe that T n-1 issues only a single request for 1 , and hence T 1 , . . . , T n-2 are blocked by at most one request in total while a job J n is pending. The actual remote blocking that contributes to T n 's response time (i.e., the time that any job on processor P 1 spins while </p></div>			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">AUTOSAR Release 4.1, Specification of Operating System</title>
+		<ptr target="http://www.autosar.org" />
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">SchedCAT: Schedulability test collection and toolkit</title>
+		<ptr target="http://www.mpi-sws.org/∼bbb/projects/schedcat" />
+	</analytic>
+	<monogr>
+		<title level="j">web site</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Efficient object sharing in quantum-based real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Jain</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Jeffay</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS&apos;98</title>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+			<biblScope unit="page" from="346" to="355" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Shared-memory mutual exclusion: major research trends since 1986</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y.-J</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Herman</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Distributed Computing</title>
+		<imprint>
+			<biblScope unit="volume">16</biblScope>
+			<biblScope unit="issue">2-3</biblScope>
+			<biblScope unit="page" from="75" to="110" />
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Applying new scheduling theory to static priority pre-emptive scheduling</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Audsley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Richardson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wellings</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software Eng. J</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="284" to="292" />
+			<date type="published" when="1993">1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Stack-based scheduling for realtime processes</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="67" to="99" />
+			<date type="published" when="1991">1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<monogr>
+		<title level="m" type="main">A flexible real-time locking protocol for multiprocessors</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+	<note>in RTCSA&apos;07</note>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">Scheduling and locking in multiprocessor realtime operating systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+		<respStmt>
+			<orgName>The University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Improved analysis and evaluation of real-time semaphore protocols for P-FP scheduling</title>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS&apos;13</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Optimality results for multiprocessor real-time locking</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS&apos;10</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="49" to="60" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Real-time in the prime-time</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Buttle</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Keynote at ECRTS&apos;12</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Queuing spin lock algorithms to support timing predictability</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Craig</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS&apos;93</title>
+		<imprint>
+			<date type="published" when="1993">1993</date>
+			<biblScope unit="page" from="148" to="157" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Efficient synchronization under global EDF scheduling on multiprocessors</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS&apos;06</title>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+			<biblScope unit="page" from="75" to="84" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Techniques for the synthesis of multiprocessor tasksets</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Emberson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Stafford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+	<note>in WATERS&apos;10</note>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">The multiprocessor bandwidth inheritance protocol</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Cucinotta</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS&apos;10</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="90" to="99" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Minimizing memory utilization of real-time task sets in single and multi-processor systems-on-a-chip</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Gai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">Di</forename><surname>Natale</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS&apos;01</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2001">2001</date>
+			<biblScope unit="page" from="73" to="83" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<title level="m" type="main">Interruptible critical sections</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Johnson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Harathi</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1994">1994</date>
+		</imprint>
+		<respStmt>
+			<orgName>Dept. of Computer Science, University of Florida, Tech. Rep.</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">A prioritized multiprocessor spin lock</title>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="926" to="933" />
+			<date type="published" when="1997">1997</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Scheduler-conscious synchronization</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">I</forename><surname>Kontothanassis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">W</forename><surname>Wisniewski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">L</forename><surname>Scott</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Computer Systems</title>
+		<imprint>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="3" to="40" />
+			<date type="published" when="1997">1997</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Coordinated task scheduling, allocation and synchronization on multiprocessors</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS&apos;09</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="469" to="478" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Multiprocessor synchronization primitives with priorities</title>
+		<author>
+			<persName><forename type="first">E</forename><forename type="middle">P</forename><surname>Markatos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">J</forename><surname>Leblanc</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Eighth IEEE Workshop on Real-Time Operating Systems and Software</title>
+		<imprint>
+			<date type="published" when="1991">1991</date>
+			<biblScope unit="page" from="1" to="7" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Algorithms for scalable synchronization on shared-memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mellor-Crummey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Scott</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Computer Systems</title>
+		<imprint>
+			<biblScope unit="volume">9</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="21" to="65" />
+			<date type="published" when="1991">1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Predictable synchronization mechanisms for multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">D</forename><surname>Molesky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Shen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Zlokapa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">2</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="163" to="180" />
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<monogr>
+		<title level="m" type="main">Algorithms for mutual exclusion</title>
+		<author>
+			<persName><forename type="first">M</forename></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1986">1986</date>
+			<publisher>MIT Press</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Response Time Analysis on Multicore ECUs With Shared Resources</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Schliecker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Negrean</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Ind. Informat</title>
+		<imprint>
+			<biblScope unit="volume">5</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="402" to="413" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Priority inheritance protocols: an approach to real-time synchronization</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Comput</title>
+		<imprint>
+			<biblScope unit="volume">39</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1175" to="1185" />
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<monogr>
+		<title level="m" type="main">Predictable spin lock algorithms with preemption</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Takada</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Sakamura</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1994">1994</date>
+			<biblScope unit="page" from="2" to="6" />
+		</imprint>
+	</monogr>
+	<note>in RTOSS &apos;94</note>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">A novel approach to multiprogrammed multiprocessor synchronization for real-time kernels</title>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS&apos;97</title>
+		<imprint>
+			<date type="published" when="1997">1997</date>
+			<biblScope unit="page" from="134" to="143" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Supporting nested locking in multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS&apos;12</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="223" to="232" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">On spin locks in AUTOSAR: Blocking analysis of FIFO, unordered, and priority-ordered spin locks (extended version)</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wieder</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<ptr target="http://www.mpi-sws.org/∼bbb/papers" />
+	</analytic>
+	<monogr>
+		<title level="j">MPI-SWS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+	<note>Tech. Rep. 2013-005</note>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

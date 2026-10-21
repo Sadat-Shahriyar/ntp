@@ -1,0 +1,552 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">A Real-Time Distributed Hash Table</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Tao</forename><surname>Qian</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">North Carolina State University</orgName>
+								<address>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Frank</forename><surname>Mueller</surname></persName>
+							<email>mueller@cs.ncsu.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">North Carolina State University</orgName>
+								<address>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Yufeng</forename><surname>Xin</surname></persName>
+							<email>yxin@renci.org</email>
+							<affiliation key="aff1">
+								<orgName type="institution" key="instit1">RENCI</orgName>
+								<orgName type="institution" key="instit2">UNC-CH</orgName>
+								<address>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">A Real-Time Distributed Hash Table</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">3B59F36E0E251348D092D73D6797F58F</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T23:47+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Currently, the North American power grid uses a centralized system to monitor and control wide-area power grid states. This centralized architecture is becoming a bottleneck as large numbers of wind and photo-voltaic (PV) generation sources require real-time monitoring and actuation to ensure sustained reliability. We have designed and implemented a distributed storage system, a real-time distributed hash table (DHT), to store and retrieve this monitoring data as a real-time service to an upper layer decentralized control system. Our real-time DHT utilizes the DHT algorithm Chord in a cyclic executive to schedule data-lookup jobs on distributed storage nodes. We formally define the pattern of the workload on our real-time DHT and use queuing theory to stochastically derive the time bound for response times of these lookup requests. We also define the quality of service (QoS) metrics of our real-time DHT as the probability that deadlines of requests can be met. We use the stochastic model to derive the QoS. An experimental evaluation on distributed nodes shows that our model is well suited to provide time bounds for requests following typical workload patterns and that a prioritized extension can increase the probability of meeting deadlines for subsequent requests.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>The North American power grid uses Wide-Area Measure System (WAMS) technology to monitor and control the state of the power grid <ref type="bibr" target="#b16">[17]</ref>, <ref type="bibr" target="#b12">[13]</ref>. WAMS increasingly relies on Phasor Measurement Units (PMUs), which are deployed to different geographic areas, e.g., the Eastern interconnection area, to collect real-time power monitoring data per area. These PMUs periodically send the monitored data to a phasor data concentrator (PDC) via proprietary Internet backbones. The PDC monitors and optionally controls the state of the power grid on the basis of the data. However, the current state-of-the-art monitoring architecture uses one centralized PDC to monitor all PMUs. As the number of PMUs is increasing extremely fast nowadays, the centralized PDC will soon become a bottleneck <ref type="bibr" target="#b4">[5]</ref>. A straight-forward solution is to distribute multiple PDCs along with PMUs, where each PDC collects real-time data from only the part of PMUs that the PDC is in charge of. In this way, the PDC is not the bottleneck since the number of PMUs for each PDC could be limited and new PDCs could be deployed to manage new PMUs.</p><p>New problems arise with such a distributed PDC architecture. In today's power grid, real-time control actuation relies in part on the grid states of multiple areas <ref type="bibr" target="#b15">[16]</ref>, but with the new architecture the involved PMUs could be monitored by different PDCs. The first problem is how to manage the mapping between PDCs and PMUs so that a PDC can obtain PMU data from other PDCs. The second problem is how to communicate between these PDCs so that the real-time bounds on control operation are still guaranteed. For simplification, we consider these PDCs as distributed storage nodes over a wide-area network, where each of them periodically generates records as long as the PDC periodically collects data from the PMUs in that area. Then, the problem becomes how to obtain these records from the distributed storage system with real-time bounded response times.</p><p>Our idea is to build a distributed hash table (DHT) on these distributed storage nodes to solve the first problem. Similar to a single node hash table, a DHT provides put(key, value) and get(key) API services to upper layer applications. In our DHT, the data of one PMU are not only stored in the PDC that manages the PMU, but also in other PDCs that keep redundant copies according to the distribution resulting from the hash function and redundancy strategy. DHTs are well suited for this problem due to their superior scalability, reliability, and performance over centralized or even tree-based hierarchical approaches. The performance of the service provided by some DHT algorithms, e.g., Chord <ref type="bibr" target="#b14">[15]</ref> and CAN <ref type="bibr" target="#b17">[18]</ref>, decreases only insignificantly while the number of the nodes in an overlay network increases. However, there is a lack of research on real-time bounds for these DHT algorithms for end-toend response times of requests. Timing analysis is the key to solve the second problem. On the basis of analysis, we could provide statistical upper bounds for request times. Without loss of generality, we use the term lookup request or request to represent either a put request or a get request, since the core functionality of DHT algorithms is to look up the node that is responsible for storing data associated with a given key.</p><p>It is difficult to analyze the time to serve a request without prior information of the workloads on the nodes in the DHT overlay network. In our research, requests follow a certain pattern, which makes the analysis concrete. For example, PMUs periodically send real-time data to PDCs <ref type="bibr" target="#b12">[13]</ref> so that PDCs issue put requests periodically. At the same time, PDCs need to fetch data from other PDCs to monitor global power states and control the state of the entire power grid periodically. Using these patterns of requests, we design a realtime model to describe the system. Our problem is motivated by power grid monitoring but our abstract real-time model provides a generic solution to analyze response times for realtime applications over networks. We further apply queuing theory to stochastically analyze the time bounds for requests. Stochastic approaches may break with traditional views of realtime systems. However, cyber-physical systems rely on stock Ethernet networks with enhanced TCP/IP so that soft real-time models for different QoS notions, such as simplex models <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b0">[1]</ref>, are warranted.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Contributions:</head><p>We have designed and implemented a realtime DHT by enhancing the Chord algorithm. Since a sequence of nodes on the Chord overlay network serve a lookup request, each node is required to execute one corresponding job. Our real-time DHT follows a cyclic executive <ref type="bibr" target="#b10">[11]</ref>, <ref type="bibr" target="#b1">[2]</ref> to schedule these jobs on each node. We analyze the response time of these sub-request jobs on each node and aggregate them to bound the end-to-end response time for all requests. We also use a stochastic model to derive the probability that our real-time DHT can guarantee deadlines of requests. We issue a request pattern according to the needs of real-time distributed storage systems, e.g., power grid systems, on a cluster of workstations to evaluate our model. In general, we present a methodology for analyzing the real-time response time of requests served by multiple nodes on a network. This methodology includes: 1) employing real-time executives on nodes, 2) abstracting a pattern of requests, and 3) using a stochastic model to analyze response time bounds under the cyclic executive and the given request pattern. The real-time executive is not limited to a cyclic executive. For example, we show that a prioritized extension can increase the probability of meeting deadlines for requests that have failed during their first execution. This work, while originally motivated by novel control methods in the power grid, generically applies to distributed control of CPS real-time applications.</p><p>The rest of the paper is organized as follows. Section II presents the design and implementation details of our realtime DHT. Section III presents our timing analysis and quality of service model. Section IV presents the evaluation results. Section V presents the related work. Section VI presents the conclusion and the on-going part of our research.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. DESIGN AND IMPLEMENTATION</head><p>Our real-time DHT uses the Chord algorithm to locate the node that stores a given data item. Let us first summarize the Chord algorithm and characterize the lookup request pattern (generically and specifically for PMU data requests). After that, we explain how our DHT implementation uses Chord and cyclic executives to serve these requests.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Chord</head><p>Chord provides storage and lookup capabilities of key/value pairs. Given a particular key, the Chord protocol locates the node that the key maps to. Chord uses consistent hashing to assign keys to Chord nodes organized as a ring network overlay <ref type="bibr" target="#b14">[15]</ref>, <ref type="bibr" target="#b6">[7]</ref>. The consistent hash uses a base hash function, such as SHA-1, to generate an identifier for each node by hashing the node's IP address. When a lookup request is issued for a given key, the consistent hash uses the same hash function to encode the key. It then assigns the key to the first node on the ring whose identifier is equal to or follows the hash code of that key. This node is called the successor node of the key, or the target node of the key. Fig. <ref type="figure">1</ref> depicts an example of a Chord ring in the power grid context, which maps 9 PDCs onto the virtual nodes on the ring (labels in squares are their identifiers). As a result, PDCs issue requests to the Chord ring to periodically store and require PMU data from target PDCs. This solves the first problem that we have discussed in Section I.</p><p>In Chord, it is sufficient to locate the successor node of any given key by maintaining the nodes in a wrap-around circular list in which each node has a reference to its successor node. The lookup request is passed along the list until it encounters one node whose identifier is smaller than the hash code of the key but the identifier of the successor node is equal to or follows the hash code of the key. The successor of the node is the target node of the given key. Consider  nodes N7, N9, N12. However, O(N) messages are required to find the successor node of a key, where N is the number of the nodes.</p><p>This linear algorithm is not scalable with increasing numbers of nodes. In order to reduce the number of intermediate nodes, Chord maintains a so-called finger table on each node, which acts as a soft routing table, to decide the next hop to forward lookup requests to. For example, assuming 5-bit numbers are used to represent node identifiers in Fig. <ref type="figure">1</ref>, the finger table for N4 is given in Table <ref type="table" target="#tab_0">I</ref>. Each entry in the table indicates one routing rule: the next hop for a given key is the forward node in that entry if the entry interval includes the key. For example, the next hop for K14 is N12 as 14 is in <ref type="bibr" target="#b11">[12,</ref><ref type="bibr">20)</ref>. The interval for the 5 th finger is <ref type="bibr">[20,</ref><ref type="bibr">36)</ref>, which is <ref type="bibr">[20,</ref><ref type="bibr" target="#b3">4)</ref> as the virtual nodes are organized in a ring (modulo 32). In general, a finger table has logN entries, where N is the number of bits of node identifiers. For node k, the start of the i th finger table entry is k + 2 i-1 , the interval is [k + 2 i-1 , k + 2 i ), and the forward node is the successor of key k + 2 i-1 .</p><p>To serve a lookup request for a given key, Chord first finds its predecessor, which is the first node in the counter-clockwise direction on the ring before the target node of that key, e.g., the predecessor of K14 is N12. To find the predecessor, N4 forwards K14 to N12 according to its finger table (shown as the dotted line in Fig. <ref type="figure">1</ref>). Next, N12 considers itself the predecessor of K14 since K14 is between N12 and its successor N15. Chord returns the successor N15 of the predecessor N12 as the target node of K14. Each message forwarding reduces the distance to the target node to at least half that of the previous distance on the ring. Thus, the number of intermediate nodes per request is at most logN with high probability <ref type="bibr" target="#b14">[15]</ref>, which is more scalable than the linear algorithm.</p><p>In addition to scalability, Chord tolerates high levels of churn in the distributed system. which makes it feasible to provide PMU data with the possibility that some PDC nodes or network links have failed in the power grid environment. However, resilience analysis with real-time considerations is beyond the scope of this paper. Thus, our model in this paper derives the response times for requests assuming that nodes do not send messages in the background for resilience purposes.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. The pattern of requests and jobs</head><p>To eventually serve a request, a sequence of nodes are involved. The node that issues a request is called the initial node of the request, and other nodes are called subsequent nodes. In the previous example, N4 is the initial node; N12, N15 are subsequent nodes. As stated in Section I, requests in the power grid system follow a certain periodic pattern, which makes timing analysis feasible. In detail, each node in the system maintains a list of get and put tasks together with the period of each task. Each node releases periodic tasks in the list to issue lookup requests. Once a request is issued, one job on each node on the way is required to be executed until the request is eventually served.</p><p>Jobs on the initial nodes are periodic, since they are initiated by periodic real-time tasks. However, jobs on the subsequent nodes are not necessarily periodic, since they are driven by the lookup messages sent by other nodes via the network. The network delay to transmit packets is not always constant, even through one packet is enough to forward a request message as the length of PMU data is small in the power grid system. Thus, the pattern of these subsequent jobs depends on the node-to-node network delay. With different conditions of the network delay, we consider two models.</p><p>(1) In the first model, the network delay to transmit a lookup message is constant. Under this assumption, we use periodic tasks to handle messages sent by other nodes. For example, assume node A has a periodic PUT task τ 1 (0, T 1 , C 1 , D 1 ). We use the notation τ (φ, T, C, D) to specify a periodic task τ , where φ is its phase, T is the period, C is the worst case execution time per job, and D is the relative deadline. From the schedule table for the cyclic executive, the response times for the jobs of τ 1 in a hyperperiod H are known <ref type="bibr" target="#b10">[11]</ref>. Assume two jobs of this task, J 1,1 and J 1,2 , are in one hyperperiod on node A, with R 1,1 and R 1,2 as their release times relative to the beginning of the hyperperiod and W 1,1 and W 1,2 as the response times, respectively.</p><p>Let the network latency, δ, be constant. The subsequent message of the job J 1,1 is sent to node B at time R 1,1 +W 1,1 + δ. For a sequence of hyperperiods on node A, the jobs to handle these subsequent messages on node B become a periodic task</p><formula xml:id="formula_0">τ 2 (R 1,1 + W 1,1 + δ, H, C 2 , D 2 ).</formula><p>The period of the new task is H as one message of J 1,1 is issued per hyperperiod. Similarly, jobs to handle the messages of J 1,2 become another periodic task</p><formula xml:id="formula_1">τ 3 (R 1,2 + W 1,2 + δ, H, C 2 , D 2 ) on node B.</formula><p>(2) In the second model, network delay may be variable, and its distribution can be measured. We use aperiodic jobs to handle subsequent messages. Our DHT employs a cyclic executive on each node to schedule the initial periodic jobs and subsequent aperiodic jobs, as discussed in the next section.</p><p>We focus on the second model in this paper since this model reflects the networking properties of IP-based network infrastructure. This is also consistent with current trends in cyber-physical systems to utilize stock Ethernet networks with TCP/IP enhanced by soft real-time models for different QoS notions, such as the simplex model <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b0">[1]</ref>. The purely periodic model is subject to future work as it requires special hardware and protocols, such as static routing and TDMA to avoid congestion, to guarantee constant network delay.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Job scheduling</head><p>Each node in our system employs a cyclic executive to schedule jobs using a single thread. The schedule table L(k) indicates which periodic jobs to execute at a specific frame k in a hyperperiod of F frames. L is calculated offline from periodic task parameters <ref type="bibr" target="#b10">[11]</ref>. Each node has a FIFO queue of released aperiodic jobs. The cyclic executive first executes periodic jobs in the current frame. It then executes the aperiodic jobs (up to a given maximum time allotment for aperiodic activity, similar to an aperiodic server). If the cyclic executive finishes all the aperiodic jobs in the queue before the end of the current frame, it waits for the next timer interrupt. Algorithm 1 depicts the work of the cyclic executive, where f is the interval of each frame.</p><p>Data: L, aperiodic job queue Q, current job In addition to jobs that handle request messages, our DHT uses a task to receive messages from other nodes. The cyclic executive schedules this receiving task as just another periodic task. This receiving task periodically moves the messages from the buffer of the underlying network stack to the aperiodic job queue. This design avoids the cost of context switches between the cyclic executive and another thread to receive messages, which could interrupt the cyclic executive at a random time whenever a message arrives. As a side effect, messages can only be scheduled in the next frame affects the periodic receiving jobs executing. This increases the response times of aperiodic jobs. Since the frame size is small (in the level of milliseconds), this delay is acceptable for our application domain. :sid:ip:port the target node sends its address back to the initial node.</p><p>1 Message types for Chord fix finger and stabilize operations are omitted. 2 One message passed among the nodes consists of its type and the parameters, e.g, PUT:PMU-001:15.</p><p>3 (ip:port) is the address of the node that sends the message. Receiver uses it to locate the sender. sid is unique identifier. 4 Nodes use finger tables to determine the node to pass the LOOKUP to. (ip:port) is the address of the request initial node.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. A Real-time DHT</head><p>Our real-time DHT is a combination of Chord and a cyclic executive to provide predictable response times for requests following the request pattern. Our DHT adopts Chord's algorithm to locate the target node for a given key. On the basis of Chord, our DHT provides two operations: get(key) and put(key, value), which obtains the paired value with a given key and puts one pair onto a target node, respectively. Table <ref type="table" target="#tab_1">II</ref> describes the types of messages exchanged among nodes. Algorithm 2 depicts the actions for a node to handle these messages. We have omitted the details of failure recovery messages such as fix finger and stabilize in Chord, also implemented as messages in our DHT. node.operation(parameters) indicates that the operation with given parameters is executed on a the remote node, implemented by sending a corresponding message to this node.</p><p>Example: In order to serve the periodic task to get K14 on node N4 in Fig. <ref type="figure">1</ref>, the cyclic executive on N4 schedules a periodic job GET periodically, which sends a LOOKUP message to N12. N12 then sends a DESTIN message to N15 since it determines that N15 is the target node for K14. N15 sends LOOKUP DONE back to the initial node N4. Our DHT stores the request detail in a buffer on the initial node and uses a unique identifier (sid) embedded in messages to identify this request. When N4 receives the LOOKUP DONE message from the target node, it releases an aperiodic job to obtain the request detail from the buffer and continues by sending GET DIRECT to the target node N15 as depicted in the pseudocode. N15 returns the value to N4 by sending a GET DONE message back to N4. Now, N4 removes the request detail from the buffer and the request is completed.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. ANALYSIS</head><p>As a decentralized distributed storage system, the nodes in our DHT work independently. In this section, we first explain the model used to analyze the response times of jobs on a single node. Then, we aggregate these times to bound the endto-end time for all requests.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Job response time on a single node</head><p>Let us first state an example of job patterns on a single node to illustrate the problem. Let us assume the hyperperiod of the periodic requests is 30ms, and the periodic receiving task is executed three times in one hyperperiod at 0ms (the beginning of the hyperperiod), 10ms, and 20ms, respectively. The timeline of one hyperperiod can be divided into three slots according to the period of the receiving task. In every slot, the cyclic executive utilizes the first 40% of its time to execute periodic jobs, and the remaining time to execute aperiodic jobs as long as the aperiodic job queue is not empty. Since aperiodic jobs are released when the node receives messages from other nodes, we model the release pattern of aperiodic jobs as a homogeneous Poisson process with 2ms as the average interarrival time. The execution time is 0.4ms for all aperiodic jobs. The problem is to analyze response times of these aperiodic jobs. The response time of an aperiodic job in our model consists of the time waiting for the receiving task to move its message to the aperiodic queue, the time waiting for the executive to initiate the job, and the execution time of the job.</p><p>An M/D/1 queuing model <ref type="bibr" target="#b7">[8]</ref> is suited to analyze the response times of aperiodic jobs if these aperiodic jobs are executed once the executive has finished all periodic jobs in that time slot. In our model, the aperiodic jobs that arrive at this node in one time slot could only be scheduled during the next time slot, as these aperiodic jobs are put into the job queue only when the receiving task is executed at the beginning of the next time slot. The generic M/D/1 queuing model cannot capture this property. We need to derive a modified model. <ref type="table" target="#tab_3">III</ref> includes the notation we use to describe our model. We also use the same notation without the subscript for the vector of all values. For example, U is</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Formally, Table</head><formula xml:id="formula_2">(U 0 , U 1 , . . . , U K ), C is (C 0 , C 1 , . . . , C M ).</formula><p>In the table, C is obtained by measurement from the implementation; H, K, ν, U are known from the schedule table; M is defined in our DHT algorithm. We explain λ in detail in Section III-B.</p><p>Given a time interval of length x and arrivals g in that interval, the total execution time of aperiodic jobs E(x, g) can be calculated with Equation <ref type="formula">1</ref>. Without loss of generality, we use notation E and E(x) to represent E(x, g).</p><formula xml:id="formula_3">E(x, g) = M i=1 C i * g i with probability M i=1 P (g i , λ i , x) (1)</formula><p>We further define A p as the time available to execute aperiodic jobs in time interval (ν 0 , ν p+1 ).</p><formula xml:id="formula_4">A p = p i=0 (1 -U i ) * (ν i+1 -ν i ), 0 ≤ p ≤ K.<label>(2)</label></formula><p>However, the executive runs aperiodic jobs only after periodic jobs have finished in a frame. We define W (i, E) as the response time for an aperiodic job workload E if these jobs are scheduled after the i th receiving job. For 1 ≤ i ≤ K, </p><formula xml:id="formula_5">W (i, E) is a function of E calculated from the schedule table in three cases: (1) If E ≤ A i -A i-1</formula><p>, which means the executive use the aperiodic job quota between (ν i , ν i+1 ] to finish the workload, we can use the parameters of the periodic job schedule in the schedule table to calculate W (i, E).</p><p>(</p><formula xml:id="formula_6">) If ∃p ∈ [i + 1, K] so that E ∈ (A p-1 -A i-1 , A p - A i-1 ]<label>2</label></formula><p>, which means the executive utilizes all the aperiodic job quota between (ν i , ν p ) to execute the workload and finishes the workload at a time between (ν p , ν p+1 ), then</p><formula xml:id="formula_7">W (i, E) = ν p -ν i + W (p, E -A p-1 + A i-1 ).</formula><p>(3) In the last case, the workload is finished in the next hyperperiod. W (i, E) becomes H -ν i +W (0, E-A K +A i-1 ). W (0, E) indicates that one can use the aperiodic quota before the first receiving job to execute the workload. If the first response time for aperiodic jobs if they are scheduled after i th receiving job P (n, λ, x) probability of n arrivals in time interval of length x, when arrival is a Poisson process with rate λ 1 νi are relative to the beginning of the current hyperperiod. 2 For convenience, ν0 is defined as the beginning of a hyperperiod, ν K+1 is defined as the beginning of next hyperperiod.</p><p>receiving job is scheduled at the beginning of the hyperperiod, this value is the same as W (1, E). In addition, we require that any workload finishes before the end of the next hyperperiod. This is accomplished by analyzing the timing of receiving jobs and ensures that the aperiodic job queue is in the same state at the beginning of each hyperperiod, i.e., no workload accumulates from previous hyperperiods (except for the last hyperperiod).</p><p>Let us assume an aperiodic job J of execution time C m arrives at time t relative to the beginning of the current hyperperiod. Let p + 1 be the index of the receiving job such that t ∈ [ν p , ν p+1 ). We also assume that any aperiodic job that arrives in this period is put into the aperiodic job queue by this receiving job. Then, we derive the response time of this job in different cases.</p><p>(1) The periodic jobs that are left over from the previous hyperperiod and arrive before ν p in the current frame cannot be finished before ν p+1 . Equation 3 is the formal condition for this case, in which HLW is the leftover workload from the previous hyperperiod.</p><formula xml:id="formula_8">HLW + E(ν p ) -A p &gt; 0<label>(3)</label></formula><p>In this case, the executive has to first finish this leftover workload, then any aperiodic jobs that arrive in the time period [ν p , t), which is E(t -ν p ), before executing job J.</p><p>As a result, the total response time of job J is the time to wait for the next receiving job at ν p+1 , which puts J into the aperiodic queue, and the time to execute aperiodic the job workload LW (ν p ) + E(t -ν p ) + C m , which is W (p+1, HLW +E(t)-A p +C m ), after the (p+1) th receiving job. The response time of J is expressed in Equation <ref type="formula" target="#formula_9">4</ref>.</p><formula xml:id="formula_9">R(C m , t) = (ν p+1 -t) + W (p + 1, HLW + E(t) -A p + C m )<label>(4)</label></formula><p>(2) In the second case, the periodic jobs that are left over from the previous hyperperiod and arrive before ν p can be finished before ν p+1 ; the formal condition and the response time are given by Equations 5 and 6, respectively.</p><formula xml:id="formula_10">HLW + E(ν p ) ≤ A p (5) R(C m , t) = (ν p+1 -t) + W (p + 1, E(t -ν p ) + C m )<label>(6)</label></formula><p>The hyperperiod leftover workload HLW is modeled as follows. Consider three continuous hyperperiods, H 1 , H 2 , H 3 . The leftover workload from H 2 consists of two parts. The first part, E(H -ν K ), is comprised of the aperiodic jobs that arrive after the last receiving job in H 2 , as these jobs can only be scheduled by the first receiving job in H 3 . The second part, E(H + ν K ) -2A K+1 , is the jobs that arrive in H 1 and before the last receiving job in H 2 . These jobs have not been scheduled during the entire aperiodic allotment over H 1 and H 2 . We construct a distribution for HLW in this way. In addition, we can construct a series of distributions of HLW, where sequences of hyperperiods with different lengths are considered. This series converges (after three hyperperiods) to a distribution subsequently used as the overall HLW distribution for this workload. However, our evaluation shows that two previous hyperperiods are sufficient for the request patterns.</p><p>This provides the stochastic model R(C m , t) for the response time of an aperiodic job of execution time C m that arrives at a specific time t. By sampling t in one hyperperiod, we have obtained the stochastic model for the response time of aperiodic jobs that arrive at any time.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. End-to-end response time analysis</head><p>We aggregate the single node response times and network delays to transmit messages for the end-to-end response time of requests. The response time of any request consists of four parts: (1) the response time of the initial periodic job -this value is known by the schedule table ; (2) the total response time of jobs to handle subsequent lookup messages on at most logN nodes with high probability <ref type="bibr" target="#b14">[15]</ref>, where N is the number of nodes; (3) the response time of aperiodic jobs to handle LOOKUP DONE, and the final pair of messages, e.g., PUT DIRECT and PUT DONE; (4) the total network delays to transmit these messages. We use a value δ based on measurements for the network delay, where P (network delay ≤ δ) ≥ T , for a given threshold T .</p><p>To use the single node response time model, we need to know the values of the model parameters of Table <ref type="table" target="#tab_3">III</ref>. With the above details on requests, we can obtain H, K, v, U from the schedule table. λ is defined as follows: let T be the period of the initial request on each node, then N T new requests arrive at our DHT in one time unit, and each request issues at most logN subsequent lookup messages. Let us assume that hash codes of nodes and keys are randomly located on the Chord ring, which is of high probability with the SHA-1 hashing algorithm. Then each node receives logN T lookup messages in one time unit. The arrival rate of LOOKUP and DESTIN messages is logN T . In addition, each request eventually generates one LOOKUP DONE message and one final pair of messages these messages, the arrive rate is 1 T .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Quality of service</head><p>We define quality of service (QoS) as the probability that our real-time DHT can guarantee requests to be finished before their deadlines. Formally, given the relative deadline D of a request, we use the stochastic model R(C m , t) for single node response times and the aggregation model for end-to-end response times to derive the probability that the end-to-end response time of the request is equal to or less than D. In this section, we apply the formula of our model step by step to explain how to derive this probability in practice.</p><p>The probability density function ρ(d, C m ) is defined as the probability that the single node response time of a job with execution time C m is d. We first derive the conditional density function ρ(d, C m |t), which is the probability under the condition that the job arrives at time t, i.e., the probability that R(C m , t) = d. Then, we apply the law of total probability to derive ρ(d, C m ). The conditional density function ρ(d, C m |t) is represented as a table of pairs π(ρ, d), where ρ is the probability that an aperiodic job finishes with response time d. We apply the algorithms described in Section III-A to build this table as follows. Let p + 1 be the index of the receiving job such that t ∈ [ν p , ν p+1 ).</p><p>(1) We need to know when to apply Equations 4 and 6. This is determined by the probability χ that condition HLW + E(ν p , g) ≤ A p holds. To calculate χ, we enumerate job arrival vectors g that have significant probabilities in time (0, ν p ) according to the Poisson distribution, and use Equation 1 to calculate the workload E(ν p , g) for each g. The term significant probability means any probability that is larger than a given threshold, e.g., 0.0001%. Since the values of HLW and E(ν p , g) are independent, the probability of a specific pair of HLW and arrival vector g is given by simply their product. As a result, we build a condition table CT (g, ρ), in which each row represents a pair of vector g, which consists of the numbers of aperiodic job arrivals in time interval (0, ν p ) under the condition HLW + E(ν p , g) ≤ A p , and the corresponding probability ρ for that arrival vector. Then, χ = ρ is the total probability for that condition.</p><p>(2) We construct probability density table π 2 (ρ, d) for response times of aperiodic jobs under condition HLW + E(ν p ) ≤ A p . In this case, we enumerate job arrival vectors g that have significant probabilities in time (0, t -ν p ) according to the Poisson distribution. We use Equation 1 to calculate their workload and Equation <ref type="formula" target="#formula_10">6</ref>to calculate their response time for each g. Each job arrival vector generates one row in density table π 2 .</p><p>(3) We construct probability density table π 3 (ρ, d) for response times of aperiodic jobs under condition HLW + E(ν p ) &gt; A p . We enumerate job arrival vectors g that have significant probabilities in time (0, t) according to the Poisson distribution. We use Equation <ref type="formula" target="#formula_9">4</ref>to calculate response times. Since time interval (0, t) includes (0, ν p ), arrival vectors that are in condition table CT must be excluded from π 3 , because rows in CT only represent arrivals that results in HLW + E(ν p ) ≤ A p . We normalize the probabilities of the remaining rows. By normalizing, we mean multiplying each probability by a common constant factor, so that the sum of the probabilities is 1.</p><p>(4) We merge the rows in these two density tables to build the final table for the conditional density function. Before merging, we need to multiply every probability in table π 2 by the weight χ, which indicates the probability that rows in table π 2 are valid. For the same reason, every probability in table π 3 is multiplied by (1 -χ). Now, we apply the law of total probability to derive ρ(d, C m ) from the conditional density functions by sampling t in [0, H). The conditional density tables for all samples are merged into a final density table (ρ, d). The samples are uniformly distributed in [0, H) so that conditional density tables have the same weight during the merge process. After normalization, table is the single node response time density function ρ(d, C m ).</p><p>We apply the aggregation rule described in Section III-B to derive the end-to-end response time density function on the π des ← empty table The density function of the total response time for (logN + 3) aperiodic jobs is calculated as Equation <ref type="formula" target="#formula_11">7</ref>(SU M on all π i ), where π i is the density function for the i th job.</p><formula xml:id="formula_11">ρ(d) = logN +3 i=1 π i<label>(7)</label></formula><p>The maximum number of rows in density table ρ(d) is 2(logN + 3)Hω, where 2H is the maximum response time of single node jobs, and ω is the sample rate for arrival time t that we use to calculate each density table.</p><p>Let us return to the QoS metric, i.e., the probability that a request can be served within a given deadline D. We first reduce D by the fixed value ∆, which includes the response time for the initial periodic job and network delays (logN + 3)δ. Then, we aggregate rows in the density function ρ(d) to calculate this probability P (D -∆).</p><formula xml:id="formula_12">P (D -∆) = (ρi,di)∈ρ(d),di≤D-∆ ρ i<label>(8)</label></formula><p>IV. EVALUATION We evaluated our real-time DHT on a local cluster with 2000 cores over 120 nodes. Each node features a 2-way SMP with AMD Opteron 6128 (Magny Core) processors and 8 cores per socket (16 cores per node). Each node has 32GB DRAM and Gigabit Ethernet (utilized in this study) as well as Infiniband Interconnect (not used here). We apply workloads of different intensity according to the needs of the power grid control system on different numbers of nodes (16 nodes are utilized in our experiments), which act like PDCs. The nodes are not synchronized to each other relative to their start of hyperperiods as such synchronization would be hard to maintain in a distributed system. We design experiments for different intensity of workloads and then collect single-node and end-to-end response times of requests in each experiment. The intensity of a workload is quantified by the system utilization under that workload. The utilization is determined by the number of periodic lookup requests and other periodic power control related computations. The lookup keys have less effect on the workload and statistic results as long as they are evenly stored on the nodes, which has high probability in Chord. In addition, the utilization of aperiodic jobs is determined by the number of nodes in the system. The number of messages passing between nodes increases logarithmically with the number of nodes, which results in an increase in the total number of aperiodic jobs. We compare the experimental results with the results given by our stochastic model for each workload.</p><p>In the third part of this section, we give experimental results of our extended real-time DHT, in which the cyclic executive schedules aperiodic jobs based on the priorities of requests. The results show that most of the requests that have tight deadlines can be finished at the second trial under the condition that the executive did not finish the request the first time around.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Low workload</head><p>In this experiment, we implement workloads of low utilizations as a cyclic executive schedule. A hyperperiod (30ms) contains three frames of 10ms, each with a periodic followed by an aperiodic set of jobs. The periodic jobs include the receiving job for each frame and the following put/get jobs: In frame 1, each node schedules a put request followed by a get request; in frame 2 and 3, each node schedules a put request, respectively. In each frame, the cyclic executive schedules a compute job once the periodic jobs in that frame have been executed. This compute job is to simulate periodic computations on PDCs for power state estimation, which is implemented as a tight loop of computation in our experiments. As a result, the utilizations of periodic jobs in the three frames are all 40%. Any put/get requests forwarded to other nodes in the DHT result in aperiodic (remote) jobs. The execution time of aperiodic jobs is 0.4ms. The system utilization is 66.7% (40% for periodic jobs and 26.7% for aperiodic jobs) when the workload is run with 4 DHT nodes.</p><p>Results are plotted over 3,000 hyperperiods. Fig. <ref type="figure">2</ref> depicts the single-node response times. The red dots forming a cloudlike area in the figure are measured response times of jobs. Since our stochastic model derives a distribution of response times for jobs arriving at every time instance relative to the hyperperiod, we depict the mathematical expectation and the maximum value for each time instance, which are depicted as blue (in middle of the red clouds) and black (top) lines in the figure, respectively. The figure shows that messages sent at the beginning of each frame experience longer delays before they are handled by corresponding aperiodic jobs with proportionally higher response times. The reason for this is that these messages spend more time waiting for the execution of the next receiving job so that their aperiodic jobs can be scheduled. The modeled average times (blue/middle of clouds) follow a proportionally decaying curve delimited by the respective periodic workload of a frame (4ms) plus the frame size (10ms) as the upper bound (left side) and just the periodic workload as the lower bound (right side). The figure shows that the measured times (red/clouds) closely match this curve as the average response time for most of the arrival times.</p><p>Maximum modeled times have a more complex pattern. In the first frame, their response times are bounded by 18ms for the first 4ms followed by a nearly proportionally decaying curve (22ms-18ms response time) over the course of the next 6ms. The spike at 4ms is due to servicing requests that arrived in the first 4ms, including those from the previous hyperperiod. Similar spikes between frames exist for the same reason, where their magnitude is given by the density of remaining aperiodic jobs and the length of the periodic workload, which also accounts for the near-proportional decay. This results in aperiodic jobs waiting two frames before they execute when issued during the second part of each frame. Response Time (ms)</p><p>Relative Arrival Time (ms)</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Measured Modeled Average</head><p>Modeled Max Fig. <ref type="figure">2</ref>: Low-workload single-node response times (4 nodes) Fig. <ref type="figure" target="#fig_3">3</ref> depicts the cumulative distributions of single-node response times for aperiodic jobs. The figure shows that 99.3% of the aperiodic jobs finish within the next frame after they are released under this workload, i.e., their response times are bounded by 14.4ms. Our model predicts that 97.8% of aperiodic jobs finish within the 14.4ms deadline, which is a good match. In addition, for most of the response times in the figure, our model predicts that a smaller fraction of aperiodic jobs finish within the response times than the fraction in the experimental data as the blue (lower/solid) curve for modeled response times is below the red (upper/dashed) curve, i.e., the former effectively provides a lower bound for the latter. This indicates that our model is conservative for low workloads.   In addition, we evaluate our model with the same request pattern with 8 DHT nodes. The system utilization becomes 72% as the utilization for aperiodic jobs increases because of the additional nodes in the DHT. Fig. <ref type="figure">4</ref> (right-most lines) depicts the cumulative distributions of end-to-end response times for requests. Four clusters of response times are shown in this figure for our measurements is the black/right stepped curve. Here, the base value is larger between 40ms and 45ms as the utilization has increased. One more intermediate node is contacted for a fraction of requests compared to the previous experiment with 4 DHT nodes.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. High workload</head><p>In this experiment, we increase the utilization of the workloads for the cyclic executive. A hyperperiod (40ms) contains four frames of 10ms, each with a periodic followed by an aperiodic set of jobs. The periodic jobs include a receiving job and two put/get jobs for each frame. Any put/get requests forwarded to other nodes in the DHT result in aperiodic jobs. The execution time of aperiodic jobs are 0.4ms. The system utilization is 88.0% when the workload is run with 8 DHT nodes, which includes 40% for periodic jobs and 44.0% for aperiodic jobs. Fig. <ref type="figure">5</ref> depicts the single-node response times. The red dots/cloud in the figure depict measured response times of jobs. The blue/within the cloud and black/top lines are the mathematical expectation and maximum response times for each sample instance given by our model, respectively. Compared with Fig. <ref type="figure">2</ref>, a part of the red/cloud area at the end of each frame, e.g., between 8ms to 10ms for the first frame, moves up indicating response times larger than 14.4ms. This is due to a larger fraction of aperiodic jobs during these time intervals that are scheduled after the next frame (i.e., in the third frame) due to the increase of system utilization. Our model also shows this trend as the tails of blue lines curve up slightly. Figures <ref type="figure">6</ref> and<ref type="figure">7</ref> depict the cumulative distributions of single-node and end-to-end response times under this workload, respectively. Compared with Figures <ref type="figure" target="#fig_3">3</ref> and<ref type="figure">4</ref>, the curves for higher utilization move to the right. This suggests larger response times. Our model provides an upper bound on response times of 99.9% of all requests. Fig. <ref type="figure">7</ref> (right-side/dotted lines) also depicts the cumulative distribution of end-to-end response times of requests running on 16 DHT nodes. Our model also provides reliable results for this case as the curves for the experimental data are slightly above the curves of our model. These experiments demonstrate that a stochastic model can result in highly reliable response times bounds, where the probability of timely completion can be treated as a quality of service (QoS) property under our model.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Prioritized queue extension</head><p>We extend our real-time DHT to use prioritized queues to schedule aperiodic jobs. Our current stochastic model does not take prioritized queues into consideration, so we compare the results with that of the real-time DHT without prioritized queue for the low workload executed on 4 DHT nodes.</p><p>In this extension, the system assigns the lowest priority to jobs of requests that are released for the first time and sets a timeout at their deadline. If the system fails to complete a request before its deadline, it increases the priority of its next job release until that request is served before its deadline. To implement this, all the messages for a request inherit the maximum remaining response time, which is initially the relative deadline, to indicate the time left for that request to complete. This time is reduced by the single node response time (when the aperiodic job for that request is finished) plus the network delay δ if a request is forwarded to the next node. When a node receives a message that has no remaining response time, the node simply drops the message instead of putting it onto aperiodic job queues. Cyclic executives always schedule aperiodic jobs with higher priority first (FCFS for the jobs of same priority).</p><p>In the experiment, we set the relative deadline of requests to 55ms, which is the duration within which half of the requests with two intermediate nodes can be served. The purple/left curve in Fig. <ref type="figure" target="#fig_6">8</ref> depicts the cumulative distribution of end-to-end response times of requests served by the prioritized implementation. Requests that require three intermediate nodes have higher probability to miss the 55ms relative deadline at first. By increasing the priorities of requests that failed the first time, we observe that prioritized requests never fail again. As a result of prioritization, the response times of requests with lower priorities increases. For example, compared to the red/right curve, which is for the implementation without prioritized queues (FIFO queues), a larger proportion of requests have response times between 40ms and 50ms. In addition, requests with response times in the same cluster (e.g., centered around 45ms) could have larger numbers of intermediate nodes (hops) in the prioritized vioson since prioritized requests have smaller response times per sub-request job.</p><p>V. RELATED WORK Distributed hash tables are well known for their performance and scalability for looking up keys on a node that stores associated values in a distributed environment. Many existing DHTs use the number of nodes involved in one lookup request as a metric to measure performance. For example, Chord and Pastry require O(logN ) node traversals using O(logN ) routing tables to locate the target node for some data in a network of N nodes <ref type="bibr" target="#b14">[15]</ref>, <ref type="bibr" target="#b18">[19]</ref>, while D1HT <ref type="bibr" target="#b13">[14]</ref> and ZHT <ref type="bibr" target="#b9">[10]</ref> requires a single node traversal at the expense of O(N ) routing tables. However, this level of performance analysis is not suited for real-time applications, as these applications require detailed timing information to guarantee time bounds on lookup requests. In our research, we focus on analyzing response times of requests by modeling the pattern of job executions on the nodes.</p><p>We build our real-time DHT on the basis of Chord. Each node maintains a small fraction of information of other nodes in its soft routing table. Compared with D1HT and ZHT, where each node maintains the information of all other nodes, Chord requires less communication overhead to maintain its routing table when nodes or links have failed in the DHT. Thus, we believe a Chord-like DHT is more suitable for wide-area power grid real-time state monitoring as it is more scalable in the numbers of PDCs and PMUs.</p><p>In our timing analysis model, we assume that node-to-node network latency is bounded. Much of prior research changes the OSI model to smooth packet streams so as to guarantee time bounds on communication between nodes in switched Ethernet <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b5">[6]</ref>. Software-defined networks (SDN), which allow administration to control traffic flows, are also suited to control the network delay in a private network <ref type="bibr" target="#b11">[12]</ref>. Distributed power grid control nodes are spread in a wide area, but use a proprietary Internet backbone to communicate with each other. Thus, it is feasible to employ SDN technologies to guarantee network delay bounds in a power grid environment <ref type="bibr" target="#b2">[3]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. CONCLUSION</head><p>We have designed and implemented a real-time distributed hash table (DHT) on the basis of Chord to support a deadlinedriven lookup service at upper layer control systems of the North American power grid. Our real-time DHT employs a cyclic executive to schedule periodic and aperiodic lookup jobs. Furthermore, we formalize the pattern of a lookup workload on our DHT according to the needs of power grid monitoring and control systems, and use queuing theory to analyze the stochastic bounds of response times for requests under that workload. We also derive the QoS model to measure the probability that the deadlines of requests can be met by our real-time DHT. Our problem was motivated by the power grid system but the cyclic executive and the approach of timing analysis generically applies to distributed storage systems when requests follow our pattern. Our evaluation shows that our model is suited to provide an upper bound on response times and that a prioritized extension can increase the probability of meeting deadlines for subsequent requests.</p><p>Our current analysis does not take node failures into consideration. With data replication (Chord stores data not only at the target node but in the nodes on the successor list <ref type="bibr" target="#b14">[15]</ref>), requested data can still be obtained with high probability even if node failures occur. Failures can be detected when jobs on one node fail to send messages to other nodes. In this case, the job searches the finger table again to determine the next node to send a data request message to, which increases the execution times of that job. In future work, we will generalize executions time modeling so that node failures are tolerated.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 .Fig. 1 :</head><label>11</label><figDesc>Fig. 1: PDC and Chord ring mapping exampleTABLE I: Finger table for N4</figDesc><graphic coords="2,365.40,149.54,153.58,53.81" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>4 Algorithm 1 :</head><label>41</label><figDesc>interrupt every f time, execute TIMER_HANDLER when it interrupts 4 while true do 5 current job ← L(current) 6 current = (current + 1)%F 7 if current job = nil then 8 job = nil and not done then 21 if current job is periodic then 22 mark the current job failed 23 else 24 save state and push current job back to the head of Q Pseudocode for the cyclic executive</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 3 :</head><label>3</label><figDesc>Fig.3: Low-workload single-node resp. times distr. (4 nodes) Fig.4depicts the cumulative distributions of end-to-end response times for requests (left/right two lines for 4/8 nodes), i.e., the time between a put/get request and its final response</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 5 :Fig. 6 :Fig. 7 :</head><label>567</label><figDesc>Fig. 5: High-workload single-node response times (8 nodes)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: End-to-end response times distribution comparisonThe purple/left curve in Fig.8depicts the cumulative distribution of end-to-end response times of requests served by the prioritized implementation. Requests that require three intermediate nodes have higher probability to miss the 55ms relative deadline at first. By increasing the priorities of requests that failed the first time, we observe that prioritized requests never fail again. As a result of prioritization, the response times of requests with lower priorities increases. For example, compared to the red/right curve, which is for the implementation without prioritized queues (FIFO queues), a larger proportion of requests have response times between 40ms and 50ms. In addition, requests with response times in the same cluster (e.g., centered around 45ms) could have larger numbers of intermediate nodes (hops) in the prioritized vioson since prioritized requests have smaller response times per sub-request job.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>TABLE I :</head><label>I</label><figDesc>Finger table for N4</figDesc><table><row><cell>#</cell><cell>start</cell><cell>interval</cell><cell>forward node</cell></row><row><cell>1</cell><cell>5</cell><cell>[5, 6)</cell><cell>N7</cell></row><row><cell>2</cell><cell>6</cell><cell>[6, 8)</cell><cell>N7</cell></row><row><cell>3</cell><cell>8</cell><cell>[8, 12)</cell><cell>N9</cell></row><row><cell>4</cell><cell>12</cell><cell>[12, 20)</cell><cell>N12</cell></row><row><cell>5</cell><cell>20</cell><cell>[20, 4)</cell><cell>N20</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>TABLE II :</head><label>II</label><figDesc>Types of Messages passed among nodes port:sid:key:value one node sends to the target node to store (key:value).3  PUT DONE :sid:ip:port the target node notifies sender of successfully handling the PUT DIRECT.GET:key the initial get request to get the value for the given key. GET DIRECT :ip:port:sid:key one node sends to the target node to get the value. GET DONE :sid:ip:port:value the target node sends the value back as the feed back of the GET DIRECT.</figDesc><table><row><cell>Type 1</cell><cell>Parameters 2</cell><cell>Description</cell></row><row><cell>PUT</cell><cell>:key:value</cell><cell>the initial put request to store (key:value).</cell></row><row><cell cols="2">PUT DIRECT :ip:GET FAILED :sid:ip:port</cell><cell>the target node has no associated value.</cell></row><row><cell>LOOKUP</cell><cell>:hashcode:ip:port:sid</cell><cell>the sub-lookup message. 4</cell></row><row><cell>DESTIN</cell><cell>:hashcode:ip:port:sid</cell><cell>similar to LOOKUP, but DESTIN message sends to the target node.</cell></row><row><cell>LOOKUP DONE</cell><cell></cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head></head><label></label><figDesc>Procedure GET(key) and PUT(key, value) Procedure LOOKUP(initial-node, sid, hashcode)</figDesc><table><row><cell>2</cell><cell>sid ← unique request identifier</cell></row><row><cell>3</cell><cell>code ← hashcode(key)</cell></row><row><cell>4</cell><cell>address ← ip and port of this node</cell></row><row><cell>5</cell><cell>store the request in the buffer</cell></row><row><cell>6</cell><cell>execute LOOKUP(address, sid, code)</cell></row><row><cell>8</cell><cell>next ← next node for the lookup in the finger table</cell></row><row><cell>9</cell><cell>if next = target node then</cell></row><row><cell>10</cell><cell>next.DESTIN(initial-node, sid, hashcode)</cell></row><row><cell>11</cell><cell>else</cell></row><row><cell>12</cell><cell>next.LOOKUP(initial-node, sid, hashcode)</cell></row><row><cell>13</cell><cell>end</cell></row><row><cell cols="2">14 Procedure DESTIN(initial-node, sid, hashcode)</cell></row><row><cell>15</cell><cell>address ← ip and port of this node</cell></row><row><cell>16</cell><cell>initial-node.LOOKUP_DONE(address, sid)</cell></row><row><cell cols="2">17 Procedure LOOKUP_DONE(target-node, sid)</cell></row><row><cell>18</cell><cell>request ← find buffered request using sid</cell></row><row><cell>19</cell><cell>if request = get then</cell></row><row><cell>20</cell><cell>target-node.GET_DIRECT(initial-node, sid,</cell></row><row><cell></cell><cell>request.key)</cell></row><row><cell>21</cell><cell>else if request = put then</cell></row><row><cell>22</cell><cell>target-node.PUT_DIRECT(initial-node, sid,</cell></row><row><cell></cell><cell>request.key, request.value)</cell></row><row><cell>23</cell><cell>else if request = f ix f inger then</cell></row><row><cell>24</cell><cell>update the finger table</cell></row><row><cell>25</cell><cell>end</cell></row><row><cell cols="2">26 Procedure GET_DIRECT(initial-node, sid, key)</cell></row><row><cell>29</cell><cell>if value = nil then</cell></row><row><cell>30</cell><cell>initial-node.GET_FAILED(address, sid)</cell></row><row><cell>31</cell><cell>else</cell></row><row><cell>32</cell><cell>initial-node.GET_DONE(address, sid, value)</cell></row><row><cell>33</cell><cell>end</cell></row><row><cell cols="2">34 Procedure PUT_DIRECT(initial-node, sid, key, value)</cell></row><row><cell>35</cell><cell>address ← ip and port of this node</cell></row><row><cell>36</cell><cell>store the pair to local storage</cell></row><row><cell>37</cell><cell>initial-node.PUT_DONE (address, sid)</cell></row><row><cell cols="2">38 Procedure PUT_DONE, GET_DONE, GET_FAILED</cell></row><row><cell>39</cell><cell>execute the associated operation</cell></row><row><cell></cell><cell>Algorithm 2: Pseudocode for message handling jobs</cell></row></table><note><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 04:57:07 UTC from IEEE Xplore. Restrictions apply. 1 7 27 address ← ip and port of this node 28 value ← find value for key in local storage</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head>TABLE III :</head><label>III</label><figDesc>Notation jobs in one hyperperiod νi time when the i th receiving job is scheduled 1,2 Ui utilization of periodic jobs in time interval (νi, νi+1) M number of different types of aperiodic jobs λi average arrival rate of the i th type aperiodic jobs Ci worst case execution time of the i th type aperiodic jobs gi number of arrivals of i th aperiodic job</figDesc><table><row><cell>Notation</cell><cell>Meaning</cell></row><row><cell>H</cell><cell>hyperperiod</cell></row><row><cell cols="2">K number of receiving E(x, g) total execution time</cell></row><row><cell></cell><cell>for aperiodic jobs that arrive in time interval of length x</cell></row><row><cell>W (i, E)</cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head>table 13 for</head><label>13</label><figDesc>3 for each row (ρ, d) in π do 4 if row (ρ old , d) exists in π des then 5 ρ old ← ρ old + ρ each row (ρ 1 , d 1 ) in π 1 do 14 for each row (ρ 2 , d 2 ) in π 2 do 15 add row (ρ 1 * ρ 2 , d 1 + d 2) to π 3 According to the rule, end-to-end response time includes the response time of the initial periodic job, network delays, and the total response time of (logN + 3) aperiodic jobs of different types. In order to represent the density function of the total response time for these aperiodic jobs, we define the operation SU M on two density tables π 1 and π 2 as in Algorithm 3. The resulting density table has one row (ρ 1 * ρ 2 , d 1 +d 2 ) for each pair of rows (ρ 1 , d 1 ) and (ρ 2 , d 2 ) from table π 1 and π 2 , respectively. That is, each row in the result represents one sum of two response times from the two tables and the probability of the aggregated response times.</figDesc><table><row><cell>6</cell><cell>else</cell></row><row><cell>7</cell><cell>add row (ρ, d) to π des</cell></row><row><cell>8</cell><cell>end</cell></row><row><cell>9</cell><cell>end</cell></row><row><cell>10</cell><cell>return π des</cell></row><row><cell cols="2">11 Procedure SUM (π 1 , π 2 )</cell></row><row><cell cols="2">12 π 3 ← empty 16 end</cell></row><row><cell>17</cell><cell>end</cell></row><row><cell>18</cell><cell>return UNIQUE(π 3 )</cell></row><row><cell></cell><cell>Algorithm 3: Density tables operations</cell></row><row><cell cols="2">basis of ρ(d, C</cell></row></table><note><p>m ).</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head></head><label></label><figDesc>Every cluster has a base response time (about 35ms) due to the LOOK DONE and the final pair of messages as discussed in Section III-B. In addition, different clusters indicate that requests contact different numbers of nodes to eventually serve the requests. One more intermediate node contacted increases the response time by around 10ms, which is the average singlenode response time as depicted in Fig.3. Approximately 10% of the requests are served without an intermediate node. This happens when the initial node of a request is also the target node. In this case, our current DHT implementation sends a LOOKUP DONE message directly to itself. Our QoS model considers the worst case where logN nodes are required, which provides a probabilistic upper bound on response times. In addition, this figure shows that our QoS model is conservative. For example, 99.9% of the requests are served within 62ms in the experiment, while our model indicates a 93.9% coverage for that response time.</figDesc><table><row><cell>Modeled Average (4 nodes) Modeled Average (8 nodes) Measured (4 nodes) Measured (8 nodes)</cell></row><row><cell>Fig. 4: Low-workload end-to-end response times distribution</cell></row><row><cell>after propagating over multiple hops (nodes) within the DHT.</cell></row><row><cell>This figure shows that measured response times for four nodes</cell></row><row><cell>have three clusters centered around 35ms, 45ms, and 55ms.</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>This work was supported in part by NSF grants 1329780, 1239246, 0905181 and 0958311. Aranya Chakrabortty helped to scope the problem in discussions.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_1"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 04:57:07 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">The system-level simplex architecture for improved real-time embedded system safety</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">K</forename><surname>Chivukula</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Adekunle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mu</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Lui</forename><surname>Sha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Embedded Technology and Applications Symposium</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="99" to="107" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<title level="m" type="main">The cyclic executive model and Ada</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alan</forename><surname>Shaw</surname></persName>
+		</author>
+		<idno>88-04-07</idno>
+		<imprint>
+			<date type="published" when="1988">1988</date>
+			<pubPlace>Seattle, Washington</pubPlace>
+		</imprint>
+		<respStmt>
+			<orgName>University of Washington, Department of Computer Science</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Software-defined energy communication networks: From substation automation to future smart grids</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Cahn</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Hoyos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hulse</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Keller</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Conf. on Smart Grid Communications</title>
+		<imprint>
+			<date type="published" when="2013-10">October 2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">The simplex reference model: Limiting fault-propagation due to unreliable components in cyber-physical system architectures</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">L</forename><surname>Crenshaw</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Gunter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Robinson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Lui</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">R</forename><surname>Kumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="400" to="412" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Data management issues associated with the august 14, 2003 blackout investigation</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">E</forename><surname>Dagle</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE PES General Meeting -Panel on Major Grid Blackouts of 2003 in North Akerica and Europe</title>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Ethernet-based real-time and industrial communications</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">D</forename><surname>Decotignie</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the IEEE</title>
+		<meeting>the IEEE</meeting>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+			<biblScope unit="volume">93</biblScope>
+			<biblScope unit="page" from="1102" to="1117" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Consistent hashing and random trees: Distributed caching protocols for relieving hot spots on the world wide web</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Karger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Lehman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Leighton</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Panigrahy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Levine</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Lewin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM Symposium on Theory of Computing</title>
+		<imprint>
+			<date type="published" when="1997">1997</date>
+			<biblScope unit="page" from="654" to="663" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">Queueing systems</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Kleinrock</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1975">1975</date>
+			<publisher>Theory</publisher>
+			<biblScope unit="volume">1</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Achieving real-time communication over ethernet with adaptive traffic smoothing</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">K</forename><surname>Kweon</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">G</forename><surname>Shin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of RTAS 2000</title>
+		<meeting>RTAS 2000</meeting>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+			<biblScope unit="page" from="90" to="100" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Zht: A light-weight reliable persistent dynamic scalable zero-hop distributed hash table</title>
+		<author>
+			<persName><forename type="first">Tonglin</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xiaobing</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kevin</forename><surname>Brandstatter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Dongfang</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ke</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Anupam</forename><surname>Rajendran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhao</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ioan</forename><surname>Raicu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Parallel &amp; Distributed Processing Symposium (IPDPS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Liu</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+			<publisher>Prentice Hall</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Software-defined networking</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Mckeown</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">INFOCOM keynote talk</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">The doe wide area measurement system (wams) project demonstration of dynamic information technology for the future power system</title>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">A</forename><surname>Mittelstadt</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">E</forename><surname>Krause</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">N</forename><surname>Overholt</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">J</forename><surname>Sobajic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">F</forename><surname>Hauer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">E</forename><surname>Wilson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">T</forename><surname>Rizy</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">EPRI Conference on the Future of Power Delivery</title>
+		<imprint>
+			<date type="published" when="1996">1996</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Peer-to-peer single hop distributed hash tables</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Monnerat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Amorim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">GLOBECOM&apos;09</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="1" to="8" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Chord: A Scalable Peer-to-Peer Lookup Service for Internet Applications</title>
+		<author>
+			<persName><forename type="first">Robert</forename><surname>Morris</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">David</forename><surname>Karger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Frans</forename><surname>Kaashoek</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hari</forename><surname>Balakrishnan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM SIGCOMM 2001</title>
+		<meeting><address><addrLine>San Diego, CA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2001-09">September 2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Real time dynamics monitoring system: Phasor applications for the control room</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Parashar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">42nd Hawaii International Conference on System Sciences</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="1" to="11" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">New measurement techniques for tracking voltage phasors, local system frequency, and rate of change of frequency</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">G</forename><surname>Phadke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">S</forename><surname>Thorp</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">G</forename><surname>Adamiak</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Power Apparatus and Systems</title>
+		<imprint>
+			<biblScope unit="volume">102</biblScope>
+			<biblScope unit="page" from="1025" to="1038" />
+			<date type="published" when="1983">1983</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">A scalable content-addressable network</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ratnasamy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Francis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Handley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Karp</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Schenker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of ACM SIGCOMM</title>
+		<meeting>ACM SIGCOMM</meeting>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+			<biblScope unit="page" from="161" to="172" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Pastry: Scalable, decentralized object location, and routing for large-scale peer-to-peer systems</title>
+		<author>
+			<persName><forename type="first">I</forename><forename type="middle">T</forename><surname>Antony</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Peter</forename><surname>Rowstron</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Druschel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Middleware &apos;01: Proceedings of the IFIP/ACM International Conference on Distributed Systems Platforms Heidelberg</title>
+		<meeting><address><addrLine>London, UK</addrLine></address></meeting>
+		<imprint>
+			<publisher>Springer-Verlag</publisher>
+			<date type="published" when="2001">2001</date>
+			<biblScope unit="page" from="329" to="350" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

@@ -1,0 +1,596 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">RAPLET: Demystifying Publish/Subscribe Latency for ROS Applications</title>
+				<funder ref="#_382euqN">
+					<orgName type="full">New Energy and Industrial Technology Development Organization</orgName>
+					<orgName type="abbreviated">NEDO</orgName>
+				</funder>
+				<funder ref="#_K55JpvC">
+					<orgName type="full">JSPS KAKENHI</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Keisuke</forename><surname>Nishimura</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">The University of Tokyo</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Takahiro</forename><surname>Ishikawa</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">The University of Tokyo</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Hiroshi</forename><surname>Sasaki</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="institution">Tokyo Institute of Technology</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Shinpei</forename><surname>Kato</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">The University of Tokyo</orgName>
+							</affiliation>
+							<affiliation key="aff2">
+								<orgName type="department">Tier IV</orgName>
+								<address>
+									<region>Inc</region>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">RAPLET: Demystifying Publish/Subscribe Latency for ROS Applications</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">F44DC2A5290B12CA86054220CA56686F</idno>
+					<idno type="DOI">10.1109/RTCSA52859.2021.00013</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T23:51+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>Robot Operating System (ROS)</term>
+					<term>Real-Time Scheduling</term>
+					<term>Directed Acyclic Graph (DAG)</term>
+					<term>Performance Analysis</term>
+					<term>Tooling</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>The problem of real-time scheduling based on the Directed Acyclic Graph (DAG) task model has been extensively studied in the literature. Most of the studies are aimed at the development of efficient scheduling algorithms to reduce deadline misses and/or improve schedulability bounds on the given task system. In order to guarantee real-time performance of the DAG task model in practice, the latency imposed on the communication between the DAG nodes must be systematically taken into account. This paper aims at demystifying the latency of the Robot Operating System (ROS) as a practical DAG task model, which leverages the publish/subscribe mechanism to send and receive data between the nodes. To this end we present the ROS-Aware Publish/Subscribe Latency Evaluation Tool (RAPLET) which is designed to measure and visualize the details of the publish/subscribe latency in ROS. RAPLET consists of (i) the LD PRELOAD scheme that inserts function hooks in user-land and (ii) the extended Berkeley Packet Filter (eBPF) scheme that monitors the run-queue level and the network states in kernelland. The performance analysis on ROS applications, including a real-world autonomous driving software, is performed using RAPLET to demonstrate that the publish/subscribe latency imposed on inter-node communication can be demystified and reasoned with respect to system issues including the message size and network bandwidth consumption.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>The Robot Operating System (ROS) <ref type="bibr" target="#b0">[1]</ref> is a de-facto standard platform underlying many robot applications today. The structure of ROS can be represented by the Directed Acyclic Graph (DAG) task model, where tasks correspond to the nodes and the data dependencies between the tasks are represented as edges. Given that ROS has been already used in large-scale real-time applications such as the autonomous driving system <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b2">[3]</ref>, the Drone control system <ref type="bibr" target="#b3">[4]</ref>, and the ROSflight system <ref type="bibr" target="#b4">[5]</ref>, the tooling for real-time performance analysis is becoming increasingly important to consolidate the schedulability analysis of real-time scheduling algorithms based on the DAG task model with such real-world problems. In particular, the system issues with respect to the publish/subscribe latency in ROS must be demystified.</p><p>However the real-time performance analysis of ROS is not straightforward due to its large-scale and complicated architecture. To analyze the real-time performance of ROS in *Keisuke and Takahiro contributed equally to this work.</p><p>Fig. <ref type="figure">1</ref>: Typical DAG structure and its execution order dependency depicted as arrows. Our objective is to develop a tool which can measure the publish/subscribe latency breakdown between the two red circles.</p><p>depth, the latency of inter-node communication needs to be measured and visualized at the function call level such that the workload of both user-land and kernel-land threads can be monitored. The visualization of thread execution on a time basis is also useful to investigate the performance offline.</p><p>In previous work <ref type="bibr" target="#b5">[6]</ref>- <ref type="bibr" target="#b7">[8]</ref>, the problem of real-time scheduling based on the DAG task model has been extensively studied. Most of the previous studies are aimed at the development of efficient scheduling algorithms to reduce deadline misses and/or improve schedulability bounds on the given task system. To the best of our knowledge, however, the detailed latency breakdown imposed on inter-node communication (Fig. <ref type="figure">1</ref>) has not been taken into account in previous work due to the lack of tooling integrated with real-world applications. Without looking into the system issue with respect to the latency of the DAG task model, applying realtime scheduling algorithms for those real-world applications is not possible.</p><p>This paper presents ROS-Aware Publish/Subscribe Latency Evaluation Tool (RAPLET), a tool that demystifies the internal latency behind the publish/subscribe API of ROS. RAPLET requires no modification to the application nor rebuilding the ROS library. In RAPLET, the first generation of ROS (or ROS1) is considered due to its maturity and the fact that it is used in many real-time applications in practice. A ROS application is composed of several independent computing nodes (same as processes in many cases), which communicate with each other by a topic-based publish/subscribe pattern and create a DAG-structured task as a whole. The divided sections to be measured are determined according to the ROS1 internal design; each node has a publisher queue and a subscriber queue in the user space, through which the communication messages are transmitted across the nodes. We construct a measurement tool that is aware of such data structures and processing procedures in ROS1, which enables us to measure the latency of appropriate intervals corresponding to the actual processing that realizes the publish/subscribe communication.</p><p>In addition to the main tool that demystifies the internal latency of the ROS1 communication layer, supplementary measurement tools for ROS1 are developed: a tool for important threads' latency on Linux runqueue, which relates to real-time performance of the ROS1 communication layer, and a tool for measuring network stack activities, which relates to the latency in kernel space. These sub-tools are aimed at increasing the resolution of the detailed latency information gained by the main tool. The main tool for latency measurement is powered by function hooks using LD_PRELOAD, while extended Berkeley Packet Filter (eBPF) is used for the sub-tools that need to access kernel land information. Although the tool developed in this research can work only against ROS1 applications, the way in which we divide the latency sections can be applied to other DAG-structured systems as well.</p><p>To demonstrate the usefulness of RAPLET, we perform measurements on Talker, a simple ROS1 application, and Autoware, an open-source software for autonomous driving. The results show that various factors including the message size, the background loads and hardware configurations affect the publish/subscribe latency. We show that the effect of communication latency of ROS1 is relatively large where the load of the application itself is almost negligible for the simple ROS1 application, and the case is opposite for Autoware. The tool helps ROS application developers to understand how much of the latency comes from the Linux kernel or the processing time of the ROS itself.</p><p>Contributions. The main contributions of this paper include the following:</p><p>1) We investigate the design of ROS1 and divide the latency measurement interval appropriately. 2) We develop a tool to measure the latency of an interval of interest using function hooks by LD_PRELOAD and supplementary measurement tools useful for investigating real-time performance of the ROS1 communication layer. 3) We perform measurements against a simple ROS1 application and a real-world Autoware <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b2">[3]</ref> variant, and demonstrate that the tool helps us demystify the source of end-to-end latency in ROS1.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. ROS1 SYSTEM MODEL</head><p>In this section, we describe the detailed execution steps of the ROS1 middleware behind the publish/subscribe communication in order to determine the design of the ROS-aware measurement tool. In ROS1 middleware, this publish/subscribe Fig. <ref type="figure">2</ref>: Execution steps behind message publication:</p><p>1 main thread (or callback thread) enqueues a message in the publish queue located in shared memory. 2 polling thread dequeues the message from the publish queue. 3 the message is temporarily placed in per-subscriber queues. 4 polling thread writes to sockets with EPOLL-OUT events.</p><p>Fig. <ref type="figure">3</ref>: Execution steps behind message subscription:</p><p>1 polling thread reads sockets with EPOLLIN events. 2 polling thread enqueues a callback information with the received message in the callback queue located in shared memory. 3 callback thread (or main thread) dequeues the callback information from the callback queue and execute the callback.</p><p>functionality is realized by three threads behind the APIs: 1) main thread which starts from the main function; 2) polling thread which issues epoll_wait syscall in an infinite loop and sends messages with the sockets writable or receives messages with the sockets readable; and 3) callback thread which polls the received message queue and executes the corresponding callbacks. First we explain the situation where one node is running in one process, and then later describe a case where multiple nodes run in the same process.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Inter-process Publication and Subscription</head><p>Fig. <ref type="figure">2</ref> shows the execution steps behind the publish API. A message published from the main thread (or callback thread) is first enqueued in the publish queue located in shared memory. Fig. <ref type="figure">4</ref>: The life cycle of a message in inter-and intra-process communication. A published message walks through the path presented in the figure to arrive at the callback function in the next node. We name the corresponding intervals in the figure as "PubQ-time", "kerneltime", "SubQ-time", and "ROS-time" as the latency at which a message passes through each step.</p><p>The enqueued messages are asynchronously dequeued by the polling thread and distributed to the temporary queues for the subscribers listening to the topic. The polling thread then issues epoll_wait syscall and writes the messages to the sockets with EPOLLOUT (writable) events. Fig. <ref type="figure">3</ref> shows the execution steps behind the subscribe API. The polling thread reads messages from the sockets when epoll_wait syscall gains EPOLLIN (readable) events. The messages are enqueued in the callback queue with the corresponding callback information. The enqueued information is asynchronously dequeued by the callback thread and the callbacks are executed sequentially.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Intra-process Publication and Subscription with Nodelet</head><p>While Figures <ref type="figure">2</ref> and<ref type="figure">3</ref> described the situation where one node is running in one process, we can let multiple nodes run in the same process using a mechanism called nodelet in ROS1. In the intra-process publish/subscribe communication in ROS1, a message pointer is passed between nodes, which allows zero copy data passing and avoid long communication data path <ref type="bibr" target="#b8">[9]</ref>. In case of intra-process communication, when the publish function is called like 1 in Fig. <ref type="figure">2</ref>, the message is directly enqueued in the callback queue in Fig. <ref type="figure">3</ref>, instead of being enqueued in the publish queue in Fig. <ref type="figure">2</ref>. Unlike the case of inter-process communication, multiple callback queues are managed in one process and the queue items are consumed in one of the multiple worker threads (thus the callback thread is not used).</p><p>Fig. <ref type="figure">4</ref> shows how a published message goes through the procedures until it gets to the callback function in case of interprocess and intra-process communications. While a message passes through the kernel space when communicated across processes, it does not when communicated within the same process. We name each processing interval from the publish  call to the callback function as: "PubQ-time", "kernel-time", "SubQ-time", and "ROS-time". PubQ-time and SubQ-time represent how long a message stays in the publish queue and the callback queue, respectively. These two intervals are mainly dominated by the runqueue latency, the time from when a task becomes ready to when it starts running on a CPU. Kernel-time denotes the latency from the time a message is passed to send syscall to the time it is received by recv syscall. ROS-time is the total time processed by the ROS1 middleware runtime, which is composed of four intervals: "App-PubQ", "PubQ-send", "recv-SubQ", and "SubQ-App".</p><p>We use these terms in the following sections to denote the corresponding intervals.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. RAPLET: A ROS-AWARE PUBLISH/SUBSCRIBE LATENCY EVALUATION TOOL</head><p>The goal of our tool RAPLET is to explore the impact on inter-and intra-process publish/subscribe latency as we described in the previous section. We have developed our tool with the following requirements in mind:</p><p>1) Lightweight. Since ROS applications require real-time performance, we especially need to minimize the measurement effect on target applications. 2) Binary Compatible. Considering easy deployment and user-friendliness against ROS application developers without middleware and OS expertise, it is preferable for the measurement tool not to require any changes to the source code or recompilation of the target application. 3) ROS-Architecture Aware. In order to measure the latency with sufficient details the tool needs to be tailored to the ROS1 publish/subscribe architecture described in Section II. To the best of our knowledge, existing performance measurement tools cannot meet these requirements. For instance, a popular profiling tool Callgrind which comes with Valgrind <ref type="bibr" target="#b9">[10]</ref> does not offer ROS-aware performance metrics. ROS offers its own logging mechanism <ref type="bibr" target="#b10">[11]</ref> which allows the users to obtain some ROS-specific information such as debug messages and topic connection activities, however they lack the details and granularity to demystify the latency overhead of our interest. Hence, we propose RAPLET, a ROS-Aware Publish/subscribe Latency Evaluation Tool. This tool not only monitors metrics regarding the latency but also provides a way to visualize those data, which helps users to investigate the source of the latency for the requirement 2).    The architecture of RAPLET and its interaction with the target ROS application are shown in Fig. <ref type="figure" target="#fig_3">5</ref>. RAPLET measures the user-level information: the PubQ/Kernel/SubQ time and the execution time of ROS middleware itself by hooking the necessary functions of ROS1 middleware. In addition, kernel-level information including runqueue scheduling delays, processor IDs where the application was executed on, and the network bandwidth consumption, are also monitored to increase the resolution of user-level information. The measurement components of RAPLET save the log file per process, and the log parser interprets the log files after the measurement for visualization.</p><formula xml:id="formula_0">* $# !!' ! $# " )# ##! !"! +"$(!, #%! %#! $ %#! $&amp; !</formula><p>User-level information. RAPLET injects the measurement runtime library into the running ROS application to hook necessary functions shown in TABLE I and records their timestamp of invocations. Among various ways to inject a measurement runtime into the running program, including LTTng <ref type="bibr" target="#b11">[12]</ref>, DTrace <ref type="bibr" target="#b12">[13]</ref>, and eBPF, we chose LD_PRELOAD. LD_PRELOAD is a portable feature provided by the Linux kernel that offers a means of function hooking by letting the dynamic loader override the specified symbols. It meets are requirement of being lightweight and binary compatible since no context switch occurs at hook time and there is no need to install other software.</p><p>The injected runtime library records timestamps at appropriate points in each function listed in TABLE I, and in order to reduce the overhead of heavy operations RAPLET creates a dedicated thread which saves the measurement data to the log files via a lock-less queue to once every 50ms. In order to correctly measure the latency, RAPLET needs to identify each message. Since ROS messages do not provide an identifier we reinterpret the sequential number field in the header of std_msgs (which is the standard header defined in the ROS msg specification <ref type="bibr" target="#b13">[14]</ref>) as their ID.</p><p>Kernel-level information. In addition to the user-level measurement, kernel-level information is also crucial to demystify the latency of ROS applications. Therefore RAPLET records additional information shown in TABLE II. To avoid imposing extra measurement overhead, RAPLET employs eBPF which enables executing small programs with minor overhead to the kernel (eBPF is widely adopted to monitor and process kernellevel events <ref type="bibr" target="#b14">[15]</ref>, <ref type="bibr" target="#b15">[16]</ref>). While RAPLET is running, it hooks an initialization function of ROS to identify the threads of the target application in order to only collect the necessary information of the target.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. EVALUATION SETUP</head><p>We have implemented RAPLET for noetic and melodic version of ROS with about 1,500 LoC. Although the runtime instrumentation library and the eBPF measurement component depend on a specific version of ROS and the Linux kernel, we believe the principle of design is not limited to those minor platform differences.</p><p>To show its effectiveness, we run RAPLET for two workloads: Talker (a minimum publish/subscribe application) and Autoware <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b2">[3]</ref>, an open-source ROS application for autonomous vehicles. The former is an application that does not stress the CPU and hence running it with RAPLET allows us to evaluate the publish/subscribe latency of ROS1 middleware itself. On the other hand Autoware is a complex application which consists of about (or more than) 100 processes and showcases the applicability of RAPLET to real world scenarios. The experiment environment is shown in TABLE <ref type="table" target="#tab_2">III</ref>. Dynamic voltage and frequency scaling (DVFS) and Turbo Boost are disabled, and we use the SCHED OTHER Linux default scheduling class.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. DEMYSTIFYING PUBLISH/SUBSCRIBE LATENCY OF ROS MIDDLEWARE USING RAPLET</head><p>To focus on the communication latency of ROS1 middleware itself, we run RAPLET with Talker, a minimum ROS application. This workload consists of a publication node and a subscription node, where each node does nothing other than sending fixed-size messages 4,096 times at 10Hz, and receiving them, respectively. We believe that the results demonstrate the raw performance of the ROS application's latency since Talker's performance impact on the kernel scheduler, memory bandwidth, CPU usage, and network activities is  negligible. In this section we begin by analyzing the overhead of RAPLET itself, then measure the latency breakdown of a 1KB message and later sweep the parameters which affect the performance one by one to understand their impact on the overall performance.</p><p>RAPLET overhead. We first compare the latency when executing Talker with and without RAPLET to measure the overhead of RAPLET itself. We found that the overhead per publish/subscribe communication is about 0.03 ms regardless of the message size. The reason of its fixed overhead is due to the fact that RAPLET references only the message meta data but not the message content (see Section III). This overhead accounts for 2-20% of the total latency of Talker and is mostly negligible for real world applications such as Autoware as we see in the later section.</p><p>Latency breakdown of 1KB message. We then investigate how long Talker spends waiting in PubQ/Kernel/SubQ and executing ROS middleware. Fig. <ref type="figure" target="#fig_5">6</ref> displays the average latency and its histogram (see Section II for each interval name). As expected, the execution time of the callback function of Talker  (the figure shows that of the subscriber) is only 3% of the total communication latency. We can see from Fig. <ref type="figure" target="#fig_5">6</ref>(a) that the most time consuming part is the Kernel time. We believe the time is devoted to pass the TCP network stack in the kernel event in addition to the scheduling latency. This results suggest that the performance of small ROS applications are greatly affected by the communication latency overheads.</p><p>When comparing the time spent in PubQ vs. SubQ, we find that the the former has a larger variance. According to our analysis in Section II, the PubQ latency and SubQ latency are mainly dominated by the runqueue latency inside the kernel (see TABLE <ref type="table" target="#tab_1">II</ref>). Fig. <ref type="figure" target="#fig_6">7</ref> presents the CDF (cumulative distribution function) of the runqueue latency of both the publisher polling thread and the subscriber main thread. Compared to the subscriber polling thread, the publisher main thread had a large variance in runqueue, which leads to the difference of the latency of SubQ and PubQ.</p><p>Effect of message size. We next demonstrate the effect of message size on the latency by changing the message size from 1KB to 4MB. Fig. <ref type="figure" target="#fig_7">8</ref> shows how the communication latency changes with respect to the message size. The message size from 2KB to 32KB are omitted owning to their almost similar characteristics to 1KB and 64KB. The latency is further broken down to show the time spent in each interval and shown as a stacked bar. We can see that the ROS execution time at larger size messages (i.e., greater than 512KB) increases almost linearly as the message size increases. This overhead comes from the serialization and deserialization processes which require copy operation of the message (thus larger the message size the longer the latency). Compared to the ROS execution time, kernel-time and SubQ-time are negligible in large messages. If ROS application developers face a large inter-node communication latency where the ROS execution time dominates, they may consider reducing the message size (e.g., by data compression).</p><p>Effect of CPU load. To measure the effect of the background CPU activity, we run Talker (with two configurations, message size of 1KB and 4MB) with stress-ng <ref type="bibr" target="#b16">[17]</ref> which is configured as 12 (= # CPUs × 2) CPU-intensive tasks to demonstrate a situation where the CPU is fully loaded. Fig. <ref type="figure" target="#fig_9">9</ref> shows the mean and the 99th percentile of the latency with and without the background CPU load. While the background CPU load makes the TCP communication time longer, the PubQ, SubQ and ROS execution times become shorter. This is true for both 1KB and 4MB messages, but the ROS execution time is remarkably reduced in the latter case.</p><p>To clarify the reason why the PubQ and SubQ lantecy become shorter, we investigate the runqueue latency with the message size 1KB as shown in Fig. <ref type="figure" target="#fig_10">10</ref>. Compared to the threads without CPU load, the thread with background load is allowed to execute sooner. This result can be due to the property of Completely Fair Scheduler (the default scheduler of Linux) that the time quantum becoming shorter and waiting threads (e.g., for I/O) getting prioritized when the number of CPU-intensive tasks increases.</p><p>Furthermore, we explore the CPUs where each ROS thread is executed in Fig. <ref type="figure" target="#fig_12">11</ref>. The figure shows on which CPU each thread gets executed in a time series manner. We can see that without the CPU load (top figure) the threads get migrated frequently, whereas with the CPU load the four threads are almost pinned to a specific CPU.</p><p>Effect of background network activity. We run Talker (with two configurations, message size of 1KB and 4MB) with iperf <ref type="bibr" target="#b17">[18]</ref>, a tool which stresses the network, and measured its effect on the communication latency. Fig. <ref type="figure" target="#fig_13">12</ref> shows the mean and the 99th percentile of the latency with and without the network load. As we can see form the figure, Talker's communication latency decreases with the high network activity. This trend holds for both 1KB and 4MB messages. Uncovering the cause of this result is left for future work.</p><p>Effect of thread priority and scheduling class. It is natural to imagine that the ROS1 realtime performance can be improved by controlling the thread priority and/or changing the OS scheduling class. We investigate this property by running CPU/network-intensive background tasks and Talker with high priority and realtime scheduling class (SCHED_RR). As shown in Fig. <ref type="figure" target="#fig_14">13</ref>, while the execution with high priority could not  reduce the 99th percentile kernel time latency with CPUintensive background application (3.9×), realtime scheduling class succeeded in limiting the increase of the tail latency to 1.7×. However, we find that SCHED_RR, the most accepted realtime scheduling class in Linux, cannot reduce the tail latency-we can conclude that the realtime property of ROS1 on Linux is very limited.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. USING RAPLET TO ANALYZE AUTOWARE</head><p>As a case study, we apply RAPLET for Autoware, an open-source software for autonomous driving systems. We use Autoware Arch. proposal [19] version 0.5.1. The environment we run Autoware is the same as the previous section and is shown in TABLE III. For the input of Autoware, we use the rosbag (file format in ROS for storing ROS message data) and map data provided in the Autoware proposal GitHub page <ref type="bibr">[19]</ref>. Autoware is composed of roughly five components: Sensing, Localization, Perception, Planning, and Control. Among the   various paths in the Autoware DAG structure, we choose a subset of Sensing and Localization as the measurement interval which is found to be one of the bottlenecks in the Autoware system.</p><p>Fig. <ref type="figure" target="#fig_15">14</ref> shows the ROS1 nodes used for the measurement. The nodes in the velodyne nodelet manager frame (velodyne cloud, filter self, filter mirror, fix distortion, and filter outlier) run in the same process as nodelets. The other nodes (relay, filter range, grid filter, and ndt scan matcher) run in separate processes as normal ROS nodes. The input of the DAG is provided by a hardware called the Lidar (Light Before applying RAPLET to the data path shown in Fig. <ref type="figure" target="#fig_15">14</ref>, we measure the end-to-end latency and the latency in each node and edge, respectively, to grasp how much latency is occupied by each part of the data path. Fig. <ref type="figure" target="#fig_16">15</ref> shows a histogram of the end-to-end latency from the start of the velodyne cloud node to the end of the NDT scan matcher node, and Fig. <ref type="figure" target="#fig_15">14</ref> shows how much of this end-to-end latency is occupied by each node and edge, respectively. In Fig. <ref type="figure" target="#fig_15">14</ref>, the red values on the nodes represent the latency from the start of the callback function to the publish function call, while those on the edges mean the latency from the publish function call to the start of the callback function in the next node. The top numbers are the average values and the bottom numbers are the 95% tail latency. We decided not to measure the latency spent in the relay node due to technical difficulties (thus the latency from the end of the fix distortion node to the start of the filter range node is shown in the figure).</p><p>Figures <ref type="figure" target="#fig_17">16</ref> and<ref type="figure" target="#fig_18">17</ref> show the results of applying RAPLET to the velodyne nodelet manager process (represented as the box in Fig. <ref type="figure" target="#fig_15">14</ref>), which demystifies the latency of all intra-process communications within the process by their ROS message types (sensor msgs::PointCloud2 and velodyne pointcloud::PointCloudXYZIRADT). The PointCloud2 message type corresponds to the edges between velodyne cloud and filter self nodes and fix distortion and filter outlier nodes, respectively; the PointCloudXYZIRADT message type corresponds to the edge between filter mirror and fix distortion nodes. The communication between filter self and filter mirror nodes is done using a mechanism that does not use the functions shown in TABLE I and thus is not measurable by RAPLET. The results show that a large part of the latency is occupied by ROS runtime processing (bottom figure). We believe the reason of the long latency is due to the relatively  large communication size (10MB). The large processing time is mainly due to the memory allocation and one-time data copy to use the message data in the next node. The effect of the Linux scheduling latency (PubQ latency and SubQ latency) is relatively small for an application with large size messages.</p><formula xml:id="formula_1">#$ " $ "$ ! "# #" # !" !$ " "$ $" "$ "" $ # # "# $ " $ !" "! $#" #$</formula><p>Fig. <ref type="figure" target="#fig_19">18</ref> shows the result of applying RAPLET to the edge between the filter range node and the grid filter node, while Fig. <ref type="figure" target="#fig_20">19</ref> shows the result of the edge between the grid filter node and the NDT scan matcher node. The sizes of the messages communicated in each edge is about 6MB and 25KB, respectively. The results show that the PubQ latency and SubQ latency are almost the same as those of intraprocess communications. Apart from ROS runtime, the kernel latency has a large variance and is in general longer than the PubQ and SubQ latencies. As we can see from Fig. <ref type="figure" target="#fig_19">18</ref> the ROS runtime processing dominates the entire latency when the communicated message is relatively large (6MB), while it is comparable as can be seen in Fig. <ref type="figure" target="#fig_20">19</ref> with other latencies when the message is relatively small (25KB).  </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. DISCUSSION</head><p>Profiling with RAPLET. We intend ROS application developers and users to evaluate the detailed communication latency characteristics of their application of interest using RAPLET during the test phase. For this usage, we believe that the measurement noise of RAPLET is acceptable considering its low performance overhead especially on real-world applications such as Autoware (as we have seen in Fig. <ref type="figure" target="#fig_15">14</ref> that the majority of communication latency is order of magnitudes  grater than 0.03 ms). Further enhancing the tool to enable the use of RAPLET under production is left for future work.</p><p>Cost of serialization and deserialization. Fig. <ref type="figure" target="#fig_7">8</ref> shows the overheads of serialization and deserialization, especially in large message sizes. This performance overhead is caused by the dynamic memory allocation and copy of the message. Indeed, Section VI reveals that the ROS execution time dominates the total publish/subscribe latency due to large-size messages. A possible solution to reduce the ROS execution time would be to employ other efficient IPC (inter-process communication) techniques such as TZC <ref type="bibr" target="#b18">[20]</ref>, or statically allocate message-size memory region in advance without using demand paging. Referring to the type information associated with the topic makes the latter solution feasible.</p><p>Extension to ROS2. The ROS community started to develop ROS2 <ref type="bibr" target="#b19">[21]</ref> to improve the real-time performance, which cannot be achieved in the original ROS (called ROS1 in this context). ROS2 is built upon DDS (Data Distribution Service) <ref type="bibr" target="#b20">[22]</ref>, which enables flexible configuration for realtime characteristics such as deadline, reliability, and durability. Replacing a ROS1 application to a ROS2 application can improve real-time performance, which motivates us to develop RAPLET for ROS2. We analyzed one of the major DDS implementations named CycloneDDS <ref type="bibr">[23]</ref> to investigate the hurdles to implement RAPLET for ROS2. CycloneDDS's architecture is more rich (having more layers to allow various configurations) than that of ROS1 and would require adjustment to each data path (more than a simple porting procedure). However our conclusion is that the data path and the latency intervals, more specifically the queues and intervals of asynchronous procedures, can be modeled similarly as ROS1 RAPLET which makes the development more or less straightforward.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. CONCLUSION</head><p>This paper presented RAPLET, a ROS-aware publish/subscribe latency evaluation tool to demystify the source of the latency of the given ROS applications. This tool provides ROS application developers with the way to measure the latency of their unmodified ROS applications in a ROS-aware manner and to visualize the obtained data. We also applied RAPLET to the simple Talker application and the real-world Autoware application. We demonstrated that the impact of the message size, CPU/network activities, and real-time classes provided by the Linux kernel on ROS applications can be successfully quantified. RAPLET is open-source software, and can be found at https://github.com/pflab-ut/RAPLET.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head></head><label></label><figDesc>Publication::publish() Receive a message from the node ros::Publication::enqueueMessage() Push a message to the publish queue ros::TransportTCP::write() Pass a message to the kernel ros::TransportTCP::read() Receive a message from the kernel ros::SubscriptionQueue::push() Push a message to the publish queue ros::SubscriptionQueue::call() Pop a message from the subscribe queue and call the callback function bind()/connect()/accept() Manage sockets for communicating</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>43</head><label></label><figDesc>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 04:58:16 UTC from IEEE Xplore. Restrictions apply.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>!</head><label></label><figDesc></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 5 :</head><label>5</label><figDesc>Fig.5: RAPLET system architecture. RAPLET consists of components for user-level information and kernel-level information, each of which is powered by LD_PRELOAD and eBPF.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 6 :</head><label>6</label><figDesc>Fig. 6: Latency breakdown of fixed-length (1KB) messages (N=4,096)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 7 :</head><label>7</label><figDesc>Fig.7: CDF (cumulative distribution function) of the runqueue latency of the publisher and subscriber threads in Fig.6</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: Message size vs. latency. The latency breakdown is shown as a stacked bar. The message size from 2KB to 32KB are omitted since they have almost similar characteristics to 1KB and 64KB.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head></head><label></label><figDesc>(a) 1KB message size. (b) 4MB message size.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Fig. 9 :</head><label>9</label><figDesc>Fig. 9: Performance impact of CPU-intensive application on the latency (mean and 99th percentile)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Fig. 10 :</head><label>10</label><figDesc>Fig. 10: Runqueue latency with and without CPU load (message size = 1KB).</figDesc><graphic coords="7,85.45,272.04,200.78,60.67" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_11"><head></head><label></label><figDesc>(a) With CPU-intensive application. (b) Without CPU-intensive application.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_12"><head>Fig. 11 :</head><label>11</label><figDesc>Fig. 11: Execution timeline of major ROS threads with and without CPU-intensive application (message size = 1KB).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_13"><head>Fig. 12 :</head><label>12</label><figDesc>Fig. 12: Performance impact of network activities on the latency (mean and 99th percentile)</figDesc><graphic coords="7,85.45,272.04,199.64,58.39" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_14"><head>Fig. 13 :</head><label>13</label><figDesc>Fig. 13: Performance impact of the load on the latency with prioritization (mean and 99th percentile)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_15"><head>Fig. 14 :</head><label>14</label><figDesc>Fig. 14: The DAG which consists of a subset of Sensing and Localization of Autoware. Two set of numbers represent the average latency (top) and the 95% tail latency (bottom) of the nodes and edges.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_16"><head>Fig. 15 :</head><label>15</label><figDesc>Fig. 15: End-to-end latency from the start of the velodyne cloud node callback to the end of the NDT scan matcher node callback.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_17"><head>Fig. 16 :</head><label>16</label><figDesc>Fig. 16: Latency of all intra-process communications within the velodyne nodelet manager process of message type sensor msgs::PointCloud2. The top and bottom figures represent different time range and scale, where the top and bottom figures range from 0 to 0.14 milliseconds and from 0.14 to 10 milliseconds, respectively.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_18"><head>Fig. 17 :</head><label>17</label><figDesc>Fig.17: Latency of all intra-process communications within the velodyne nodelet manager process of message type velodyne pointcloud::PointcloudXYZIRADT. The top and bottom figures are organized in a similar fashion with Fig.16.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_19"><head>Fig. 18 :</head><label>18</label><figDesc>Fig. 18: Latency of inter-process communications between the filter range node and the grid filter node of message type sensor msgs::PointCloud2. The top and bottom figures represent different time range and scale, where the top and bottom figures range from 0 to 0.14 milliseconds and from 0.14 to 10 milliseconds, respectively.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_20"><head>Fig. 19 :</head><label>19</label><figDesc>Fig. 19: Latency of inter-process communications between the grid filter node and the NDT scan matcher of message type sensor msgs::PointCloud2. The top and bottom figures represent different time range and scale, where the top and bottom figures range from 0 to 0.08 milliseconds and from 0.08 to 1.2 milliseconds, respectively.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>TABLE I :</head><label>I</label><figDesc>Functions that RAPLET intercepts.</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>TABLE II :</head><label>II</label><figDesc>Kernel-level event that RAPLET intercepts.</figDesc><table><row><cell>Kernel-level Event</cell><cell>Description</cell></row><row><cell>Runqueue Latency</cell><cell>Wait time for execution in runqueue.</cell></row><row><cell>Executed CPU</cell><cell>The CPU where each ROS thread executed.</cell></row><row><cell>Network Bandwidth</cell><cell>Stress on network stack.</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head>TABLE III :</head><label>III</label><figDesc>Evaluation platform.</figDesc><table><row><cell>Processor</cell><cell>Intel Core i7-10750H CPU @ 2.60GHz</cell></row><row><cell cols="2">Number of Cores 6 (Hyper Threading Disabled)</cell></row><row><cell>Memory</cell><cell>16 GB</cell></row><row><cell>GPU</cell><cell>NVIDIA GeForce RTX 2060</cell></row><row><cell>OS</cell><cell>Ubuntu 18.04 LTS</cell></row><row><cell>ROS</cell><cell>Melodic</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 04:58:16 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGEMENTS</head><p>This paper is based on results obtained from a project, <rs type="grantNumber">JPNP16007</rs>, subsidized by the <rs type="funder">New Energy and Industrial Technology Development Organization (NEDO)</rs>. This work was also supported in part by <rs type="funder">JSPS KAKENHI</rs> Grant Number <rs type="grantNumber">JP20K23319</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_382euqN">
+					<idno type="grant-number">JPNP16007</idno>
+				</org>
+				<org type="funding" xml:id="_K55JpvC">
+					<idno type="grant-number">JP20K23319</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Ros: an open-source Robot Operating System</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Quigley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Conley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Gerkey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Faust</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Foote</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Leibs</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Wheeler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">Y</forename><surname>Ng</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="s">ICRA Workshop on Open Source Software</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">3.2</biblScope>
+			<biblScope unit="page">5</biblScope>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">An open approach to autonomous vehicles</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Takeuchi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishiguro</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ninomiya</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Takeda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Hamada</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Micro</title>
+		<imprint>
+			<biblScope unit="volume">35</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="60" to="68" />
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Autoware on board: Enabling autonomous vehicles with embedded systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Tokunaga</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Maruyama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Maeda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hirabayashi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Kitsukawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Monrroy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Ando</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Fujii</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM/IEEE International Conference on Cyber-Physical Systems (ICCPS)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="287" to="296" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Real-time planning for automated multi-view drone cinematography</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nägeli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Meier</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Domahidi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Alonso-Mora</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Hilliges</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Graph</title>
+		<imprint>
+			<biblScope unit="volume">36</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<date type="published" when="2017-07">Jul. 2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">ROSflight: A lightweight, inexpensive MAV research and development tool</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Jackson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Ellingson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Mclain</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Unmanned Aircraft Systems (ICUAS)</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="758" to="762" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Parallel real-time scheduling of DAGs</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ferry</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">D</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="issue">12</biblScope>
+			<biblScope unit="page" from="3242" to="3252" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">The global EDF scheduling of systems of conditional sporadic DAG tasks</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+			<biblScope unit="page" from="222" to="231" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Energyefficient multi-core scheduling for real-time DAG tasks</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Guo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bhuiyan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Xiong</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro conference on real-time systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title/>
+		<author>
+			<persName><forename type="first">Nodelet-Ros</forename><surname>Wiki</surname></persName>
+		</author>
+		<ptr target="http://wiki.ros.org/nodelet" />
+		<imprint>
+			<date type="published" when="2021-03-31">Mar. 31, 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Valgrind: a framework for heavyweight dynamic binary instrumentation</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Nethercote</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Seward</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Sigplan notices</title>
+		<imprint>
+			<biblScope unit="volume">42</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="89" to="100" />
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">Logging-ROS Wiki</title>
+		<ptr target="http://wiki.ros.org/roscpp/Overview/Logging" />
+		<imprint>
+			<date type="published" when="2021-03-31">Mar. 31, 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">The LTTng tracer: A low impact performance and behavior monitor for GNU/Linux</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Desnoyers</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">R</forename><surname>Dagenais</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Ottawa Linux Symposium (OLS)</title>
+		<imprint>
+			<date type="published" when="2006">2006. 2006</date>
+			<biblScope unit="page" from="209" to="224" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Dynamic instrumentation of production systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Cantrill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">W</forename><surname>Shapiro</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">H</forename></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">USENIX Annual Technical Conference (ATC)</title>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+			<biblScope unit="page" from="15" to="28" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">msg-ros wiki</title>
+		<ptr target="http://wiki.ros.org/msg" />
+		<imprint>
+			<date type="published" when="2021-03-31">Mar. 31, 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<monogr>
+		<author>
+			<persName><forename type="first">B</forename><surname>Gregg</surname></persName>
+		</author>
+		<title level="m">BPF Performance Tools</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">The rise of eBPF for non-intrusive performance monitoring</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Cassagnes</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Trestioreanu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Joly</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>State</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE/IFIP Network Operations and Management Symposium (NOMS)</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="1" to="7" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<title level="m" type="main">Stress-ng</title>
+		<ptr target="https://kernel.ubuntu.com/cking/stress-ng/" />
+		<imprint>
+			<date type="published" when="2021-03-31">Mar. 31, 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">iPerf -The TCP, UDP and SCTP network bandwidth measurement tool</title>
+		<ptr target="https://iperf.fr/" />
+		<imprint>
+			<date type="published" when="2021-03-31">Mar. 31, 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">TZC: efficient interprocess communication for robotics middleware with partial serialization</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Tan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Hu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Manocha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Hu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="7805" to="7812" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">Open source robotics foundation (OSRF)</title>
+		<ptr target="https://github.com/ros2" />
+		<imprint>
+			<date type="published" when="2021-03-31">Mar. 31, 2021</date>
+		</imprint>
+	</monogr>
+	<note>ROS2</note>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title level="m" type="main">Object management group (OMG). data distribution services (DDS) v1.4</title>
+		<ptr target="http://www.omg.org/spec/DDS/1.4/" />
+		<imprint>
+			<date type="published" when="2021-03-31">Mar. 31, 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

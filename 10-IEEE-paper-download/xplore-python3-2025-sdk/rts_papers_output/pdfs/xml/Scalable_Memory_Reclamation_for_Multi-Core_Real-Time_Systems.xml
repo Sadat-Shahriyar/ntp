@@ -1,0 +1,809 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Scalable Memory Reclamation for Multi-Core, Real-Time Systems</title>
+				<funder ref="#_KgU5xzp #_WmvM9m4">
+					<orgName type="full">ONR</orgName>
+				</funder>
+				<funder ref="#_wNEhgTe">
+					<orgName type="full">National Science Foundation</orgName>
+				</funder>
+				<funder ref="#_DHk4uBU">
+					<orgName type="full">unknown</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Yuxin</forename><surname>Ren</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">The George Washington University Washington</orgName>
+								<address>
+									<region>DC</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Guyue</forename><surname>Liu</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">The George Washington University Washington</orgName>
+								<address>
+									<region>DC</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author role="corresp">
+							<persName><forename type="first">Gabriel</forename><surname>Parmer</surname></persName>
+							<email>gparmer@gwu.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">The George Washington University Washington</orgName>
+								<address>
+									<region>DC</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Björn</forename><surname>Brandenburg</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="department">Max Planck Institute for Software Systems</orgName>
+								<address>
+									<settlement>Kaiserslautern</settlement>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Scalable Memory Reclamation for Multi-Core, Real-Time Systems</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">2FB18036FB329924B9EC5EB668BFBBAC</idno>
+					<idno type="DOI">10.1109/RTAS.2018.00025</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T18:01+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>A core challenge in best utilizing an increasing number of cores in real-time systems is addressing the problem of efficient and predictable resource sharing. Traditional mechanisms for mutual exclusion, such as locks, limit parallelism due to serialized resource access. Relaxing mutual exclusion, readerwriter locks enable selective parallelism for a subset of accesses, but can suffer from increased implementation overheads. In all such implementations, the costs of cache-coherency alone can be prohibitive for an increasing number of cores.</p><p>This paper investigates the use of techniques such as Read-Copy Update (RCU) to enable truly parallel access to datastructures. Such techniques optimize for data-structure readpaths, and can completely avoid stores to shared structures, thus avoiding cache-coherency overheads. We show that existing implementations of preemptive RCU aren't designed to provide real-time latencies, and require a potentially unbounded amount of dynamically allocated memory. Thus, we introduce two new implementations that are both predictable and efficient, and a matching analysis that establishes bounds on memory consumption. We additionally provide a schedulability analysis that demonstrates the effectiveness of scalable read-side operations, achieving consistently higher schedulability than existing techniques. We further apply the analysis to provide admission control for a soft real-time application to both achieve higher throughput than existing approaches (up to 40% higher) while limiting 99th percentile read-path latencies (4x lower than existing techniques).</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>The increasing utility and availability of multi-core processors in embedded systems motivates efficiently and predictably harnessing their parallel computation capacity. Multicore systems promise a decrease in size, weight, and power (SWaP) by effectively consolidating disparate functionalities onto a single processor, while possibly increasing a system's capabilities. However, the use of multi-core processors in real-time systems comes with a number of challenges, including contention in hardware resources such as caches, memory buses, and DRAM. In particular, prior work has devoted significant attention towards developing effective mechanisms and timing analyses for the controlled sharing of software data-structures in cache-coherent architectures. Such techniques are essential to effectively utilize multi-core systems. However, most of this research is based on locks that induce expensive cache-coherency traffic, and impose mutual exclusion that sequences parallel operations. To achieve high utilization with predictable behavior given an ever-increasing number of cores, techniques are necessary that minimize cache-coherency operations and avoid sequencing otherwise parallel computation.</p><p>In a parallel development, high-end computation in datacenters is seeing an increased need for predictable execution. A single request from a client often results in cascades of many sub-requests (often hundreds) <ref type="bibr" target="#b0">[1]</ref>. The latency of the client's request is often dependent on some function of the maximum latency for any of the sub-requests. This has motivated work into reducing the heavy tail of latency in data-centers <ref type="bibr" target="#b1">[2]</ref>. These systems already contain many cores (for example, HP Superdome systems with over 200 cores), often spread across multiple sockets. Thus, there is benefit to applying techniques that provide increased predictability while effectively harnessing the system's parallelism. From embedded systems up to the data-center, predictably utilizing parallel resources is a pervasive, important challenge. This paper investigates real-time Scalable Memory Reclamation (SMR), which applies SMR techniques to real-time systems. SMR enables unsynchronized concurrent access of readers to data-structures. By eliding locks and other forms of synchronization, shared resource access requires no special treatment and is analytically an extension of sequential code. However, this lack of synchronization causes obvious challenges. Read-Copy-Update (RCU) <ref type="bibr" target="#b2">[3]</ref> can be used for data-structure updates that are made by copying (a part of) the data-structure into newly allocated memory, updating the copy, and atomically replacing the old version with the new. This completely avoids synchronization in the read path, and minimizes it in the update path. Unfortunately, it presents a new problem: the memory for the old (parts of the) datastructure must eventually be reclaimed for reuse, but only after no reader is accessing it any longer. RCU converts a scalability problem into a garbage collection problem.</p><p>SMR techniques solve the garbage collection problem by conservatively ascertaining whether a memory node that has recently been disconnected from a data-structure is still possibly accessed by a concurrent thread via stale threadlocal references. This is determined based on the concept of a grace period <ref type="bibr" target="#b2">[3]</ref>. A grace period starting at time t 1 , involves calculating -and often waiting for -a time t 2 , where t 2 is a time when certainly no references exist to nodes removed from the data-structure before time t 1 . A node made unreachable within the data-structure, and freed at time t 0 (&lt; t 1 ) can only be reclaimed and reallocated after time t 2 . SMR techniques calculate a quiescence point -the time when a grace period has elapsed. Before a quiescence Fig. <ref type="figure">1</ref>: 99th percentile measured cost of synchronization primitives point is reached and previously freed memory is reclaimed, a potentially large amount of memory will accumulate. Clearly, to be practical in a real-time system, the maximum amount of accumulated garbage memory must be bounded a priori. Contributions. This paper investigates three aspects of realtime SMR. First, we introduce two real-time SMR implementations and show that real-time SMR increases scalability and predictability by reducing worst-case blocking time. Second, we determine the timing properties of quiescence calculations, and integrate them into a response-time analysis of a hard real-time system. Third, we calculate memory bounds for the system and consider the trade-off between the overhead of frequent quiescence calculation, and the memory build up from infrequent quiescence calculation. With the goal of system schedulability, we introduce a quiescence frequency selection algorithm to minimize memory consumption.</p><p>Three SMR implementations are studied: (1) U-RCU <ref type="bibr" target="#b2">[3]</ref> a preemptive version of RCU quiescence detection 1 , (2) RT-ParSec -a variant of ParSec <ref type="bibr" target="#b3">[4]</ref> focused on scalability and adapted to real-time systems, and (3) Time-based quiescence -which has been used in a non-preemptive environment to achieve scalable predictability <ref type="bibr" target="#b4">[5]</ref>, and which we here adapt to preemptive environments. We investigate all three approaches as they each represent different trade-offs between the necessary hardware and system support, and the realized level of quiescence scalability.</p><p>In §VII, we evaluate these real-time SMR techniques in two environments. First, using the response-time analysis derived in §VI, we study their impact on system schedulability compared to conventional techniques such as non-preemptive spin-locks, while also investigating the resulting increase in memory consumption due to the SMR facilities. Second, we apply SMR to memcached, a popular cloud service that is used in latency-sensitive environments <ref type="bibr" target="#b5">[6]</ref>. We combine admission control with our timing analysis to provide soft real-time guarantees and bounded memory consumption.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND AND RELATED WORK</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Locks and Reader-Writer Locks</head><p>Locks serialize critical section execution of data-structure operations. This makes analysis of the operation's correctness as simple as for sequential code at the cost of losing parallelism. Reader-Writer (RW) locks allow readers to access critical sections in parallel with each other, while updates are 1 Note that RCU includes two separate functionalities. First, it provides an SMR implementation. This is the main focus of this paper. Second, it provides the read-copy-update namesake technique for updating datastructures. We assume this latter technique is used with each of the studied SMR implementations. still mutually exclusive with other writers and readers. Past research in the timing analysis of locks has considered many different dimensions, such as should waiting tasks spin or suspend <ref type="bibr" target="#b6">[7]</ref>, the impact of preemptive versus non-preemptive critical sections <ref type="bibr" target="#b7">[8]</ref>, and how to analyze read-write locks <ref type="bibr" target="#b8">[9]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Challenges with Locks</head><p>Cache-coherency overheads. An inherent limitation of locking algorithms is that they explicitly coordinate synchronizing tasks with writes to flags, counters, or pointers managed in shared control data-structures (i.e., the lock), which can trigger a substantial amount of cache-coherency traffic, and these hardware overheads inflate the worst-case overhead of locks. Figure <ref type="figure">1</ref> details maximum overheads observed when using different synchronization primitives including a ticketlock, an MCS lock <ref type="bibr" target="#b9">[10]</ref>, a RW ticket lock <ref type="bibr" target="#b8">[9]</ref>, U-RCU and two real-time SMR variants using the hardware detailed in §VII. The two real-time SMR primitives introduced in this paper incur the least cost in the read path, while the maximum cost of other lock-based approaches increases significantly as the number of cores in the system increases. For the update-path, as explained later, real-time SMR implementations utilize an MCS lock, and thus exhibit the same cost as MCS locks. Worst-case blocking. SMR is unique in that it attempts to minimize synchronization between readers and writers. Figure <ref type="figure" target="#fig_0">2</ref> shows how the blocking time of locks compares to that of SMR. For example, with a mutex (Figure <ref type="figure" target="#fig_0">2</ref>(a)), thread (or task) τ 1 delays both τ 2 and τ 3 , and can cause them to miss their deadlines. While RW locks (Figure <ref type="figure" target="#fig_0">2(b)</ref>) reduce blocking time incurred by τ 2 , τ 3 still must block for all readers to finish, and still misses its deadline. For realtime SMR (Figure <ref type="figure" target="#fig_0">2</ref>(c)), the blocking time of τ 3 is further reduced by running readers concurrently with writers. As a result, all tasks meet their deadlines. We next discuss how real-time SMR achieves this. C. Non-blocking Data-structures with RCU RCU (Read-Copy-Update) <ref type="bibr" target="#b2">[3]</ref> is a technique that separates the read path that involves only loads from shared cachelines, from the update path that modifies the data-structure. Thus the read path includes no explicit synchronization with concurrent modifications to the data-structure. However, since readers do not synchronize, data-structure nodes cannot be modified in a way that would provide readers with a snapshot of the data-structure that is inconsistent, or that has invalid pointers. Hence, care must be taken to make sure that updates to the data-structure are atomic with respect to readers. Figure <ref type="figure" target="#fig_1">3</ref> illustrates an RCU-based linked list example of parallel writers and readers. The update path for RCU (1) finds the node to be modified (Figure <ref type="figure" target="#fig_1">3</ref>(a)), <ref type="bibr" target="#b1">(2)</ref> copies that node into a newly allocated structure (Figure <ref type="figure" target="#fig_1">3</ref>(b)), (3) modifies that node with the intended changes (Figure <ref type="figure" target="#fig_1">3</ref>(b)), and (4) atomically both unlinks the old node from the data-structure while linking in the new node (Figure <ref type="figure" target="#fig_1">3(c)</ref>).</p><p>RCU cannot trivially be applied to every data-structure as it has several constraints: (1) RCU requires writers to allocate and copy a node's memory, which can be prohibitive if nodes require large amounts of memory; (2) RCU requires updates to be performed by a single atomic instruction, which implies that nodes should only be reachable by a single pointer, a constraint that rules out, for example, doubly linked lists; (3) Updates are often mutually exclusive. To illustrate constraint (3), suppose that in Figure <ref type="figure" target="#fig_1">3</ref>(b) another thread concurrently inserts a node after b. This inserted node would be lost as a result of disconnecting b (see Figure <ref type="figure" target="#fig_1">3(c)</ref>). We therefore assume mutual exclusion among writers to rule out such race conditions. We note that research exists that lifts this assumption <ref type="bibr" target="#b10">[11]</ref>, <ref type="bibr" target="#b11">[12]</ref>. (4) Lastly, memory reclamation (Figure <ref type="figure" target="#fig_1">3(e)</ref>) is required, which is discussed next. Despite a restrictive programming model, RCU has been shown to scale well <ref type="bibr" target="#b2">[3]</ref> and is used in more than 6500 API calls in the Linux kernel <ref type="bibr" target="#b12">[13]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Scalable Memory Reclamation</head><p>Although RCU improves scalability, it raises a new challenge -reclaiming old unlinked objects. For example, in Figure <ref type="figure" target="#fig_1">3</ref>, node b's memory needs to be reclaimed eventually. However, it cannot be reclaimed immediately after node b is unlinked, since a concurrent reader may potentially access the memory, as illustrated in Figure <ref type="figure" target="#fig_1">3(c)</ref>. Therefore, the memory reclamation has to be delayed to a point when no readers can potentially hold a reference to the old data. As shown in Figure <ref type="figure" target="#fig_1">3(d)</ref>, node b can be safely freed after τ 1 finishes reading b. Thus, memory keeps accumulating before it can be reclaimed, which obviously creates a challenge in realtime systems. Dynamic memory allocation is often avoided, and unless the amount of memory that accumulates awaiting reclamation can be bounded, it is difficult to characterize a system's worst-case behavior. The SMR implementation impacts the amount of accumulated memory by (1) the amount of time SMR takes to finish, and (2) the amount of memory SMR reclaims. Predictable memory utilization requires bounds on both factors. However, no prior SMR implementation provides such guarantees.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Memory States</head><p>In real-time applications, some portion of memory may never be freed (e.g., a and c in Figure <ref type="figure" target="#fig_1">3</ref>), but the amount of such memory has to be upper-bounded in any system. Instead of bounding total memory consumption, we focus on the dynamic memory consumption introduced by updates and real-time SMR. This part of dynamic memory goes through a sequence of states:</p><p>• Live memory. Memory that is both allocated and reachable in the data-structure, such as b and b' in Figure <ref type="figure" target="#fig_1">3</ref>(b). • Zombie memory. Memory that has been unlinked from the data-structure, but can still be referenced by others (pending a grace period), such as b in Figure <ref type="figure" target="#fig_1">3(c</ref>). • Garbage. Unreachable, freed memory that has yet to be reclaimed (b in Figure <ref type="figure" target="#fig_1">3(d)</ref>). • Freed memory. Memory has been reclaimed and is available to future allocation (b in Figure <ref type="figure" target="#fig_1">3</ref>(e)).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>F. SMR API</head><p>The primary goal of SMR implementations is to distinguish garbage from zombie memory. Toward this, SMR implementations require that readers use explicit code annotations when accessing the data-structure. Two common SMR interfaces are provided for such annotations:</p><p>• enter() to declare the start of a code section in which references to nodes can exist. • exit() to declare the end of that section. No thread-local references to nodes can remain after this. The section between enter and exit is referred to as a "readside section" or "parallel section" interchangeably. Threads are said to be in a quiescent state when they are not inside a parallel section. A grace period is a time period during which every thread becomes quiescent at least once. Another SMR function is provided to detect the end of a grace period:</p><p>• synchronize() which enables the calling thread to wait for a grace period to elapse.   Figure <ref type="figure" target="#fig_2">4</ref> depicts example pseudocode illustrating the use of SMR. Note that all read-path operations are delimited by enter and exit, and free node must contain logic to ensure a quiescence period has elapsed.</p><p>The key principle of SMR is that, if an object is unlinked from the shared data-structure, it can be safely reused after a grace period has passed. Because readers drop all references to the object after they exit the read-side section, and it is no longer linked within the data-structure, they cannot access the object anymore. Figure <ref type="figure" target="#fig_3">5</ref> depicts SMR's interaction between parallel sections and quiescence detection. Read paths are denoted as grey blocks. At time t 0 , a writer unlinks a node, and at time t 1 , it calls synchronize to await the passage of a grace period. The grace period extends past when any reader active at time t 1 has exited, and at that point (t 2 ), the system is quiescent. Thus, after time t 2 , it is safe to reclaim the object unlinked at time t 0 .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>G. Dynamic Memory Management</head><p>Real-time SMR requires dynamic memory management (lines 7 and 18 in Figure <ref type="figure" target="#fig_2">4</ref>), which is challenging in realtime systems as it is both difficult to (1) reasonably bound execution time, and (2) bound memory consumption due to fragmentation. With SMR in real-time systems, we assume size uniformity of the dynamic objects, and use a slab allocator <ref type="bibr" target="#b13">[14]</ref>. To avoid competing for access to a single shared pool, the allocator uses hierarchical allocation with thread-local memory caches, and then from within a global allocation pool. That, combined with a slab allocator's ability to eliminate internal fragmentation, makes it appealing for systems that require memory bounds. We further improve the slab allocator by handling "remote frees" predictably. However, as real-time memory allocation is out of scope, these details can be found in the Appendix. Summary. Although SMR avoids reader-side synchronization and enables reader-writer parallelism, memory cannot be reclaimed until quiescence has been achieved. Furthermore, bounding memory utilization requires SMR to efficiently reclaim garbage predictably. This makes it challenging to naively apply existing SMR implementations in real-time systems. Thus, this paper focuses on a real-time SMR implementation ( §IV), and its impact on both response times and memory consumption in real-time systems ( §VI).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. SMR IMPLEMENTATION CASE STUDY: U-RCU</head><p>First, we introduce the preemptive quiescence detection in User-level Read-Copy-Update (U-RCU) <ref type="bibr" target="#b2">[3]</ref>. Figure <ref type="figure" target="#fig_4">6</ref> is the simplified pseudo-code for this U-RCU implementation. A global variable rcu gen ctr is initialized to 1 and a per-thread variable rcu reader ctr is initialized to zero. The read path simply records the global counter. When exiting, it unsets its local counter, which signals that it has left the parallel section, and wakes up threads waiting for quiescence (if any).</p><p>Toggled by synchronize rcu (line 16), the global counter iterates through two states. These are used to determine if a read path started before or after the thread executing the write path started waiting for a grace period to elapse. The quiescing thread suspends in wait for readers waiting for existing read paths to complete. Thus, returning from synchronize rcu indicates a grace period elapses and garbage can be reclaimed. For instance, in Figure <ref type="figure" target="#fig_5">7</ref>, synchronize rcu is invoked at t 3 , and then blocks awaiting quiescence, which occurs at t 4 . When synchronize rcu returns, it is safe to reclaim all memory freed before t 3 . A lock ensures that only a single thread calculates quiescence at a time (line 13). To reduce lock contention, a trick is used: concurrently quiescing threads queue in a wait-free queue, waiting for their quiescence to be calculated by the head quiescing thread (not shown in the code). A detailed explanation of U-RCU is provided by Desnoyers et al. <ref type="bibr" target="#b2">[3]</ref>. Limitation. U-RCU has two challenges that limit its scalability and predictability. From an implementation perspective, when detecting quiescence, the modification of the global counter causes cache-coherency traffic for all readers, and the use of a lock increases overheads and blocking. From an analytical perspective, without knowledge of when an object became zombie memory, a quiescing thread has to suspend, waiting for all pre-existing readers to complete their parallel Three readers execute on separate cores, in parallel to an update path. At t 0 (t 2 ), node n 0 (n 1 ) is unlinked from the data-structure. At t 3 , the updating thread attempts to quiesce (sync). U-RCU blocks awaiting quiescence which occurs at t 4 after all parallel sections active at t 3 have exited. In contrast, RT-ParSec calculates the most recent quiescence point, namely t 1 . RT-ParSec does not block waiting for current readers to complete. Time t 1 is the last quiescence point: after that point a reader exists that prevents quiescence. After this quiescence calculation, U-RCU can recycle objects unlinked before t 3 (n 0 and n 1 ), and RT-ParSec reclaims all garbage unlinked before the calculated quiescence time t 1 (n 0 ). sections. This couples the quiescence latency to each reader's worst-case response time.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. REAL-TIME SMR IMPLEMENTATION</head><p>We next introduce two real-time SMR implementations that are both predictable, and provide bounds on garbage memory. In contrast to U-RCU that blocks waiting for quiescence among the currently active readers, real-time SMR instead calculates the time most recently in the past when quiescence was achieved. All memory deallocated before that time can be reclaimed. Notably, this avoids the need for real-time SMR to block on parallel readers, but possibly decreases the amount of memory it can reclaim at a time.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. RT-ParSec</head><p>RT-ParSec is a variant of ParSec <ref type="bibr" target="#b3">[4]</ref> that has been designed to provide guarantees on memory bounds, at the expense of a decrease in scalability relative to ParSec. Similar to ParSec, RT-ParSec tags memory with the time that it was freed, and each thread maintains the timing information about when it enters and exits a parallel section. That timing information is locally accessed via the timestamp counter (e.g. Intel's invariant timestamps described in §17.14.1 of <ref type="bibr" target="#b14">[15]</ref>), thus avoiding coherency traffic. To ensure that all queued garbage memory is reclaimed, thus providing predictable memory consumption, RT-ParSec calculates the most recent time in the past when quiescence was achieved. In contrast, U-RCU attempts await quiescence, thus it blocks waiting while all current readers have left their read-side sections.</p><p>RT-ParSec pseudo-code is shown in Figure <ref type="figure">8</ref>. RT-ParSec and ParSec is the ps quiesce implementation. Specifically, RT-ParSec only scans threads who are currently in their parallel sections and returns the earliest time they entered the parallel sections -the last quiescence time. This ensures that all memory made unreachable before that returned time point can be reclaimed (lines <ref type="bibr" target="#b26">[27]</ref><ref type="bibr" target="#b27">[28]</ref><ref type="bibr" target="#b28">[29]</ref><ref type="bibr" target="#b29">[30]</ref>. In §VI, we show that by controlling quiescence detection frequency, the amount of collected garbage is bounded, which further guarantees that the execution time of the reclamation loop is bounded (lines 27-30). In ParSec, each thread caches the timing information of all other threads, and uses this cached information, where possible, to determine if quiescence is achieved. Using cached information avoids frequent access to remote cache lines, but void * node = dequeue_peek ( t . q u i e s c e q ) ; 26 t s c t q = ps_quiesce ( ps ) ; 27 w h i l e ( node-&gt;f r e e t s c &lt; q ) { 28 free ( dequeue ( t . q u i e s c e q ) ) ; 29 node = dequeue_peek ( t . q u i e s c e q ) ; 30 } 31 } leads to inaccurate quiescence calculation causing possibly unbounded memory consumption. In contrast, RT-ParSec directly gathers timing information from other cores, which guarantees accurate quiescence calculation. On the other hand, RT-ParSec causes more cache traffic, which decreases scalability. A comparison of quiescence detection behavior in U-RCU and RT-ParSec is depicted in Figure <ref type="figure" target="#fig_5">7</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Temporal Quiescence</head><p>Hard real-time systems provide strong guarantees on the execution properties of tasks in the system. This approach to SMR calculates quiescence based entirely on the system task model. The maximum parallel section length is known a priori, and a response-time analysis can determine the longest possible grace period (based on all task periods). Thus, at a time t, the most recent quiescence point is simply t minus this a-priori-calculated grace period. The pseudocode is presented in Figure <ref type="figure">9</ref>.</p><p>Temporal quiescence is used in the non-preemptive SPECK kernel <ref type="bibr" target="#b4">[5]</ref> to control the re-use of kernel data-structures. However, an analysis of the worst-case data-structure access time is comparably simple in a non-preemptive environment.</p><p>§VI demonstrates how to derive the longest-possible grace period given a response-time analysis in the general case.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. SYSTEM MODEL AND ASSUMPTIONS</head><p>Deferred memory reclamation will cause freed memory to accumulate, which both inflates memory consumption and increases garbage collection interference. Thus a coanalysis of both memory consumption and response time is mandatory to derive bounds necessary for predictable SMR. This section introduces the system model, in preparation of the corresponding analysis in §VI.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. System Model</head><p>We consider a real-time workload consisting of N sporadic tasks scheduled on M identical cores, τ = {τ 0 , . . . , τ N }. Each task consists of an infinite stream of jobs. Each task τ i is characterized by a tuple (e i , p i , a i ). e i is the worst-case execution time (WCET) of a job in τ i , and p i is the minimum inter-arrival time between jobs of τ i . a i is the maximum number of memory allocations made by one of τ i 's jobs. Each task has an implicit deadline equal to its period p i . A task's utilization is defined by u i = ei pi . A job is pending from its release until it completes. The response time r i denotes the maximum duration that any job of τ i remains pending. We assume partitioned fixed-priority scheduling, as mandated, for example, by AUTOSAR <ref type="bibr" target="#b15">[16]</ref>. Each task is statically assigned to a core, and each core schedules pending jobs in order of decreasing task priority. The set of tasks with higher (lower) priority than τ i (on the same core as τ i ) is hp i (lp i ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Shared Resources</head><p>The tasks also share some global resources. When a job is going to observe (update) a shared resource, it issues a read (write) request, and is said to be a reader (writer). Γ r i (Γ w i ) denotes the WCET of read (write) requests in task τ i . Similar to task response time, we define request response time as the maximum duration from when a request is issued until it completes. Δ r i (Δ w i ) denotes the read (write) request response time. For ease of notation, we make the simplifying assumption that (1) there is one shared resource, (2) a job issues at most one read and one write request, and that those requests are not nested within each other. However, multiple memory objects can be allocated or released during even one write request. Note that these restrictions are not fundamental. The presented analysis can be easily extended to multiple resources and multiple non-nested requests per job by adding up the blocking times of multiple requests or resource, as well as the overall memory usage.</p><p>As discussed in §II, real-time SMR enables read requests to run concurrently with other read or write requests. However write requests use mutual exclusion. Similar to the RW-FMLP <ref type="bibr" target="#b8">[9]</ref>, we assume non-preemptible task-fair mutexes (such as ticket locks or MCS locks) are used to serialize writers. When a job of task τ i issues a write request, τ i becomes non-preemptive and executes the corresponding locking protocol. The write request is satisfied once τ i holds the write lock, and preemption is disabled until τ i completes its write request. In contrast to the RW-FMLP under which both read and write requests are both non-preemptive, only write requests are non-preemptive in real-time SMR.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Memory Model</head><p>Hard real-time systems require predictable task execution times to ensure deadlines are met, and bounded memory requirements to prevent memory exhaustion. Though SMR techniques show promise to enable low-overhead, predictable parallelism, they do require both dynamic memory allocation, and delayed reclamation. To bound the memory consumption caused by SMR, every task must consume only a finite amount of memory. To capture this constraint, we use the release times of SMR memory operations to order all the memory allocation and deallocation operations performed by all tasks. L i is the maximum time interval between the ith allocation and the ith deallocation (these two operations might not refer to the same memory object). We use L * to represent the maximum value of L i (i.e. L * = max ∀i L i ). L * captures the natural "ebbs and flows" of transient memory utilization in the system, which is application and schedule specific. Between the time the memory is freed, and the time it can be reused, delayed memory reclamation further increases the amount of required memory.</p><p>We assume that a job issues zero or more pairs of memory allocation and deallocation requests. This assumption is consistent with the typical use of RCU where a new node allocation is followed by the freeing of the old version of the node. While write requests are done within non-preemptive locks, memory operations are not necessarily protected by the lock. Thus, L * is upper-bounded by the maximum response time of writer tasks. L i can encode more complicated allocation and free behaviors such as producer/consumer or publisher/subscriber synchronization. Accurate L * bounds can be computed with real-time calculus <ref type="bibr" target="#b16">[17]</ref>, but we leave such extensions for future work.</p><p>With respect to memory consumption, this paper focuses on bounding zombie and reclaimable memory, because the amount of live memory is only determined by the application's memory usage patterns. The amount of zombie memory is determined by the system's scheduling policy and task's parallel section WCET. The SMR implementation and activation times determine the amount of garbage. SMR detects quiescence, thus reclaims memory sporadically. The interarrival time of quiescence detection for task τ i is denoted by q i . We assume that the quiescence detection is integrated into the writer's execution (i.e., as a function call). This is commonly the case. For example, the act of freeing memory can trigger quiescence detection (line 17 in Figure <ref type="figure" target="#fig_2">4</ref>). Separating quiescience inter-arrivals from task inter-arrivals enables quiescence detection to be done infrequently to trade quiescence overhead for larger accumulated amounts of non-reclaimed memory. Quiescence detection could be implemented as a separate task.</p><p>We make no assumptions about the locality of memory allocations and frees, thus assume all memory is remotely freed in the worst-case. This means that the memory chunk is freed on a core other than where it was allocated, a situation that complicates per-core memory pools. We further assume that memory can be balanced between local pools immediately in case more memory is needed. This assumption is true for our current slab allocator modulo external fragmentation in each slab <ref type="bibr" target="#b13">[14]</ref>.</p><p>In the following analysis, we let r * σ denotes the maximum response time of quiescence tasks, α is the quiescence detection implementation overhead, and β is the implementation cost of collecting a memory object.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. MEMORY AND RESPONSE-TIME ANALYSIS</head><p>Given the system model in §V and the system operation overheads, we bound both the whole system's worst-case memory requirement and each task's response time.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Worst-case Memory Consumption</head><p>A well-known upper bound on the number of jobs issued by τ i in any interval of length W is W +ri pi (e.g. see <ref type="bibr" target="#b17">[18]</ref>), which implies a bound on the maximum memory needs. Lemma 6.1: Within a time window W , the maximum number of memory objects task τ i can allocate is</p><formula xml:id="formula_0">A i (W ) = W + r i p i × a i .<label>(1)</label></formula><p>and the maximum number of memory objects allocated by the whole system over a window W is</p><formula xml:id="formula_1">A(W ) = N i=1 A i (W ).<label>(2)</label></formula><p>Lemma 6.2: For any specific memory object allocation, there will exist a memory object that can be reclaimed after at most δ time, where</p><formula xml:id="formula_2">δ = L * + Δ * + q * .<label>(3)</label></formula><p>Proof Sketch: Based on the definition of L * , for any allocation, there is a corresponding deallocation within L * . That deallocated (zombie) memory will become garbage after no later than when a grace period (Δ * ) has elapsed. After this time interval, all threads will have exited all parallel sections. Hence, it will be collected by any following memory reclamation, which happens at the latest when the next quiescence task is released (q * ). We consider the maximum of all q i to reflect that the memory could be reclaimed by any task. Because U-RCU will block for Δ * as part of its quiescence detection ( §III), a memory object can be reclaimed by U-RCU even if Δ * has not elapsed before quiescence detection is performed. For example, in Figure <ref type="figure" target="#fig_5">7</ref>, memory node n 1 can be reclaimed by U-RCU. Thus, we have a simplified result for the U-RCU case:</p><formula xml:id="formula_3">δ U = L * + q * .<label>(4)</label></formula><p>Theorem 6.3: The maximum total amount of zombie and garbage memory objects in the whole system is upperbounded by:</p><formula xml:id="formula_4">G * = A(δ + r * σ ) = N i=1 1 + δ + r * σ + r i p i × a i . (<label>5</label></formula><formula xml:id="formula_5">)</formula><p>Proof Sketch: Recall that r * σ captures the maximum amount of time quiescence detection takes to finish. From lemma 6.2, at any point in time t, the number of collected objects is no less than the number of memory allocations before t -(δ + r * σ ). Therefore the worst-case memory consumption is the maximum amount of memory allocated by all tasks during a time interval of length δ + r * σ .</p><p>As an example, the maximum memory consumption is illustrated in Figures <ref type="figure" target="#fig_1">3(b) -(d)</ref>, where new objects have been allocated while old ones are not reclaimed yet, thus zombie and garbage memory keeps accumulating until SMR finishes quiescence detection and garbage collection.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Response Time Analysis</head><p>Audsley et al. <ref type="bibr" target="#b18">[19]</ref> established that a bound on τ i 's response time r i is given by the smallest positive solution of</p><formula xml:id="formula_6">r i = e i + b i + τk∈hpi r i p k × e k . (<label>6</label></formula><formula xml:id="formula_7">)</formula><p>where b i denotes the total blocking time incurred by τ i . Thus, in order to calculate r i , first we need to bound the interference from higher-priority tasks including SMR overheads, and then determine the blocking time caused by writer's mutex and SMR operations (in case of U-RCU). SMR Interference. To account for SMR overheads, we treat quiescence detection as a separate task. For each writer task τ i , there is a derived memory reclamation task σ i = (e(σ) i , q i ), whose priority is higher than τ i but lower than any task in hp i . ghp i represents the set of memory reclamation tasks with higher priority than τ i on the same core as τ i .</p><p>Memory reclamation contains two steps -detecting quiescence and reclaiming garbage. The cost of the second step depends on the amount of garbage. In the worst case, a deferred memory reclamation task will collect all garbage, thus leaving other quiescence tasks with nothing to reclaim. Hence, the total amount of work of all deferred memory reclamation tasks is upper-bounded by the maximum amount of garbage. Given the response time r i , similar to theorem 6.3, the maximum amount of garbage collected is bounded by A(δ + r i ), which implies the following bound.</p><p>Theorem 6.4: Interference on task τ i from local higherpriority SMR tasks is bounded by</p><formula xml:id="formula_8">I(σ) i = ⎛ ⎝ σk∈ghpi r i q k × α ⎞ ⎠ + A(δ + r i ) × β. (<label>7</label></formula><formula xml:id="formula_9">)</formula><p>Recall that Δ * (the maximum read request response time) is used to determine zombie memory's liveness (lemma 6.2). In Eq 8, Δ r i is calculated similarly using Eq 6. In addition to inflating SMR interference accordingly, we need to replace e i with Γ r i and set b i to 0 (parallel section is non-blocking).</p><formula xml:id="formula_10">Δ r i = Γ r i + ⎛ ⎝ τk∈hpi Δ r i p k × e k ⎞ ⎠ + ⎛ ⎝ σk∈ghpi Δ r i q k × α ⎞ ⎠ + A(δ + Δ r i ) × β. (<label>8</label></formula><formula xml:id="formula_11">)</formula><p>Writer Mutex Blocking. Non-preemptive FIFO spin locks are used to protect writers, and they also introduce blocking overheads. <ref type="bibr" target="#b19">[20]</ref> introduces an analysis framework based on integer linear programming (ILP) to accurately bound the maximum cumulative blocking time. This ILP-based method explicitly accounts for every potential lock contention pattern, and the resulting bound is directly used in equation 6 as a blocking term. To determine writer mutex blocking overheads in real-time SMR, we modify this analysis to consider only write requests. U-RCU Blocking. When trying to quiescence, neither Par-Sec nor time-based quiescence are blocking ( §IV). However, in U-RCU, quiescence detection can be blocked by other tasks either in parallel sections, or also attempting quiescence. To make U-RCU more analysis-friendly, we consider a simplified case with only one memory reclamation task. Hence, this task only needs to wait for all readers to leave their parallel section, and this waiting time is bounded by Δ * . Such self-suspension within the U-RCU memory reclamation task will cause increased interference on lower-priority tasks, which are not captured by the RTA (Eq 6). (Self-suspension problems are extensively studied in <ref type="bibr" target="#b20">[21]</ref>.) As a result, the presented analysis, though simple, will generate optimistic schedulability results for U-RCU. As shown in section VII-B, even with such optimism, U-RCU's schedulability falls short of real-time SMR. In contrast, real-time SMR incurs no selfsuspension due to its non-blocking quiescence detection.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Quiescence Frequency Calculation</head><p>The above analysis requires quiescence periods to be given as input parameters. We present an algorithm for selecting quiescent periods that attempts to minimize memory consumption while maximizing schedulability. This is complicated by the fact that the quiescence frequency's impact on schedulability is not monotonic. While longer quiescence period causes less SMR interference, it incurs a higher garbage collection cost (see <ref type="bibr">Eq 7)</ref>. Therefore, we linearly, in steps of the minimum task period, search for the minimum quiescence period that results in a schedulable system. Additionally, the co-analysis of schedulability and memory bounds is also complicated by the inter-dependency among many parameters. For instance, SMR interference impacts Δ r i (Eq 8), which determines δ (Eq 3), and δ affects memory consumption, which will contribute back to the SMR interference (Eq 7). Thus, the schedulability test is performed by iteratively calculating blocking times, parallel section response times and task's response times until a global fixed point is reached. Figure <ref type="figure" target="#fig_11">16</ref> in the Appendix gives the algorithm's details.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. EXPERIMENTAL EVALUATION</head><p>All experiments were run on a system consisting of four Intel Xeon E7-4850 sockets, each with 10 cores, clocked at 2.0 GHz. Version 3.10.10 of the Linux kernel was used and hyper-threading was disabled, leading to 40 cores in total. Though this system is not of the latest generation, it enables an evaluation of many sockets. Benchmarks were run on different core counts to measure scalability. The minimal number of sockets was always used.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Micro Benchmarks</head><p>We conduct a set of micro-benchmarks to estimate the worst-case overheads of various synchronization operations. For each core count, we enumerated reader/writer ratios to find the worst-case scenario. We use the 99th percentile cost across 10 millions runs to exclude non-maskable and other interrupts. U-RCU uses the urcu-mb implementation ! ! " # $ %&amp;" ## ## Fig. <ref type="figure">10</ref>: 99th percentile costs of quiescence and memory operations. from liburcu <ref type="bibr" target="#b21">[22]</ref>, and all locks are implemented in the Concurrency Kit <ref type="bibr" target="#b22">[23]</ref>. Though <ref type="bibr" target="#b23">[24]</ref> provides a more efficient queue-based phase-fair RW locks, the version we use still shows the useful trends in RW lock behavior, as they share analytical bounds. Read path overheads are show in Figure <ref type="figure">1</ref>(a). U-RCU incurs the highest overhead because it uses Linux futexes to wake up blocked quiescing threads. The temporal quiescence approach has the lowest cost as it does not access any shared cache lines at all. Though the tested RW lock incurs more overhead than a ticket lock, the overhead of the queue-based variant <ref type="bibr" target="#b23">[24]</ref> is expected to be closer to the MCS lock. Update path overheads have similar trends to the read path. Both U-RCU and real-time SMR serialize the writers using an MCS lock, which is the most scalable as shown in Figure <ref type="figure">1</ref>(b), Quiescence detection costs are shown in Figure <ref type="figure">10(a)</ref>. When calculating quiescence, RT-ParSec iterates through all other thread's local data, which causes significant cache-coherency traffic and inhibits its scalability. U-RCU incurs less overhead because our model assumes there is only one quiescing thread, while in RT-ParSec, the worst-case happens with multiple concurrent quiescing threads (as explained in §VI-B). Memory operation overhead (Figure <ref type="figure">10(b)</ref>). As mentioned in §II-G, SMR relies on dynamic memory management. Thus, we need to confirm that memory related operations are also predictable. The results demonstrate the improved predictability resulting from the slab allocator optimizations detailed in the Appendix, and that allocation and free operations scale relatively well even in the 99th percentile.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Schedulability Tests</head><p>Task set parameters. We generated task sets with 10 tasks per core using Emberson et al.'s task set generator <ref type="bibr" target="#b24">[25]</ref>. Periods were uniformly selected from [10ms, 100ms]. Task execution costs were calculated based on utilizations and periods. The locking, SMR, and memory allocation overheads inflate task execution cost. Only one global resource is shared across all tasks. Readers (writers) are uniformly assigned to tasks, they issue one read (write) request per period. We study the following parameters. We consider platforms with M ∈ {1, 5, 10 . . . 40} cores. We vary the per core task set utilization across [0.6, 0.9] in steps of 0.05. The number of concurrent readers (writers) is varied across {0, 5, 10, 15, 20}. The duration of read (write) requests is uniformly distributed in [1μs, 300μs]. In total, we evaluated over 400 configurations. It is clearly not feasible to present all results, so we chose a set of default parameters, and vary only one</p><formula xml:id="formula_12"># # " $ % % $ &amp; ! "&amp; ' ( "&amp; ' " &amp; ') % " " * &amp; % % " +, - , $ ./ *012- ./ *0 12- % +3 4 +/4 " $ % " " # ( " " $ % " " * # % * ( "</formula><p>Fig. <ref type="figure">11</ref>: Schedulability results for various configurations. The curves of RT-ParSec and Temporal largely coincide. parameter in each graph reported herein. The default core count is 20 cores, half of them executing readers and the other half executing writers. Such reader/writer ratio is commonly considered to be write-heavy, and is not an obvious match for SMR techniques that are usually only used in read-heavy workloads. However, we choose this value to avoid artificially favoring SMR, which excels at read-mostly workloads, thus determining if it can compete even in write-heavy workloads. The per core task set utilization is 0.75, and the default request duration is 100μs. Unless otherwise stated, the quiescence period is determined using the algorithm in §VI-C and each writer allocates one memory object per period. For real-time SMR implementations, the highest-priority writer on each core detects quiescence and reclaims memory. While for U-RCU, we randomly select only one core to collect garbage.</p><formula xml:id="formula_13">! " # # $ ! % ! " #% &amp; ' $ #% &amp; # % &amp; # # $ ( %) ! # *+ , - + ! *+ , - #.! / *0/ # # # $ $ $ ' $ # # # # ( ( ' $ #</formula><p>Experiment methodology. For each configuration, we randomly generated 500 task sets to measure the schedulability (the fraction of schedule task sets in the generated task sets). For the schedulable task sets, we also calculated their memory consumption in the SMR cases. The schedulability test and blocking analysis code are taken from the SchedCAT framework <ref type="bibr" target="#b25">[26]</ref>. We used two mutex blocking analysis: the inflation-based analyses <ref type="bibr" target="#b8">[9]</ref>, and the ILP-based approach <ref type="bibr" target="#b19">[20]</ref>, while for RW locks, only an inflation-based analysis exists.</p><p>We try both techniques to analyze mutex blocking time. For the SMR techniques, as only writers need mutual exclusion, the difference between the two approaches is negligible. Thus, we only show the results of ILP-based analysis in SMR cases. Schedulability results. Figure <ref type="figure">11</ref> shows the schedulability results for various configurations. The two real-time SMR variants, RT-ParSec and temporal quiescence, are very similar, and achieve the highest schedulability in all configurations. Somewhat surprisingly, even in write-heavy workloads, the reduced mutex contention due to readers avoiding serialization surmounts the allocation and quiescence overheads. Although U-RCU increases parallelism in best effort environments, its blocking quiescence detection causes the invoking task to miss deadline, leading to low schedulability for realtime tasks. Due to the pessimistic analysis and write-heavy workload, RW locks have lower schedulability than mutex in most cases with the exception being for low writer counts. RW locks are not designed for such write-heavy workloads, and we further investigate reader/writer ratios later. The real-time SMR implementations exhibit high relative scalability. With increasing core counts (Figure <ref type="figure">11</ref>(b)), realtime SMR has the smallest relative schedulability degradation. With core counts above 25, lock-based synchronization has lower schedulability than U-RCU, illustrating that the impact of blocking between readers and writers at scale. Predictably, Figures <ref type="figure">11(c</ref> is unaffected by the number of readers or the read request length. With increasing read contention, both U-RCU and RW locks increase schedulability relative to mutexes. With updatemostly workloads, real-time SMR implementations decrease in schedulability as write request contention becomes the dominating factor. Figure <ref type="figure">11</ref>(e) and (f) demonstrate this trend.</p><p>Memory and quiescence results are presented in Figure <ref type="figure" target="#fig_7">12</ref> and Figure <ref type="figure" target="#fig_8">13</ref>. In studying the memory requirements of the SMR implementations, Eq 5 gives us three factors that determine the total memory consumption. They are the number of writers (N ), the maximum number of memory allocations during update (a i ) and the amount of time memory keeps accumulating (δ + r * σ ). Memory bounds increase linearly with those factors as expected (Figure <ref type="figure" target="#fig_7">12</ref>(b), Figure <ref type="figure" target="#fig_7">12</ref>(e), Figure <ref type="figure" target="#fig_8">13</ref>(b) and Figure <ref type="figure" target="#fig_8">13(d)</ref>). In the default setting, realtime SMR consumes more memory than U-RCU. This is because the maximum response time of the quiescence task (r * σ in Eq 5) in real-time SMR is larger than in U-RCU, as U-RCU has only one thread for memory reclamation, while real-time SMR has one quiescing thread per-core. If realtime SMR also uses one memory reclamation thread (the line labeled as "RT-PARSEC-single"), its memory bound is roughly the same as U-RCU. In the meantime, schedulability decreases with increasing memory usage due to collection costs (Figure <ref type="figure" target="#fig_8">13(a)</ref>). This confirms the empirical conclusion that SMR can be prohibitive if updates require large amounts of memory. By affecting the amount of time memory keeps accumulating (δ+r * σ ), a longer quiescence period causes more memory to be accumulated (Figure <ref type="figure" target="#fig_8">13(d)</ref>). However, as analyzed in §VI-C, quiescence frequency impacts schedulability in complex ways, which is demonstrated by Figure <ref type="figure" target="#fig_8">13(c</ref>). Last, we study how schedulability scales under different reader/writer ratios. In read-heavy cases (Figure <ref type="figure" target="#fig_8">13</ref>(e)), real-time SMR, U-RCU and the RW lock perform better than mutex locks. However, with write-mostly workloads (Figure <ref type="figure" target="#fig_8">13</ref>(f)), all those techniques behave similarly.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Application Study: memcached</head><p>In this section we illustrate how real-time SMR provides useful bounds for latency-sensitive applications, of which we use memcached (https://memcached.org/) as a representative. memcached implements a concurrent hash table providing get and put requests for a cache of key-value pairs. Memcached task model. In order to apply real-time SMR, we create a task model ( §V) to characterize memcached. Formally, on each core, there are two tasks, τ r and τ w . τ r (τ w ) consists of a stream of jobs to send get (set) requests periodically. The concurrent hash table is modeled as a global shared resource shared by all tasks. τ r (τ w ) issues non-nested read (write) request for the hash table. Since a read-heavy workload is a typical real-world workload <ref type="bibr" target="#b26">[27]</ref>, we assign higher priority to τ r . As memcached is not mission critical, we consider its tasks to be soft real-time. According to <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b8">[9]</ref>, under partitioned scheduling, we can schedule an implicitdeadline soft real-time task set by viewing it as hard, but using average-case overheads. Thus, we apply the same analysis in §VI to the memcached task set with the measured average task and synchronization overhead.</p><p>Experiment set-up. To concentrate the evaluation on predictability, we run memcached in a single process, bypassing the network and kernel. To avoid potential unpredictable cache replacement policy, we also disable cache replacement and give it sufficient memory to avoid cache eviction. Similar to <ref type="bibr" target="#b27">[28]</ref>, a workload trace with 20% set requests is generated using YCSB <ref type="bibr" target="#b28">[29]</ref>, following a zipfian distribution. The trace contains 10 million requests (16-byte key and 32-byte value), which is partitioned across memcached tasks on different cores. memcached's concurrent hash-table uses a separate (unpredictable) spin lock for each entry (and the associated linked-list of items). We modify memcached to use FIFO MCS locks so as to not unfairly penalize it. We compare three memcached implementations: using an MCS lock, a phase-fair RW lock and RT-ParSec. We omit RCU given the results in §VII-B. As the temporal quiescence SMR approach requires a hard real-time environment, it cannot be used here.</p><p>Strict admission control. To make memcached tasks periodic, we apply admission control based on the model, thus limiting the rate of jobs. According to Eq 5, the rate of jobs is the essential factor bounding memory utilization. Thus, the key question is how to choose the period of get and set requests to maximize throughput while still bounding memory consumption. Based on the analysis ( §VI), when the update period is fixed, we can determine the minimal reader's period that makes the task set schedulable if it exists. This provides an upper rate on the jobs for both updates and reads, and thus bounds the system's throughput. While larger update periods decrease set request throughput, they allow higher rates of readers, thus increasing get request throughput. Thus, for each configuration, we choose the minimal update period that maximizes the total throughput. Figure <ref type="figure" target="#fig_2">14</ref>(a) shows these calculated periods. RT-ParSec archives the smallest get period (thus, largest get throughput), resulting from its efficient read-path synchronization. The set period in RT-ParSec is similar to that in MCS locks, as they use the same lock to serialize updates. MCS locks have the same period for get and set request, as it treats them the same. Figure <ref type="figure" target="#fig_2">14(b)</ref> gives the measured 99th percentile latency for get and set requests. RT-ParSec has a larger get request tail latency than both MCS and RW locks. The higher rate of parallel get requests in RT-ParSec causes significantly more contention on the memory bus and controller. The non-uniform memory access in our system exacerbates this. RT-ParSec set request tail latency is high due to its coherency-operations on quiescence. In summary, per-hash-table entry locks combined with admission control result in less contention on shared cache lines for MCS and RW locks, leading to lower tail latency, while RT-ParSec achieves a higher rate of get requests. Figure <ref type="figure" target="#fig_2">14</ref>(c) verifies that the amount of memory consumed by RT-ParSec is within its theoretical bounds.</p><p>Relaxed admission control. Although strict admission control lowers tail latency, its achieved overall throughput is not practical (e.g., throughput of MCS lock on 40 cores is only 1.4 million requests per second). On the other hand, even if we use average-case overheads for the analysis, the analysis is still rather pessimistic. Given this, there is a large amount of slack time that can be used to serve more requests. However, we need to carefully use slack time to avoid interference on existing requests. For instance, such slack time cannot be used for set requests, as they need locks and modify shared cache lines. Hence, we relax admission control on get requests, allowing them to be served as long as there is slack time. The corresponding results are shown in Figure <ref type="figure" target="#fig_10">15</ref>.   <ref type="figure" target="#fig_10">15</ref>(c)). By sacrificing tail latency, MCS and RW locks increase their throughput. However, their throughput fails to scale with more than one socket as shown in Figure <ref type="figure" target="#fig_10">15</ref>(a). In contrast, RT-ParSec not only has the highest throughput, but also scales better than the other two approaches.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. CONCLUSIONS</head><p>We've studied SMR techniques for mediating shared datastructure access. Since existing techniques such as U-RCU are not a good fit for real-time systems, we introduced two implementations that demonstrate high schedulability. We introduced bounds on memory consumption that enable their use in real-time systems. Unexpectedly, they perform well even in the presence of write-heavy workloads. We have also shown their applicability to control the tail latency while maintaining high throughput in memcached. Though SMRbased data-structures do require a restrictive programming model, we believe they represent a promising mechanism for resource sharing for scalable real-time computation.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Predictable Slab Allocator</head><p>We briefly introduce the memory allocator used in realtime SMR here. We adapted the slab allocator from ParSec. Most modern multi-core memory allocators <ref type="bibr" target="#b29">[30]</ref> optimize for locality by using hierarchical allocation with thread-local memory caches, and then from within a global allocation pool. In addition, when memory is allocated on core i, and freed on core j, it is placed a "remote" freelist (called a "remote free") in core i's data-structures. When thread-local freelist cannot satisfy an allocation request, a memory is reclaimed from the remote freelist. Thus remote free is more expensive than local free, and would cause contentions on the remote freelist's cache lines. In the ParSec slab allocator, each core maintains separate remote freelists (also in separate cache lines) for each other socket. Although highly scalable, this optimization still suffers from contentions from the different cores within the same sockets. To eliminate this unpredictability, we change to per-core remote freelist. But we consolidate multiple remote freelist headers into a single cache line. In this way, different sockets still touch different cache lines, which guarantees scalability, but different cores from the same socket use different freelist headers within that cache line, which avoids contention, thus, provides predictability. As shown in Figure 10(b), CAS contention in original slab allocator causes some anomalies when measuring the worst-case overhead of free. This is because the list header is updated within a CAS loop whose number of CAS retries is unbounded due to contention. Such contention is eliminated after we use percore remote freelist. More importantly, memory allocation performance is unaffected even with more list headers. This is because multiple list headers are consolidated into one cache line without extra cache line access. B. Quiescence Frequency Calculation Algorithm 1 bool schedulability_test ( T a s k S e t t s , i n t q ) { 2 old δ = 0 ; 3 c a l c u l a t e δ b a s e d eq ( 3 ) o r ( 4 ) 4 w h i l e δ = old δ : 5 w h i l e t h e r e e x i s t ri = old ri : 6 a p p l y ILP a n a l y s i s t o bound mutex b l o c k i n g 7</p><p>f o r e a c h τi i n t s : 8 c a l c u l a t e ri u s i n g eq and ( <ref type="formula" target="#formula_6">6</ref>) and ( 7 ) 9</p><p>w h i l e t h e r e e x i s t Δ r i = old Δ r i : 10</p><p>f o r e a c h τi i n t s : 11 c a l c u l a t e Δ r i u s i n g eq ( 8 ) 12</p><p>f o r e a c h τi i n t s : 13 i f ( ri &gt; pi ) : return f a l s e ; 14 old δ = δ ; 15 c a l c u l a t e δ b a s e d eq ( 3 ) o r ( 4 ) 16 return t r u e ; 17 } 18 i n t select_quiescence_period ( T a s k S e t t s ) { 19 / / minimum ( maximum ) t a s k p e r i o d i n t s 20 i n t min q , max q ; 21 f o r qp i n r a n g e ( min q , max q ) : 22 </p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Example schedules of two readers (τ1, τ2) and one writer (τ3). (a) mutex; (b) RW locks; (c) real-time SMR.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: Thread τ 1 reads node b while thread τ 2 concurrently updates node b. τ 2 locates node b to update. Instead of directly changing b, τ 2 allocates a new object b', copies b's content to b' and performs modification. During this modification, τ 2 does not interfere with readers as its private copy is not reachable within the linked list. After modifying b', τ 2 atomically both connects the new node b' and unlink the old node b from the list. The atomicity of this modification ensures data-structure consistency. Node b can be reclaimed after a grace period elapses, which guarantees no reader is still accessing b.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: Usage of a typical SMR API with a data-structure D.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: Interaction between parallel sections, updates, &amp; quiescence.Figure4depicts example pseudocode illustrating the use of SMR. Note that all read-path operations are delimited by enter and exit, and free node must contain logic to ensure a quiescence period has elapsed.The key principle of SMR is that, if an object is unlinked from the shared data-structure, it can be safely reused after a grace period has passed. Because readers drop all references to the object after they exit the read-side section, and it is no longer linked within the data-structure, they cannot access the object anymore. Figure5depicts SMR's interaction between parallel sections and quiescence detection. Read paths are denoted as grey blocks. At time t 0 , a writer unlinks a node, and at time t 1 , it calls synchronize to await the passage of a grace period. The grace period extends past when any reader active at time t 1 has exited, and at that point (t 2 ), the system is quiescent. Thus, after time t 2 , it is safe to reclaim the object unlinked at time t 0 .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>1Fig. 6 :</head><label>6</label><figDesc>Fig.6: Simplified U-RCU implementation. Summary. Although SMR avoids reader-side synchronization and enables reader-writer parallelism, memory cannot be reclaimed until quiescence has been achieved. Furthermore, bounding memory utilization requires SMR to efficiently reclaim garbage predictably. This makes it challenging to naively apply existing SMR implementations in real-time systems. Thus, this paper focuses on a real-time SMR implementation ( §IV), and its impact on both response times and memory consumption in real-time systems ( §VI).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 7 :</head><label>7</label><figDesc>Fig. 7: Example of quiescence calculation for different SMR approaches.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 8 :Fig. 9 :</head><label>89</label><figDesc>Fig. 8: RT-ParSec SMR implementation adapted from ParSec 1 void ps_enter ( s t r u c t p a r s e c * ps ) {} 2 void ps_exit ( s t r u c t p a r s e c * ps ) {} 3 t s c t ps_quiesce ( s t r u c t p a r s e c * ps ) { 4 return rdtsc ( ) -PS GRACE PERIOD ; 5 } Fig. 9: Temporal quiescence implementation. The struct parsec and free node from Figure 8 are used directly. PS GRACE PERIOD is computed from the task model, and timing analysis ( §VI).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 12 :</head><label>12</label><figDesc>Fig. 12: Memory consumption result. The curves of RT-ParSec and Temporal largely coincide.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Fig. 13 :</head><label>13</label><figDesc>Fig. 13: (a) and (b) study the impact of per-task memory allocation; (c) and (d) show the impact of quiescence period; (e) and (f) show the schedulability under different reader/writer ratios. The curves of RT-ParSec and Temporal largely coincide.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Fig. 14 :Fig. 15 :</head><label>1415</label><figDesc>Fig. 14: Memcached evaluation results: strict admission control. ! " # $ %! &amp; '&amp; ( %$) (</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Figure 15 (</head><label>15</label><figDesc>a) and (b) show the most important benefit offered by RT-ParSec: RT-ParSec enables unsynchronized readers to run in parallel with all other requests.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_11"><head>Fig. 16 :</head><label>16</label><figDesc>Fig. 16: quiescence period selection algorithm</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head></head><label></label><figDesc>Thus increasing get request rate has little impact on tail latencies. For example, with 40 cores, tail latencies increase only 30% and 6% for get and set request respectively. On the contrary, because of lock contention for MCS and RW lock, both get and set request tail latency increase significantly. For instance, with 40 cores, get request tail latency increases 11 times and 9 times, for MCS lock and RW lock respectively (Figure 15(b)). Set request tail latency increases 8 times and 15 times, for MCS lock and RW lock respectively (Figure</figDesc><table /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 01:26:27 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_1"><p>&amp; &amp; &amp; &amp;</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_2"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 01:26:27 UTC from IEEE Xplore. Restrictions apply. !</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><p>Acknowledgments. We'd like to thank the anonymous reviewers for their helpful feedback, and our shepherd for helping to significantly improve the clarity of this paper.</p></div>
+			</div>
+			<div type="funding">
+<div><p>* This material is based upon work supported by the <rs type="funder">National Science Foundation</rs> under Grant No. <rs type="grantNumber">CNS 1149675</rs>, <rs type="funder">ONR</rs> Award No. <rs type="grantNumber">N00014-14-1-0386</rs>, and <rs type="funder">ONR</rs> <rs type="grantNumber">STTR N00014-15-P-1182</rs> and <rs type="grantNumber">N68335-17-C-0153</rs>. Any opinions, findings, and conclusions or recommendations expressed in this material are those of the authors and do not necessarily reflect the views of the National Science Foundation or ONR.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_wNEhgTe">
+					<idno type="grant-number">CNS 1149675</idno>
+				</org>
+				<org type="funding" xml:id="_KgU5xzp">
+					<idno type="grant-number">N00014-14-1-0386</idno>
+				</org>
+				<org type="funding" xml:id="_WmvM9m4">
+					<idno type="grant-number">STTR N00014-15-P-1182</idno>
+				</org>
+				<org type="funding" xml:id="_DHk4uBU">
+					<idno type="grant-number">N68335-17-C-0153</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Chronos: Predictable low latency for data center applications</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Kapoor</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Porter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Tewari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">M</forename><surname>Voelker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Vahdat</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the Third ACM Symposium on Cloud Computing</title>
+		<meeting>the Third ACM Symposium on Cloud Computing</meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">The tail at scale</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Dean</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">A</forename><surname>Barroso</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Communications of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">56</biblScope>
+			<biblScope unit="page" from="74" to="80" />
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">User-level implementations of read-copy update</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Desnoyers</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">E</forename><surname>Mckenney</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">S</forename><surname>Stern</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">R</forename><surname>Dagenais</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Walpole</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Parallel sections: Scaling systemlevel data-structures</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Stamler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Parmer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the ACM EuroSys Conference</title>
+		<meeting>the ACM EuroSys Conference</meeting>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Speck: A kernel for scalable predictability</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Scaperoth</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Parmer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 21st IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<meeting>the 21st IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Workload analysis of a large-scale key-value store</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Atikoglu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Frachtenberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Paleczny</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 12th ACM SIGMETRICS Joint International Conference on Measurement and Modeling of Computer Systems</title>
+		<meeting>the 12th ACM SIGMETRICS Joint International Conference on Measurement and Modeling of Computer Systems</meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization on multiprocessors: To block or not to block, to suspend or spin</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2008 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<meeting>the 2008 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">A fully preemptive multiprocessor semaphore protocol for latency-sensitive real-time applications</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceeedings of the 25th Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<meeting>eeedings of the 25th Euromicro Conference on Real-Time Systems (ECRTS)</meeting>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Reader-writer synchronization for shared-memory multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2009 21st Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<meeting>the 2009 21st Euromicro Conference on Real-Time Systems (ECRTS)</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Algorithms for scalable synchronization on shared-memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Mellor-Crummey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">L</forename><surname>Scott</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Comput. Syst</title>
+		<imprint>
+			<date type="published" when="1991">1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Concurrent updates with rcu: Search tree as an example</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Arbel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Attiya</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2014 ACM Symposium on Principles of Distributed Computing, ser. PODC &apos;14</title>
+		<meeting>the 2014 ACM Symposium on Principles of Distributed Computing, ser. PODC &apos;14</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">RadixVM: Scalable address spaces for multithreaded applications</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">T</forename><surname>Clements</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">F</forename><surname>Kaashoek</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Zeldovich</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">EuroSys</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">Rcu usage in the linux kernel: One decade later</title>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">E</forename><surname>Mckenney</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Boyd-Wickizer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Walpole</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Technical report</note>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">The slab allocator: an object-caching kernel memory allocator</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bonwick</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the USENIX Summer 1994 Technical Conference on USENIX Summer 1994 Technical Conference</title>
+		<meeting>the USENIX Summer 1994 Technical Conference on USENIX Summer 1994 Technical Conference</meeting>
+		<imprint>
+			<date type="published" when="1994">1994</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<monogr>
+		<title level="m" type="main">Intel 64 and IA-32 Architecture Software Developers Manual</title>
+		<imprint>
+			<publisher>Intel Corporation</publisher>
+			<biblScope unit="volume">3</biblScope>
+		</imprint>
+	</monogr>
+	<note>: System Programmers Guide</note>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<ptr target="http://www.autosar.org/" />
+		<title level="m">AUTOSAR os specification</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">A general framework for analysing system properties in platform-based embedded system designs</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chakraborty</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kunzli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Thiele</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">DATE</title>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">Scheduling and locking in multiprocessor realtime operating systems</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+		<respStmt>
+			<orgName>The University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Applying new scheduling theory to static priority pre-emptive scheduling</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">N</forename><surname>Audsley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Richardson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software Engineering Journal</title>
+		<imprint>
+			<date type="published" when="1993">1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">On spin locks in AUTOSAR: Blocking analysis of fifo, unordered, and priority-ordered spin locks</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wieder</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2013">2013. 2013</date>
+			<biblScope unit="volume">34</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title level="m" type="main">Many suspensions, many problems: A review of self-suspending tasks in realtime systems</title>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W.-H</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Richard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Ridouard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Audsley</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2017-03">March, 2017</date>
+		</imprint>
+		<respStmt>
+			<orgName>TU Dortmund</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title/>
+		<ptr target="http://liburcu.org/,retrieved6/16" />
+	</analytic>
+	<monogr>
+		<title level="j">Userspace RCU</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<monogr>
+		<idno>retrieved 9/21/12</idno>
+		<ptr target="http://concurrencykit.org" />
+		<title level="m">Concurrency Kit</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Spin-based reader-writer synchronization for multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">46</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="25" to="87" />
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Techniques for the synthesis of multiprocessor tasksets</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Emberson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Stafford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings 1st International Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems (WATERS)</title>
+		<meeting>1st International Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems (WATERS)</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<monogr>
+		<ptr target="http://www.mpi-sws.org/bbb/projects/schedcat" />
+		<title level="m">SchedCAT schedulability test collection and toolkit</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Scaling memcache at facebook</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Nishtala</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Fugal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Grimm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Kwiatkowski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><forename type="middle">C</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Mcelroy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Paleczny</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Peek</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Saab</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Stafford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Tung</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Venkataramani</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">NSDI</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Memc3: Compact and concurrent memcache with dumber caching and smarter hashing</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Fan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">G</forename><surname>Andersen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Kaminsky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">NSDI</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<monogr>
+		<title level="m" type="main">Benchmarking cloud serving systems with ycsb</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">F</forename><surname>Cooper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Silberstein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Tam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ramakrishnan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Sears</surname></persName>
+		</author>
+		<editor>SoCC</editor>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Scalable locality-conscious multithreaded memory allocation</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Schneider</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">D</forename><surname>Antonopoulos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">S</forename><surname>Nikolopoulos</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ISMM</title>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

@@ -1,0 +1,934 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Partitioned Scheduling of Multi-Modal Mixed-Criticality Real-Time Systems on Multiprocessor Platforms</title>
+				<funder ref="#_bpeBYZs">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+				<funder ref="#_H6vr8ZC">
+					<orgName type="full">Department of Defense</orgName>
+				</funder>
+				<funder>
+					<orgName type="full">Carnegie Mellon University</orgName>
+				</funder>
+				<funder ref="#_a3wnMk5">
+					<orgName type="full">ARO</orgName>
+				</funder>
+				<funder ref="#_dSj9qfa">
+					<orgName type="full">MKE</orgName>
+				</funder>
+				<funder ref="#_UxaV3Kj">
+					<orgName type="full">unknown</orgName>
+				</funder>
+				<funder ref="#_6x6QMZg">
+					<orgName type="full">ONR</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Linh</forename><forename type="middle">T X</forename><surname>Phan</surname></persName>
+						</author>
+						<author>
+							<persName><forename type="first">Carnegie</forename><surname>Mellon</surname></persName>
+						</author>
+						<author>
+							<affiliation key="aff0">
+								<orgName type="department">Dionisio de Niz SEI</orgName>
+								<orgName type="institution">Carnegie Mellon University</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<affiliation key="aff1">
+								<orgName type="institution">University of Pennsylvania</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<affiliation key="aff2">
+								<orgName type="institution">Carnegie Mellon University</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Partitioned Scheduling of Multi-Modal Mixed-Criticality Real-Time Systems on Multiprocessor Platforms</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">44D4F7D60401D03F4ABC1F4D6A8E3D30</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T04:03+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Real-time systems are becoming increasingly complex. A modern car, for example, requires a multitude of control tasks, such as braking, active suspension, and collision avoidance. These tasks not only exhibit different degrees of safety criticality but also change their criticalities as the driving mode changes. For instance, the suspension task is a critical part of the stability of the car at high speed, but it is only a comfort feature at low speed. Therefore, it is crucial to ensure timing guarantees for the system with respect to the tasks' criticalities, not only within each mode but also during mode changes.</p><p>This paper presents a partitioned multi-processor scheduling scheme for multi-modal mixed-criticality real-time systems. Our scheme consists of a packing algorithm and a scheduling algorithm for each processor that take into account both mode changes and criticalities. The packing algorithm maximizes the schedulable utilization across modes using the sustained criticality of each task, which captures the overall criticality of the task across modes. The scheduling algorithm combines Rate-Monotonic scheduling with a mode transition enforcement mechanism that relies on the transitional zero-slack instants of tasks to control low-criticality tasks during mode changes, so as to preserve the schedulability of high-criticality tasks. We also present an implementation of our scheduler in the Linux operating system, as well as an experimental evaluation to illustrate its practicality. Our evaluation shows that our scheme can provide close to twice as much tolerance to overloads (ductility) compared to a mode-agnostic scheme.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Today, it is common to structure the verification of realtime systems based on layers of features of different safetycriticality levels. For instance, the automotive certification standard ISO 26262 <ref type="bibr" target="#b14">[15]</ref> identifies four criticality layers (A-D) according to the safety criticality of the features. These layers are characteristics of systems known as mixed-criticality systems, in which higher-criticality tasks must be given higher levels of assurance than lower-criticality tasks. At the same time, modern real-time systems are becoming increasingly adaptive. A modern car, for example, needs to adapt its driving mode depending on the environmental conditions, and each mode transition may require activations of new tasks, deactivations of existing tasks, or changes of the criticalities of other tasks. This increase in safety requirements and adaptivity in real-time systems introduces a new research question: How to ensure timing guarantees of tasks with respect to their criticalities -not only in each mode, but also during each mode transition?</p><p>There exists a rich literature on mixed-criticality scheduling (e.g., <ref type="bibr" target="#b2">[3]</ref>, <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b17">[18]</ref>, <ref type="bibr" target="#b18">[19]</ref>, <ref type="bibr" target="#b22">[23]</ref>) and multi-mode analysis (see <ref type="bibr" target="#b31">[32]</ref> for a survey) for real-time systems. However, to the best of our knowledge, existing work does not consider mixed-criticality and multi-mode simultaneously. This paper aims to bridge this gap by considering the scheduling of mixed-criticality tasks in multi-modal systems. We use an automotive example that we defined out of features and driving modes present in today's sport vehicles (e.g. active suspension) and real concerns from autonomous driving researchers (e.g. pedestrian detection). Motivating example. Consider an automotive system that executes four tasks on a two-processor platform: τ p (pedestriandetection), τ s (suspension-control), τ b (blind-spot warning), and τ a (air-conditioner control). The system operates in three modes, Street, Highway, IsolatedHOV<ref type="foot" target="#foot_0">1</ref> , and the respective criticalities of each task in these modes are as follows:</p><p>τ p : High, Low, Medium ; τ s : Low, High, High ; τ b : High, High, Low ; τ a : Low, Low, Low . In the above system, the criticality of a task-and hence the criticality order between tasks-changes when the system changes its mode. This can lead to conflicting schedulability requirements during a mode transition. For instance, τ p has higher criticality than τ s in the Street mode but lower criticality than τ s in the Highway mode; therefore, ensuring the schedulability of τ p is more important in the Street mode, whereas guaranteeing the schedulability of τ s is more critical in the Highway mode. This conflict in the scheduling requirements introduces a new challenge: to achieve the schedulability of τ p in the Street mode, it is necessary to delay or stop τ s during overloads, but this may make τ s unschedulable in the Highway mode, if the system enters the Highway mode after τ s has been delayed for too long.</p><p>Another challenge is how to determine a good partitioning strategy that can protect high-criticality tasks from missing their deadlines during overloads. One promising approach is to pack tasks that exhibit a mix of high and low criticalities into each processor <ref type="bibr" target="#b18">[19]</ref> to enable overbooking<ref type="foot" target="#foot_1">2</ref> . However, in multi-modal systems, a packing that is desirable (i.e., that enables overbooking) in one mode may become undesirable in another mode, and this change happens dynamically as the system executes in a sequence of modes.</p><p>We demonstrate the above behavior using the two packings in Table <ref type="table">I</ref>. In the table, tasks within each pair of braces are assigned to the same processor and their criticalities for each mode are shown in the corresponding mode column. It can be observed that P 1 has a good mix of high and low criticalities in the Street mode, but it has a poor criticality mix ({High, High}; {Low, Low}) in the Highway mode. Further, although P 1 becomes undesirable when the system switches to the Highway mode, it has a good criticality mix again ({High, Low}; {Medium, Low}) when the system enters the IsolatedHOV mode. In contrast, P 2 has a good criticality mix in both Street and Highway modes, but its criticality mix is worse than that of P 1 in the IsolatedHOV mode ({High, Medium}; {Low, Low}) because the overloading of τ s makes the medium-criticality task τ t miss its deadline instead of a low-criticality task, as it happens in P 1 . Contributions. This paper makes the following contributions:</p><p>• We present a multi-modal task-to-processor packing algorithm that maximizes the schedulable utilization across all modes. (Section VI) • We introduce the concept of transitional zero-slack instant that enables a mixed-criticality analysis during mode changes, and we describe a method for computing these instants. (Section III-B) • We present a mode transition enforcement scheme based on transitional zero-slack instants that ensures the absence of criticality violations. (Section IV) • We present an implementation of our technique on the Linux OS, along with an experiment illustrating its practicality. (Section V) Our evaluation on synthetic workloads shows that our scheduling scheme can save up to half the number of processors, and provides much better protection to high-criticality tasks during overloads compared to a mode-agnostic scheme. (Section VII)</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. PROBLEM FORMULATION AND APPROACH OVERVIEW</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. System model and problem statement</head><p>A multi-modal mixed-criticality system is defined as</p><formula xml:id="formula_0">S def = (Γ, P, M, Π),</formula><p>where Γ is the set of tasks, P is the set of processors, M is the set of modes, and Π ⊆ M × M is the set of mode transitions of the system. Each mode m ∈ M is associated with a set of tasks Γ m ⊆ Γ that are active in mode m. Each task τ i ∈ Γ is a periodic task, defined by</p><formula xml:id="formula_1">τ i def = (C i , C o i , T i , D i , ζ i ),</formula><p>where C i , C o i , T i , and D i are the nominal execution time, overload execution time, period, and relative deadline of τ i , respectively. In addition,</p><formula xml:id="formula_2">ζ i def = {ζ m i | m ∈ M ∧ τ i ∈ Γ m }, where ζ m</formula><p>i is the criticality of τ i in mode m, for all modes m in which τ i is active. Unlike tasks, jobs have fixed criticalities: the criticality of a job τ i,k of τ i is the criticality of τ i with respect to the mode in which τ i,k is released. Categorization of tasks. A task τ i is called an old task of a mode transition (s, t)</p><formula xml:id="formula_3">∈ Π iff τ i ∈ Γ s \ Γ t , a new task iff τ i ∈ Γ t \ Γ s ,</formula><p>and a persistent task iff τ i ∈ Γ s ∩ Γ t . Since the criticality of a persistent task τ i may change across the transition, we view it as being made of two separate tasks, τ s i and τ t i , with the same timing parameters (C i , C o i , D i , T i ) but different criticality: τ s i has criticality ζ s i and its jobs are released in s but not in t, and τ t i has criticality ζ t i and its jobs are released in t but not in s. We call the former an old-persistent task and the latter a new-persistent task of (s, t).</p><p>Mode change semantics. Each transition (s, t) ∈ Π is associated with a mode change request (MCR) that triggers the system to change its current mode from s to t. We assume immediate mode change semantics for new tasks: as soon as the MCR of (s, t) arrives, all new tasks of the transition release their first jobs. In contrast, the first job of each new-persistent task τ t i of (s, t) is released exactly T i time units from the last release of its corresponding old-persistent task τ s i prior to the MCR. Further, old and old-persistent tasks have no new releases, and jobs that have been released but not yet completed will continue to be executed after the mode change.</p><p>We assume that MCRs may arrive at any time; however, consecutive MCRs are separated enough so that they do not interfere with each other (which is a common assumption in existing multi-mode work <ref type="bibr" target="#b31">[32]</ref>). Mode transitions are nondeterministic: if multiple transitions are enabled at the same time, the system non-deterministically selects one. Criticality violation. A criticality violation is said to occur when lower-criticality jobs prevent a higher-criticality job from meeting its deadline <ref type="foot" target="#foot_2">3</ref> ; during a mode transition, this applies to only lower-criticality jobs that are (still) active after the MCR. Avoiding criticality violations, both within each mode and during mode changes, is crucial to ensure timing guarantees for higher-criticality jobs. Objectives. Our goal is to design a scheduling scheme for multi-modal mixed-criticality systems that can maximize the schedulable utilization <ref type="foot" target="#foot_3">4</ref> while ensuring the absence of criticality violations. This goal is driven by the strict ranking requirement of criticality: it is more important to guarantee the schedulability of a higher-criticality job than to guarantee the schedulability of all of its lower-criticality jobs. (As usual, a job is schedulable if its deadline is met, regardless of mode changes.) In this paper, we focus on implicit deadline tasks (i.e., D i = T i ) for simplicity of discussion; however, our method can easily be extended to explicit deadline tasks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Overview of our approach</head><p>Our multi-modal mixed-criticality multiprocessor scheduling scheme consists of (i) a mixed-criticality scheduling algorithm that schedules tasks on each processor, and (ii) a multi-modal bin-packing algorithm that assigns tasks to processors. We briefly introduce both below.</p><p>The mixed-criticality scheduling algorithm schedules tasks on each processor using a multi-mode extension of the zeroslack rate-monotonic (ZSRM) scheduling <ref type="bibr" target="#b7">[8]</ref>. Specifically, jobs are scheduled according to the Rate-Monotonic (RM) algorithm; however, lower-criticality jobs will be stopped at absolute zero-slack instants of their higher-criticality jobs, i.e., instants from which the higher-criticality jobs must not be preempted by the lower-criticality jobs in order to meet their deadlines under an overload condition. The absolute zero-slack instant of a job is the release time of the job plus the (relative) zero-slack instant of its task, which is computed based on the task's (nominal and overload) execution times and the interference from higher-priority and higher-criticality tasks. In contrast to unimodal systems, the criticality of a task can vary across modes; as a result, its zero-slack instant can be different in each mode and in each mode transition.</p><p>Our mixed-criticality scheduling scheme consists of two phases: (1) at design time, it computes the zero-slack instants of each task in each mode (called in-mode zero-slack instant) and in each transition (called transitional zero-slack instant); and (2) at runtime, it schedules tasks based on the RM algorithm, while running an enforcement mechanism that stops lower-criticality jobs at the in-mode zero-slack instant (when the system is in a mode) or at the transitional zero-slack instant (during a mode transition) of a higher-criticality job. Sections III and IV discuss these two phases in detail.</p><p>The packing algorithm aims to maximize the utilization of the system while enabling overbooking in as many modes as possible. To achieve this, it assigns tasks to processors based on both the tasks' utilizations in each mode and the tasks' sustained criticalities. Intuitively, the sustained criticality of a task captures the overall criticality of the task across modes, while ensuring that a higher criticality is more important (i.e., contributes more to the overall criticality) than all lower criticalities. This sustained criticality provides a unified criticality value that can be used to determine how well a combination of tasks on a processor protects high-criticality tasks during overloads across all modes of the system. We present the packing algorithm in Section VI.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. MULTI-MODAL ZERO-SLACK INSTANTS</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Zero-slack instant within a mode</head><p>The zero-slack instant of a task τ i in a mode s, denoted by Z s i , is computed in the same manner as in the single-mode ZSRM <ref type="bibr" target="#b7">[8]</ref>. For convenience, we reproduce a summary of the computation here and refer the reader to <ref type="bibr" target="#b7">[8]</ref> for the details.</p><p>We start by restating the schedulability guarantee under ZSRM, as this influences the amount of preemption suffered by a task. Under ZSRM, a task τ i is guaranteed to execute for C o i within its period T i if no higher-criticality task τ j executes for longer than C j . This guarantee has two implications: First, τ i is not guaranteed any computation time if any of its higher-criticality tasks τ j runs for more than C j ; as a result, in the computation of Z s i , every higher-criticality task τ j is considered to execute for only C j . Second, during the calculation of Z s i , every task τ p with a lower criticality but a higher priority than τ i must be assumed to run possibly up to its whole overload execution time C o p . Computation of Z s i . When the system is in a mode s, each job τ i,k of τ i executes in two states: it starts in the nominal state, then switches to the critical state when it reaches its absolute zero-slack instant (which is its release time plus Z s i ). In the nominal state, τ i,k is scheduled with all other tasks according to RM, regardless of their criticalities; in the critical state, all tasks of lower criticalities than τ i are stopped, and τ i,k is scheduled with only tasks of higher criticalities, also according to RM. As a result, during the nominal state, τ i,k can suffer preemptions from the nominal interfering taskset, denoted by Γ s i,n , which consists of all tasks of higher-criticality and all tasks of higher-priority and lower-criticality than τ i in mode s. In contrast, during the critical state, τ i,k only suffers preemptions from the critical interfering taskset, denoted by Γ s i,c , which consists of only higher-criticality tasks of τ i in mode s. Furthermore, observe that the interference caused by a lower-priority higher-criticality task τ j can only come from a single job τ j,h of τ j (since the tasks are scheduled under RM and thus, τ j would have a longer period than τ i ); hence, we only need to account for this interference once. Since τ j,h might arrive during either execution state of τ i,k , the worst case happens when τ j,h arrives during the critical state of τ i,k , as this would be more likely to make τ i,k unschedulable.</p><p>Based on the above interference on τ i , we can compute the zero-slack instant Z s i by first assuming that τ i runs completely in the critical state. We then compute the amount of slack (i.e., the sum of the idle time slots) in the active intervalfrom the release time to τ i 's deadline, assuming that it runs in the nominal state. This slack is used to "move" part of the execution of τ i from the critical state to the nominal state (thus, deferring the Z s i instant). We then repeat this process until no more slack is found in the nominal state, and the final value of Z s i is the zero-slack instant of τ i in mode s. Preventing back-to-back high-priority preemptions. In <ref type="bibr" target="#b13">[14]</ref> the authors pointed out the possibility of back-to-back preemptions in the original ZSRM <ref type="bibr" target="#b7">[8]</ref>. This back-to-back preemption can be prevented with a modification to the original enforcement in <ref type="bibr" target="#b7">[8]</ref>, which is described in Appendix A.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Zero-slack instant in a mode transition (s, t)</head><p>Let τ i be a task that is active in mode s or in mode t, i.e., τ i ∈ Γ s ∪ Γ t . Observe that during a mode transition (s, t), jobs of τ i may experience interference from both jobs that are released in mode s and jobs that are released in mode t. Therefore, it is not possible to ensure that τ i does not experience a criticality violation based solely on Z s i and Z t i . In this section, we propose a new concept, called transitional zero-slack instant, that can be used to guarantee the absence of criticality violations for jobs during a mode transition.</p><p>First, we define the transitional interval of (s, t) as the time interval from the instant the MCR of (s, t) occurs until the earliest instant at which all jobs released in mode s have either completed their executions or missed their deadlines.</p><p>By definition, the length of the transitional interval of (s, t) is always upper bounded by the maximum relative deadline of all tasks that are active in mode s (i.e., max τi∈Γ s D i ).</p><p>Definition 1. The transitional zero-slack instant of τ i in a transition (s, t) is the maximum amount of time for which any job τ i,k of τ i can be preempted by lower-criticality jobs without making τ i,k miss its deadline. The (absolute) transitional zero-slack instant of a job τ i,k is its release time plus the transitional zero-slack instant of τ i .</p><p>Recall from Section II that, if τ i is a persistent task of (s, t), its criticality may change across the transition. Therefore, we consider it as two separate tasks: an old-persistent task, which has the old criticality and whose jobs are released in mode s, and a new-persistent task, which has the new criticality and whose jobs are released in mode t. Since the old-persistent task and the new-persistent task may have different sets of lowercriticality tasks, we will compute two different transitional zero-slack instants for each persistent task τ i of (s, t): the first, denoted by Z st,old i , will be used to protect jobs of τ i that are released before the MCR; and the second, denoted by Z st,new i , will be used to protect jobs of τ i that are released after the MCR. 5 In contrast, if τ i is an old task or a new task of (s, t), then it has one transitional zero-slack instant Z st i , which will be applied to all of its jobs. To compute these transitional zero-slack instants, we first identify the interfering jobsets of τ i during the transitional interval of (s, t).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Interfering jobsets of τ i during a mode transition (s, t)</head><p>Let τ i,k be any job of τ i that is active during the transitional interval of (s, t). Under our multi-modal mixed-criticality scheduling, τ i,k operates in two states: it starts in the nominal state and, when its transitional zero-slack instant is reached, it switches to the critical state. In the nominal state, τ i,k is scheduled with all active jobs; in the critical state, it is scheduled with only higher-criticality jobs. Below, we quantify the jobs that interfere with τ i,k in each state. Note that we only consider jobs whose release times or deadlines are within τ i,k 's lifetime (with maximum length of T i ).</p><p>Interfering jobset of τ i,k in the critical state: Its interfering jobset effectively consists of only higher-criticality jobs that are (still) active after the MCR. In other words, this set consists of (i) at most one job of each higher-criticality task τ j of τ i in mode s (i.e., τ j ∈ Γ s i,c ), and (ii) all jobs of each highercriticality task τ h of τ i in mode t (i.e., τ h ∈ Γ t i,c ). Interfering jobset of τ i,k in the nominal state: The jobs that interfere with τ i,k in its nominal state depends on τ i 's type: criticality or higher-priority than τ i in mode t (i.e., τ h ∈ Γ t i,n ) that are released after the MCR. • If τ i is a new or new-persistent task: Then τ i,k is released in mode t, and thus its interfering jobset consists of (i) at most one job of each task τ j ∈ Γ s i,n and (ii) all jobs of each task τ h ∈ Γ t i,n . Based on the above observations, we can derive the maximum critical/nominal interfering jobset of each task τ i (to be applied to its jobs in their critical/nominal states) by taking the largest set of interfering jobs that any job of τ i can experience during its lifetime. Algorithm 1 gives the pseudocode for computing the critical/nominal interfering jobset for each task τ i that is active during the mode transition (i.e., τ i ∈ Γ s ∪ Γ t ) based on its type. Specifically, for each old or new task (Lines 2-4 and 10-12), the algorithm computes one pair of interfering jobsets, J st i,c , J st i,n , to be used for computing Z st i . In contrast, for each persistent task (Lines 5-9), the algorithm computes two pairs of interfering jobsets, J st,old i,c</p><formula xml:id="formula_4">, J st,old i,n and J st,new i,c , J st,new i,n</formula><p>, to be used for computing Z st,old i and Z st,new n , respectively.</p><formula xml:id="formula_5">Algorithm 1 ComputeInterferingJobSets(Γ s , Γ t ) 1: for all τi ∈ Γ s ∪ Γ t do 2: if τi ∈ Γ s \Γ t then 3: J st i,c ← GetOneJobPerTask(Γ s i,c ) ∪ GetJobsInInterval 0, Ti, Γ t i,c 4: J st i,n ← GetMaxHybridJobSet i, Γ s i,n , Γ t i,n 5: if τi ∈ Γ s ∩ Γ t then 6: J st,old i,c ← GetOneJobPerTask Γ s i,c ∪ GetJobsInInterval 0, Ti, Γ t i,c 7: J st,old i,n ← GetMaxHybridJobSet i, Γ s i,n , Γ t i,n 8: J st,new i,c ← GetOneJobPerTask Γ s i,c ∪ GetJobsInInterval 0, Ti, Γ t i,c 9: J st,new i,n ← GetOneJobPerTask Γ s i,n ∪ GetJobsInInterval 0, Ti, Γ t i,n 10:</formula><p>if τi ∈ Γ t \Γ s then 11:</p><formula xml:id="formula_6">J st i,c ← GetOneJobPerTask Γ s i,c ∪ GetJobsInInterval 0, Ti, Γ t i,c 12: J st i,n ← GetOneJobPerTask Γ s i,n ∪ GetJobsInInterval 0, Ti, Γ t i,n Algorithm 2 GetMaxHybridJobSet i, Γ s i,n , Γ t i,n 1: V s i,n ← GetSlackVector i, Γ s i,n , Z s i 2: V t i,n ← GetSlackVector i, Γ t i,n , Z t i 3: MCRImax ← 0 4: minSlack ← ∞ 5: SlackStarts ← GetSlackStartings V s i,n , V t i,n</formula><p>6: for all p ∈ SlackStarts do</p><formula xml:id="formula_7">7: currentSlack ← GetSlackInInterval 0, p, V s i,n + GetSlackInInterval p, Ti, V t i,n 8: if currentSlack &lt; minSlack then 9: minSlack ← currentSlack 10: MCRImax ← p 11: return GetJobsInInterval 0, MCRImax, Γ s i,n ∪ GetJobsInInterval MCRImax, Ti, Γ t i,n</formula><p>In Algorithm 1, the critical interfering jobsets for all tasks and the nominal interfering jobsets of new and new-persistent tasks are computed based directly on the above discussion. However, computing the nominal interfering jobset of an old or old-persistent task (Lines 4 and 7) is more challenging, since this set highly depends on the instant at which the MCR occurs. Since this instant is unknown at design time, we first compute the worst-case MCR instant, MCRI max , that leads to the maximum interference on a job of τ i during its nominal and critical states, and then use MCRI max to derive the worst-case interfering jobset. This is done via the function GetMaxHybridJobSet, shown in Algorithm 2. (The key functions in Algorithm 2 are explained in Appendix B.)</p><p>Based on the computation of the interfering jobsets of τ i , we can now derive its transitional zero-slack instant(s).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Computation of transitional zero-slack instants</head><p>Algorithm 3 shows the pseudocode for computing the transitional zero-slack instant Z st i of each task τ i , based on its interfering jobsets. Here, taskset (Line 5) is the set of old, old-persistent, new, and new-persistent tasks of (s, t). That is, we maintain in taskset two separate tasks, old-persistent and new-persistent, for each persistent task of (s, t). Thus, the algorithm will compute two separate transitional zero-slack instants for each persistent task of (s, t), as discussed earlier.</p><p>Note that we use J st i,n and J st i,c to refer to the nominal and critical jobsets of every task τ i in taskset, including when τ i is an old-persistent task or a new-persistent task.</p><p>Algorithm 3 ComputeTransitionalZeroSlackInstants(s, t)</p><formula xml:id="formula_8">1: ∀i, Z st,1 i ← 0 2: ComputeInterferingJobSets(Γ s , Γ t ) 3: repeat 4: ∀i, Z st,0 i ← Z st,1 i 5:</formula><p>for all τi in taskset do 6:</p><formula xml:id="formula_9">V st i,n ← GetSlackVector(i, J st i,n , Z st,0 i ) 7: V st i,c ← GetSlackVector(i, J st i,c , Z st,0 i ) 8: Z st,1 i ← GetSlackZeroInstant(i, V st i,n , V st i,c , Z st,0 i ) 9: until ∀i, Z st,0 i = Z st,1 i 10: ∀i, Z st i ← Z st,1 i</formula><p>At a high level, Algorithm 3 works as follows. It begins with the worst-case assumption that there is no slack in the nominal state of each task, and each task always needs to run in the critical state. Then, it starts moving computation time from the critical state to the nominal state as we discover slack in the nominal state (using Algorithm 4). It then repeats the process with the newly-computed zero-slack instant. Note that, even though we only calculate the interfering jobset at the beginning of the algorithm, the proportions of computation of the interfering jobs that occur during the nominal state (C n ) and during the critical state (C c ) change as we recalculate the zero-slack instants (as we will show in Algorithm 4). The algorithm converges when it cannot move the zero-slack instant of any task towards its deadline.</p><p>To achieve the above, the algorithm maintains for each task τ i two variables, Z st,0 i and Z st,1 i , which store the zero-slack instant values before and after an iteration, respectively. Both Z st,0 i and Z st,1 i are initialized to zero (to indicate that there is no slack in the nominal state). In each iteration (Lines 3-9), the algorithm first calculates the slack vectors for τ i in the nominal and critical states (V st i,n and V st i,c ), based on τ i 's nominal and critical interfering jobsets (Lines 6-7). Each slack vector contains a sequence of slack regions ordered by time; each slack region consists of a starting instant and a duration. Based on the obtained slack vectors, the algorithm then computes a new zero-slack instant (Z st,1 i ) for τ i using the function GetSlackZeroInstant(i, V i,n , V i,c , Z st,0 i ). With the new zero-slack instant, the algorithm proceeds to the next iteration and continues in the same manner until it converges (∀i, Z st,0</p><formula xml:id="formula_10">i = Z st,1 i ). Algorithm 4 GetSlackZeroInstant(i, V n , V c , t 0 ) 1: C c i ← C o i ; C n i ← 0 2: repeat 3: t1 ← StartOfTrailingSlack(i, C c i , Vc) 4:</formula><p>if t1 ≥ 0 and t1 ≤ t0 then 5:</p><p>ku ← GetSlackInInterval(0, t1, Vn) -C n i 6:</p><p>ku ← max(min(ku, C c i ), 0)</p><p>7:</p><formula xml:id="formula_11">C c i ← C c i -ku 8:</formula><p>C n i ← C n i + ku  <ref type="figure">(i,</ref><ref type="figure">C c</ref> i , V c ), which gives the latest instant where there are at least C c i units of slack within V c (the slack vector of τ i in the critical state) that is before T i , and then (ii) moves the corresponding amount of execution time (k u in Lines 5-6) from the critical state to the nominal state (Lines 7-8). The algorithm terminates when no more computation can be moved (k u = 0), and it returns the final value of t 1 as the new value for Z st,1 i in Line 8, Algorithm 3.</p><p>Example 1. To illustrate the above computation, consider a system with two modes, s and t, that executes three (persistent) tasks:</p><formula xml:id="formula_12">τ 1 = T 1 = 4, C 1 = 2, C o 1 = 2.25, ζ s 1 = 1, ζ t 1 = 3 ; τ 2 = T 2 = 8, C 2 = 1, C o 2 = 1, ζ s 2 = 3, ζ t 2 = 1 ; and τ 3 = T 3 = 16, C 3 = 1, C o 3 = 7, ζ s 3 = 2, ζ t 3 = 2 .</formula><p>Recall that in the transition (s, t), each task τ i has two transitional zero-slack instants, τ st,old i and τ st,new i . We will illustrate the computation of the transitional zero-slack instant Z st,old 3 of τ 3 . Figures <ref type="figure" target="#fig_0">1(a</ref>), 1(b) and 1(c) depict the timeline of τ 3 with its zero-slack instants in mode s, in mode t, and in the transition (s, t), respectively. A solid box represents an actual execution, whereas a dashed box represents an execution that would have happened if the task had not been preempted or stopped.</p><p>To compute the interfering jobsets of the old-persistent task τ 3 (c.f. Algorithm 1), we first derive the worst-case MCR instant MCRI max that leads to the maximum interference on τ 3 during its nominal state and its critical state (c.f. Algorithm 2). It can be observed from Figures <ref type="figure" target="#fig_0">1(a</ref>) and 1(b) that, during the nominal state, τ 3 suffers more interference from τ 1 in mode s than in mode t. This is because τ 1 has lower criticality than τ 3 in mode s and thus, its interference includes all of its overload execution time (C o 1 = 2.25); however, it has higher criticality than τ 3 in mode t and hence, its interference includes only its nominal execution time (C 1 = 2). Observe also that the interference from τ 2 during τ 3 's nominal state is the same in both modes (since C o i = C i ). Therefore, the interference from τ 1 and τ 2 in mode s is larger than their interference in mode t. On the contrary, in the critical state, τ 3 experiences more interference in mode t than in mode s, because τ 2 is stopped in mode t (which frees only 1 unit of execution) whereas τ 1 is stopped in mode s (which frees 2 units of execution).</p><p>The above interference patterns lead to the worst-case MCR instant at the zero-slack instant of τ 3 in mode t (MCRI max = 10), as shown in Figure <ref type="figure" target="#fig_0">1(c</ref>). Based on the obtained MCRI max and the corresponding interfering jobset of τ 3 in the nominal state, using Algorithm 3 we can derive the transitional zeroslack instant of τ 3 (Z st,old 3 = 9.5).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. RUN-TIME SCHEDULING WITH ENFORCEMENT</head><p>On each processor, our multi-modal mixed-criticality scheduler schedules tasks according to RM, and it uses an enforcement mechanism that stops (or drops) jobs based on the in-mode and transitional zero-slack instants of tasks. (The enforcement stops or drops a job following the strategy in Appendix A, but we simply use the term 'stop' for convenience.)</p><p>Recall from the definition of the transitional interval of a transition (s, t) that, from the end of the transitional interval onward, the system contains only jobs of new or new-persistent tasks (released in mode t). It can easily be shown that, if a job of τ i is released after or at the end of the transitional interval of (s, t), the maximum interference it experiences over any interval is the same as the maximum interference a job of τ i would have experienced in an interval of the same length if the system had operated in a single mode t. Therefore, we can safely use the zero-slack instants of tasks in mode t for the enforcement after the transitional interval; consequently, the transitional zero-slack instant is only applicable to jobs that are released before the end of the transitional interval of (s, t). Enforcement in a mode. After the system has transitioned to a mode s and the transitional interval has ended, enforcement works as follows: whenever an active job of each task τ i reaches its in-mode zero-slack instant Z s i , all released jobs of tasks with lower-criticality than τ i in mode s are stopped. Enforcement upon an MCR. When the system is in mode s and the MCR associated with an outgoing transition (s, t) arrives, the system will enter the new mode (c.f. Section II) and perform the enforcement instantaneously. The enforcement is only performed on jobs that are active during the transitional interval of (s, t), and the specific action depends on whether the job arrives before or after the MCR. Specifically, let MCRI be the arrival time of the MCR with respect to the release time of an active job τ i,k during the transitional interval. Then, the enforcement on τ i,k works based on the transitional zero-slack instant Z st i of τ i,k as follows:</p><formula xml:id="formula_13">• If MCRI ≥ Z st</formula><p>i , then the system immediately stops all the jobs with lower-criticality than τ i,k . <ref type="foot" target="#foot_6">6</ref>• If MCRI &lt; Z st i , then the system waits until the transitional zero-slack instant Z st i to stop all jobs with lowercriticality than τ i,k . The next lemma states the correctness of the enforcement; its proof is available in Appendix C.</p><p>Lemma IV.1. The above run-time enforcement guarantees that no job experiences criticality violations.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. IMPLEMENTATION</head><p>We implemented our multi-modal zero-slack scheduler in a Linux kernel module along with a user-level library to support the development of multi-modal mixed-criticality systems. An empirical evaluation of the run-time overhead of our implementation is available in Appendix D.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Modal system</head><p>Our user-level library provides abstractions to build modal systems that consist of a set of modal tasks and a system mode transition manager. A modal task, in turn, is composed of a collection of modal job functions (one for each mode), a set of mode transitions, and an initialization function (init()). A modal task is created by calling the function start_modal_task() with a modal task structure that contains pointers to the mode job functions, the init() function, and the mode transitions (to be discussed shortly). This library function forks a process and returns the process ID of the newly-created process.</p><p>The main body of a modal task first calls the init() function and then installs the mode transition signal handler. After that, it enters an infinite loop that executes the job function repeatedly. In each iteration, the loop first calls the job function and then waits for the arrival of the next period (wait_for_next_period()) before calling the job function again <ref type="foot" target="#foot_7">7</ref> . The signal handler function is hidden inside the runtime library; it only changes the mode variable to the mode number that is sent by the mode transition manager. We make two important observations about the mode change signal handling: First, the signal handler runs inside the modal task process under the scheduling parameters of that process; hence, it does not interfere with other tasks. Second, for tasks that are currently active, the new mode is not effective until the next arrival of the job; that is, the lifetime of the current job (from the current time to the next arrival) is not modified. Instead, the new mode is registered within the signal handler, which will be used upon the next arrival (within the wait_for_next_period() function). At the next arrival, the new job function is executed, and the kernel scheduler then waits for the new period of the task. <ref type="foot" target="#foot_8">8</ref> This behavior is illustrated by the finite state machines in Figure <ref type="figure" target="#fig_1">2(a)</ref>. Mode transitions. Task mode transitions are part of the modal task structure, which contains, for each transition, the source mode number, the target mode number, and the computed transitional zero-slack instant(s) (c.f. Section III-B).</p><p>The final modal system is composed of system modes and system mode transitions controlled by the system mode manager. System modes are composed of a collection of task modes that each contain a process ID and a mode number. System mode transitions bundle tasks' mode transitions. The system mode manager triggers system mode transitions by sending mode switch signals to each of the tasks, and then instructs the kernel scheduler to start the transition, which activates the corresponding transitional zero-slack instants. The system mode manager runs as a persistent task across all modes, with the highest criticality and highest priority.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Modal kernel scheduler</head><p>The kernel scheduler is a reservation-based scheduler that assigns modal zero-slack reserves to each task. A modal reserve is a collection of regular zero-slack reserves along with transitions. A modal reserve is first created as an empty reserve, and then zero-slack reserves are created and added to the modal reserve. Once all the modal reserves have been created, the mode transitions are added with their corresponding transitional zero-slack instant(s). Finally, a modal reserve is attached to a task upon its creation.</p><p>A special SUSPENSION mode is used to represent that a task is inactive. The kernel scheduler uses this mode to suspend the task when it needs to be disabled in a particular system mode. A task transitioning to the suspension mode is disabled at the next period arrival (as expected). However, when a task transitions from the suspension mode to an active mode, the task is activated immediately, as required by our mode change semantics (c.f. Section II). This is illustrated by the finite state machine in Figure <ref type="figure" target="#fig_1">2(b)</ref>.</p><p>Our implementation uses a kernel scheduler thread that changes the priorities and the scheduling policy of the tasks in response to scheduling events and the current mode, following the strategy of the non-intrusive kernel module in <ref type="bibr" target="#b8">[9]</ref>. This kernel thread is necessary to avoid changing the priority inside the timer handler (triggered by an interrupt) in the kernel module to avoid deadlocks, since changing the priority modifies the priority queues. This technique is also used in Linux/RK <ref type="bibr" target="#b25">[26]</ref> and a similar kernel module scheduler in <ref type="bibr" target="#b16">[17]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Mode change experiment timeline</head><p>To show the effect of mode changes on our system, we created an experiment with three tasks (see Table <ref type="table" target="#tab_2">II</ref>): a Suspension task (τ s ), a Pedestrian Detection task (τ p ) and a (Coordinated) Cruise Control task (τ c ). Each task can run in two modes, Low Speed and High Speed. We designed the experiment to focus our attention on the zero-slack instant of the task τ s , which was calculated at 13s for both the mode transition and the target mode (High Speed).   Figure <ref type="figure" target="#fig_3">3</ref> shows the timeline of a change from the Low Speed mode to the High Speed mode in the experimental task. The X-axis shows time (in msec), and the Y -axis shows the task that is active at the corresponding time (e.g., τ p is active from 0 to 2000, as is shown by the solid bar that rises to τ p 's marker). The mode change was requested roughly at time t = 15s, which is close to the end of the first hyperperiod (at t = 16s). We observe the following effect of this mode change request from the timeline: Even though all old jobs have finished, the new jobs are only released at the next periods of the tasks (at t = 16s); this is consistent with our mode change semantics for persistent tasks. In addition, when task τ s overruns its zeroslack instant at t = 29s (= 16s +13s), task τ p is stopped to let τ s complete; this illustratres the effect of the enforcement. It is worth highlighting that, around the same relative time from the start of the first hyperperiod in the source mode (i.e., at t = 13s), τ p was not preempted by τ s , because τ p has higher criticality and higher priority than τ s in the source mode.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. MULTI-MODAL MIXED-CRITICALITY BIN-PACKING</head><p>As discussed in Section II-B, the main objective of our packing algorithm is to maximize the utilization of the system while enabling overbooking in as many modes as possible. Towards this, we first define the sustained criticality of a task τ i as the overall criticality of the task across all modes, given by:</p><formula xml:id="formula_14">ζ * i def = m∈M |M| + 1 ζ m i , (<label>1</label></formula><formula xml:id="formula_15">)</formula><p>where M is the set of modes of the system. Informally, each summand in Eq. ( <ref type="formula" target="#formula_14">1</ref>) captures the degree of importance (in terms of schedulability requirements) of the task's criticality in each mode m. It is defined as the number of modes plus one to the power of the task's criticality in mode m, so as to preserve the strict ranking of criticality (i.e., a higher-criticality task is more important than any number of lower-criticality tasks).</p><p>In addition, we define the dominant criticality of τ i as its highest criticality in all modes, i.e., ζ i = max m∈M ζ m i .</p><p>Algorithm 5 Multi-modal mixed-criticality packing algorithm.</p><p>1: P ← {p1, p2, . . . , p k }, where k = max</p><formula xml:id="formula_16">m∈M τ i ∈Γ m C i T i 2: Γrest ← ∅ 3: for all τi ∈ Γ in non-increasing ζ * i and non-increasing C o i T i do 4: deployed ← false 5:</formula><p>for all pj ∈ P in non-increasing fullness level of p m j where</p><formula xml:id="formula_17">ζ m i = ζi do 6:</formula><p>if overloaded(τi) schedulable in overloaded(pj ) then</p><p>if ¬deployed then 10:</p><p>Γrest ← Γrest ∪ τi 11: for all τi ∈ Γrest do if ¬overloaded(τi) is schedulable in packed(pj ) then if overloaded(τi) schedulable in overloaded(pnew) then 21:</p><p>deployed ← true At a high level, the packing is performed by verifying that the total requirements of the tasks allocated to a processor do not exceed the capacity of that processor. For this, we describe the fullness level of a processor j as a vector</p><formula xml:id="formula_19">p j = p 1 j , p 2 j , . . . , p |M| j</formula><p>, where p m j is the fullness level of the processor in mode m, all for m ∈ M. The fullness vectors of the processors are then used together with the sustained and dominant criticalities of the tasks to order processors and tasks in our allocation algorithm. We refer to this algorithm as vector Mixed-Criticality Packing (vMCP), since it is based on vector packing, with processors modeled as vectors of capacities (one for each mode) and tasks modeled as vectors of requirements. The pseudocode for vMCP is shown in Algorithm 5.</p><p>Algorithm 5 starts by creating an initial set of processors P whose combined capacity is equal to the largest taskset utilization across all modes (Line 1). It then proceeds to the first stage (Lines 2-10), in which it attempts to assign tasks to the processors in a non-increasing order of sustained criticality and utilization, assuming that each task τ i runs for its overload execution time C o i . In this order, each τ i is tried on each of the processors in P, ordered in non-increasing levels of fullness in the mode m with the dominant criticality of τ i (i.e., ζ m i = ζ i ). The tasks that cannot be fitted on these processors are then set aside in a set Γ rest to be deployed in the second stage.</p><p>In the second stage (Lines 11-21), the algorithm deploys the tasks in Γ rest to the processors in P using the same orders of tasks and processors as in the first stage, but assuming that the tasks that have already been deployed in the first stage only run for their nominal execution times (referred to as packed() in Lines 14-15). If a task cannot be fitted onto any processor, a new processor is added (Line 19), and the algorithm then tries to deploy this task on the new processor, assuming that the task overruns (Lines 20-21).</p><p>It can be observed that the resulting packing always ensures all tasks are schedulable if the system does not overload.</p><p>Note that Algorithm 5 follows a best-fit strategy when assigning a task to a processor. However, it can easily be modified to use other variants, such as first-fit, worst-fit, etc. Due to space constraints, we omit them here.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. EVALUATION</head><p>In this section, we present an evaluation of the proposed vMCP algorithm using synthetic real-time workload. Our goal is to evaluate how well the vMCP performs across different criticality variations of the system compared to a baseline mode-agnostic vector packing algorithm <ref type="bibr" target="#b6">[7]</ref>. (To the best of our knowledge, there exists no mode-aware packing algorithm for multi-modal mixed-criticality systems).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Evaluation metrics: ductility and resource use</head><p>Observe that the conventional schedulability metric cannot fully characterize the scheduling performance in a mixedcriticality system, since two schedulers may both feasibly schedule the system under nominal execution but one may guarantee more schedulable higher-criticality tasks than the other under an overload condition. To address this, we adapt the ductility metric <ref type="bibr" target="#b18">[19]</ref> to evaluate the capacity of a scheduler in protecting high-criticality tasks during overloads, while extending this metric to the multi-modal setting.</p><p>Formally, let k be the number of distinct criticality levels of the tasks in the system, and assume without loss of generality that all tasks have criticalities between 1 and k. To define the ductility of a schedule in a mode, we consider all possible overloading scenarios of tasks in each criticality level j. Each scenario O l is a k-tuple O l = O l,k , . . . , O l,1 , where O l,j = 0 if no tasks with criticality j overload, and O l,j = 1 otherwise. (Since there are k criticality levels, there are 2 k scenarios in total.) Corresponding to each overloading scenario O l , we define for every criticality level j a ductility value d l,j , which characterizes the possibility that all tasks with criticality j meet their deadlines under the overloading scenario O l . That is, for all 1 ≤ j ≤ k, d l,j = 1 if all tasks with criticality j are guaranteed to meet their deadlines under the overloading scenario O l , and d l,j = 0 otherwise. The ductility of a schedule in a mode m can then be computed by aggregating all of its ductility values d l,j in mode m, scaled by an order of magnitude between criticality levels:</p><formula xml:id="formula_20">ductility(m) = k j=1 2 k l=1 d l,j 2 kj + 1 .</formula><p>The overall ductility of a schedule of a multi-modal system is then given as the sum of all the ductilities ductility(m) for all modes m. It can be observed that this ductility metric preserves the strict ranking semantics of criticality, while enabling comparison between different schedules during overloads.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Workload</head><p>In our experiments, we first generated five different types of harmonic periods <ref type="foot" target="#foot_9">9</ref> , sampled from a uniform distribution between 100 and 1000, which were used for all the tasks in our experiments. For each generated period, we selected the overloaded execution time uniformly at random between 10% and 30% of the period. Finally, the nominal execution time was selected uniformly at random between 50% and 100% of the overloaded execution time. This enables us to explore tasksets that do not suffer the internal fragmentation produced by heavy tasks (e.g., a task that can consume close to, or over 50% of the processor and ends up being packed on a processor by itself) but still allows for a reasonable amount of overbooking due to the difference between the nominal and the overload execution time. Next, we generated all possible variations of criticality-topriority relationships. These relationships were encoded in a criticality vector, whose first, second, and third entry represent the criticality assigned to the task with the highest, secondhighest, and lowest priority, respectively. In our experiments, we used three modes and generated one criticality vector per mode. These vectors are shown on the X-axis of Figure <ref type="figure" target="#fig_7">4</ref>. (In the figure, we only show a subset of the generated criticality vectors to highlight interesting cases where tasks with different priorities have different criticalities.)</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Evaluation results</head><p>Resource savings. Figure <ref type="figure" target="#fig_7">4</ref> shows the number of processors needed under the vMCP algorithm and under the baseline vector packing with respect to different criticality vectors. The data presented in the figure is the average of 100 experiments.</p><p>We observe the following from the results: First, vMCP is able to reduce the number of required processors, independent of the criticality vector. This is because vMCP is able to "follow" the size of the tasks and the fullness of the processors according to the criticality, whereas the baseline algorithm frequently selects the wrong criticality (as it is agnostic to criticality changes across modes). Second, unlike vMCP, the baseline packing uses more or fewer processors depending on the alignment of the overall processor fullness across modes and the criticality of the task being deployed; this is the case   Ductility. In the second experiment, we reduced the number of processors that the two packing algorithms were allowed to allocate, to compare how well they can preserve ductility. Figure <ref type="figure" target="#fig_8">5</ref> shows the ductility values (normalized to the maximum possible for the taskset) that vMCP and the baseline vector packing algorithm can achieve for the same taskset if the number of processors that they are able to allocate is reduced. This figure presents the average of 100 data points with tasksets generated in the same fashion as in the previous experiment, with the criticality vector {{2, 1, 0}, {0, 1, 2}, {2, 0, 1}}. We can make three important observations from Figure <ref type="figure" target="#fig_8">5</ref>: First, vMCP keeps a higher ductility in all data points. Second, the gap between vMCP and the normal vector packing increases at first but later on becomes smaller, as the number of processors becomes too small to produce a significant difference. Finally, vMCP can achieve up to nearly twice the ductility obtained by the baseline vector packing algorithm. VIII. RELATED WORK Timing analysis of multi-mode systems has been extensively studied within the context of uniprocessors (see e.g., <ref type="bibr" target="#b9">[10]</ref>, <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b12">[13]</ref>, <ref type="bibr" target="#b26">[27]</ref>- <ref type="bibr" target="#b29">[30]</ref>, <ref type="bibr" target="#b31">[32]</ref>, <ref type="bibr" target="#b32">[33]</ref>, <ref type="bibr" target="#b34">[35]</ref>, <ref type="bibr" target="#b35">[36]</ref>) and it has recently extended to multiprocessor platforms <ref type="bibr" target="#b19">[20]</ref>, <ref type="bibr" target="#b20">[21]</ref>, <ref type="bibr" target="#b23">[24]</ref>, <ref type="bibr" target="#b24">[25]</ref>. The primary focus of this line of work has been on designing mode change protocols that ensure schedulability in each mode and during mode transitions (see <ref type="bibr" target="#b31">[32]</ref> and references therein). Formalization of mode change semantics for uniprocessor setting has also been considered in <ref type="bibr" target="#b30">[31]</ref>. However, none of the existing solutions consider mixed-criticality constraints.</p><p>Several existing techniques also consider overload scheduling. However, they either focus on online overload management <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b21">[22]</ref> and proportions of resource allocation (instead of deadlines met) <ref type="bibr" target="#b33">[34]</ref> or provide a tradeoff encoding, such as the elasticity concept in <ref type="bibr" target="#b4">[5]</ref>, which cannot encode the mixed-criticality semantics. In contrast, our approach provides a graceful degradation mechanism that guarantees that, in an overload situation, deadlines can only be missed in reverse order of criticality.</p><p>In the mixed-criticality domain, Baruah et al. <ref type="bibr" target="#b1">[2]</ref>- <ref type="bibr" target="#b3">[4]</ref> proposed an alternative mixed-criticality model where tasks have different execution times at different criticality levels. The authors proposed a schedulability test to find the appropriate priority ordering for mixed-criticality schedulability <ref type="bibr" target="#b2">[3]</ref> and a response-time test <ref type="bibr" target="#b3">[4]</ref> for this model, and they also considered sporadic tasks <ref type="bibr" target="#b3">[4]</ref>. In contrast, our model includes only two execution times that correspond to whether a task has overloaded or not, and we focus on graceful degradation guarantee on overloads through the use of a zero-slack enforcement that stops lower-criticality tasks. The schedulability of mixedcriticality systems in multi-processors has also been studied before. Mollison et al. <ref type="bibr" target="#b22">[23]</ref> presented a method for distributing tasks to processors based on the slack generated by the difference between the worst-and best-case execution times. Kelly et al. <ref type="bibr" target="#b17">[18]</ref> presented a partitioned approach to scheduling mixed-criticality tasks in multiprocessors that follows Baruah's task model. Our vMCP packing algorithm is based on vector packing <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b18">[19]</ref>, but considers the effect of mode changes on criticality, which the existing approaches did not. It is worth noting that none of the existing solutions have task models that consider modes, which is the focus of the present paper.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IX. CONCLUSIONS</head><p>We have presented a partitioned scheduling scheme for multimodal mixed-criticality real-time systems on multiprocessor platforms. Our scheme consists of a scheduling algorithm for scheduling tasks on each processor and a bin-packing algorithm for assigning tasks to processors that take into account both mode and criticality changes. The scheduling algorithm extends the existing unimodal zero-slack rate monotonic algorithm <ref type="bibr" target="#b7">[8]</ref> with a mode transition enforcement mechanism, which relies on transitional zero-slack instants to preserve the schedulability of high-criticality tasks and to ensure the absence of criticality violations during mode transitions. The packing algorithm uses the sustained criticality of tasks to optimize the schedulable utilization of the systems across modes. Our evaluation on synthetic tasksets shows that our packing algorithm can save up to half the processors and can preserve almost twice as much ductility as a baseline vector packing scheme. Finally, we presented an implementation of our scheduler in the Linux operating system, along with an experimental evaluation to illustrate its practicality.</p><p>we can also show that τ i,k does not experience a criticality violation when it is released after the MCRI but within the transitional interval of a mode transition. Thus, τ i,k never experiences a criticality violation.</p><p>We also observe that, since the transitional zero-slack instants are computed offline, the run-time enforcement involves only monitoring MCR arrivals and stopping jobs accordingly, which can be done efficiently.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX D: MODE TRANSITIONS RUN-TIME OVERHEAD</head><p>To evaluate the scalability of our implementation, we conducted an empirical analysis of its run-time overhead. We focused on the overhead due to mode change and enforcement. Experimental setup. Our experiments were performed on a Lenovo Yoga 13 laptop with 8 GB of RAM and an i7-3537U Intel processor with 4 MB of cache. The frequency of the processor was fixed to 2 GHz. Our kernel module scheduler was implemented and run in the Linux kernel 3.8.0-30 64 bits. For the mode change overhead measurements, we used a single task that (i) switched between two active modes (with period of 200 ms and 400 ms, respectively), or (ii) switched from an active mode (with a period of 400 ms) to an inactive mode, and vice versa. Finally, to measure the enforcement overhead, we ran a single task with a period of 200 ms and used the response-time timer to enforce it. Measurement results.  The first two lines of Table <ref type="table" target="#tab_5">III</ref> give the extra overhead a task experiences in the presence of mode change. Specifically, the first shows the cost of a job arrival (job dispatching) when no mode change occurs (i.e., a regular job activation), whereas the second shows the overhead of the same action when a mode change happens. The mode change overhead is the difference of these two values: in our measurements, it takes 1,786 ns additional time on average to perform a mode change during a job dispatching and 4,351 ns in the worst case.</p><p>The third and fourth lines show the overhead of a task transitioning into and out of the suspension mode (the task is in the suspension mode if it is not active), respectively. It is worth noting that in the transition into the suspension mode, we avoid reprogramming the new timers for the next period; hence, a transition into the suspension mode is on average faster than both the job dispatching of an active task and a transition out of the suspension. In particular, during a new job activation (including when a task transitions out of the suspension mode), the timers for the new arrival and for the zero-slack instant, as well as the response-time enforcement timer, need to be programmed. In contrast, when a task goes into the suspension mode, we only need to check that the timers are inactive and do not need to reactive the thread (that was waiting for the arrival of the next period).</p><p>The fifth line shows the overhead of processing a mode change request, which was measured from the instant an MCR is initiated until the instant all the tasks receive the mode switch signals from the system mode manager. Note that, after receiving the mode switch signal, each mode-switching task executes its own signal handler with its own priority. This signal handling consists of only a couple of instructions to save the signal parameter with the number of the next mode into the next_mode variable; in our experiments, we avoided measuring this overhead, since the measurement itself would take much longer than the execution of the instructions.</p><p>The sixth line of the table gives the end-to-end mode change overhead. This is obtained by adding up the overhead of the mode-change request processing and the extra overhead of job activation due to mode change. While the two instructions executed in the signal handler are part of the end-to-end overhead, we did not include them (due to the reason mentioned above).</p><p>The final line in the table shows the overhead of the enforcement for the case when the enforced tasks resume in the next mode. In our implementation, a task is enforced (stopped) by changing its priority to a non-real-time priority, and this is done by the kernel scheduler task. Therefore, the enforcement overhead was measured as the time starting when the enforcement timer is triggered and ending when the scheduler thread has finished changing the priority of the task. Note that the worst-case enforcement overhead can include preemptions to the kernel thread by interrupts or other kernel threads, but these preemptions would also be experienced by the enforcing task anyway. For the case when the enforced tasks become inactive in the next mode, the enforcement is equivalent to the transition into suspension, except that it happens at the enforcement timer instead of at the period timer.</p><p>One final comment on the difference between the average and the worst-case overheads is in order. This difference is due to two effects: First, our kernel module takes advantage of high-resolution timers that program the timer chip as needed to be able to achieve nanosecond resolution. These timers use a tree data structure inside the kernel itself to decide when to program the timer chip and when not to. As a result, the resulting overhead is higher when the timer chip is programmed and lower when the timer chip was already previously programmed or when we do not setup or cancel any new timer <ref type="foot" target="#foot_10">11</ref> . These overhead values could be reduced by using periodic timers instead of using one-shot timers for the period. Due to timing constraints, we could not investigate this option; however, we plan to explore more efficient implementations based on periodic timers in our future work.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 .</head><label>1</label><figDesc>Fig. 1. Transitional Zero-Slack Computation Example</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 .</head><label>2</label><figDesc>Fig. 2. Mode Change State Machines</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 3 .</head><label>3</label><figDesc>Fig. 3. Mode Change Timeline (ms)</figDesc><graphic coords="7,355.91,419.75,163.18,100.42" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>14 :</head><label>14</label><figDesc>for all pj ∈ P in non-increasing fullness level of packed(p m j ) where ζ m i = ζi do 15:</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 4 .</head><label>4</label><figDesc>Fig. 4. vMCP vs Vector Packing Across Criticality Variationsfor the second and the last columns. Finally, in most criticality variations, vMCP is able to reduce the number of processors by half, except for the two of the cases shown in the figure (corresponding to the second and the last criticality vectors). Ductility. In the second experiment, we reduced the number of processors that the two packing algorithms were allowed to allocate, to compare how well they can preserve ductility. Figure5shows the ductility values (normalized to the maximum possible for the taskset) that vMCP and the baseline vector packing algorithm can achieve for the same taskset if the number of processors that they are able to allocate is reduced. This figure presents the average of 100 data points with tasksets generated in the same fashion as in the previous experiment, with the criticality vector {{2, 1, 0}, {0, 1, 2}, {2, 0, 1}}.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Fig. 5 .</head><label>5</label><figDesc>Fig. 5. Ductility vs. Number of Processors</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head></head><label></label><figDesc>= {τs, τ b }, {Low, High}, {High, High}, {High, Low}, {τt, τa} {High, Low} {Low, Low} {Medium, Low} P 2 = {τs, τt}, {Low, High}, {High, Low}, {High, Medium}, {τ b , τa} {High, Low} {High, Low} {Low, Low} TABLE I MULTI-MODE MIXED-CRITICALITY PACKINGS</figDesc><table><row><cell>Packing</cell><cell>Street</cell><cell>Mode's Criticality Mix Highway IsolatedHOV</cell></row><row><cell>P 1</cell><cell></cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head></head><label></label><figDesc>Algorithm 4 shows the pseudocode for the functionGetSlackZeroInstant(i, V n , V c , t 0 ).Intuitively, this function divides the overload execution time C o i of τ i into two parts: C c i , the execution time in the critical state, and C n i , the execution time in the nominal state. Initially, all execution time is in the critical state (C c i = C o i ) and the critical state starts at time t 0 . The function then repeatedly (i) computes a new starting time t 1 for the critical state (Line 3) using StartOfTrailingSlack</figDesc><table><row><cell>9:</cell><cell>else</cell></row><row><cell>10:</cell><cell>ku ← 0</cell></row><row><cell cols="2">11: until ku = 0</cell></row><row><cell cols="2">12: return t1</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head>TABLE II SAMPLE</head><label>II</label><figDesc></figDesc><table /><note><p>EXPERIMENTAL CAR TASKSET</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head></head><label></label><figDesc>Table III presents the average and the worst-case values of the different types of overhead measured in our experiments. Each presented overhead values were computed from more than 1000 data points.</figDesc><table><row><cell>Action</cell><cell>Average (ns)</cell><cell>Worst Case (ns)</cell></row><row><cell cols="2">New job arrival without mode change 17,034</cell><cell>32,204</cell></row><row><cell>New job arrival with mode change</cell><cell>18,820</cell><cell>36,555</cell></row><row><cell>Transition into suspension</cell><cell>1,097</cell><cell>11,225</cell></row><row><cell>Resume from suspension</cell><cell>12,167</cell><cell>24,335</cell></row><row><cell>Mode change request</cell><cell>9,984</cell><cell>31,508</cell></row><row><cell>End-to-end mode change</cell><cell>11,770</cell><cell>35,859</cell></row><row><cell>Enforcement</cell><cell>8,281</cell><cell>21,735</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>TABLE III MULTI</head><label>III</label><figDesc>-MODAL MIXED-CRITICALITY SYSTEM RUN-TIME OVERHEAD</figDesc><table /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>In the IsolatedHOV mode, the vehicle travels in an isolated lane, where no passing is possible.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_1"><p>Overbooking is the scheme that uses the scheduled execution budget of a higher-critical task in excess of its nominal execution time (i.e., execution time under overloads) to schedule lower-criticality tasks.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_2"><p>This can be caused by a criticality inversion, which is said to occur when a lower-criticality job prevents a higher-criticality job from executing.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_3"><p>Schedulable utilization is defined as the maximum utilization under which an algorithm can guarantee the deadlines of any optimally-schedulable task, e.g., the schedulable utilization bound of the Rate-Monotonic algorithm is ln 2 for implicit deadline periodic tasks.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_4"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 05:48:51 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_5"><p>• If τ i is an old or old-persistent task: Then τ i,k is released in mode s, and thus its interfering jobset consists of (i) all jobs of each task τ j of higher-criticality or higher-priority than τ i in mode s (i.e., τ j ∈ Γ s i,n ) that are released before the MCR and (ii) all jobs of each task τ h of higher-<ref type="bibr" target="#b4">5</ref> For simplicity of exposition, we use the same notation τ i for both of its corresponding old-persistent and new-persistent tasks, but distinguish the two by explicitly referring to their task types.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="6" xml:id="foot_6"><p>Note that if MCRI &gt; Z st i and the criticality of τ i,k is lower than that of some new job(s) released after the MCR, then τ i,k may not have enough time to finish by its deadline if it executes for all of its C o i , due to interference of these higher-criticality new job(s). However, since all active lower-criticality jobs of τ i,k are stopped, τ i,k will not experience a criticality violation.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="7" xml:id="foot_7"><p>While our current implementation waits for the next period, this can be easily changed to a generic arrival triggering function that waits for external events, such as interrupts.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="8" xml:id="foot_8"><p>Our implementation allows tasks to change their periods across modes.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="9" xml:id="foot_9"><p>Note that it is common for a system to have harmonic periods, such as Boeing avionics<ref type="bibr" target="#b10">[11]</ref> and ARINC 653<ref type="bibr" target="#b0">[1]</ref> systems.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="11" xml:id="foot_10"><p>Our implementation is an extension of the ZS-QRAM scheduler implementation, which uses these one shot-timers since the task periods change constantly.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENTS</head><p>This research was supported in part by the <rs type="funder">NSF</rs> grants <rs type="grantNumber">CNS 1117185</rs>, <rs type="grantNumber">ECCS 1135630</rs> and <rs type="grantNumber">CNS 1329984</rs>, the <rs type="funder">ARO</rs> grant <rs type="grantNumber">W911NF1110403</rs>, the <rs type="funder">ONR</rs> grant <rs type="grantNumber">N00014-13-1-0802</rs>, and the <rs type="funder">MKE</rs> (The Ministry of</p></div>
+			</div>
+			<div type="funding">
+<div><p>This material is based upon work funded and supported by the <rs type="funder">Department of Defense</rs> under Contract No. <rs type="grantNumber">FA8721-05-C-0003</rs> with <rs type="funder">Carnegie Mellon University</rs> for the operation of the Software Engineering Institute, a federally funded research and development center. This material has been approved for public release and unlimited distribution.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_bpeBYZs">
+					<idno type="grant-number">CNS 1117185</idno>
+				</org>
+				<org type="funding" xml:id="_UxaV3Kj">
+					<idno type="grant-number">ECCS 1135630</idno>
+				</org>
+				<org type="funding" xml:id="_a3wnMk5">
+					<idno type="grant-number">CNS 1329984</idno>
+				</org>
+				<org type="funding" xml:id="_6x6QMZg">
+					<idno type="grant-number">W911NF1110403</idno>
+				</org>
+				<org type="funding" xml:id="_dSj9qfa">
+					<idno type="grant-number">N00014-13-1-0802</idno>
+				</org>
+				<org type="funding" xml:id="_H6vr8ZC">
+					<idno type="grant-number">FA8721-05-C-0003</idno>
+				</org>
+			</listOrg>
+			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX A: PREVENTING BACK-TO-BACK PREEMPTIONS</head><p>We observe that the back-to-back effect comes from a soft enforcement at the zero-slack instants: the enforcement postpones the execution of lower-criticality, higher-priority tasks τ j , and it reactivates them after the zero-slack enforcement, which results in a shorter inter-arrival time between τ j 's jobs 10  and consequently more preemptions from τ j . This issue can be prevented with the following modification: At the zero-slack instant of τ i , if τ i has already executed for more than C i , then all the active jobs of the tasks with lower-criticality than τ i are dropped; otherwise, these jobs are only temporarily stopped, but they will be dropped later if τ i executes beyond C i .</p><p>With the above modification, we can show that, if the portion of C i that τ i executes after its zero-slack instant (denoted by δ i ) is no more than C o i -C i , then all the tasks with lower-criticality and higher-priority than τ i (denoted by the set H lc i ) will have enough cycles to complete before T i elapses, despite any delay imposed on them.</p><p>Theorem IX.1. Every task τ j ∈ H lc i that is blocked by τ i in τ i 's critical state finishes before τ i 's deadline if τ i does not overload.</p><p>Proof. First, note that δ i is calculated as part of the calculation of the zero-slack instant Z s i of τ i in the current mode s. Specifically, Z s i is calculated such that the processing time used by the higher-priority lower-criticality tasks (</p><p>This processing time is the amount of time that τ i steals from the taskset H lc i during τ i 's execution in its critical state, considering that all tasks τ j ∈ H lc i execute for their overload execution times C o j . Now, during the calculation of the zero-slack instant of each task τ j ∈ H lc i , δ i is taken into account as a blocking term. In other words, the blocking term δ i limits the processing time available to H lc i , and all tasks τ j ∈ H lc i are able to tolerate this blocking and still finish executing for C o j time units by their deadlines. Furthermore, the total processing time available to H lc i cannot exceed the processing time available to τ i in its critical mode after it has completed its nominal execution C i (i.e., it is bounded by C o i -C i ), because it is the amount of time τ i steals from the taskset H lc i during the calculation of Z s i . Thus, all pending executions of the tasks τ j ∈ H lc i can be completed with the budget C o i -C i , if τ i does not overload and neither does any other task of higher-criticality than τ j in mode s (otherwise τ j is dropped). 10 The distance between the restarting time of the postponed job of τ j and the arrival time of the next job of τ j .</p><p>Note further that the tasks τ j ∈ H lc i are considered to be running for C o j and hence, if they do not overload, C o j -C j execution time units will be available for H lc j . If this property is applied recursively, the theorem follows.</p><p>By the same argument, we can also show that the theorem holds for transitional zero-slack instants. The absence of backto-back preemptions directly follows.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX B: KEY FUNCTIONS IN ALGORITHM 2</head><p>The function GetSlackVector i, Γ s i,n , Z s i (resp. GetSlackVector i, Γ t i,n , Z t i ) computes a sequence of slack intervals, each with a starting time and a duration, for τ i from the simulated fixed-priority response-time timeline <ref type="bibr" target="#b15">[16]</ref>, taking into account the preemptions from the interfering taskset Γ s i,n (resp. Γ t i,n ). Specifically, the amount of interference caused by an interfering job τ j,k that is taken into account (effective execution time C E j ) to calculate the slack vectors for τ i depends on the criticality and the priority of τ j,k with respect to τ i as follows: (1) If τ j,k has higher priority but lower criticality, then its effective computation time is C o j when we calculate the slack in the nominal state, because τ j,k can overload before the zero-slack instant of τ i .</p><p>(2) If τ j,k has higher criticality, then its effective execution time is C j when we calculate the slack in the nominal state, because τ i is given a guarantee only if τ j does not overload. (3) Finally, if τ j,k has higher priority and higher criticality, then the effective execution time is C j -C n j when we calculate the slack in the critical state, because we do not need to consider the computation that already happens in the nominal state of τ j,k (see <ref type="bibr" target="#b7">[8]</ref> for more details).</p><p>The function GetSlackStartings V s i,n , V t i,n simulates two response-time timelines -with the source interfering taskset (V s i,n ) and with the target interfering taskset (V t i,n ) -and it returns all the starting instants of the slack intervals. Finally, GetSlackInInterval(s, e, V ) returns all the slack available from the instant s to the instant e from the slack vector V . APPENDIX C: PROOF OF LEMMA IV.1</p><p>Proof of Lemma IV.1. We will show, for every job τ i,k of any task τ i in the system, that τ i,k can never experience a criticality violation during its lifetime, based on the characteristics of the transitional zero-slack instants and zero-slack instants. Indeed, if τ i,k 's release time and deadline are outside the transitional interval of a mode transition, then the enforcement based on its zero-slack instant in the mode it is released always ensures that τ i,k does not experience a criticality violation. If τ i,k 's lifetime spans across a mode transition (s, t), then (1) τ i,k does not experience a criticality violation before the MCRI of (s, t), since the enforcement based on its zero-slack instant in mode s would stop all the lower-criticality tasks before they can make τ i,k miss its deadline, and (2) τ i,k does not experience a criticality violation after the MCRI, since the enforcement based on τ i,k 's transitional zero-slack instant would stop all lower-criticality jobs that are active after the MCRI before they can make τ i,k miss its deadline. Similarly,</p></div>			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Standards</surname></persName>
+		</author>
+		<ptr target="http://www.aviation-ia.com/standards/index.html" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Mixed-criticality scheduling of sporadic task systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Dangelo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ster</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Stougie</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ESA</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Towards the design of certifiable mixed-criticality systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Stougie</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTAS</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Response-time analysis for mixed criticality systems</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">K</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Elastic task model for adaptive rate control</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTSS</title>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Value vs deadline scheduling in overload conditions</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Spuri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Sensini</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="1995">1995</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Approximation schemes for ordered vector packing problems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Caprara</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kellerer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Pferschy</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Naval Research Logistics</title>
+		<imprint>
+			<biblScope unit="volume">50</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="2002">2002</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">On the scheduling of mixed-criticality real-time task sets</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Utility-based resource overbooking for cyber-physical systems</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Wrage</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Rowe</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTCSA 2013</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Tractable real-time schedulability analysis for mode changes under temporal isolation</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Fisher</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Ahmed</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ESTIMedia</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Integrated adaptive qos management in middleware: A case study</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">D</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Gossett</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Corman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Loyall</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">E</forename><surname>Schantz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Atighetchi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">C</forename><surname>Schmidt</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">An earlier time for inserting and/or accelerating tasks</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Guangming</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">41</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="181" to="194" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Timing analysis for mode switch in component-based multi-mode systems</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Hang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Hansson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Implementation and Evaluation of Mixed-Criticality Scheduling Approaches for Periodic Tasks</title>
+		<author>
+			<persName><forename type="first">H.-M</forename><surname>Huan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<monogr>
+		<ptr target="http://www.iso.org" />
+		<title level="m">ISO/DIS 26262 road vehicles -functional safety</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Finding response times in a real-time system</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Joseph</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Pandya</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">The Computer Journal</title>
+		<imprint>
+			<biblScope unit="volume">29</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="390" to="395" />
+			<date type="published" when="1986">1986</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<title level="m" type="main">A loadable real-time scheduler suite for multicore platforms</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+		<respStmt>
+			<orgName>Department of Electrical and Comptuter Engineering, Carnegie Mellon University</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical report</note>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">On partitioned scheduling of fixedpriority mixed-criticality task sets</title>
+		<author>
+			<persName><forename type="first">O</forename><surname>Kelly</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Aydin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Zhao</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">TrustCom</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Resource allocation in distributed mixed-criticality cyber-physical systems</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Moreno</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ICDCS</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Utilization bounds for edf scheduling on real-time multiprocessor systems</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Lopez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">L</forename><surname>Diaz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">F</forename><surname>Garcia</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTS</title>
+		<imprint>
+			<biblScope unit="volume">28</biblScope>
+			<date type="published" when="2004">2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Partitioned scheduling of multimode systems on multiprocessor platforms: when to do the mode transition</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Marinho</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Raravi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Nelis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">M</forename><surname>Petters</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSOPS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">An incremental approach to scheduling during overloads in real-time systems</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Mejia-Alvarez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Melhem</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Mosse</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Mixed-criticality real-time scheduling for multicore systems</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">S</forename><surname>Mollison</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">K</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">A</forename><surname>Scoredos</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">In CIT</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Two protocols for scheduling multi-mode real-time systems upon identical multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Nelis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Global-edf scheduling of multimode real-time systems considering mode independent tasks</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Nelis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Marinho</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">M</forename><surname>Petters</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Portable rk: a portable resource kernel for guaranteed and enforced timing behavior</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Oikawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS 1999</title>
+		<imprint>
+			<date type="published" when="1999">1999</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis for mode changes in flexible real-time systems</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Pedro</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Timing analysis of mixed time/event-triggered multi-mode systems</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">T X</forename><surname>Phan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chakraborty</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">A multi-mode real-time calculus</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">T X</forename><surname>Phan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chakraborty</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">S</forename><surname>Thiagarajan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Compositional analysis of multi-mode systems</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">T X</forename><surname>Phan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Sokolsky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">A formal semantic framework for mode change protocol</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">T X</forename><surname>Phan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Sokolsky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Mode change protocols for real-time systems: A survey and a new proposal</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Real</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Crespo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">26</biblScope>
+			<biblScope unit="page" from="161" to="197" />
+			<date type="published" when="2004">2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Mode change protocols for priority-driven preemptive scheduling</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Ramamritham</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTS</title>
+		<imprint>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<date type="published" when="1989">1989</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">Schedulability and fairness for computation tasks in surveillance radar systems</title>
+		<author>
+			<persName><forename type="first">C.-S</forename><surname>Shih</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Ganti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<monogr>
+		<title level="m" type="main">Reliable mode changes in real-time systems with fixed priority or edf scheduling</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Stoimenov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Perathoner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Thiele</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<pubPlace>DATE</pubPlace>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">Mode changes in priority preemptively scheduled systems</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wellings</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="1992">1992</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

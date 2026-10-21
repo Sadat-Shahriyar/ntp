@@ -1,0 +1,1364 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">DAG Scheduling with Execution Groups</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Junjie</forename><surname>Shi</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">TU Dortmund University</orgName>
+								<address>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Mario</forename><surname>Günzel</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">TU Dortmund University</orgName>
+								<address>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Niklas</forename><surname>Ueter</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">TU Dortmund University</orgName>
+								<address>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Georg</forename><surname>Von Der Brüggen</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">TU Dortmund University</orgName>
+								<address>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Jian-Jia</forename><surname>Chen</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">TU Dortmund University</orgName>
+								<address>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+							<affiliation key="aff1">
+								<orgName type="department">Lamarr Institute for Machine Learning and Artificial Intelligence</orgName>
+								<address>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">DAG Scheduling with Execution Groups</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">1376C8AA961ED3AB6EF7B7C31DC89EE0</idno>
+					<idno type="DOI">10.1109/RTAS61025.2024.00020</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T18:10+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>DAG Tasks</term>
+					<term>Gang Scheduling</term>
+					<term>Cyber-Physical Systems</term>
+					<term>Real-Time Systems</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>In many modern safety-critical cyber-physical systems, such as in the automotive or robotic domain, the application complexity requires the use of multi-core platforms to execute all workloads under strict hard real-time constraints. The sporadic DAG task model is a parallel task model adept at representing tasks comprised of subtasks, which possess internal data flow and precedence constraints induced by synchronization. A significant challenge to the system's performance and its realtime verification stems from the communication-centric nature of applications in these domains. Inter-core communication, required for data sharing among subtasks across different cores, depends on either a shared bus or a network-on-chip, culminating in significant overhead due to latency, congestion, and synchronization. To improve performance and reduce these overheads, it is advantageous to execute subtasks, those that either exchange large volumes of data or access the same data, on a singular physical processor, thereby utilizing more efficient intra-core communication.</p><p>In this paper, we tackle this issue by introducing the DAG task model with execution groups, incorporating a constraint that mandates the execution of grouped subtasks on the same processor. We provide an analysis of worst-case response times and propose optimizations for our DAG task model with execution groups, subsequently evaluating our approach against existing solutions. The evaluation results demonstrate that our approach, even with the imposition of group execution constraints, remains competitive in comparison to existing approaches that do not take group execution constraints into account. Additionally, we explore implementation strategies and potential extensions for multi-task systems.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>In many cyber-physical systems such as in the automotive or robotic domain, real-time requirements must be met to ensure system safety and performance. The multitude of generated sensor data in modern systems requires sensor data processing algorithms, sensor fusion algorithms, and optimization-based control algorithms. Consequently, heavy and complex workloads have to be executed under strict timing constraints to meet the application's quality-of-service (QoS) requirements. Hence, multi-core and multi-processor systems have become the standard computing platforms, due to their parallel and concurrent computing capabilities, facilitating the fulfillment of these requirements.</p><p>In the context of hard real-time systems, formal guarantees for the worst-case response time (WCRT) of each task must be provided. The formal guarantee (or analysis) is based on a task model, the execution model, and the task parameters, such as activation model (inter-arrival times) and worst-case execution times (WCET). In regard to parallel task models, the sporadic DAG task model is a widely studied and generic parallel task model, capable of modeling tasks which are composed of subtasks with internal precedence constraints. The precedence constraints can be due to a data producer consumer relation, or due to synchronization barriers, determining the partial execution order of the subtasks.</p><p>When scheduling DAG task sets, the objective is to efficiently utilize the parallelism provided by multiprocessors for task sets with inter-and intra-task parallelism, while guaranteeing that each task meets its deadline. Parallelism can be categorized into inter-task parallelism (which refers to the parallel execution of distinct tasks, each of which executes sequentially) and intra-task parallelism (which refers to the parallel execution of a single task). Intra-task parallelism requires task models with subtask level granularity that can be scheduled in parallel, e.g., Fork-join models <ref type="bibr" target="#b29">[30]</ref>, synchronous parallel task models, or DAG (directed-acyclic graph) based task models. A plethora of real-time scheduling algorithms and response time analyses thereof have been proposed, e.g., for generalized parallel task models <ref type="bibr" target="#b36">[37]</ref>, and for DAG (directedacyclic graph) based task models <ref type="bibr" target="#b2">[3]</ref>, <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b17">[18]</ref>, <ref type="bibr" target="#b18">[19]</ref>, <ref type="bibr" target="#b24">[25]</ref>, <ref type="bibr" target="#b32">[33]</ref>, <ref type="bibr" target="#b48">[49]</ref>. For DAG-based task models, improvements in the response time analyses can be categorized into analyses that improve inter-task interference, e.g., in <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b17">[18]</ref>, or intra-task interference such as in <ref type="bibr" target="#b24">[25]</ref>, <ref type="bibr" target="#b25">[26]</ref>, <ref type="bibr" target="#b31">[32]</ref>, <ref type="bibr" target="#b48">[49]</ref>. In general, intratask interference analyses build upon the interference analysis along the execution of the envelope (also known as critical path or key path).</p><p>A common critique in the context of multiprocessor, and parallel task scheduling models in particular, is that the complex interference patterns on the shared resources, such as memory and cache, are neglected despite having been shown to have a significant impact on the efficiency and execution time of parallel tasks <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b9">[10]</ref>, <ref type="bibr" target="#b34">[35]</ref>, <ref type="bibr" target="#b47">[48]</ref>, <ref type="bibr" target="#b49">[50]</ref>.</p><p>In multi-core systems, there are two typical approaches to implement inter-core communication, namely memory sharing (or pointer passing) and physical copying of data (or data moving). In the case of memory sharing, addressing and accesses to shared memory must be managed. For instance, each core has a local physical memory that can be addressed -on that respective core -by using the core-local memory map. The respective core-local physical memories can be addressed from other cores by using global addresses, which will then be routed through a crossbar to access the physical memory. Data-copying (or data-moving-based) approaches rely on the sending core to copy the data to the receiving core and to notify the receiving core once the transfer has finished. Data can be moved to fast accessible memory, e.g., L1/L2-cache, however the transfer latency has to be considered. Intra-core communication, in contrast, can be achieved through the use of cache memory -if the communicated data size does not exceed the L1-cache size -where each core has its own fast L1-cache to store frequently accessed data. Notably, many modern processors also support more efficient intracore sharing of data; for instance, via hardware support for thread-level parallelism, which allows multiple threads to share data more efficiently by providing dedicated caches and other resources.</p><p>In multiprocessor multi-threaded systems, cache memory primarily contributes negatively to schedulability by increasing WCET values. This increase is affected by evictions from concurrent execution as well as cache coherency delays across cores via communication. To address this issue, various cacheaware multicore real-time scheduling algorithms have been proposed and studied <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b10">[11]</ref>, <ref type="bibr" target="#b45">[46]</ref>, <ref type="bibr" target="#b46">[47]</ref>. Feljan and Carlons <ref type="bibr" target="#b16">[17]</ref> demonstrated that inter-core communication could take up to three times longer than intra-core communication -if the shared data fits into L1-cache. In our motivated application domain of robotics and automotive systems, many shared data satisfy this requirement. According to the real world automotive benchmarks by Kramer et al. <ref type="bibr" target="#b28">[29]</ref>, more than 90% of the shared labels are of atomic data type, i.e., 1, 2, and 4 bytes, which fit the L1-cache in most modern multiprocessor architectures.</p><p>Most applications in the automotive and robotics domain are communication-centric, i.e., accesses to shared data by subtasks are very frequent and even occur across different tasks. Typically, communication overheads are the dominating factor for communication-centric tasks' WCET estimates <ref type="bibr" target="#b0">[1]</ref>. Consequently, communication overheads in parallel applications have a significant impact on the average-case system performance, and are detrimental to resource utilization under hard real-time constraints, if not properly addressed.</p><p>Therefore, we propose to consider more restrictive DAG task models, which try to reduce the communication overheads by grouping subtasks -which share a large amount of data -to execute on the same processor. Consequently, we avoid expensive inter-core communication in favor of more efficient intra-core communication and ideally use the private L1-cache of the respective processor for most of the time.</p><p>From an analysis perspective however, subtask grouping degrades parallelism, because executing certain subtasks on the same processor requires them to be executed sequentially, which must hence be handled carefully.</p><p>To the best of our knowledge, the only other DAG task model addressing subtask group execution constraints is the tied DAG task model from OpenMP. However, our proposed model allows for the grouping of arbitrary subtasks, whereas the tied DAG task model restricts groupings to specific subpaths of a DAG, tying them to a particular thread or processor. Moreover, while there are published response time analyses for the tied DAG task model <ref type="bibr" target="#b37">[38]</ref>, <ref type="bibr" target="#b38">[39]</ref> specific to OpenMP scheduling, they predominantly address the response time problem associated with the extended Breadth First Scheduling (BFS*) algorithm <ref type="bibr" target="#b38">[39]</ref>. Contributions. To the best of our knowledge, our presented work is the first to focus on complying with design constraints where certain vertices of DAG tasks must be executed on the same core. This decision might be made by system designers to mitigate unacceptable overheads in communication, synchronization, memory access, and other factors inherent in the general sporadic DAG task model on multiprocessor systems. We address this problem by imposing group execution constraints and provide hard real-time response-time analyses thereof.</p><p>We summarize our contributions as follows:</p><p>• We introduce an extension to the DAG task model in Section II, namely the EG-DAG, which accommodates arbitrary group execution constraints for subtasks. This model ensures that group-constrained subtasks must be executed on the same physical core, effectively reducing communication overhead among different cores. Unlike conventional models, EG-DAG does not enforce a specific group-to-processor binding but dynamically binds a group to a processor when the first subjob of that group executes on it, maintaining this binding for the duration of the respective DAG task instance. • We propose a scheduling mechanism tailored to the EG-DAG model in Section III. We present a worst-case response time analysis in Section IV along with a group merging heuristic in Section V in the case that the number of groups exceeds the number of available cores. • We propose an algorithm to improve the WCRT analysis in Section VI, by adding additional edges for subjobs within a group. • We provide practical insights into the implementation of the EG-DAG model and its associated scheduling mechanisms in Section VII. • We conduct a comprehensive numerical evaluation in Section VIII, comparing the performance of our proposed approaches against existing algorithms for DAG task scheduling without group execution constraints. Our evaluation results demonstrate that the proposed approaches are highly competitive with existing algorithms, with performance differences typically less than 5%, especially when the probability of edges between subtasks is relatively high.</p><p>II. SYSTEM MODEL AND SPECIFICATION In the proposed model, similar to the standard DAG model, each task is composed of several subtasks. Those subtasks need to comply to precedence constraints, that is, for example, if a subtask utilizes data produced by another subtask, then those subtasks should be executed one after the other. Moreover, and distinct from the standard DAG model, we assume that some subtasks are required to be executed on the same processor -we call this restriction a group execution</p><formula xml:id="formula_0">source 1 v 5 2 v 4 1 v 3 2 v 9 5 v 8 1 v 6 3 v 2 2 v 7 sink Γ 1 = {v 4 , v 5 , v 8 }</formula><p>Fig. <ref type="figure">1</ref>: An exemplary DAG under group execution constraints. Edges denote precedence constraints between subtasks. The execution group Γ 1 contains the 3 red subtasks. constraint. In Figure <ref type="figure">1</ref>, a DAG with one group is illustrated. In the following we first define the DAG task model, and afterwards extend it with the group execution constraints.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. DAG Task Model</head><p>A sporadic DAG task τ is specified by the tuple</p><formula xml:id="formula_1">τ := (G, D, T )<label>(1)</label></formula><p>where G = (V, E) is a Directed Acyclic Graph (DAG) describing the precedence constraints among subtasks, D is the tasks relative deadline, and T is the tasks minimum interarrival time. In the following, we formalize those variables further and make useful definitions for the analysis.</p><p>Inter-Arrival Time T . Task τ releases an infinite number of instances, called jobs (J τ ) ∈N , and any two consecutive job releases are separated by at least T time units.</p><p>Relative Deadline D. The relative deadline of task τ is D. Each job J τ must be finished before its absolute deadline d τ = a τ + D, where a τ is the arrival time of job J τ . The deadline is assumed to be constrained, i.e., D ≤ T .</p><p>Precedence Constraints (formalized by G = (V, E)). The DAG G = (V, E) describes a finite set of subtasks with precedence constraints. Specifically, each DAG is composed of a finite set of subtasks v ∈ V , and a finite set of edges (u, v) ∈ E ⊆ V × V . We assume that the graph G is acyclic and weakly connected. The number of elements in V is denoted as |V |. When job J τ is released, one subjob J v of each subtask v is released which must be executed according to the precedence constraints, i.e., if the edge (u, v) ∈ E exists then J v can only be executed once J u is finished.</p><p>Worst-case Execution Time (formalized by vol). Each subtask v ∈ V is associated with a worst-case execution time (WCET) vol : V → R + , that specifies the maximum execution time for any instance of subtask v. The volume of any subset of subtasks U ⊆ V is given by vol(U ) := v∈U vol(v), including the case where U = V , representing the total volume of the DAG task. It is assumed that every subtask has a positive execution time, i.e., vol(v) &gt; 0 for all v ∈ V .</p><p>Path π ∈ Ψ(G). For each subtask v ∈ V , the set of predecessors of v and the set of successor of v is defined as pred</p><formula xml:id="formula_2">(v) = {w ∈ V |(w, v) ∈ E} and succ(v) = {w ∈ V |(v, w) ∈ E}, respectively. A path is an ordered set of subtasks π = {v 1 , . . . , v n }, such that pred (v 1 ) = ∅, succ(v n ) = ∅, and ∀k ∈ {1, . . . , n -1}, v k ∈ pred (v k+1</formula><p>). For a given DAG task, the set of all possible paths is denoted as Ψ(G), and the critical path is defined as π * := arg max π∈Ψ(G) vol(π). The length of the critical path is denoted as vol(π * ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Execution Groups</head><p>Inter-core communication can take up to three times longer than intra-core communication <ref type="bibr" target="#b16">[17]</ref>. In practical scenarios, this necessitates the strategic placement of interdependent subtasks (i.e., those involved in extensive data sharing) on the same core, thereby mitigating communication overhead. Furthermore, such a placement strategy promotes cache efficiency, as it enables the aggregation of substantial data in the cache, subsequently accessible by multiple subtasks within the same core. To facilitate this optimization, this work introduces the concept of execution groups, denoted as {Γ 1 , . . . , Γ γ }, to systematically group subtasks that benefit from co-location on the same processing unit. Definition 1. An execution group Γ i ⊆ V is a set of subtasks that are constrained to be executed on the same processor.</p><p>We assume that each subtask is part of at most one execution group, that is, Γ i ∩Γ j = ∅ for all i = j. The set of all subtasks which are not part of any execution group is denoted by</p><formula xml:id="formula_3">Γ ⊥ := V \ γ i=1 Γ i .</formula><p>(</p><formula xml:id="formula_4">)<label>2</label></formula><p>We assume that the execution groups are known (e.g., given by the application design).</p><p>Note that according to our definition a group may be executed on different cores for different jobs. For instance, the subtasks in Γ 1 may be executed on processor 4 for the first and on processor 3 for the second job. However, for each job, the processor assignment of a group is fixed as soon as its first subjob starts executing on any processor.</p><p>One exemplary DAG task with execution groups is shown in Figure <ref type="figure">1</ref>. In this example, subtasks v 4 , v 5 , and v 8 share a lot of data and should be executed on the same core. As a result, the execution group</p><formula xml:id="formula_5">Γ 1 = {v 4 , v 5 , v 8 } is specified.</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. SCHEDULING MECHANISM</head><p>In this section we discuss the mechanisms to schedule one DAG task on a set of m dedicated processors. We refer to Section IX for the extension to the scheduling mechanism involving several DAG tasks.</p><p>The scheduling mechanism is based on the list scheduling algorithm. In the original list scheduling algorithm, all currently ready subjobs of a DAG job are maintained in a list. Whenever a processor runs idle, the first subjob in the list is dispatched and executed on that processor until completion.</p><p>To account for the group execution constraints, we consider a list scheduling algorithm with additional lists -one for each execution group. Whenever all predecessors of a subjob finish, the subjob is moved to the corresponding ready queue. At each point in time, a processor executes jobs from the ready queues according to the following description.</p><p>Definition 2 (List Scheduling with Execution Groups). For each task instance (job), each subjob v ∈ V is scheduled on m dedicated processors according to the following rules: Figure <ref type="figure" target="#fig_0">2</ref> illustrates the proposed scheduling mechanism. The Mapping between processors and groups is depicted as a table, and the processor follows the rules formulated in the box. Please note that the actual implementation of the scheduling mechanism is specified in Section VII (including a discussion on how the processor behavior can be ensured).</p><formula xml:id="formula_6">• A subjob</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. RESPONSE-TIME ANALYSIS</head><p>In this section, we provide a response-time upper bound for an arbitrary job J τ of the DAG task τ under the proposed scheduling mechanism from Section III. In the end we argue that the response-time bound is independent of the job number and therefore the response-time bound is an upper bound on the worst-case response time of task τ as well.</p><p>Let a and f be the arrival time and finishing time of job J τ , respectively, and let a v and f v be the arrival time and finishing time of subjob J v , respectively. Our analysis is based on the envelope of the interval [a, f ). The envelope partitions the whole interval [a, f ) into subintervals. During each of those subintervals, one subjob of J τ is pending.</p><formula xml:id="formula_7">Definition 3 (Envelope). We define the envelope of G as a list intervals [a v1 , f v1 ), [a v2 , f v2 ), . . . , [a vp , f vp )<label>(3)</label></formula><p>(with v i ∈ V and p ∈ {1, 2, . . . , |V |}) backwards in an iterative manner as follows: 1) J vp is the subjob of J τ with the maximal finishing time. 2) For all i ∈ {p, p -1, . . . , 2}, J vi-1 is the subjob with the maximal finishing time such that v</p><formula xml:id="formula_8">i-1 ∈ pred (v i ) is a predecessor of v i .</formula><p>3) v 1 is a source node, i.e., it has no predecessor. We call π e := J v1 , J v2 , . . . , J vp the envelope path.</p><p>We note that the definition of an envelope for a DAG job may not be unique if there are subjobs with the same finishing time. In that case, ties can be broken arbitrarily.</p><p>By definition, f vp = f and all envelope path subjobs are executed one after the other, that is f vi ≤ a vi+1 for all i = 1, . . . , p -1. Moreover, at each time during the interval [a, f ) there is always a subjob of the envelope path being executed, except if (i) all processors are busy executing non-envelope subjobs, or (ii) the envelope path subjob is delayed by the scheduling mechanism due to the execution group constraint. We formalize this observation. Definition 4 (Envelope, Busy, and Delay Interval). We partition the interval [a, f ) into three disjoint subsets I e I b I d = [a, f ) as follows:</p><p>• I e : An envelope path subjob is executed.</p><p>• I b : All processors are busy executing jobs which are not in the envelope path. • I d : An envelope path subjob is delayed due to group execution constraints, i.e., the subjob is not scheduled although there are empty processors.</p><p>By utilizing the Lebesgue measure (length) λ of the subsets, we can formulate a response time of J τ as:</p><formula xml:id="formula_9">f -a = λ(I e I d I b ) (4) = λ(I b ) + λ(I e ) + λ(I d )<label>(5)</label></formula><p>In the remainder of this section, we construct safe upper bounds for λ(I b ), λ(I e ) and λ(I d ) to derive an upper bound on the worst-case response time. We start with the bound for I b .</p><p>Lemma 1 (Bound for I b ). The measure of the set I b (i.e., the time that all processors are executing non-envelope subjobs) is upper bounded by</p><formula xml:id="formula_10">λ(I b ) ≤ vol(V ) -λ(I e ) -λ(I d ) m (6)</formula><p>Proof. To prove this lemma, we examine the amount of executed workload during the sets I b , I e and I d .</p><p>• During I e , envelope jobs are executed. Therefore, the executed workload during I e is at least λ(I e ).  Moreover, vol(V ) is an upper bound on the executed workload during [a, f ). We conclude</p><formula xml:id="formula_11">vol(V ) ≥ λ(I e ) + λ(I d ) + m • λ(I b )<label>(7)</label></formula><p>which is equivalent to Equation ( <ref type="formula">6</ref>).</p><p>Second, we derive a bound on the amount of time that the envelope is executed. (</p><formula xml:id="formula_12">)<label>8</label></formula><p>Proof. At each time during I e an envelope path subjob is executed. Each subjob v i can be executed for at most its worst-case execution time, that is, for vol(v i ) time units.</p><p>In consequence, the measure of I e is upper bounded by</p><formula xml:id="formula_13">p i=1 vol(v i ).</formula><p>Last, we determine the bound for the delay induced by the execution groups. </p><formula xml:id="formula_14">Δ(v i ) := ⎧ ⎨ ⎩ 0 v i ∈ Γ ⊥ w∈paral (vi) w∈Γj vol(w) v i ∈ Γ j (<label>9</label></formula><formula xml:id="formula_15">)</formula><p>and where paral (v i ) is the set of potentially parallel subjobs, that is, paral (v i ) is the set of all w ∈ V such that there exists no path from v i to w or from w to v i .</p><p>Proof. For each envelope subjob v i for i ∈ {1, . . . , p}, if v i ∈ Γ ⊥ then it can execute on any idle processor and thus v i can not be delayed. Hence, the cumulative amount of time that v i is delayed is given by Δ(v i ) = 0.</p><p>Conversely, if v i is part of an execution group Γ j that is mapped to a processor P k , then it may be delayed while P k is busy executing other subjobs. We distinguish the delay by different types of "other" subjobs:</p><p>• Delay by subjobs in Γ ⊥ : There is no delay by other subjobs in Γ ⊥ because they are executed with lower priority and would be delayed when the envelope path subjob v i arrives.</p><p>• Delay by subjobs in Γ j = Γ j : Since Γ j is mapped to processor P k , subjobs of Γ j cannot be executed on P k . Hence, there is no delay by subjobs of Γ j .</p><p>• Delay by subjobs in Γ j : Delay of subjobs of the same group Γ j is only possible if they are executed (i.e., arrived but not already finished) during a vi . This is only possible for subjobs of parallel subtasks.</p><p>Hence, we can upper bound the amount of delay by</p><formula xml:id="formula_16">Δ(v i ) = w∈paral (vi) w∈Γj vol(w).<label>(10)</label></formula><p>We conclude that the delay at each subjob J vi of the envelope path is at most Δ(v i ) (from Equation ( <ref type="formula" target="#formula_14">9</ref>)). Hence, the total delay is at most</p><formula xml:id="formula_17">p i=1 Δ(v i ).</formula><p>With the results of Lemmas 1, 2 and 3, we can state the following response time bound. Theorem 1. The response time of J τ is upper bounded by</p><formula xml:id="formula_18">vol(π) + Δ(π) + vol(V \ π) -Δ(π) m , (<label>11</label></formula><formula xml:id="formula_19">)</formula><p>where π is the path that maximizes vol(π) + Δ(π), and Δ(π) := v∈π Δ(v) is defined as in Lemma 3.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Algorithm 1 Execution Group Merging</head><p>Input: DAG task τ , group execution constraints Γ, number of available processors m;</p><formula xml:id="formula_20">1: if |Γ| &gt; m then 2:</formula><p>Sort the Γ i ∈ Γ decreasingly w.r.t the utilization; for i = 1, . . . , m do 5:</p><formula xml:id="formula_21">Γ i := {v ∈ V |v in group in slot i}; 6:</formula><p>end for 7: end if Proof. By using Lemmas 1, 2 and 3, we obtain</p><formula xml:id="formula_22">f -a ≤ λ(I e ) + λ(I d ) + vol(V ) -λ(I e ) -λ(I d ) m (12) = vol(V ) + (m -1) • (λ(I e ) + λ(I d )) m (<label>13</label></formula><formula xml:id="formula_23">)</formula><formula xml:id="formula_24">≤ vol(V ) + (m -1) • (vol(π e ) + Δ(π e )) m (<label>14</label></formula><formula xml:id="formula_25">)</formula><p>Since by definition vol(π e ) + Δ(π e ) ≤ vol(π) + Δ(π), we obtain:</p><formula xml:id="formula_26">f -a ≤ vol(V ) + (m -1) • (vol(π) + Δ(π)) m (15) = vol(π) + Δ(π) + vol(V ) -vol(π) -Δ(π) m<label>(16)</label></formula><p>Moreover, since π ⊆ V , we can replace vol(V )vol(π) with vol(V \ π), which yields the claim.</p><p>The response time bound formulated in Theorem 1 is independent of the job number . Since was chosen arbitrarily, the response time bound from Theorem 1 is an upper bound on the worst-case response time of task τ .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EXECUTION GROUP MERGING</head><p>The scheduling mechanism presented in Section III is only applicable if the number of execution groups does not exceed the number of processors, i.e., |Γ| ≤ m. However, in general the number of execution groups might be significantly higher than the number of processors. To address this problem, we discuss a group merging algorithm using the worst-fit strategy.</p><p>First, we sort the execution groups according to their decreasing total utilization. Second, we partition the execution groups in m slots using the worst-fit strategy, that is, each group is assigned to the slot with the lowest total utilization. The groups are redefined in a way that execution group are merged if they are in the same slot. After the group merging, the response time bound from Theorem 1 can be used to check if the execution groups allow a feasible schedule of the DAG. The merging procedure is summarized in Algorithm 1.</p><p>After the execution group merging, the number of execution groups is identical to the number of available processors m and our analysis from Section IV can be applied. The runtime of the algorithm is O(|Γ|•log |Γ|) to sort the groups according</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Algorithm 2 Adding Edges</head><formula xml:id="formula_27">Input: DAG G = (V, E) of task τ , execution groups Γ 1 , . . . , Γ γ ; 1: for v ∈ V do 2:</formula><p>Calculate the longest path π v from source to v; 3: end for 4: for j = 1, . . . , γ do 5:</p><p>Sort Γ j according to vol(π v ) -vol(v);</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>6:</head><p>For two subsequent vertices v i , v i+1 in Γ j add one edge (v i , v i+1 ) to E; 7: end for to their utilization and O(|Γ| • m) for the partition, where m is the number of available processors.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. ADDING EDGES TO IMPROVE WCRT</head><p>In Section IV, we already introduced the response-time analysis for a given DAG task with execution group constraints. However, the quantification of the delay I d in Lemma 3 is pessimistic since it needs to account for all different sequentializations of potentially-parallel subtasks. As a result, Δ(π e ) = p i=1 Δ(v i ) in Equation ( <ref type="formula" target="#formula_14">9</ref>) is overly pessimistic if there are several parallel subtasks. To mitigate this problem, we propose a sequentialization approach to reduce this pessimism and to tighten the analytical guarantees from Section IV further. To that end, we first motivate our approach intuitively and then present our solution. The improvement is evaluated in Section VIII.</p><p>To respect the execution group constraints in the scheduling mechanism, subjobs of the same execution group have to be executed sequentially. However, since the sequence of the subjobs of the same execution group is not clear, all scenarios must be considered in the analysis. For example, in Figure <ref type="figure">1</ref> there is one execution group Γ 1 with three subtasks v 4 , v 5 and v 8 . We know that v 8 will only be released after v 4 and v 5 have finished. Therefore, there is no delay from the execution group, i.e., Δ(v 8 ) = 0. For the subjobs of v 4 and v 5 there might be delay from the other subjob, respectively. That is, v 5 may be delayed by the length of v 4 (Δ(v 5 ) = 2) and conversely (Δ(v 4 ) = 1). Since it is not clear which of these two subtasks is executed first, both delays must be considered, although it is obvious that for this simple example only one subjob can be delayed and therefore the total delay is in fact at most max {1, 2} = 2.</p><p>Our solution to avoid this over-approximation is to artificially sequentialize subtasks of the same execution group by adding additional edges between execution group subjobs to the graph G = (V, E). Please note that while adding edges to the graph changes the structure, the graph can still fulfill the same functionality as before since the original constraints are still respected. Rather, adding additional edges enforces a certain sequentialization behavior of the scheduler.</p><p>To decide where to add edges to the graph, we use the following procedure, as summarized in Algorithm 2. For each subtask v ∈ V , the longest path π v from the source to source</p><formula xml:id="formula_28">1 v 5 2 v 4 1 v 3 2 v 9 5 v 8 1 v 6 3 v 2 2 v 7 sink Γ 1 = {v 4 , v 5 , v 8 }</formula><p>Fig. <ref type="figure" target="#fig_2">3</ref>: The DAG task from Figure <ref type="figure">1</ref> with additional edges (dashed blue arrows) to improve the analytical guarantees.</p><p>v is calculated. Afterwards, the execution group is ordered according to vol(π v )-vol(v), where ties are broken arbitrarily. This ordering represents a likely sequence of the execution group subtasks of the DAG task. That is, if vol(π v ) -vol(v) is shorter, then less workload must be done before the subtask v can be released, and therefore the subjob of that subtask will likely be executed first anyway. Finally, we achieve the sequentialization of each execution group Γ j by adding edges (v i , v i+1 ) between two subsequent subtasks v i and v i+1 of the ordered Γ j .</p><p>For the example, in Figure <ref type="figure">1</ref>, the execution group is ordered as (v 5 , v 4 , v 8 ) because:</p><formula xml:id="formula_29">• vol(π v4 ) -vol(v 4 ) = 3 • vol(π v5 ) -vol(v 5 ) = 0 • vol(π v8 ) -vol(v 8 ) = 3 + 2 + 1 + 2 = 8</formula><p>Therefore, the edges (v 5 , v 4 ) and (v 4 , v 8 ) are added to the graph. The updated graph is illustrated in Figure <ref type="figure" target="#fig_2">3</ref>. Please note that the edge (v 4 , v 8 ) is redundant and can safely be removed again because there is already a path from v 4 to v 8 .</p><p>To keep the DAG task well-defined, it must be ensured that after this procedure there are still no cycles in the graph. Lemma 4. After adding edges to the DAG task described by DAG G = (V, E) according to Algorithm 2, the graph G remains acyclic.</p><p>Proof. First, we order V according to vol(π v ) -vol(v). If there are two vertices v, w ∈ V with vol(π v ) -vol(v) = vol(π w ) -vol(w), we either follow the sorting of Γ j if both v and w are in Γ j , or we decide the sorting arbitrarily otherwise.</p><p>Any edge e = (v, w) ∈ E can either follow the ordering of V , that is v appears before w in V , or it does not follow the ordering of V . If e follows the ordering of V , then we say it is in '→'-direction. Otherwise, we say it is in '←'-direction.</p><p>The proof is divided in two parts: a) In the original G there are no edges in '←'-direction. b) Adding edges in '→'-direction keeps the graph acyclic.</p><p>a) In the original G there are no edges in '←'-direction: Otherwise, there exists an edge e = (v, w) ∈ E with</p><formula xml:id="formula_30">vol(π v ) -vol(v) ≥ vol(π w ) -vol(w). (<label>17</label></formula><formula xml:id="formula_31">)</formula><p>Because edge e exists, we can also define a path from source to w as π := (π v , w). Since π w is the longest path from source to w, we have vol(π w ) ≥ vol(π). Hence,</p><formula xml:id="formula_32">vol(π v ) -vol(v) ≥ vol(π w ) -vol(w) (18) ≥ vol(π) -vol(w) = vol(π v )<label>(19)</label></formula><p>and we achieve a contradiction vol(v) ≤ 0 to the assumption that vol(v) &gt; 0 for all v ∈ V . b) Adding edges in '→'-direction keeps the graph acyclic: We prove this by contradiction and assume that after adding edges in '→'-direction there exists a cycle (v 1 , . . . , v ξ ) with v 1 = v ξ . Since v 1 and v ξ are at the same position in V , there must be at least one edge (v i , v i+1 ) in '←'-direction. However, there are no edges in '←'-direction in the original G by a), and also after adding edges in '→'-direction. This leads to the contradiction.</p><p>Edges that are added by Algorithm 2 are always in '→'-direction due to the definition of the total ordering of V . Hence, the graph G is still acyclic after Algorithm 2 according to b).</p><p>After the procedure described by Algorithm 2, the subtasks of each execution group Γ j are fully sequentialized and there are no parallel subtasks anymore, i.e., paral (v) = ∅ for all v ∈ Γ j . Hence, the delay I d has measure λ(I d ) = 0. This speeds up and tightens the response time analysis, as evaluated in Section VIII. We note that this procedure does not achieve a dominating behavior if the longest path increases by adding edges. However, evaluation results in Figure <ref type="figure" target="#fig_5">4</ref> showed that it does not have significant impact on the performance ratio.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. IMPLEMENTATION</head><p>This section details the implementation for the scheduling mechanism of DAG tasks with group execution constraints (as illustrated in Figure <ref type="figure" target="#fig_0">2</ref>).</p><p>Task and Group Identification. Each vertex (or subjob) in the EG-DAG task contains associated group information. This can either be Γ j for a grouped or Γ ⊥ for an ungrouped vertex.</p><p>Job Queues and Management. A Global Wait Queue is introduced to store all subjobs with pending precedence constraints. Additionally, n ready queues, labeled from RQ 1 to RQ n , are designated for each execution group. They are applied to store ready subjobs from their associated groups. For ungrouped subjobs, another queue, RQ ⊥ , is instantiated.</p><p>Job Scheduling Mechanism. Once all predecessors of a subjob v i conclude their execution, the subjob is dequeued from the global wait queue. Depending on its group affiliation:</p><p>• For Grouped Subjobs (v i ∈ Γ j ), they are enqueued into the corresponding RQ j . A processor-group mapping table ensures each processor's exclusivity to one execution group. If v i is the only subjob of an empty RQ j , the processor-group mapping table is consulted. If RQ j does not have a processor association, it binds with a currently unassigned processor. In situations where no processor remains idle, RQ j associates with a processor executing ungrouped subjobs. Herein, the new grouped subjob preempts any executing ungrouped subjob. • For Ungrouped Subjobs (v i ∈ Γ ⊥ ), they are enqueued into the RQ ⊥ . An unoccupied processor, given its specific ready queue is also vacant, can execute a job from RQ ⊥ . However, the lower priority of ungrouped subjobs means any incoming grouped subjob can preempt them.</p><p>Preemption and Priority Handling. Within the scheduling mechanism, grouped subjobs naturally hold higher priority. When processors are executing ungrouped subjobs, any incoming grouped subjob can preempt their execution. This mechanism not only optimizes computational resource utilization but also guarantees task continuity and ensures data consistency, especially for grouped subjobs.</p><p>To the best of our knowledge, most researchoriented RTOSes and open-source RTOSes, such as LIT M U S RT <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b7">[8]</ref>, RTEMS, and FreeRTOS, do not natively support the DAG task model. Implementing the DAG task model within an RTOS is beyond the scope of this work. Consequently, the most suitable approach to implement our newly proposed EG-DAG model is to simulate the scheduling behavior of each sub-job, and to utilize a table-driven scheduler, a feature that is, for instance, supported by LIT M U S RT . In order to avoid multiprocessor timing anomalies, the execution time of each subjob has to be forced to its WCET, i.e., no early completion is allowed.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. EVALUATION</head><p>In this section, we present a detailed experimental evaluation to assess the effectiveness of our proposed worst-case response-time analysis introduced in Section IV. We compare our analysis with the state-of-the-art DAG response-time analyses without execution groups. Additionally, we evaluate the performance enhancements achieved by our improvements, as delineated in Section VI.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Environment Configurations</head><p>We generated 100 task sets, each with a total utilization of 640%. The number of DAG tasks n was selected uniformly at random from <ref type="bibr" target="#b15">[16,</ref><ref type="bibr" target="#b31">32]</ref>. We applied the Dirichlet-Rescale (DRS) algorithm <ref type="bibr" target="#b21">[22]</ref> to determine the utilization for each of the n tasks. Task periods T i were uniformly and randomly chosen from the set {1, 2, 5, 10, 20, 50, 100, 200, 1000}, a selection inspired by common practice in automotive systems <ref type="bibr" target="#b23">[24]</ref>, <ref type="bibr" target="#b28">[29]</ref>, <ref type="bibr" target="#b41">[42]</ref>, <ref type="bibr" target="#b44">[45]</ref>. We assumed implicit deadlines for all tasks, with each task's relative deadline D i matching its period T i .</p><p>To generate a DAG, we first randomly selected the number of subtasks from <ref type="bibr" target="#b9">[10,</ref><ref type="bibr">100]</ref>, and applied the DRS to generate the utilization for each subtask. The G(n, p) algorithm <ref type="bibr" target="#b13">[14]</ref> was used to generate the edges between subtasks, with probability p e ∈ {[10%, 30%], [40%, 60%], [70%, 90%]}, where p e is the probability of an edge (v j , v k ) ∈ E for any pair of subtaks (v j , v k ) with j &lt; k. For each DAG task, the probability of a subtask being grouped was p g ∈ {50%, 70%, 90%}. The number of groups for each task set was randomly selected from the ranges n g ∈ { <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b15">16]</ref>, <ref type="bibr" target="#b15">[16,</ref><ref type="bibr" target="#b31">32]</ref>}. For each grouped subtask, the exact group allocation, i.e., the group id, was uniformly and randomly generated. We executed the generated task sets on either {4, 8, 16} processors and recorded the makespan for each task.</p><p>In the evaluation, we refer to the proposed approaches as EG-DAG for the original analysis and EG-IMP for the improved version in Section VI. We compared our approach to the following algorithms, which do not consider group execution constraints:</p><p>• HE: Single path approach represented by He et al. <ref type="bibr" target="#b25">[26]</ref>.</p><p>• PPP: Parallel Path Progression DAG Scheduling approach proposed by Ueter et al. <ref type="bibr" target="#b43">[44]</ref>. • FED: Federated scheduling from Li et al. <ref type="bibr" target="#b31">[32]</ref>.</p><p>• LB: The lower bound of the makespan, which is defined as the maximum between the WCET of the task over the available processor and the length of its critical path, i.e., max{vol(τ )/M, vol(π * )}. We evaluated the makespan of different approaches based on the performance ratio, defined as the makespan of the dedicated DAG scheduling algorithm divided by the lower bound, i.e., LB.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Evaluation Results and Discussions</head><p>We evaluated all 54 combinations under different settings. Due to the similarity of the performance, only a subset of the results is presented in Figure <ref type="figure" target="#fig_5">4</ref>.</p><p>In general, our proposed approach for EG-DAG is comparable with the approaches that have not taken communication overheads into consideration when either (i) the probability of edges between subtasks is relatively high; (ii) the number of available processors is relatively large; or (iii) the probability that a subtask being grouped is relatively high. We analyzed the effect of the three parameters individually by changing:</p><p>1) p e ∈ {[10%, 30%], [40%, 60%], [70%, 90%]} (Figure <ref type="figure" target="#fig_5">4a</ref>): For a fixed number of available processors M = 16, a fixed number of groups n g ∈ <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b15">16]</ref>, and a fixed probability that a subtask is grouped p g = 70%, increasing the probability of edges between subtasks can significantly improve the performance of our new proposed approach for EG-DAG. 2) M ∈ {4, 8, 16} (Figure <ref type="figure" target="#fig_5">4b</ref>): By increasing M , while keeping a fixed probability of edges between subtasks p e ∈ [70%, 90%], a fixed number of groups n g ∈ <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b15">16]</ref>, and a fixed probability that a subtask is grouped p g = 70%, the performance of the proposed approach was significantly improved. 3) p g ∈ {50%, 70%, 90%} (Figure <ref type="figure" target="#fig_5">4c</ref>): Increasing the probability that a subtask is grouped, while keeping the number of available processors M = 16, the probability of edges between subtasks p e ∈ [70%, 90%], and the number of groups n g ∈ <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b15">16]</ref>, enhanced the performance of the proposed approach. Just considering Figure <ref type="figure" target="#fig_5">4</ref>, while the performance of EG-DAG is comparable, the other approaches usually perform slightly better. However, a loss compared to the other methods  was expected as the additional group execution constraints must be respected. Recall that these group constraints ensure that groups of tasks with a high intra-group communication load are assigned to the same core, thus drastically reducing the communication overhead. This communication overhead is not considered by the other approaches.</p><p>In most configurations the median performance loss of our approach, compared to the lower bound, is less than 5%. Therefore, the evaluation results substantiate that our analysis accommodates communication overheads and additional constraints with only a marginal degradation in performance. Once non-negligible communication overheads are considered, such as 5% of the WCET for each task, our newly proposed approaches can outperform all other approaches in most of the evaluated configurations.</p><p>Additionally, the improved version of the proposed approach outperforms the original in most evaluated configurations. However, when the probability of edges between subtasks is relatively high, i.e., p e ∈ [70%, 90%], and the number of available processors is also relatively large, i.e., M = 16, the performance difference becomes negligible. In the aforementioned configurations, these subtasks have already been connected in most of the cases, adding additional edges does not affect the structure of the considered DAG task significantly. Therefore, the makespan does not change significantly as well.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IX. EXTENSION OF THE ANALYSIS TO SCENARIO WITH MULTIPLE DAGS</head><p>In typical systems, not all m processors are exclusively allocated to a single task. Therefore, in this section we discuss how to extend our analysis to the general case with n DAG tasks τ 1 , . . . , τ n . To achieve this, we have to schedule the n tasks such that it is ensured that the subtasks with the execution constraints execute on the same processor.</p><p>The most straightforward approach is to partition the n tasks on m processors by assigning m i ≥ 1 processors for task τ i exclusively while ensuring that n i=1 m i ≤ m. However, this approach only works if sufficient cores are available, and especially performs very poorly if certain tasks utilize only a fraction of their dedicated processor capacity. Therefore, we might want to deploy a less restrictive mechanism.</p><p>We observe that the following two properties are needed to apply our scheduling mechanism and the related analysis: 1) During execution of a task τ i , a certain amount of m i processors is available exclusively for τ i , and 2) the processors that are used by task τ i do not change until its job is completed.</p><p>We utilize hierarchical scheduling, a layered scheduling approach, in which so-called reservation systems are scheduled on the physical processors based on the higher-level scheduling strategy. These reservations then serve the assigned actual tasks whenever executed on the physical processors based on the lower-level scheduling strategy. Specifically, we consider rigid gang scheduling on the higher level as it was shown to have performance benefits compared to non-gang scheduling <ref type="bibr" target="#b15">[16]</ref>, <ref type="bibr" target="#b26">[27]</ref>, and the proposed scheduling mechanism from Section III on the lower level.</p><p>Gang scheduling achieves 1) directly. In gang scheduling, for each DAG task τ i , a dedicated gang reservation is scheduled on m i dedicated processors in parallel. In our case, m i is rigid, i.e., it is fixed and predefined offline. Inside each reservation, the DAG tasks can be scheduled using our proposed scheduling mechanism from Section III. There is already a rich literature on gang scheduling <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b12">[13]</ref>, <ref type="bibr" target="#b19">[20]</ref>, <ref type="bibr" target="#b20">[21]</ref>, <ref type="bibr" target="#b27">[28]</ref>, <ref type="bibr" target="#b30">[31]</ref>, <ref type="bibr" target="#b33">[34]</ref>, <ref type="bibr" target="#b42">[43]</ref>.</p><p>To ensure 2), we must forbid task migration during runtime. That is, we must either restrict the gang scheduling algorithm in the time-domain (i.e., non-preemptive scheduling) or in the space-domain (i.e., stationary gang scheduling). A restriction in the time domain is achieved by non-preemptive scheduling where each job finishes its execution before the next job can access the processors. With non-preemptive scheduling, there is no need for task migration. A restriction in the space domain can be realized by stationary gang scheduling. That is, the m i processors used for task τ i are predefined. We refer to the literature for state-of-the art response time analyses, e.g., in <ref type="bibr" target="#b30">[31]</ref> or <ref type="bibr" target="#b42">[43]</ref>, respectively.</p><p>The inherent characteristics of various gang scheduling algorithms significantly influence the schedulability performance of a task set, particularly when different makespan analysis algorithms are applied on a specific number of available processors. Therefore, in our evaluation, we focus on assessing the makespan of different approaches across varying numbers of available processors for each task. This approach diverges from evaluating the performance of the entire task set using different gang scheduling algorithms. Our objective is to compare the performance of each makespan analysis algorithm for a single DAG task in a more isolated manner.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>X. RELATED WORK</head><p>In practice, one common example of DAG tasks with group execution constraints are applications following the AUTOSAR standard that are deployed on multiprocessor platforms. Each task is composed of several runnables with data dependencies; these runnables are similar to the subtasks in this work. In order to minimize the communication overheads, a lot of strategies have been proposed and studied. Saidi et al. <ref type="bibr" target="#b35">[36]</ref> presented an Integer Linear Programming (ILP) formulation for mapping AUTOSAR runnables to a multi-core architecture, with the aim to minimize inter-core communication and to balance the workload on available cores. Gupta et al. <ref type="bibr" target="#b22">[23]</ref> proposed an approach for mapping runnables to different cores, meeting the corresponding timing and precedence constraints while considering hardware dependency and inter-core communication cost. Faragardi et al. <ref type="bibr" target="#b14">[15]</ref> proposed a feedback-based solution framework for component-based embedded software on a multi-core processor, subject to reduce both the inter-core communication cost and the waiting time caused by the synchronization between dependent transactions. However, there results consider the minimization of inter-core communication overheads rather than taking the optimization of schedule algorithms for given mappings of runnables with release precedence constraints into consideration.</p><p>On the other hand, the scheduling of DAG tasks with release precedence constraints on heterogeneous/homogeneous multiprocessor platforms has received a lot of attention over the years. Li et al. <ref type="bibr" target="#b31">[32]</ref> proposed federated scheduling, where the intra-task interference on the critical path is upper-bounded by the workload of subjobs not belonging to the critical path divided by the number of processors. The corresponding response time analysis requires no information about the internal structure of the DAG except for the total volume and the length of the critical path. Sun et al. <ref type="bibr" target="#b37">[38]</ref>, <ref type="bibr" target="#b38">[39]</ref> focused on OpenMP task systems, where tied tasks must be executed on the same thread. For an OpenMP task system, the task is defined as a set of sequentially executed subtasks; hence, the model is less general than the DAG task model where the order of the subjobs is based on precedence constraints. Tessler et al. <ref type="bibr" target="#b40">[41]</ref> developed a cache-aware BUNDLE-scheduling algorithm for federated scheduling of sporadic DAG task sets, which focuses on cache affinities and allows for trade-offs. He et al. <ref type="bibr" target="#b25">[26]</ref> proposed a priority assignment policy for each subtask of a DAG as well as a response time bound for DAG tasks with arbitrary priority assignment. Ueter et al. <ref type="bibr" target="#b43">[44]</ref> proposed a parallel path progression scheduling algorithm with two distinct subtask priorities, which allows to quantify the parallel execution of a user chosen collection of complete paths in the response time analysis. Tessler et al. <ref type="bibr" target="#b39">[40]</ref> considered cacheaware co-located scheduling for fork-join tasks, aiming to improve schedulability by carefully scheduling threads to share cached values. However, all these results do not consider the communication overheads of subtasks with data dependencies in DAG task systems, where execution groups are regarded as a strict requirement.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>XI. CONCLUSION</head><p>In this paper, we have enhanced the DAG task model by introducing the concept of execution groups requiring designated subtasks to be executed on the same processor. This refinement aims to minimize communication overhead within multi-core systems. To facilitate this model, we have proposed a dedicated scheduling mechanism that ensures the coordinated execution of subtasks within these groups while providing a comprehensive response time analysis.</p><p>To the best of our knowledge, our work represents the first effort to introduce a scheduling mechanism tailored for DAG tasks with execution groups. Our evaluation results demonstrate the competitiveness of our approach, even after refining the DAG task model to accommodate execution groups, compared to existing approaches that do not explicitly consider communication overhead and group execution constraints. These results also suggest that our approach can offer superior schedulability guarantees, especially when accounting for communication overhead, such as a modest fraction (e.g., 5%) of the corresponding task's Worst-Case Execution Time.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>ACKNOWLEDGEMENT</head><p>This result is part of a project (PropRT) that has received funding from the European Research Council (ERC) under the European Union's Horizon 2020 research and innovation programme (grant agreement No. 865170). This work has been supported by Deutsche Forschungsgemeinschaft (DFG), as part of Sus-Aware (project No. 398602212).</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Explanation of scheduling concept of a DAG job on m processors.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Lemma 2 (</head><label>2</label><figDesc>Bound for I e ). The measure of the set I e (i.e., time that the envelope is executed) is upper bounded by the volume of the envelope subjobs v 1 , . . . , v p ∈ π e . That is, λ(I e ) ≤ vol(π e ) = p i=1 vol(v i ).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Lemma 3 (</head><label>3</label><figDesc>Bound for I d ). The measure of I d (i.e., when envelope subjobs are delayed due to group execution constraints) is upper bounded by Δ(π e ) := p i=1 Δ(v i ), where</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>3 :</head><label>3</label><figDesc>Partition Γ on m slots using worst-fit; (Merge same slot groups:) 4:</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head></head><label></label><figDesc>Increasing the probability of edges between subtasks, i.e., pe ∈ {10% -30%, 40% -60%, 70% -90%}. Increasing the number of available processors, i.e., M ∈ {4, 8, 16}. Increasing the probability that a subtask is grouped, i.e., pg ∈ {50%, 70%, 90%}.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: Comparison of different approaches with different configurations.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head></head><label></label><figDesc>is ready if all preceding subjobs have executed until completion, i.e., the subjob arrival time a v for each subjob v is given by max {f w | (w, v) ∈ E}. A subjob arrives to its respective per-group ready list Queue:Γ i for i ∈ {1, . . . , γ} or to the ungrouped ready list Queue:Γ ⊥ . An arrived but not yet finished subjob is called pending.</figDesc><table /><note><p><p>• Subjobs from per-group ready lists are initially admitted executing on any reservation. However, at the first time that any subjob of a per-group ready list Queue:Γ i is executed on some of the m processors, then all subjobs that arrive to Queue:Γ i are restricted to execute on that reservation. Once a group is restricted to a processor, it cannot be used for another group, i.e., no two subjobs of different groups can execute on the same processor.</p>• Subjobs from Queue:Γ ⊥ are admitted to execute on any of the m processors. • At any time t, on each of the m processors, a group subjob admitted for this processor is executed (if such a job exists), otherwise a non-group subjob is executed (if such a job exists). When a group subjob arrives that is admitted for the processor, the execution of a non-group subjob on that processor is preempted.</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>•</head><label></label><figDesc>During I d , the envelope subjob is delayed due to group execution constraints. That means that a subjob of the envelope path is waiting for its dedicated processor to finish the execution of another subjob. In particular, When the first subjob of Γj is executed on a processor Pi, then map Γj to Pi.</figDesc><table><row><cell></cell><cell></cell><cell>ReadyQ:Γ 1</cell><cell cols="2">Proc Group P 1 Γ 3</cell></row><row><cell cols="2">subjobs in WaitQ v Pi executes jobs from ready lists in following priority: if pred(v) finished</cell><cell>ReadyQ:Γ 2 ReadyQ:Γ n</cell><cell>P 2 P 3 . . . P m</cell><cell>Γ 2 -. . . -</cell></row><row><cell>Case: Pi mapped to Γj</cell><cell>Case: Pi not mapped</cell><cell>ReadyQ:Γ ⊥</cell><cell cols="2">Processor-Group</cell></row><row><cell>1) Queue:Γj 2) Queue:Γ ⊥</cell><cell>1) Any Queue:Γj which is not mapped 2) Queue:Γ ⊥</cell><cell></cell><cell cols="2">Mapping</cell></row></table><note><p>there is workload of at least one subjob being executed during I d . Therefore, the executed workload during I d is at least λ(I d ).</p></note></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 22:58:07 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="152" xml:id="foot_1"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 22:58:07 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Impact of resource sharing on performance and performance prediction: A survey</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Abel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Benz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Doerfert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Dörr</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Hahn</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Haupenthal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Jacobs</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">H</forename><surname>Moin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Reineke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Schommer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Wilhelm</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">CONCUR</title>
+		<title level="s">Lecture Notes in Computer Science</title>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="volume">8052</biblScope>
+			<biblScope unit="page" from="25" to="43" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Rt-gang: Real-time gang scheduling framework for safety-critical systems</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Ali</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="143" to="155" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Federated scheduling of sporadic DAG task systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Parallel and Distributed Processing Symposium, IPDPS</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+			<biblScope unit="page" from="179" to="186" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Feasibility analysis in the sporadic dag task model</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Stiller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wiese</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="225" to="233" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title level="m" type="main">Scheduling and locking in multiprocessor real-time operating systems</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<pubPlace>Chapel Hill, USA</pubPlace>
+		</imprint>
+		<respStmt>
+			<orgName>University of North Carolina</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">PhD thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Cache-aware real-time scheduling on multicore platforms: Heuristics and a case study</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">20th Euromicro Conference on Real-Time Systems, ECRTS</title>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="299" to="308" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">On the design and implementation of a cache-aware multicore real-time scheduler</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">21st Euromicro Conference on Real-Time Systems, ECRTS</title>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="194" to="204" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Litmusˆrt : A testbed for empirically comparing real-time multiprocessor schedulers</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><forename type="middle">C</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 27th IEEE Real-Time Systems Symposium (RTSS)</title>
+		<meeting>the 27th IEEE Real-Time Systems Symposium (RTSS)</meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2006">2006</date>
+			<biblScope unit="page" from="111" to="126" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Partitioned fixedpriority scheduling of parallel tasks without preemptions</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="421" to="433" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">A holistic memory contention analysis for parallel real-time tasks under partitioned scheduling</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="239" to="252" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Analysis of randomized work stealing with false sharing</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Cole</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Ramachandran</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">27th IEEE International Symposium on Parallel and Distributed Processing</title>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="985" to="998" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Work-in-progress: New analysis techniques for supporting hard real-time sporadic dag task systems on multiprocessors</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Dong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="151" to="154" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">A utilization-based test for non-preemptive gang tasks on multiprocessors</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Dong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="105" to="117" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">On random graphs I</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Erdös</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Publicationes Mathematicae (Debrecen)</title>
+		<imprint>
+			<biblScope unit="volume">6</biblScope>
+			<biblScope unit="page" from="290" to="297" />
+			<date type="published" when="1959">1959</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">A resource efficient framework to run automotive embedded software on multi-core ecus</title>
+		<author>
+			<persName><forename type="first">H</forename><forename type="middle">R</forename><surname>Faragardi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Lisper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Sandström</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems and Software</title>
+		<imprint>
+			<biblScope unit="volume">139</biblScope>
+			<biblScope unit="page" from="64" to="83" />
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Gang scheduling performance benefits for fine-grain synchronization</title>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">G</forename><surname>Feitelson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Rudolph</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. Parallel Distributed Comput</title>
+		<imprint>
+			<biblScope unit="volume">16</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="306" to="318" />
+			<date type="published" when="1992">1992</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">The impact of intra-core and inter-core task communication on architectural analysis of multicore embedded systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Feljan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Carlson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">The Eighth International Conference on Software Engineering Advances, ICSEA</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="402" to="407" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Improved Response Time Analysis of Sporadic DAG Tasks for Global FP Scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Fonseca</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Nélis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th International Conference on Real-Time Networks and Systems</title>
+		<meeting>the 25th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="28" to="37" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Response time analysis of sporadic DAG tasks under partitioned scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">C</forename><surname>Fonseca</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Nélis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">M</forename><surname>Pinho</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">11th IEEE Symposium on Industrial Embedded Systems, SIES</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="290" to="299" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">Gang FTP scheduling of periodic and parallel rigid real-time tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Berten</surname></persName>
+		</author>
+		<idno>CoRR, abs/1006.2617</idno>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Optimal scheduling of periodic gang tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Richard</surname></persName>
+		</author>
+		<idno>04:1-04:18</idno>
+	</analytic>
+	<monogr>
+		<title level="j">Leibniz Trans. Embed. Syst</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Generating utilization vectors for the systematic evaluation of schedulability tests</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Griffin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">41st IEEE Real-Time Systems Symposium, RTSS</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="76" to="88" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">An efficient approach for mapping autosar runnables in multi-core automotive systems to minimize communication cost</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Gupta</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><forename type="middle">P</forename><surname>Singh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Srinivasan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2019 Innovations in Power and Advanced Computing Technologies (i-PACT)</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="page" from="1" to="4" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Communication centric design in complex automotive embedded systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dasari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kramer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Pressler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Wurst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">29th Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="volume">76</biblScope>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+		<respStmt>
+			<orgName>20. Schloss Dagstuhl -Leibniz-Zentrum für Informatik</orgName>
+		</respStmt>
+	</monogr>
+	<note>ECRTS</note>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Intra-task priority assignment in real-time scheduling of dag tasks on multi-cores</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Guo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="2283" to="2295" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Response time bounds for DAG tasks with arbitrary intra-task priority assignment</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lv</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">33rd Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2021">July 5-9, 2021. 2021</date>
+			<biblScope unit="volume">196</biblScope>
+			<biblScope unit="page" from="1" to="8" />
+		</imprint>
+	</monogr>
+	<note>LIPIcs</note>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Performance characteristics of gang scheduling in multiprogrammed environments</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">A</forename><surname>Jette</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the ACM/IEEE Conference on Supercomputing</title>
+		<meeting>the ACM/IEEE Conference on Supercomputing</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="1997">1997</date>
+			<biblScope unit="page">54</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Gang EDF scheduling of parallel task systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium, RTSS</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="459" to="468" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Real world automotive benchmark for free</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kramer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">th International Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems (WATERS)</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Scheduling parallel realtime tasks on multi-core processors</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 31st IEEE Real-Time Systems Symposium</title>
+		<meeting>the 31st IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="259" to="268" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Design and timing guarantee for nonpreemptive gang scheduling</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="132" to="144" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Analysis of federated and global scheduling for parallel real-time tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">D</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">26th Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="85" to="96" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Response-Time Analysis of Conditional DAG Tasks in Multiprocessor Systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Melani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2015 27th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 2015 27th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">Response-time analysis for non-preemptive periodic moldable gang tasks</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Nasri</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="volume">231</biblScope>
+			<biblScope unit="page" from="1" to="12" />
+		</imprint>
+		<respStmt>
+			<orgName>22. Schloss Dagstuhl -Leibniz-Zentrum für Informatik</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">On the evaluation of the impact of shared resources in multithreaded COTS processors in time-critical environments</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Radojkovic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Girbal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Grasset</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Quiñones</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Yehia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">J</forename><surname>Cazorla</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Archit. Code Optim</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page">25</biblScope>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">An ILP approach for mapping AUTOSAR runnables on multi-core architectures</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">E</forename><surname>Saidi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Cotard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Chaaban</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Marteil</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2015 Workshop on Rapid Simulation and Performance Evaluation: Methods and Tools</title>
+		<meeting>the 2015 Workshop on Rapid Simulation and Performance Evaluation: Methods and Tools</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2015">2015</date>
+			<biblScope unit="volume">6</biblScope>
+			<biblScope unit="page" from="1" to="6" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">Multi-Core Real-Time Scheduling for Generalized Parallel Task Models</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 32nd IEEE Real-Time Systems Symposium</title>
+		<meeting>the 32nd IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="217" to="226" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling and analysis of synchronous openmp task systems with tied tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Jin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Chi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">DAC</title>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page">94</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling and analysis of openmp task systems with tied tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium, RTSS</title>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="92" to="103" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">Co-located parallel scheduling of threads to optimize cache sharing</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Tessler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">P</forename><surname>Modekurthy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Fisher</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Murphy</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium, RTSS</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2023">2023</date>
+			<biblScope unit="page" from="251" to="264" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<analytic>
+		<title level="a" type="main">Bringing inter-thread cache benefits to federated scheduling</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Tessler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><forename type="middle">P</forename><surname>Modekurthy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Fisher</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="281" to="295" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<analytic>
+		<title level="a" type="main">System-level timing feasibility test for cyber-physical automotive systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Tobuschat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">11th IEEE Symposium on Industrial Embedded Systems, SIES 2016</title>
+		<meeting><address><addrLine>Krakow, Poland</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2016">May 23-25, 2016. 2016</date>
+			<biblScope unit="page" from="121" to="130" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">Hard real-time stationary gang-scheduling</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Ueter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Günzel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2021">19. 2021</date>
+			<biblScope unit="volume">196</biblScope>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+	<note>LIPIcs</note>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<analytic>
+		<title level="a" type="main">Parallel path progression DAG scheduling</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Ueter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Günzel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="page" from="1" to="15" />
+			<date type="published" when="2023">2023</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b44">
+	<analytic>
+		<title level="a" type="main">Parametric utilization bounds for implicit-deadline periodic tasks in automotive systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Ueter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Freier</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th International Conference on Real-Time Networks and Systems</title>
+		<meeting>the 25th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="108" to="117" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b45">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of nonpreemptive real-time scheduling for multicore processors with shared caches</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Xiao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Altmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">D</forename><surname>Pimentel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2017 IEEE Real-Time Systems Symposium, RTSS</title>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="199" to="208" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b46">
+	<analytic>
+		<title level="a" type="main">Analysis and implementation of glenergy saving for mixed-criticalityobal preemptive fixed-priority scheduling with dynamic cache allocation</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Xu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">T X</forename><surname>Phan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="123" to="134" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b47">
+	<analytic>
+		<title level="a" type="main">Evaluating the isolation effect of cache partitioning on cots multicore platforms</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">OSPERT</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b48">
+	<analytic>
+		<title level="a" type="main">DAG scheduling and analysis on multiprocessor systems: Exploitation of parallelism and dependency</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Dai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Chang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">41st IEEE Real-Time Systems Symposium, RTSS 2020</title>
+		<meeting><address><addrLine>Houston, TX, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2020">December 1-4, 2020. 2020</date>
+			<biblScope unit="page" from="128" to="140" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b49">
+	<analytic>
+		<title level="a" type="main">Profiling and controlling i/o-related memory contention in COTS heterogeneous platforms</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Zini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Cicero</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Softw. Pract. Exp</title>
+		<imprint>
+			<biblScope unit="volume">52</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="1095" to="1113" />
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

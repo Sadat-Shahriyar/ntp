@@ -1,0 +1,749 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Work-In-Progress: Lock-Based Software Transactional Memory for Real-Time Systems</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Catherine</forename><forename type="middle">E</forename><surname>Nemitz</surname></persName>
+							<email>nemitz@cs.unc.edu</email>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">The University of North Carolina at Chapel Hill</orgName>
+								<address>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<email>anderson@cs.unc.edu</email>
+							<affiliation key="aff1">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">The University of North Carolina at Chapel Hill</orgName>
+								<address>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Work-In-Progress: Lock-Based Software Transactional Memory for Real-Time Systems</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">7073DB6D5521133605B7F6E0074BD989</idno>
+					<idno type="DOI">10.1109/RTSS.2018.00026</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T15:20+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>multiprocess locking protocols</term>
+					<term>nested locks</term>
+					<term>priority-inversion blocking</term>
+					<term>reader/writer locks</term>
+					<term>real-time locking protocols</term>
+					<term>software transactional memory</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>We propose a method for designing software transactional memory that relies on the use of locking protocols to ensure that transactions will never be forced to retry. We discuss our approaches to implementing this method and tunable parameters that may be able to improve schedulability on an application-specific basis.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Software transactional memory (STM) is a mechanism used to coordinate access to shared-memory resources. STM provides a separation of concerns regarding these resources: application development and resource-access synchronization are isolated from each other. For developers of real-time applications, STM presents a simple interface for guaranteeing that shared memory is accessed in a safe manner; instead of resorting to a parallelism-restricting coarse-grained solution or reasoning through race conditions, potential memory locations being accessed, and devising a fine-grained approach, a developer can simply mark a section of code as atomic.</p><p>Separately from this development phase, the STM ensures a section of code in execution will access shared memory in a safe manner based on the required access (read or write). How this is accomplished is discussed later.</p><p>In the context of real-time systems, this separation of concerns has benefits beyond the initial development of an application. With the use of a certified STM, the burden of certifying an application for a safety-critical domain is reduced. Managing access to shared memory in the application is abstracted away, which allows a certifying body to focus on the easier task of ensuring that all code blocks for which synchronization is necessary are marked atomic; the STM handles the rest.</p><p>STM implementations can be considered to have several interdependent parts. An STM allows reads and writes to shared memory, detects and resolves conflicts, and ensures progress for each process. In the model typically envisioned <ref type="bibr" target="#b2">[3]</ref>, <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b10">[11]</ref>, <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b13">[14]</ref>- <ref type="bibr" target="#b15">[16]</ref>, <ref type="bibr" target="#b17">[18]</ref>, <ref type="bibr" target="#b20">[21]</ref>, <ref type="bibr" target="#b24">[25]</ref>, <ref type="bibr" target="#b25">[26]</ref>, these goals are accomplished with attempted transactions, a runtime conflict-detection component, and transaction rollbacks and retries with some priority or contention management to ensure eventual completion.</p><p>Because of the focus on timing constraints within realtime systems, we propose a new solution to reduce these concerns to two components: a conflict-detection mechanism and a locking protocol that guarantees that each transaction completes on its first execution with no retries. We believe that this approach can lead to improved schedulability over more traditional approaches because of tighter bounds on worstcase transaction execution times that can be guaranteed. Our approach can support a range of applications, from embedded to high performance computing.</p><p>Our new lock-based approach differs from prior work as described in Sec. II. Also in Sec. II, we describe our system model. Then, we describe components of our proposed implementation in Sec. III and discuss extensions to our new implementation in Sec. IV before concluding in Sec. V.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND AND PRIOR WORK</head><p>We begin by providing an explanation of our model of tasks and resources. We then discuss prior work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. System model</head><p>We assume the standard sporadic or periodic task system model, in which a task system Γ is comprised of tasks τ 1 , . . . , τ n . These n tasks are scheduled with a job-level fixedpriority scheduler on a platform with m processors.</p><p>Each task may need to access some resource a . (How a resource maps to shared memory is discussed in more detail in Sec. III.) This access may be a write access-one which requires mutual exclusion-or a read access-one which may occur concurrently with other read accesses. We focus on using a lock L to protect specific resources. We define the notation L x :{y} to represent that Lock x protects the set of resources y. That is, a task must first acquire L x before it may access any resource in y.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Prior work</head><p>The idea of transactional memory was proposed two-and-ahalf decades ago <ref type="bibr" target="#b15">[16]</ref>, and many approaches for implementing such a framework have emerged that focus on hardware-based, software-based, and hybrid solutions. Much of the prior work focuses on software transactional memory <ref type="bibr" target="#b25">[26]</ref>, as flexible hardware implementations are not commercially available <ref type="bibr" target="#b6">[7]</ref>. Many types of STM have been explored. These include STM implementations that define resources by shared-memory locations (e.g., <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b13">[14]</ref>) or by shared data structures (e.g., <ref type="bibr" target="#b14">[15]</ref>). Some STM approaches have relied on non-blocking or lock-free techniques to coordinate transaction commits and retries (e.g., <ref type="bibr" target="#b14">[15]</ref>, <ref type="bibr" target="#b25">[26]</ref>), while others have used locks to coordinate these decisions (e.g. <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b10">[11]</ref>). However, the approaches suitable for use in a real-time system cover a much smaller space.</p><p>Existing approaches to STM development in the context of real-time systems have focused on the traditional structure described above. Tasks do prospective work on copies of resources, and then the transaction attempts to commit these changes to the original resource(s), retrying if any conflicts are detected. The research focus on the use of STM for realtime applications is necessarily focused on ensuring guarantees of progress for each memory access in order to provide a system that is schedulable. To this end, work has been done that focuses on bounding and lowering the number of retries required.</p><p>The most similar approach to the one we propose is one in which a set of locks must be acquired for a given transaction to complete, but a transaction may be forced to give up its locks and re-acquire them based on a time-stamped ordering <ref type="bibr" target="#b2">[3]</ref>. Prior work has also experimented with prioritizing each transaction based on the deadline of the task issuing the transaction <ref type="bibr" target="#b17">[18]</ref>, <ref type="bibr" target="#b20">[21]</ref>, <ref type="bibr" target="#b24">[25]</ref>. Other work has investigated the effect of eager vs. lazy conflict detection <ref type="bibr" target="#b3">[4]</ref> and developed a contention manager that limits the number of transactions executing simultaneously in order to be able to guarantee progress <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b8">[9]</ref>.</p><p>In contrast, our proposed approach eliminates the need for retries.</p><p>Our lock-based implementation described below is different from other STM implementations that are called "lockbased" <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b10">[11]</ref>; this term has often been used to describe implementations that use locks, rather than a non-blocking approach, as a method of synchronizing which transactions will commit and which will retry. This is in contrast to our approach, which relies on locks to ensure that a transaction will always commit the first time.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. STM IMPLEMENTATION</head><p>Our approach to implementing a lock-based STM for use in real-time systems relies on two components: a conflictdetection mechanism and an underlying locking protocol. The conflict-detection mechanism determines which areas of shared memory must be classified as one or more resources, and the locking protocol grants access to these resources.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Detection of potential conflicts</head><p>We assumed above that any section of shared memory could be abstracted to a specific resource.</p><p>A required assumption of real-time applications, especially those intended for use in safety-critical systems, is that all tasks can be analyzed offline to determine worst-case execution times, resources that may be accessed, and the worstcase duration of any such resource access. In the context of an STM, we can leverage this knowledge to determine which tasks may conflict a priori. This gives us a significant advantage in both the method of execution and the offline analysis of schedulability.</p><p>Knowing what shared memory may be accessed by any given task allows us to define our set of resources offline. Any of these sections of shared memory that may be accessed by multiple tasks must be declared as a resource to be protected by a lock in our approach, while sections of shared memory that are only ever accessed by a single task are not considered resources. We plan to focus on this approach, also called a word-based approach, rather than an object-based approach. An object-based approach restricts the set of resources to the set of objects or data structures; finer-grained access to these resources would not be possible to provide with the objectbased approach. Therefore, we will develop a word-based STM implementation, which will also allow for applicationspecific tuning, as described in Sec. IV.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Locking approach</head><p>In determining what constitutes a resource, as described above, we can ignore the manner in which these resources are accessed; specifically, we can ignore if a specific access requires mutual exclusion and if multiple resources must be accessed concurrently. However, when implementing the resource-access coordination supported by a locking protocol, we must consider read and write accesses, as well as multipleresource accesses, typically seen in non-transactional code as nested resource accesses.</p><p>We plan to use existing techniques to transform marked atomic sections at compile time to sections containing properly nested lock and unlock calls.</p><p>It is crucial, in a lock-based approach, to focus on the use of contention-sensitive locking protocols-those which ensure the blocking a task experiences is proportional to the number of other tasks that share one or more resources with the task of interest <ref type="bibr" target="#b18">[19]</ref>, <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref>. This is in contrast to locking protocols that can only guarantee blocking bounds based on the number of tasks or the number of processors in the system.</p><p>When multiple resources may be accessed concurrently, achieving a contention-sensitive ordering of resource accesses is made more difficult by the potential for transitive blocking chains-chains of resource-access requests that can cause a task to be delayed by many other non-conflicting tasks. To achieve contention-sensitive resource access, a locking protocol must provide a mechanism that allows non-conflicting tasks to cut ahead of other tasks waiting for resource access.</p><p>While contention-sensitive locking protocols can also be used in contexts independent from our STM, the structure of the STM is what eases application development and certification burdens. Additionally, because the STM examines trans- actions before transforming these transactions into lock-based resource requests, we can tune performance in a fine-grained manner without modifying application code. We explore one method of tuning performance below as one of the additional components that can augment our STM implementation.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. ADDITIONAL COMPONENTS</head><p>We elaborate on the benefit our implementation can provide by exploring additional components that can be added, but are not fundamental, to an implementation of STM. First we introduce a method by which to improve performance on a per-application basis. Then we describe an approach to accommodate a wider set of resources and discuss how we plan to manage the additional schedulability challenges that may pose.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Tunable locking granularity</head><p>Generally, locking granularity refers to how many resources are protected by a single lock. As mentioned above, a finegrained locking approach tends to protect each resource by its own lock, while a coarse-grained approach may protect all resources by a single lock. With the latter approach, different resources could never be accessed concurrently. We illustrate this difference with the following example.</p><p>Example 1: Consider tasks τ 1 to τ 5 and resources a to d . Each task requires access to at least one resource, as shown in Fig. <ref type="figure" target="#fig_1">1</ref>. For example, τ 1 requires access to a and b . A coarsegrained approach to protecting access to these resources would define a single lock L 1 :{ a , . . . , d } to protect all resources. With this approach, τ 1 would be prevented from writing to a while τ 3 writes to c , even though τ 1 and τ 3 do not share any of the same resources. A fine-grained approach would instead use four locks: L 1 :{ a }, L 2 :{ b }, L 3 :{ c }, and L 4 :{ d }. This would allow τ 1 and τ 3 to write data concurrently. This benefit comes at the cost of maintaining more locks, which requires additional time and memory.</p><p>Between these two extremes, however, there is a middle ground. A few resources could be protected by the same lock, and multiple such groups of resources could exist.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Example 1 (cont'd):</head><p>A different approach for the task set shown in Fig. <ref type="figure" target="#fig_1">1</ref> could be to have two locks: L 1 :{ a , b } and L 2 :{ c , d }. Using these two locks allows some concurrent resource access (τ 1 and τ 3 could access their respective resources concurrently), but prevents τ 3 and τ 5 from concurrent resource access, though they do not share a common resource. However, notice that τ 1 and τ 2 see no change in potential access conflicts with this reduction of locks compared to those provided in the most fine-grained lock assignment. Thus, one method by which we seek to improve performance is by adjusting the locking granularity on an application-specific basis. This performance is ultimately measured by schedulability. Affecting schedulability, however, are the overhead of the locking protocol-how long the locking protocol takes to process a resource-access request-and the worst-case blocking a task may experience-the sum of all resource-access durations that may delay the task from its resource access.</p><p>With fewer resources, the overhead of a locking protocol may be reduced; there would be less lock state to maintain and tasks would generally require fewer of these locks. If lock state were to be held in cache by techniques explored elsewhere <ref type="bibr" target="#b0">[1]</ref>, <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b16">[17]</ref>, <ref type="bibr" target="#b19">[20]</ref>, <ref type="bibr" target="#b27">[28]</ref>, <ref type="bibr" target="#b28">[29]</ref>, the reduced cache footprint that would come with using fewer locks could cause other performance improvements as well. Prior work has shown that, even with a very modest number of locks for which state must be maintained, the reduction in overhead when the protocol is able to run cache-hot is substantial <ref type="bibr" target="#b22">[23]</ref>.</p><p>In contrast, reducing the number of resources may cause more tasks to compete for a given lock. This occurred in Ex. 1 for τ 3 ; the lock τ 3 must acquire in the most finegrained approach had only one other task, τ 4 , ever requiring the same lock. In the suggested middle-ground approach, the lock τ 3 required was also required by τ 4 and τ 5 for their respective resource accesses. An increase in the number of tasks contending will increase the worst-case blocking, which must be accounted for in schedulability analysis.</p><p>Though varying lock granularity has been studied in other contexts <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b12">[13]</ref>, to our knowledge it has not been explored in real-time systems, in which the chosen locking granularity can affect schedulability, and thus, system correctness. Choosing the locking granularity for use with a specific application will depend on the number of resources, the memory footprint of the locking protocol state, the worst-case resource-access durations, the number of tasks, and the number of processors on the platform. Additionally, how resources ought to be assigned to locks is a non-trivial question that depends not only on the task-resource relationships, but also which tasks could incur higher blocking and remain schedulable.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Support for additional resources</head><p>To this point, the only resources we have considered are those stored in shared memory. With few exceptions <ref type="bibr" target="#b26">[27]</ref>, traditional STMs can only provide access protection to sharedmemory resources. However, the lock-based approach that we propose can easily be adapted to support additional resources, such as hardware resources (e.g., GPUs). In our model, any such resources can simply be added to those that must be protected by some lock.</p><p>Our initial approach to supporting a GPU or some other accelerator will treat the entire device as a single resource. This approach allows timing guarantees to be made easily, as a given task will always run in isolation on the device. (This reflects previous approaches to managing GPUs <ref type="bibr" target="#b9">[10]</ref>, though the complexities of these devices are being explored to determine if each GPU could be considered as multiple resources based on the internal components and proprietary scheduling decisions <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b23">[24]</ref>.)</p><p>While supporting an additional set of resources may be relatively simple to implement, it may have large effects on the system as a whole. In general, reading from or writing to shared memory is very quick, but accessing a hardware resource may be significantly more time-consuming. This variation can also depend on the type of computation being done with, or on, the resource. Mixing resource types could increase the worst-case access delay to the point of making a system unschedulable.</p><p>Therefore, we will explore the effects of mixing different resource types. We will experiment with developing protocols that have a fast-path mechanism for certain resource types. We will investigate grouping resources based on characterizations such as access type (read or write), access duration (short or long), and number of resources accessed together (one, few, or many). One of these groups can then be selected to use the fast-path mechanism of our locking protocol.</p><p>Note that by choosing one of these metrics on which to group resources, we will influence how to best choose resource assignments to individual locks based on locking granularity. Therefore, applying additional techniques to improve the schedulability of an application, such as allowing other shared resources or modifying locking granularity, cannot be done in isolation.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. CONCLUSION</head><p>We have presented our vision for a lock-based software transactional memory implementation for use in real-time systems. We described how shared-memory access within a transaction can be transformed to a set of lock and unlock calls for specific resources and how these can be supported by contention-sensitive locking protocols. This structure will provide a separation of concerns between the development and certification of a real-time application and the coordination of concurrently running tasks accessing and modifying shared resources.</p><p>Building on this proposed implementation, we discussed tuning the granularity of the locks on a per-application basis. We then suggested how non-shared-memory resources could be accommodated by our STM implementation and shared our planned examination of how to reduce the impact that variations in resource type have on other tasks.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head></head><label></label><figDesc>Work supported by NSF grants CNS 1409175, CPS 1446631, CNS 1563845, CNS 1717589, and CPS 1837337, ARO grant W911NF-17-1-0294, and funding from General Motors. This material is based upon work supported by the National Science Foundation Graduate Research Fellowship Program under Grant No. DGS-1650116. Any opinions, findings, and conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily reflect the views of the National Science Foundation.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 1 .</head><label>1</label><figDesc>Fig. 1. Task system with five tasks requiring access to four resources.</figDesc></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 11,2026 at 23:47:09 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Evaluation of cache partitioning for hard real-time systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Altmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Douma</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Lunniss</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Gpu scheduling on the nvidia tx2: Hidden details revealed</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Non-preemptive and SRP-based fully-preemptive scheduling of real-time software transactional memory</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Barros</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Pinho</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Yomsi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">61</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="553" to="566" />
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Lazy versus eager conflict detection in software transactional memory: A real-time schedulability perspective</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Belwal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Cheng</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Embedded Systems Letters</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="37" to="41" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Static use of locking caches in multitask preemptive real-time systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Campoy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">P</forename><surname>Ivars</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">V</forename><surname>Busquets-Mataix</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE/IEE Real-Time Embedded Systems Workshop</title>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Transactional locking II</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dice</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Shalev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Shavit</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">DISC</title>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Why STM can be more than a research toy</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Dragojević</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Felber</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Gramoli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Guerraoui</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Communications of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">54</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="70" to="77" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">STM concurrency control for embedded real-time software with tighter time bounds</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>El-Shambakey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ravindran</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">DAC</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">On real-time STM concurrency control for embedded software with improved schedulability</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>El-Shambakey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ravindran</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ASP-DAC</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Gpusync: A framework for realtime gpu management</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">Software transactional memory should not be obstructionfree</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ennals</surname></persName>
+		</author>
+		<idno>IRC-TR-06-052</idno>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+		<respStmt>
+			<orgName>Intel Research Cambridge Tech</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Dynamic performance tuning of word-based software transactional memory</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Felber</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Fetzer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Riegel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">PPoPP</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Granularity of locks in a shared data base</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">N</forename><surname>Gray</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">A</forename><surname>Lorie</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">R</forename><surname>Putzolu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">VLDB</title>
+		<imprint>
+			<date type="published" when="1975">1975</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Language support for lightweight transactions</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Harris</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Fraser</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM Sigplan Notices</title>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2003">2003</date>
+			<biblScope unit="volume">38</biblScope>
+			<biblScope unit="page" from="388" to="402" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Software transactional memory for dynamic-sized data structures</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Herlihy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Luchangco</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Moir</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Scherer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">PODC</title>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title level="m" type="main">Transactional memory: Architectural support for lock-free data structures</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Herlihy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Moss</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1993">1993</date>
+			<publisher>ACM</publisher>
+			<biblScope unit="volume">21</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">CAMA: A predictable cache-aware memory allocator</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Herter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Backes</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Haupenthal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Reineke</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">On transactional memory concurrency control in distributed real-time programs</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Hirve</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Lindsay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ravindran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Palmieri</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">CLUSTER</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">A contention-sensitive fine-grained locking protocol for multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Jarrett</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTNS</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">A coordinated approach for practical OS-level cache management in multi-core real-time systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kandhalu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Deadline-aware scheduling for software transactional memory</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Maldonado</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Marlier</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Felber</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lawall</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Muller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Rivière</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">DSN</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Real-time multiprocessor locks with nesting: Optimizing the common case</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Nemitz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTNS</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Using lock servers to scale realtime locking protocols: Chasing ever-increasing core counts</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Nemitz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<monogr>
+		<title level="m" type="main">Inferring the scheduling policies of an embedded cuda gpu</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+		<editor>OSPERT</editor>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Real-time support for software transactional memory</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Sarni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Queudet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Valduriez</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTCSA</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title/>
+		<author>
+			<persName><forename type="first">N</forename><surname>Shavit</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Touitou</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software transactional memory. Distributed Computing</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="99" to="116" />
+			<date type="published" when="1997">1997</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">xCalls: safe I/O in memory transactions</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Volos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Tack</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Goyal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Swift</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Welc</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">EuroSys</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Making shared caches more predictable on multicore platforms</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Herman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Kenna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">vCAT: Dynamic cache management using CAT virtualization</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Xu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">T X</forename><surname>Phan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H.-Y</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

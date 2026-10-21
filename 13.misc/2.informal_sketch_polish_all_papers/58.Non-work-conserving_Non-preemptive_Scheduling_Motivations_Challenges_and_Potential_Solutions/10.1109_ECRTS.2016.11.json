@@ -1,0 +1,986 @@
+{
+  "paper_name": "Non-Work-Conserving Non-Preemptive Scheduling: Motivations, Challenges, and Potential Solutions",
+  "paper_description": "This paper investigates non-work-conserving non-preemptive scheduling algorithms, proposing a tighter necessary schedulability condition and a new idle-time insertion policy (IIP) for EDF, called Critical Time Window EDF (CW-EDF). It demonstrates that non-work-conserving approaches significantly increase schedulability compared to work-conserving ones, especially for task sets with small period ratios, and proves CW-EDF's effectiveness for harmonic and loose harmonic task sets with period ratios >= 3.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Task Set Definition",
+      "formal_description": {
+        "statement": "tau = {tau_1, tau_2, ..., tau_n}. Each task tau_i, 1 <= i <= n is identified by tau_i: (C_i, T_i)",
+        "variables": {
+          "tau": "The set of independent, non-preemptive periodic tasks.",
+          "tau_i": "The i-th task in the task set.",
+          "C_i": "The worst-case execution time (WCET) of task tau_i.",
+          "T_i": "The period of task tau_i."
+        },
+        "assumptions": [
+          "Uniprocessor system",
+          "Independent tasks",
+          "Non-preemptive execution",
+          "Periodic tasks",
+          "Implicit deadlines (deadline equals period)",
+          "All tasks released synchronously at time 0"
+        ],
+        "conclusion": "Defines the structure and parameters of a periodic task set."
+      },
+      "informal_sketch": {
+        "intuition": "We're dealing with a collection of tasks, each needing to run for a certain time (WCET) repeatedly within a fixed interval (period). They all start at the same time and cannot be interrupted once they begin.",
+        "steps": [
+          "Represent the entire system as a set 'tau' containing 'n' individual tasks.",
+          "Each task 'tau_i' is characterized by two main properties: its worst-case execution time 'C_i' and its period 'T_i'.",
+          "All tasks are assumed to start their first job at time 0 and have deadlines equal to their periods."
+        ],
+        "pseudocode": "class Task:\n    def __init__(self, C_i, T_i, id_i):\n        self.C = C_i  # Worst-Case Execution Time\n        self.T = T_i  # Period\n        self.id = id_i # Task identifier\n\ndef create_task_set(task_data_list):\n    task_set = []\n    for i, (C, T) in enumerate(task_data_list):\n        task_set.append(Task(C, T, i + 1))\n    return task_set",
+        "key_insights": [
+          "Fundamental building block for real-time system analysis.",
+          "Implicit deadlines simplify analysis by equating deadline with period.",
+          "Synchronous release at time 0 is a common simplifying assumption."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Task Ordering and Period Ratio",
+      "formal_description": {
+        "statement": "T_1 <= T_2 <= ... <= T_n. The period ratio of task tau_i (1 < i <= n) is denoted by k_i = T_i / T_i_minus_1, k_i in R",
+        "variables": {
+          "T_i": "The period of task tau_i.",
+          "T_i_minus_1": "The period of the task immediately preceding tau_i in the sorted list.",
+          "k_i": "The period ratio of task tau_i, representing how much larger its period is compared to the previous task's period.",
+          "R": "The set of real numbers."
+        },
+        "assumptions": [
+          "Tasks are indexed such that their periods are in non-decreasing order."
+        ],
+        "conclusion": "Defines a standard ordering for tasks based on their periods and introduces the concept of period ratio between consecutive tasks."
+      },
+      "informal_sketch": {
+        "intuition": "To simplify analysis, we sort tasks by their periods from smallest to largest. The 'period ratio' tells us how much bigger one task's period is compared to the one just before it in this sorted list.",
+        "steps": [
+          "Sort the tasks in the task set 'tau' based on their periods 'T_i' in ascending order.",
+          "Assign indices 1 to 'n' to these sorted tasks.",
+          "For any task 'tau_i' (except the first one), calculate its period ratio 'k_i' by dividing its period 'T_i' by the period of the preceding task 'T_i_minus_1'."
+        ],
+        "pseudocode": "def sort_tasks_by_period(task_set):\n    task_set.sort(key=lambda task: task.T)\n    for i, task in enumerate(task_set):\n        task.id = i + 1 # Re-index after sorting\n    return task_set\n\ndef calculate_period_ratios(task_set):\n    k_ratios = {}\n    for i in range(1, len(task_set)): # Start from the second task\n        tau_i = task_set[i]\n        tau_i_minus_1 = task_set[i-1]\n        k_i = tau_i.T / tau_i_minus_1.T\n        k_ratios[tau_i.id] = k_i\n    return k_ratios",
+        "key_insights": [
+          "Sorting by period is a common practice in real-time scheduling for algorithms like Rate Monotonic (RM).",
+          "Period ratios are crucial for classifying task sets (e.g., harmonic, loose harmonic) and understanding their scheduling complexity."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Minimum Period Ratio",
+      "formal_description": {
+        "statement": "K_min = min{k_i} for i from 2 to n.",
+        "variables": {
+          "K_min": "The minimum period ratio found among all consecutive tasks in the sorted task set.",
+          "k_i": "The period ratio of task tau_i."
+        },
+        "assumptions": [
+          "Tasks are sorted by period as per 'Task Ordering and Period Ratio'."
+        ],
+        "conclusion": "Defines the smallest period ratio present in the task set, which can influence schedulability properties."
+      },
+      "informal_sketch": {
+        "intuition": "This value tells us how 'close' the periods of consecutive tasks are. A small K_min means periods are very close, which can make scheduling harder.",
+        "steps": [
+          "First, ensure tasks are sorted by period and 'k_i' values are calculated (as per 'Task Ordering and Period Ratio').",
+          "Iterate through all calculated 'k_i' values for tasks from 'tau_2' to 'tau_n'.",
+          "Find the smallest value among these 'k_i's and assign it to 'K_min'."
+        ],
+        "pseudocode": "def calculate_K_min(task_set):\n    k_ratios = calculate_period_ratios(task_set) # Assumes task_set is sorted\n    if not k_ratios:\n        return float('inf') # Or handle error for single task\n    return min(k_ratios.values())",
+        "key_insights": [
+          "K_min is a key parameter for characterizing task set properties, especially in relation to harmonicity and scheduling complexity."
+        ]
+      },
+      "dependencies": [
+        "Task Ordering and Period Ratio"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Harmonic Task Set",
+      "formal_description": {
+        "statement": "A task set is harmonic if for all i, 1 < i <= n, k_i in N.",
+        "variables": {
+          "k_i": "The period ratio of task tau_i.",
+          "N": "The set of natural numbers (positive integers)."
+        },
+        "assumptions": [
+          "Tasks are sorted by period as per 'Task Ordering and Period Ratio'."
+        ],
+        "conclusion": "Defines a harmonic task set, where each task's period is an integer multiple of the preceding task's period."
+      },
+      "informal_sketch": {
+        "intuition": "In a harmonic task set, all tasks with smaller periods will always release their jobs at the same time as (or synchronously with) any release of a task with a larger period. This simplifies synchronization.",
+        "steps": [
+          "Ensure tasks are sorted by period and 'k_i' values are calculated.",
+          "Check if every 'k_i' (for i from 2 to n) is an integer.",
+          "If all 'k_i' are integers, the task set is harmonic."
+        ],
+        "pseudocode": "def is_harmonic(task_set):\n    k_ratios = calculate_period_ratios(task_set) # Assumes task_set is sorted\n    for k_i in k_ratios.values():\n        if not k_i.is_integer():\n            return False\n    return True",
+        "key_insights": [
+          "Harmonic task sets are easier to schedule because job releases align, reducing complex interference patterns.",
+          "Many scheduling algorithms perform optimally or have simpler analysis for harmonic task sets."
+        ]
+      },
+      "dependencies": [
+        "Task Ordering and Period Ratio"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Loose Harmonic Task Set",
+      "formal_description": {
+        "statement": "A task set is loose harmonic if for all i, 1 < i <= n, T_i / T_1 in N.",
+        "variables": {
+          "T_i": "The period of task tau_i.",
+          "T_1": "The period of the task with the smallest period (tau_1).",
+          "N": "The set of natural numbers (positive integers)."
+        },
+        "assumptions": [
+          "Tasks are sorted by period as per 'Task Ordering and Period Ratio'.",
+          "There is only one task with the smallest period (tau_1); if multiple, they are grouped."
+        ],
+        "conclusion": "Defines a loose harmonic task set, where every task's period is an integer multiple of the smallest period in the set."
+      },
+      "informal_sketch": {
+        "intuition": "Similar to harmonic, but less strict. All tasks' releases are synchronized with the releases of the fastest task (tau_1). This is still beneficial for scheduling.",
+        "steps": [
+          "Identify the period of the smallest period task, 'T_1'.",
+          "For every other task 'tau_i' (i from 2 to n), check if its period 'T_i' is an exact integer multiple of 'T_1'.",
+          "If this holds for all tasks, the task set is loose harmonic."
+        ],
+        "pseudocode": "def is_loose_harmonic(task_set):\n    if not task_set:\n        return True\n    T_1 = task_set[0].T # Assumes task_set is sorted by period\n    for i in range(1, len(task_set)):\n        tau_i = task_set[i]\n        if (tau_i.T / T_1).is_integer() == False:\n            return False\n    return True",
+        "key_insights": [
+          "Loose harmonic task sets share some of the simplified synchronization properties of harmonic task sets, making them more amenable to analysis and scheduling than general task sets.",
+          "The synchronization with 'tau_1' is a key characteristic."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "System Utilization",
+      "formal_description": {
+        "statement": "U_total = sum_{i=1 to n} u_i where u_i = C_i / T_i is the utilization of task tau_i.",
+        "variables": {
+          "U_total": "The total utilization of the system, representing the fraction of processor time required by all tasks.",
+          "u_i": "The utilization of task tau_i, representing the fraction of processor time required by that individual task.",
+          "C_i": "The worst-case execution time (WCET) of task tau_i.",
+          "T_i": "The period of task tau_i."
+        },
+        "assumptions": [
+          "Uniprocessor system."
+        ],
+        "conclusion": "Defines the total processor load imposed by the task set."
+      },
+      "informal_sketch": {
+        "intuition": "Utilization is a measure of how busy the processor is. If it's more than 100% (U_total > 1), the system is overloaded and definitely unschedulable. For a single processor, it must be less than or equal to 1.",
+        "steps": [
+          "For each task 'tau_i', calculate its individual utilization 'u_i' by dividing its WCET 'C_i' by its period 'T_i'.",
+          "Sum up all individual task utilizations 'u_i' to get the total system utilization 'U_total'."
+        ],
+        "pseudocode": "def calculate_system_utilization(task_set):\n    U_total = 0.0\n    for task_i in task_set:\n        u_i = task_i.C / task_i.T\n        U_total += u_i\n    return U_total",
+        "key_insights": [
+          "Utilization is a fundamental necessary condition for schedulability (U_total <= 1).",
+          "It provides a quick, high-level assessment of system load."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Hyperperiod",
+      "formal_description": {
+        "statement": "H = LCM(T_1, T_2, ..., T_n)",
+        "variables": {
+          "H": "The hyperperiod, which is the least common multiple of all task periods.",
+          "T_i": "The period of task tau_i.",
+          "LCM": "The least common multiple function."
+        },
+        "assumptions": [],
+        "conclusion": "Defines the hyperperiod, the shortest interval after which the entire schedule of jobs repeats."
+      },
+      "informal_sketch": {
+        "intuition": "The hyperperiod is the 'cycle length' of the entire task set. If a schedule is feasible within one hyperperiod, it will be feasible indefinitely. It's the point where all tasks release their jobs simultaneously again.",
+        "steps": [
+          "Collect all periods 'T_i' from the task set.",
+          "Calculate the least common multiple (LCM) of all these periods.",
+          "This LCM value is the hyperperiod 'H'."
+        ],
+        "pseudocode": "import math\n\ndef calculate_lcm(numbers):\n    if not numbers:\n        return 1\n    result = numbers[0]\n    for i in range(1, len(numbers)):\n        result = (result * numbers[i]) // math.gcd(result, numbers[i])\n    return result\n\ndef calculate_hyperperiod(task_set):\n    periods = [task.T for task in task_set]\n    return calculate_lcm(periods)",
+        "key_insights": [
+          "Schedulability analysis often only needs to be performed over one hyperperiod.",
+          "A very large hyperperiod can make simulation-based schedulability tests computationally expensive."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 1: Schedulable Periodic Task Set (Jeffay et al.)",
+      "formal_description": {
+        "statement": "A periodic task set is schedulable if and only if the tasks can be scheduled for any set of release offsets.",
+        "variables": {
+          "periodic_task_set": "A set of periodic tasks."
+        },
+        "assumptions": [],
+        "conclusion": "Defines schedulability in a very strict sense, requiring feasibility across all possible job release patterns (offsets)."
+      },
+      "informal_sketch": {
+        "intuition": "This definition of schedulability is very conservative. It means a task set is only considered 'schedulable' if it can meet all deadlines no matter when its jobs are released, even if those release times are arbitrary and unknown. If even one specific set of release times causes a deadline miss, the entire task set is deemed unschedulable.",
+        "steps": [
+          "Consider a given periodic task set.",
+          "Imagine all possible combinations of initial release times (offsets) for these tasks.",
+          "If for *any* of these offset combinations, a deadline is missed, the task set is NOT schedulable.",
+          "Only if *all* possible offset combinations result in a successful schedule (no deadline misses) is the task set considered schedulable under this definition."
+        ],
+        "pseudocode": "def is_schedulable_jeffay(task_set, scheduler_algorithm):\n    # This is a conceptual function, actual implementation is complex (NP-Hard)\n    # It would involve iterating/testing all possible release offset combinations.\n    # For practical purposes, this is often approximated or bounded.\n    \n    # Example: Check a few critical offset combinations\n    # (This is NOT exhaustive, just illustrative)\n    test_offsets = [\n        [0, 0, 0], # Synchronous release\n        [0, T_1/2, T_2/3], # Example arbitrary offsets\n        # ... many more ...\n    ]\n    \n    for offsets in test_offsets:\n        if not scheduler_algorithm.schedule(task_set, offsets):\n            return False # Found an unschedulable offset\n    \n    # If all tested offsets are schedulable, it *might* be schedulable,\n    # but to satisfy Jeffay's definition, ALL offsets must be checked.\n    return True # Conceptually, if no counter-example is found",
+        "key_insights": [
+          "This definition leads to pessimistic schedulability tests for systems with known, fixed release offsets (concrete periodic task sets).",
+          "It's useful for systems where release offsets are truly unknown or can vary dynamically.",
+          "The paper argues this definition is too strict for concrete periodic task sets, leading to the need for new analysis."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Request Bound Function (RBF)",
+      "formal_description": {
+        "statement": "rbf_i_t = C_i + sum_{j=1 to i-1} floor(t / T_j) * C_j",
+        "variables": {
+          "rbf_i_t": "The request bound function for task tau_i over a time interval of length t, representing the maximum execution demand by task tau_i itself and all higher priority tasks.",
+          "C_i": "The worst-case execution time (WCET) of task tau_i.",
+          "t": "The length of the time interval being considered.",
+          "T_j": "The period of task tau_j.",
+          "C_j": "The worst-case execution time (WCET) of task tau_j."
+        },
+        "assumptions": [
+          "Preemptive scheduling (implicitly, as RBF is typically for preemptive systems).",
+          "Tasks are ordered by priority (tau_j has higher priority than tau_i if j < i)."
+        ],
+        "conclusion": "Defines the maximum cumulative execution time demanded by a task and all tasks with higher priority than it within a given time window."
+      },
+      "informal_sketch": {
+        "intuition": "The RBF tells us the maximum amount of work that *must* be done by a task and all tasks that can interrupt it (higher priority tasks) within any given time window. It's a key component for calculating response times in preemptive systems.",
+        "steps": [
+          "Start with the execution time of the task itself, 'C_i'.",
+          "For each task 'tau_j' that has a higher priority than 'tau_i' (i.e., j < i):",
+          "  Calculate how many times 'tau_j' can release a job within the interval 't' using 'floor(t / T_j)'.",
+          "  Multiply this count by 'tau_j''s WCET 'C_j' to get its total demand within 't'.",
+          "Sum up 'C_i' and all these demands from higher priority tasks to get 'rbf_i_t'."
+        ],
+        "pseudocode": "def calculate_rbf(task_i, t, task_set_sorted_by_priority):\n    rbf_i_t = task_i.C\n    for task_j in task_set_sorted_by_priority:\n        if task_j.id < task_i.id: # Assuming lower id means higher priority\n            rbf_i_t += math.floor(t / task_j.T) * task_j.C\n    return rbf_i_t",
+        "key_insights": [
+          "RBF is a cornerstone of schedulability analysis for preemptive fixed-priority systems.",
+          "It quantifies the 'demand' placed on the processor by a task and its interferers.",
+          "The paper uses this as a baseline to highlight differences in non-preemptive scheduling."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Maximum Tolerable Blocking Time",
+      "formal_description": {
+        "statement": "beta_i = max_{C_i < t <= T_i} {t - rbf_i_t}",
+        "variables": {
+          "beta_i": "The maximum amount of time task tau_i can be blocked by lower priority tasks without missing its deadline.",
+          "C_i": "The worst-case execution time (WCET) of task tau_i.",
+          "t": "A time interval length, specifically considered between C_i and T_i.",
+          "T_i": "The period (and deadline) of task tau_i.",
+          "rbf_i_t": "The request bound function for task tau_i over interval t."
+        },
+        "assumptions": [
+          "Preemptive fixed-priority scheduling.",
+          "The task tau_i is schedulable if its response time is less than or equal to its deadline."
+        ],
+        "conclusion": "Defines the maximum blocking duration a task can endure in a preemptive work-conserving system, derived from its available slack."
+      },
+      "informal_sketch": {
+        "intuition": "This value represents how much 'extra' time a task has beyond its own execution and higher-priority interference, which can be used to absorb blocking from lower-priority tasks. If a task is blocked for longer than this, it will miss its deadline.",
+        "steps": [
+          "For task 'tau_i', iterate through all possible time window lengths 't' from just above its WCET 'C_i' up to its period 'T_i'.",
+          "For each 't', calculate the 'rbf_i_t' (demand from 'tau_i' and higher priority tasks).",
+          "Subtract 'rbf_i_t' from 't' to find the available slack in that window: 't - rbf_i_t'.",
+          "The maximum of these slack values over the considered range of 't' is 'beta_i'."
+        ],
+        "pseudocode": "def calculate_beta_i(task_i, task_set_sorted_by_priority):\n    beta_i = 0\n    # Iterate t from C_i + epsilon to T_i\n    # For practical implementation, iterate over critical points or a fine-grained range\n    # Here, a simplified loop for conceptual understanding\n    for t_val in range(math.ceil(task_i.C) + 1, task_i.T + 1): # Example range\n        rbf_val = calculate_rbf(task_i, t_val, task_set_sorted_by_priority)\n        current_slack = t_val - rbf_val\n        if current_slack > beta_i:\n            beta_i = current_slack\n    return beta_i",
+        "key_insights": [
+          "This concept is crucial for analyzing blocking in preemptive systems (e.g., due to shared resources).",
+          "The paper highlights that this 'beta_i' loses meaning in non-preemptive systems because idle times must also be accounted for, making the analysis more complex."
+        ]
+      },
+      "dependencies": [
+        "Request Bound Function"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 2: Interfering Jobs",
+      "formal_description": {
+        "statement": "Interfering jobs of a periodic task such as tau_i in the interval [t_1, t_2] are the jobs that their release time and deadline is in the given interval.",
+        "variables": {
+          "tau_i": "A periodic task.",
+          "t_1": "The start time of the interval.",
+          "t_2": "The end time of the interval."
+        },
+        "assumptions": [],
+        "conclusion": "Defines a specific type of job that is considered 'interfering' within a time window: those fully contained (release and deadline) within the window."
+      },
+      "informal_sketch": {
+        "intuition": "When we look at a specific time window, an 'interfering job' is one that both starts and must finish within that window. Jobs that start before or finish after the window are not fully 'interfering' in this specific sense.",
+        "steps": [
+          "Consider a task 'tau_i' and a time interval '[t_1, t_2]'.",
+          "Identify all jobs of 'tau_i' that are released at or after 't_1' AND have a deadline at or before 't_2'.",
+          "These are the 'interfering jobs' for 'tau_i' within '[t_1, t_2]'."
+        ],
+        "pseudocode": "class Job:\n    def __init__(self, task_id, release_time, deadline, wcet):\n        self.task_id = task_id\n        self.release = release_time\n        self.deadline = deadline\n        self.wcet = wcet\n\ndef get_interfering_jobs(task_i, t_start, t_end, current_time):\n    interfering_jobs = []\n    # Assuming synchronous release at 0, deadline = release + period\n    job_instance = 0\n    while True:\n        release_time = job_instance * task_i.T\n        deadline = release_time + task_i.T\n        \n        if release_time >= t_end: # No more jobs in or after interval\n            break\n        \n        if release_time >= t_start and deadline <= t_end:\n            interfering_jobs.append(Job(task_i.id, release_time, deadline, task_i.C))\n        \n        job_instance += 1\n    return interfering_jobs",
+        "key_insights": [
+          "This definition is used to calculate the 'minimum interfering workload' by focusing on jobs whose entire execution window (release to deadline) falls within a given interval.",
+          "It's a specific way to quantify demand for the paper's tighter necessary condition."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Minimum Interfering Workload",
+      "formal_description": {
+        "statement": "I_i_t = max(0, floor(t / T_i) - 1) * C_i",
+        "variables": {
+          "I_i_t": "The minimum interfering workload generated by jobs of task tau_i within an interval of length t.",
+          "t": "The length of the time interval.",
+          "T_i": "The period of task tau_i.",
+          "C_i": "The worst-case execution time (WCET) of task tau_i."
+        },
+        "assumptions": [
+          "Based on 'Definition 2: Interfering Jobs'."
+        ],
+        "conclusion": "Defines a lower bound on the execution demand from a task within an interval, specifically counting jobs whose full release-to-deadline window is contained within 't'."
+      },
+      "informal_sketch": {
+        "intuition": "This formula estimates the absolute minimum amount of work that *must* be done by a task within a given time window, assuming the worst alignment. It's conservative because it only counts jobs that are fully 'contained' within the window, ignoring partial jobs at the edges.",
+        "steps": [
+          "Calculate the maximum number of full periods of 'tau_i' that can fit into the interval 't': 'floor(t / T_i)'.",
+          "Subtract 1 from this count. This accounts for the fact that at least one job might straddle the interval boundaries and not be fully 'interfering' by 'Definition 2'.",
+          "If the result is negative, take 0 (meaning no guaranteed interfering workload).",
+          "Multiply this count by 'tau_i''s WCET 'C_i' to get the minimum interfering workload 'I_i_t'."
+        ],
+        "pseudocode": "def calculate_min_interfering_workload(task_i, t_interval_length):\n    num_full_periods = math.floor(t_interval_length / task_i.T)\n    num_interfering_jobs = max(0, num_full_periods - 1)\n    I_i_t = num_interfering_jobs * task_i.C\n    return I_i_t",
+        "key_insights": [
+          "This function provides a lower bound on interference, which is useful for deriving necessary schedulability conditions.",
+          "The '-1' term is critical for ensuring only fully 'interfering' jobs (as per Definition 2) are counted, making the bound pessimistic but safe for a necessary condition."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Next Deadline Calculation",
+      "formal_description": {
+        "statement": "D_next_k_t = (floor(t / T_k) + 1) * T_k",
+        "variables": {
+          "D_next_k_t": "The deadline of the next job of task tau_k that will be released at or after the current time t.",
+          "t": "The current time.",
+          "T_k": "The period of task tau_k."
+        },
+        "assumptions": [
+          "Tasks are released synchronously at time 0.",
+          "Implicit deadlines (deadline equals period)."
+        ],
+        "conclusion": "Calculates the deadline of the job of task tau_k that is scheduled to be released next, relative to the current time t."
+      },
+      "informal_sketch": {
+        "intuition": "We want to know when the *next* job of a specific task is due. This formula finds the deadline of the job that will be released at or after the current moment.",
+        "steps": [
+          "Determine the current period instance for task 'tau_k' by dividing 't' by 'T_k' and taking the floor: 'floor(t / T_k)'.",
+          "The next job instance will be 'floor(t / T_k) + 1'.",
+          "Since deadlines are implicit and tasks are synchronous, the deadline of this next job is simply its instance number multiplied by its period: '(floor(t / T_k) + 1) * T_k'."
+        ],
+        "pseudocode": "import math\n\ndef calculate_D_next_k_t(t_current, task_k):\n    # For synchronous release at 0, deadline of j-th job is j * T_k\n    # The j-th job released at or after t_current is (floor(t_current / T_k) + 1)\n    job_instance_number = math.floor(t_current / task_k.T) + 1\n    D_next_k_t = job_instance_number * task_k.T\n    return D_next_k_t",
+        "key_insights": [
+          "This is a fundamental calculation for EDF-based scheduling, as it determines job priorities.",
+          "It's crucial for the CW-EDF algorithm to identify the 'critical job' and its deadline."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Critical Time Window",
+      "formal_description": {
+        "statement": "omega_i_t = min{D_next_k_t} for k in {1, ..., n}, k != i",
+        "variables": {
+          "omega_i_t": "The critical time window, which is the earliest deadline among the next jobs of all tasks *other than* the currently considered task tau_i.",
+          "D_next_k_t": "The deadline of the next job of task tau_k after time t."
+        },
+        "assumptions": [
+          "CW-EDF is activated at time t, and tau_i is the current job with the earliest deadline among pending jobs."
+        ],
+        "conclusion": "Identifies the most urgent future deadline that needs to be protected by the scheduling decision at time t."
+      },
+      "informal_sketch": {
+        "intuition": "When deciding whether to schedule the current highest-priority job, we need to look ahead and see which *other* task has the most immediate future deadline. This 'critical time window' is that earliest future deadline, and we must ensure our current decision doesn't jeopardize it.",
+        "steps": [
+          "At current time 't', identify the task 'tau_i' whose current job has the earliest deadline among all *pending* jobs.",
+          "For every *other* task 'tau_k' (where k is not i), calculate the deadline of its next job using 'D_next_k_t'.",
+          "Find the minimum value among all these 'D_next_k_t's. This minimum is 'omega_i_t'."
+        ],
+        "pseudocode": "def calculate_omega_i_t(t_current, task_i_current_job, task_set):\n    min_D_next = float('inf')\n    for task_k in task_set:\n        if task_k.id != task_i_current_job.task_id:\n            D_next_k = calculate_D_next_k_t(t_current, task_k)\n            if D_next_k < min_D_next:\n                min_D_next = D_next_k\n    return min_D_next",
+        "key_insights": [
+          "This concept is central to the CW-EDF algorithm, guiding its idle-time insertion policy.",
+          "By focusing on the earliest future deadline of *other* tasks, it aims to prevent cascading deadline misses."
+        ]
+      },
+      "dependencies": [
+        "Next Deadline Calculation"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Latest Start Time for Last Job in List",
+      "formal_description": {
+        "statement": "L_m_t = D_next_m_t - C_m",
+        "variables": {
+          "L_m_t": "The latest time the job J_Im (the last job in the sorted list I of future jobs) can start its execution without missing its deadline.",
+          "D_next_m_t": "The deadline of the next job of task I_m.",
+          "C_m": "The worst-case execution time (WCET) of task I_m."
+        },
+        "assumptions": [
+          "A sorted list 'I' of indices of tasks that do not have a pending job at time t, sorted by their future deadlines in ascending order.",
+          "J_Im is the job corresponding to the last task in this list."
+        ],
+        "conclusion": "Calculates the latest possible start time for the job with the latest deadline among a set of future jobs, assuming no further interference."
+      },
+      "informal_sketch": {
+        "intuition": "For the job that has the latest deadline among a group of future jobs, its latest possible start time is simply its deadline minus its execution time. It's the 'anchor' for backward calculation of latest start times.",
+        "steps": [
+          "Identify the task 'tau_m' that corresponds to the last item in the sorted list 'I' (i.e., the task with the latest future deadline among those considered).",
+          "Retrieve its next deadline 'D_next_m_t' and its WCET 'C_m'.",
+          "Calculate 'L_m_t' by subtracting 'C_m' from 'D_next_m_t'."
+        ],
+        "pseudocode": "def calculate_L_m_t(task_m, t_current):\n    D_next_m = calculate_D_next_k_t(t_current, task_m)\n    L_m_t = D_next_m - task_m.C\n    return L_m_t",
+        "key_insights": [
+          "This is the base case for a recursive calculation of latest start times for a chain of future jobs.",
+          "It assumes that this last job will not be blocked by any other jobs in the list, which is then refined by the next definition."
+        ]
+      },
+      "dependencies": [
+        "Next Deadline Calculation"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Latest Start Time for Preceding Jobs",
+      "formal_description": {
+        "statement": "L_p_t = min(D_next_p_t, L_p_plus_1_t) - C_p",
+        "variables": {
+          "L_p_t": "The latest time the job J_Ip (the p-th job in the sorted list I of future jobs) can start its execution without missing its deadline.",
+          "D_next_p_t": "The deadline of the next job of task I_p.",
+          "L_p_plus_1_t": "The latest start time of the job J_I_p_plus_1 (the job immediately following J_Ip in the sorted list I).",
+          "C_p": "The worst-case execution time (WCET) of task I_p."
+        },
+        "assumptions": [
+          "A sorted list 'I' of indices of tasks that do not have a pending job at time t, sorted by their future deadlines in ascending order.",
+          "This calculation is performed backward from the last job in the list."
+        ],
+        "conclusion": "Recursively calculates the latest possible start time for each job in a sequence of future jobs, considering both its own deadline and the latest start time of the subsequent job in the sequence."
+      },
+      "informal_sketch": {
+        "intuition": "When considering a chain of future jobs, a job 'J_Ip' must finish before its own deadline, but also before the job 'J_I_p_plus_1' (which has an earlier deadline) needs to start. So, its latest start time is constrained by both its own deadline and the latest start time of the next job in the sequence, minus its own execution time.",
+        "steps": [
+          "Start with the 'L_m_t' (latest start time of the last job in the list).",
+          "Work backward through the sorted list 'I' from 'p = m-1' down to '1'.",
+          "For each job 'J_Ip':",
+          "  Get its next deadline 'D_next_p_t' and its WCET 'C_p'.",
+          "  The latest it can start is the minimum of its own deadline 'D_next_p_t' and the latest start time of the *next* job in the sequence ('L_p_plus_1_t'), minus its own execution time 'C_p'."
+        ],
+        "pseudocode": "def calculate_L_p_t_recursive(t_current, sorted_future_tasks):\n    if not sorted_future_tasks:\n        return {}\n\n    L_times = {}\n    # Base case: last job in the sorted list\n    last_task = sorted_future_tasks[-1]\n    L_times[last_task.id] = calculate_L_m_t(last_task, t_current)\n\n    # Recursive step: work backward\n    for i in range(len(sorted_future_tasks) - 2, -1, -1):\n        current_task = sorted_future_tasks[i]\n        next_task = sorted_future_tasks[i+1]\n        \n        D_next_p = calculate_D_next_k_t(t_current, current_task)\n        L_p_plus_1 = L_times[next_task.id]\n        \n        L_times[current_task.id] = min(D_next_p, L_p_plus_1) - current_task.C\n    \n    return L_times",
+        "key_insights": [
+          "This recursive calculation effectively determines if there's enough 'room' in the schedule for a sequence of future jobs, considering their deadlines and potential blocking from each other.",
+          "It's a core part of the CW-EDF's look-ahead mechanism to decide on idle-time insertion."
+        ]
+      },
+      "dependencies": [
+        "Next Deadline Calculation",
+        "Latest Start Time for Last Job in List"
+      ]
+    },
+    {
+      "type": "condition",
+      "identifier": "Necessary Schedulability Condition (2)",
+      "formal_description": {
+        "statement": "for all i, 1 < i <= n: C_i <= 2 * (T_1 - C_1)",
+        "variables": {
+          "C_i": "The worst-case execution time (WCET) of task tau_i.",
+          "T_1": "The period of task tau_1 (the task with the smallest period).",
+          "C_1": "The worst-case execution time (WCET) of task tau_1."
+        },
+        "assumptions": [
+          "Concrete periodic task sets (known and fixed release offsets).",
+          "Non-preemptive scheduling."
+        ],
+        "conclusion": "A task set is not schedulable if any task tau_i has a WCET greater than twice the slack of task tau_1. This is a necessary, but not sufficient, condition for schedulability."
+      },
+      "informal_sketch": {
+        "intuition": "This condition provides a basic sanity check for non-preemptive tasks. It essentially says that no task can be 'too long' compared to the available 'slack' (idle time) around the fastest task (tau_1). If a task's execution time exceeds this bound, it's impossible to schedule without tau_1 missing its deadline.",
+        "steps": [
+          "Identify the WCET 'C_1' and period 'T_1' of the smallest period task 'tau_1'.",
+          "Calculate the 'slack' of 'tau_1' as 'T_1 - C_1'.",
+          "For every other task 'tau_i' (i from 2 to n), check if its WCET 'C_i' is less than or equal to '2 * (T_1 - C_1)'.",
+          "If this condition is violated for even one task, the task set is immediately deemed unschedulable."
+        ],
+        "pseudocode": "def check_necessary_condition_2(task_set):\n    if not task_set:\n        return True\n    \n    # Assumes task_set is sorted by period, so task_set[0] is tau_1\n    T_1 = task_set[0].T\n    C_1 = task_set[0].C\n    \n    slack_tau_1 = T_1 - C_1\n    \n    for i in range(1, len(task_set)): # Check tasks from tau_2 to tau_n\n        tau_i = task_set[i]\n        if tau_i.C > 2 * slack_tau_1:\n            return False # Condition violated\n    return True",
+        "key_insights": [
+          "This condition is a simple, fast test to rule out many unschedulable task sets.",
+          "It highlights the importance of the smallest period task's slack in non-preemptive scheduling.",
+          "The paper aims to provide a *tighter* necessary condition than this one."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 1: Critical Job in Harmonic/Loose Harmonic Task Sets",
+      "formal_description": {
+        "statement": "In harmonic and loose harmonic task sets with synchronous release, the next job of tau_1 will always be the job with deadline at omega_i_t (obtained from Definition: Critical Time Window).",
+        "variables": {
+          "tau_1": "The task with the smallest period.",
+          "omega_i_t": "The critical time window, representing the earliest deadline among all other tasks' next jobs.",
+          "t": "The current time."
+        },
+        "assumptions": [
+          "Harmonic or loose harmonic task set.",
+          "Synchronous release (all tasks released at time 0).",
+          "tau_i (the current highest priority job) is not tau_1 (meaning tau_1's last instance is already scheduled)."
+        ],
+        "conclusion": "For harmonic/loose harmonic task sets, the critical time window (earliest future deadline of other tasks) is always determined by the next job of the smallest period task (tau_1)."
+      },
+      "informal_sketch": {
+        "intuition": "Because all other tasks' releases are synchronized with the fastest task (tau_1) in harmonic/loose harmonic sets, and tau_1 has the shortest period, its next job will always have the earliest deadline among all future jobs. So, when we look for the 'critical' future deadline, it's always tau_1's.",
+        "steps": [
+          "Assume the current time 't' and that 'tau_1' is not the currently executing or highest priority pending job (meaning its previous job finished).",
+          "In harmonic or loose harmonic task sets, all other tasks 'tau_k' have periods 'T_k' that are integer multiples of 'T_1'.",
+          "This means any release of 'tau_k' will coincide with a release of 'tau_1'.",
+          "Since 'tau_1' has the smallest period, its next release (and thus its next deadline) will occur sooner than or at the same time as any other task's next release/deadline.",
+          "Therefore, the minimum of all 'D_next_k_t' (excluding the current 'tau_i') will always be 'D_next_1_t'."
+        ],
+        "pseudocode": "def lemma_1_critical_job_is_tau_1(task_set, t_current, current_high_priority_task):\n    if not (is_harmonic(task_set) or is_loose_harmonic(task_set)):\n        return False # Lemma only applies to harmonic/loose harmonic\n\n    tau_1 = task_set[0] # Assumes sorted task set\n    \n    # If tau_1 is the current_high_priority_task, this lemma doesn't apply directly\n    # as omega_i_t excludes the current task.\n    # The lemma states that if tau_1 is *not* the current high priority job,\n    # then its *next* job will define the critical window.\n    if current_high_priority_task.id == tau_1.id:\n        # This case is excluded by the definition of omega_i_t (k != i)\n        # The lemma implies that if tau_1 is not 'i', then D_next_1_t is the min.\n        pass \n\n    omega_i_t_calculated = calculate_omega_i_t(t_current, current_high_priority_task, task_set)\n    D_next_1_t_calculated = calculate_D_next_k_t(t_current, tau_1)\n    \n    return omega_i_t_calculated == D_next_1_t_calculated",
+        "key_insights": [
+          "This lemma simplifies the identification of the 'critical job' for specific task set types.",
+          "It implies that for these task sets, the scheduler primarily needs to protect the next instance of the fastest task."
+        ]
+      },
+      "dependencies": [
+        "Harmonic Task Set",
+        "Loose Harmonic Task Set",
+        "Critical Time Window"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 2: Remaining Time for L_1(t) in Harmonic/Loose Harmonic Task Sets",
+      "formal_description": {
+        "statement": "In harmonic and loose harmonic task sets with synchronous release and period ratio k_i >= 3 (for 1 < i <= n), the remaining time until L_1_t (from Definition: Latest Start Time for Preceding Jobs) will never be smaller than r_next_1 - t + T_1 - C_1, where t is the time that the algorithm is activated and r_next_1 is the release time of the next job of tau_1.",
+        "variables": {
+          "k_i": "The period ratio of task tau_i.",
+          "L_1_t": "The latest start time of the critical job (which is tau_1's next job, by Lemma 1).",
+          "r_next_1": "The release time of the next job of task tau_1 after time t.",
+          "t": "The current time.",
+          "T_1": "The period of task tau_1.",
+          "C_1": "The worst-case execution time (WCET) of task tau_1."
+        },
+        "assumptions": [
+          "Harmonic or loose harmonic task set.",
+          "Synchronous release.",
+          "Period ratio k_i >= 3 for all i > 1.",
+          "Necessary Schedulability Condition (2) holds (C_i <= 2 * (T_1 - C_1))."
+        ],
+        "conclusion": "Under specific conditions (harmonic/loose harmonic, k_i >= 3), the latest start time for the critical job (tau_1's next job) is guaranteed to be at least the slack available for tau_1's next job, relative to the current time."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma essentially says that if tasks are 'spread out enough' (k_i >= 3) and the basic necessary condition holds, then the complex calculation of 'L_1_t' (latest start time of the critical job) simplifies. It will always be at least the time until tau_1's next release plus tau_1's own slack. This means there's always enough time for tau_1 if we protect it.",
+        "steps": [
+          "Given the assumptions (harmonic/loose harmonic, k_i >= 3, synchronous release, and C_i <= 2 * (T_1 - C_1)).",
+          "By Lemma 1, the critical job is the next job of 'tau_1'. Its deadline is 'D_next_1_t = r_next_1 + T_1'.",
+          "The calculation of 'L_1_t' involves a chain of future jobs. However, due to the large period ratios (k_i >= 3) and the WCET bound (C_i <= 2 * (T_1 - C_1)), the interference from other tasks on 'tau_1's next job is limited.",
+          "The proof (briefly mentioned in the paper) shows that the 'min' operation in 'L_p_t' will effectively resolve to 'D_next_1_t - C_1' when considering 'tau_1' as the critical job.",
+          "Therefore, 'L_1_t' will be 'r_next_1 + T_1 - C_1'.",
+          "The remaining time until 'L_1_t' from current time 't' is 'L_1_t - t = r_next_1 + T_1 - C_1 - t'."
+        ],
+        "pseudocode": "def lemma_2_L1_t_bound(task_set, t_current):\n    # Assumes task_set is sorted by period\n    tau_1 = task_set[0]\n    \n    # Check assumptions\n    if not (is_harmonic(task_set) or is_loose_harmonic(task_set)):\n        return False\n    if not all(k_i >= 3 for k_i in calculate_period_ratios(task_set).values()):\n        return False\n    if not check_necessary_condition_2(task_set):\n        return False\n        \n    # Calculate r_next_1\n    r_next_1 = (math.floor(t_current / tau_1.T) + 1) * tau_1.T\n    \n    # Calculate L_1_t based on the lemma's conclusion\n    expected_L_1_t = r_next_1 + tau_1.T - tau_1.C\n    \n    # In a real test, you'd calculate L_1_t using the full algorithm\n    # and then assert it's >= expected_L_1_t.\n    # For this sketch, we just show the expected value.\n    return expected_L_1_t",
+        "key_insights": [
+          "This lemma provides a crucial simplification for the CW-EDF's decision logic under specific task set properties.",
+          "It shows that for these 'well-behaved' task sets, the complex look-ahead calculation effectively reduces to protecting the slack of 'tau_1'."
+        ]
+      },
+      "dependencies": [
+        "Harmonic Task Set",
+        "Loose Harmonic Task Set",
+        "Task Ordering and Period Ratio",
+        "Latest Start Time for Preceding Jobs",
+        "Necessary Schedulability Condition (2)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 3: Schedulability Condition for Precautious-RM",
+      "formal_description": {
+        "statement": "In harmonic and loose harmonic task sets with synchronous release and period ratio k_j >= 3 (for 1 < j <= n), an online scheduling algorithm which follows RM priorities and will schedule an idle interval from t until r_next_1 if t + C_i > r_next_1 + T_1 - C_1, guarantees the feasibility of the schedule. Here t is the time that the algorithm is activated, r_next_1 is the release time of the next job of tau_1 after t, and tau_i is the high priority task with a pending job.",
+        "variables": {
+          "k_j": "The period ratio of task tau_j.",
+          "t": "The current time.",
+          "r_next_1": "The release time of the next job of task tau_1.",
+          "C_i": "The worst-case execution time (WCET) of task tau_i (the current high priority task).",
+          "T_1": "The period of task tau_1.",
+          "C_1": "The worst-case execution time (WCET) of task tau_1.",
+          "tau_i": "The high priority task with a pending job."
+        },
+        "assumptions": [
+          "Harmonic or loose harmonic task set.",
+          "Synchronous release.",
+          "Period ratio k_j >= 3 for all j > 1.",
+          "RM (Rate Monotonic) priorities."
+        ],
+        "conclusion": "For specific harmonic/loose harmonic task sets, a simple idle-time insertion policy (delaying until tau_1's next release if the current job would overrun tau_1's slack) is sufficient to guarantee schedulability under RM."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma describes the core logic of Precautious-RM for certain task sets. It says that if the current highest priority job (under RM) would 'bump into' the next job of the fastest task (tau_1) and cause it to miss its deadline, then it's better to just wait until tau_1's next release. This simple rule is enough to keep the schedule feasible for these specific task sets.",
+        "steps": [
+          "At time 't', identify the highest priority task 'tau_i' with a pending job (using RM priorities).",
+          "Calculate 'r_next_1', the release time of the next job of 'tau_1'.",
+          "Check if scheduling 'tau_i' now (finishing at 't + C_i') would cause 'tau_1's next job to miss its deadline. This happens if 't + C_i' is greater than 'r_next_1 + T_1 - C_1' (which is the latest time 'tau_1's next job can start).",
+          "If this condition ('t + C_i > r_next_1 + T_1 - C_1') is true, schedule an idle interval until 'r_next_1'.",
+          "Otherwise, schedule 'tau_i'.",
+          "This policy, under the given assumptions, guarantees schedulability."
+        ],
+        "pseudocode": "def precautious_rm_decision(t_current, task_i_pending_job, task_set_rm_priorities):\n    tau_1 = task_set_rm_priorities[0] # Assumes tau_1 is highest priority by RM\n    r_next_1 = (math.floor(t_current / tau_1.T) + 1) * tau_1.T\n    \n    # Latest start time for tau_1's next job\n    tau_1_next_job_latest_start = r_next_1 + tau_1.T - tau_1.C\n    \n    if t_current + task_i_pending_job.C > tau_1_next_job_latest_start:\n        # Schedule idle\n        return 'IDLE', r_next_1 - t_current\n    else:\n        # Schedule task_i\n        return 'SCHEDULE', task_i_pending_job.id",
+        "key_insights": [
+          "This lemma describes the effectiveness of a simple 'look-ahead' policy for non-work-conserving scheduling.",
+          "It demonstrates that inserting idle times strategically can improve schedulability, especially when protecting the fastest task.",
+          "It forms a basis for understanding how CW-EDF extends this concept."
+        ]
+      },
+      "dependencies": [
+        "Harmonic Task Set",
+        "Loose Harmonic Task Set",
+        "Task Ordering and Period Ratio"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 1: Schedulability Test for NP-EDF (Jeffay et al.)",
+      "formal_description": {
+        "statement": "Task set tau with periodic tasks sorted in non-decreasing order of their periods is schedulable if U_total <= 1 and for all i, 1 < i <= n; for all L, T_1 < L < T_i: L >= C_i + sum_{j=1 to i-1} floor((L - 1) / T_j) * C_j",
+        "variables": {
+          "tau": "The task set.",
+          "U_total": "The total system utilization.",
+          "L": "A length of a time interval, specifically considered between T_1 and T_i.",
+          "C_i": "The worst-case execution time (WCET) of task tau_i.",
+          "T_i": "The period of task tau_i.",
+          "T_1": "The period of task tau_1.",
+          "C_j": "The worst-case execution time (WCET) of task tau_j.",
+          "T_j": "The period of task tau_j."
+        },
+        "assumptions": [
+          "Periodic tasks.",
+          "Tasks sorted in non-decreasing order of their periods.",
+          "Work-conserving Non-Preemptive EDF (NP-EDF) scheduling algorithm.",
+          "Schedulability is defined as per 'Definition 1: Schedulable Periodic Task Set (Jeffay et al.)' (i.e., for any set of release offsets)."
+        ],
+        "conclusion": "Provides a necessary and sufficient schedulability condition for periodic task sets under NP-EDF, considering all possible release offsets."
+      },
+      "informal_sketch": {
+        "intuition": "This is a classic test for NP-EDF. It states that a task set is schedulable (under the strict 'any offset' definition) if the total processor utilization is not too high, AND for every task, there's always enough time in any critical interval 'L' to accommodate its own execution plus the execution of all higher priority tasks that could interfere.",
+        "steps": [
+          "First, check if the total system utilization 'U_total' is less than or equal to 1. If not, the task set is unschedulable.",
+          "For each task 'tau_i' (starting from 'tau_2' up to 'tau_n'):",
+          "  Consider all possible interval lengths 'L' that are greater than 'T_1' but less than 'T_i'.",
+          "  For each 'L', calculate the total demand from 'tau_i' and all higher priority tasks 'tau_j' (j < i) within an interval of length 'L-1'. This demand is 'C_i + sum_{j=1 to i-1} floor((L - 1) / T_j) * C_j'.",
+          "  If for any 'L', the interval length 'L' is less than this calculated demand, the task set is unschedulable.",
+          "If both conditions hold, the task set is schedulable."
+        ],
+        "pseudocode": "def check_schedulability_jeffay_theorem_1(task_set_sorted_by_period):\n    # 1. Check total utilization\n    U_total = calculate_system_utilization(task_set_sorted_by_period)\n    if U_total > 1:\n        return False\n\n    # 2. Check interval condition for each task\n    T_1 = task_set_sorted_by_period[0].T\n    \n    for i in range(1, len(task_set_sorted_by_period)): # For tau_2 to tau_n\n        tau_i = task_set_sorted_by_period[i]\n        \n        # Iterate L from T_1 + epsilon to T_i - epsilon\n        # This is a pseudo-polynomial test, so L values are specific.\n        # For a sketch, we represent the concept of checking intervals.\n        # In practice, L would be tested at specific 'critical instants'.\n        \n        # Example: simplified iteration for conceptual understanding\n        for L_val in range(math.ceil(T_1) + 1, math.floor(tau_i.T)): \n            demand = tau_i.C\n            for j in range(i): # For higher priority tasks tau_j (j < i)\n                tau_j = task_set_sorted_by_period[j]\n                demand += math.floor((L_val - 1) / tau_j.T) * tau_j.C\n            \n            if L_val < demand:\n                return False # Condition violated\n                \n    return True",
+        "key_insights": [
+          "This theorem provides a pseudo-polynomial time schedulability test.",
+          "It's considered pessimistic for concrete periodic task sets because it accounts for all possible release offsets, not just fixed ones.",
+          "The paper uses this theorem as a baseline to demonstrate the limitations of work-conserving algorithms and the need for non-work-conserving approaches."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Schedulable Periodic Task Set (Jeffay et al.)",
+        "System Utilization",
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 2: NP-EDF Not Optimal for Concrete Periodic Task Sets",
+      "formal_description": {
+        "statement": "NP-EDF is not optimal in the class of work-conserving non-preemptive scheduling algorithms for concrete periodic task sets.",
+        "variables": {
+          "NP-EDF": "Non-Preemptive Earliest Deadline First scheduling algorithm.",
+          "concrete_periodic_task_set": "A periodic task set with known and fixed release offsets."
+        },
+        "assumptions": [
+          "Work-conserving non-preemptive scheduling algorithms."
+        ],
+        "conclusion": "NP-EDF, despite being optimal for general periodic task sets (under Jeffay's Definition 1), is not optimal when release offsets are fixed and known."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem challenges a widely held belief. It shows that if you know exactly when tasks will be released (concrete task sets), NP-EDF might not be the best choice. Another work-conserving algorithm, like NP-FP (Fixed Priority), could schedule a task set that NP-EDF fails to schedule.",
+        "steps": [
+          "The proof relies on a counter-example (e.g., tasks tau_1:(1,10), tau_2:(8,30), tau_3:(17,60) all released at time 0).",
+          "Show that NP-EDF fails to schedule this task set (e.g., tau_1 misses its deadline due to a long tau_3 job).",
+          "Then, demonstrate that a different work-conserving algorithm, like NP-FP with a specific priority assignment (e.g., tau_1 > tau_3 > tau_2), *can* successfully schedule the same task set.",
+          "Since NP-EDF failed where another work-conserving algorithm succeeded for a concrete task set, NP-EDF is not optimal in this specific context."
+        ],
+        "pseudocode": "def prove_np_edf_not_optimal_concrete(example_task_set_concrete):\n    # 1. Simulate NP-EDF for the example task set\n    np_edf_schedule = simulate_np_edf(example_task_set_concrete, fixed_offsets)\n    if not check_deadlines_met(np_edf_schedule):\n        print(\"NP-EDF fails for the example task set.\")\n        \n        # 2. Simulate NP-FP with a specific priority assignment\n        # Example: tau_1 (highest), tau_3 (medium), tau_2 (lowest)\n        np_fp_schedule = simulate_np_fp(example_task_set_concrete, fixed_offsets, custom_priorities)\n        if check_deadlines_met(np_fp_schedule):\n            print(\"NP-FP succeeds for the same example task set.\")\n            print(\"Conclusion: NP-EDF is not optimal for concrete periodic task sets.\")\n            return True\n    return False",
+        "key_insights": [
+          "This theorem highlights the distinction between general periodic task sets (where offsets are arbitrary) and concrete periodic task sets (where offsets are fixed).",
+          "It implies that for concrete task sets, the choice of scheduling algorithm and priority assignment becomes more nuanced, and simple optimality claims may not hold.",
+          "It motivates exploring alternative scheduling strategies, including non-work-conserving ones."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Schedulable Periodic Task Set (Jeffay et al.)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 3: Theorem 1 Rejects Task Sets with Large C_i",
+      "formal_description": {
+        "statement": "The schedulability test for NP-EDF in Theorem 1 rejects any task set with C_i > T_1 - C_1 (for 1 < i <= n). Specifically, if C_i = T_1 - C_1 + delta with delta > 0.",
+        "variables": {
+          "C_i": "The worst-case execution time (WCET) of task tau_i.",
+          "T_1": "The period of task tau_1.",
+          "C_1": "The worst-case execution time (WCET) of task tau_1.",
+          "delta": "A positive value."
+        },
+        "assumptions": [
+          "The task set is being evaluated by the schedulability test in 'Theorem 1: Schedulability Test for NP-EDF (Jeffay et al.)'."
+        ],
+        "conclusion": "The schedulability test from Theorem 1 is overly pessimistic, rejecting task sets where a task's WCET exceeds the slack of the fastest task (tau_1), even if those task sets might be schedulable with fixed offsets."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem points out a major flaw in the widely used Jeffay test (Theorem 1) when applied to concrete task sets. It shows that if any task (other than tau_1) is 'too long' (its WCET is greater than the slack of tau_1), the Jeffay test will *always* reject the task set, regardless of whether it's actually schedulable with fixed offsets. This makes the test very conservative.",
+        "steps": [
+          "Assume a task set where for some 'tau_i', 'C_i > T_1 - C_1'. Let 'C_i = T_1 - C_1 + delta' for some 'delta > 0'.",
+          "To prove rejection by Theorem 1, we need to show that there exists *some* release offset configuration that causes a deadline miss, because Theorem 1 requires schedulability for *all* offsets.",
+          "Consider a specific offset configuration: 'tau_i' is released at time 0, and all other tasks 'tau_j' (including 'tau_1') are released at a very small time 'epsilon > 0'.",
+          "Since NP-EDF is work-conserving, 'tau_i' will start executing at time 0 and run for 'C_i' time units, because no other task is released yet.",
+          "When 'tau_1' is released at 'epsilon', it will be blocked by 'tau_i' until 'C_i'. So, 'tau_1' finishes at 'C_i + epsilon'.",
+          "The deadline of 'tau_1' is 'T_1 + epsilon'.",
+          "If 'C_i + epsilon > T_1 + epsilon', then 'tau_1' misses its deadline. This simplifies to 'C_i > T_1'.",
+          "The paper's proof uses a slightly different argument: 'tau_i' schedules from 0 to 'T_1 - C_1 + delta' (which is 'C_i'). When 'tau_1' is released at 'epsilon', it's blocked until 'C_i'. Its finish time is 'C_i + epsilon'. Its deadline is 'T_1 + epsilon'. If 'C_i > T_1', it misses. The condition 'C_i > T_1 - C_1' is a weaker condition than 'C_i > T_1' but still leads to rejection.",
+          "The key is that the test in Theorem 1 is designed to reject if *any* offset causes a miss. By constructing a specific offset where 'tau_1' is blocked by a 'too long' 'tau_i', we show a miss, thus proving rejection by Theorem 1."
+        ],
+        "pseudocode": "def theorem_3_jeffay_test_pessimism(task_set_sorted_by_period):\n    tau_1 = task_set_sorted_by_period[0]\n    \n    for i in range(1, len(task_set_sorted_by_period)):\n        tau_i = task_set_sorted_by_period[i]\n        if tau_i.C > (tau_1.T - tau_1.C):\n            print(f\"Task {tau_i.id} has C_i ({tau_i.C}) > T_1 - C_1 ({tau_1.T - tau_1.C}).\")\n            print(\"Theorem 1 (Jeffay's test) would reject this task set.\")\n            # Conceptual demonstration of why it would be rejected:\n            # Imagine tau_i released at 0, tau_1 released at a tiny epsilon.\n            # tau_i runs for C_i. tau_1 is blocked.\n            # tau_1's finish time: C_i + epsilon\n            # tau_1's deadline: T_1 + epsilon\n            # If C_i > T_1, tau_1 misses.\n            # The condition C_i > T_1 - C_1 is sufficient to show this pessimism.\n            return True # Indicates the test would reject\n    return False",
+        "key_insights": [
+          "This theorem exposes the pessimism of 'Theorem 1' when applied to concrete periodic task sets.",
+          "It highlights that the 'any offset' definition of schedulability can lead to rejecting many actually feasible task sets.",
+          "This motivates the search for tighter necessary conditions and non-work-conserving approaches that can exploit fixed offsets."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition",
+        "Theorem 1: Schedulability Test for NP-EDF (Jeffay et al.)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 4: Feasible Task Sets Not Schedulable by Any Work-Conserving Algorithm",
+      "formal_description": {
+        "statement": "There exists feasible non-preemptive task set tau which cannot be scheduled by any work-conserving scheduling algorithm.",
+        "variables": {
+          "tau": "A non-preemptive task set."
+        },
+        "assumptions": [
+          "Non-preemptive scheduling.",
+          "Work-conserving scheduling algorithms (processor is never idle if there's a pending job)."
+        ],
+        "conclusion": "Some task sets are only schedulable if idle times are strategically inserted, proving the necessity of non-work-conserving approaches."
+      },
+      "informal_sketch": {
+        "intuition": "This is a powerful statement: it proves that simply keeping the processor busy (work-conserving) isn't always the best strategy for non-preemptive tasks. Sometimes, waiting (inserting idle time) is necessary to avoid a future deadline miss, even if there's a job ready to run.",
+        "steps": [
+          "The proof uses a counter-example (e.g., tau_1:(1,5), tau_2:(1,10), tau_3:(8,20)).",
+          "Demonstrate that any work-conserving algorithm (regardless of priority assignment) will fail to schedule this task set:",
+          "  If tau_3 runs first, it blocks tau_1 and tau_2. If tau_3 starts at time 2, it runs until 10. The second job of tau_1 (released at 5, deadline 10) will miss its deadline.",
+          "  If tau_1 or tau_2 runs first, then tau_3 will eventually run. The problem is that tau_3 is long, and if it starts at the 'wrong' time, it will block a critical job (like a subsequent tau_1) causing a miss.",
+          "Then, show that this same task set *is* feasible if a non-work-conserving approach is used (e.g., RM priorities with an idle interval from 2 to 5). This idle time allows tau_1 to be scheduled without being blocked by tau_3, and then tau_3 can run later without causing a miss.",
+          "Since a feasible schedule exists, but no work-conserving algorithm can find it, work-conserving algorithms are fundamentally limited."
+        ],
+        "pseudocode": "def prove_non_work_conserving_necessity(example_task_set):\n    # Example: tau_1:(1,5), tau_2:(1,10), tau_3:(8,20)\n    # Simulate all possible work-conserving schedules (conceptually)\n    # This is complex, but the proof shows it leads to a miss.\n    # For instance, if tau_3 starts at t=2 (after tau_1, tau_2 are ready)\n    # tau_3 runs [2, 10]. tau_1's 2nd job released at 5, deadline 10. Misses.\n    # If tau_1 runs, then tau_2, then tau_3. tau_1 [0,1], tau_2 [1,2]. tau_3 [2,10].\n    # tau_1's 2nd job (release 5, deadline 10) is blocked by tau_3. Misses.\n    \n    # Conclusion for work-conserving:\n    print(\"Any work-conserving schedule for the example task set leads to a deadline miss.\")\n    \n    # Demonstrate a feasible non-work-conserving schedule\n    # RM priorities: tau_1 > tau_2 > tau_3\n    # Schedule:\n    # t=0: tau_1 runs [0,1]\n    # t=1: tau_2 runs [1,2]\n    # t=2: tau_3 is ready, but if scheduled, tau_1 (next job at 5) will miss.\n    #      Insert IDLE [2,5]\n    # t=5: tau_1 (2nd job) runs [5,6]\n    # t=6: tau_3 runs [6,14]\n    # ... and so on. This schedule is feasible.\n    print(\"A non-work-conserving schedule (e.g., RM with idle [2,5]) can schedule it.\")\n    print(\"Conclusion: Non-work-conserving algorithms are necessary for some feasible task sets.\")\n    return True",
+        "key_insights": [
+          "This theorem is a foundational argument for the entire paper, justifying the exploration of non-work-conserving scheduling.",
+          "It highlights that 'idleness' can be a strategic tool, not just wasted processor time, in non-preemptive systems.",
+          "It directly contrasts with the intuition of work-conserving algorithms."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 5: Tighter Necessary Condition for Non-Preemptive Schedulability",
+      "formal_description": {
+        "statement": "A task set tau defined in Section II is not schedulable by any non-preemptive scheduling algorithm if for at least one task tau_i (1 < i <= n), C_i > C_max_i where for 1 < i <= n, C_max_i = min_{j=1 to i-1} {theta_j} and theta_j = 2 * (T_j - C_j) - sum_{p=1 to j-1} I_p_2T_j.",
+        "variables": {
+          "tau": "The task set.",
+          "tau_i": "A task in the set (specifically, not tau_1).",
+          "C_i": "The worst-case execution time (WCET) of task tau_i.",
+          "C_max_i": "The maximum feasible execution time for task tau_i without jeopardizing schedulability of higher priority tasks.",
+          "theta_j": "The available slack within two consecutive jobs of task tau_j, considering interference from tasks with even smaller periods.",
+          "T_j": "The period of task tau_j.",
+          "C_j": "The worst-case execution time (WCET) of task tau_j.",
+          "I_p_2T_j": "The minimum interfering workload of task tau_p in an interval of length 2*T_j."
+        },
+        "assumptions": [
+          "Non-preemptive scheduling.",
+          "Tasks are sorted by period (tau_j has higher priority than tau_i if j < i)."
+        ],
+        "conclusion": "Provides a tighter necessary condition for non-preemptive schedulability by calculating the maximum execution time a task can have while still allowing higher priority tasks to meet their deadlines, considering minimum interference."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem gives a more precise 'red flag' than previous necessary conditions. It calculates, for each task, the absolute maximum execution time it *could* have without causing a deadline miss for any faster task. If a task's actual execution time exceeds this calculated maximum, the task set is definitely unschedulable. It's 'tighter' because it considers the cumulative interference from multiple faster tasks.",
+        "steps": [
+          "For each task 'tau_i' (from 'tau_2' to 'tau_n'):",
+          "  Calculate 'C_max_i', the maximum allowed WCET for 'tau_i'. This is determined by the minimum available 'slack' ('theta_j') among all tasks 'tau_j' that are faster than 'tau_i' (j < i).",
+          "  To calculate 'theta_j' for a task 'tau_j':",
+          "    Start with the total time available in two periods of 'tau_j' if 'tau_j' itself runs twice: '2 * (T_j - C_j)'. This represents the slack if only 'tau_j' is considered.",
+          "    Subtract the minimum interfering workload from all tasks 'tau_p' that are faster than 'tau_j' (p < j) within an interval of length '2 * T_j'. This is 'sum_{p=1 to j-1} I_p_2T_j'.",
+          "    The result is 'theta_j'.",
+          "  Once 'C_max_i' is found, compare it with the actual 'C_i'. If 'C_i > C_max_i', the task set is unschedulable."
+        ],
+        "pseudocode": "def calculate_C_max_i(task_i, task_set_sorted_by_period):\n    C_max_i = float('inf')\n    \n    # Iterate through tasks tau_j that are faster than tau_i (j < i)\n    for j_idx in range(task_i.id - 1): # Assuming task_i.id is 1-based index\n        tau_j = task_set_sorted_by_period[j_idx]\n        \n        # Calculate sum of minimum interfering workload from tasks tau_p (p < j) in 2*T_j\n        sum_I_p_2T_j = 0\n        for p_idx in range(j_idx): # For tasks tau_p (p < j)\n            tau_p = task_set_sorted_by_period[p_idx]\n            sum_I_p_2T_j += calculate_min_interfering_workload(tau_p, 2 * tau_j.T)\n            \n        theta_j = 2 * (tau_j.T - tau_j.C) - sum_I_p_2T_j\n        \n        if theta_j < C_max_i:\n            C_max_i = theta_j\n            \n    return C_max_i\n\ndef check_schedulability_theorem_5(task_set_sorted_by_period):\n    for i in range(1, len(task_set_sorted_by_period)): # For tau_2 to tau_n\n        tau_i = task_set_sorted_by_period[i]\n        C_max_i_calculated = calculate_C_max_i(tau_i, task_set_sorted_by_period)\n        \n        if tau_i.C > C_max_i_calculated:\n            return False # Task set is not schedulable\n            \n    return True",
+        "key_insights": [
+          "This theorem provides a more accurate necessary condition than 'Necessary Schedulability Condition (2)', especially for task sets with smaller period ratios.",
+          "It's a linear-time test (O(n)) because 'theta_j' and 'C_max_i' can be calculated efficiently.",
+          "It forms the basis for the CW-EDF's idle-time insertion policy by providing a better understanding of available slack."
+        ]
+      },
+      "dependencies": [
+        "Task Set Definition",
+        "Minimum Interfering Workload"
+      ]
+    },
+    {
+      "type": "algorithmic_sketch",
+      "identifier": "CW-EDF Scheduling Policy",
+      "formal_description": {
+        "statement": "if (current_time + C_i <= L_1_t) then Schedule J_i; else Schedule an idle interval from current_time until release of critical job;",
+        "variables": {
+          "current_time": "The current time 't' when the scheduler is activated.",
+          "C_i": "The worst-case execution time (WCET) of the current job J_i (the job with the earliest deadline among pending jobs).",
+          "L_1_t": "The latest start time of the critical job (the job whose next release has the earliest deadline among future jobs).",
+          "J_i": "The job with the earliest deadline among currently pending jobs.",
+          "critical_job": "The job whose next release has the earliest deadline among all future jobs (excluding J_i)."
+        },
+        "assumptions": [
+          "Online scheduling algorithm.",
+          "Non-preemptive execution.",
+          "EDF-based priority assignment for pending jobs.",
+          "Scheduler activated on job completion, idle interval completion, or job release."
+        ],
+        "conclusion": "Describes the decision logic of CW-EDF: schedule the highest priority job if it won't cause a deadline miss for the critical future job; otherwise, insert an idle interval to protect the critical job."
+      },
+      "informal_sketch": {
+        "intuition": "CW-EDF is an EDF scheduler that's 'cautious'. Before scheduling the current highest-priority job, it looks into the future. If running the current job would make the *most urgent future job* miss its deadline, CW-EDF decides to wait (insert idle time) until that critical future job is released. Otherwise, it proceeds with the current job.",
+        "steps": [
+          "When the scheduler is activated at 'current_time':",
+          "  Identify 'J_i', the job with the earliest deadline among all jobs currently ready to run.",
+          "  Determine the 'critical_job': this is the job (from any task, excluding 'J_i') whose *next* release has the earliest deadline among all future jobs.",
+          "  Calculate 'L_1_t', the latest time this 'critical_job' can start its execution without missing its deadline, considering potential interference from other future jobs (using the recursive 'L_p_t' calculation).",
+          "  Check the condition: 'current_time + C_i <= L_1_t'. This asks: 'If I schedule J_i now, will it finish before the critical_job absolutely *must* start?'",
+          "  If the condition is TRUE: Schedule 'J_i' to run.",
+          "  If the condition is FALSE: Schedule an idle interval. This idle interval lasts until the release time of the 'critical_job', giving it priority when it arrives."
+        ],
+        "pseudocode": "import math\n\ndef cw_edf_scheduler_decision(t_current, pending_jobs, task_set):\n    if not pending_jobs:\n        return 'IDLE', None # No jobs to schedule, processor is idle\n\n    # 1. Identify J_i (job with earliest deadline among pending)\n    J_i = min(pending_jobs, key=lambda job: job.deadline)\n    \n    # 2. Find critical job and calculate L_1_t\n    # Create a list of tasks that *don't* have pending jobs, sorted by next deadline\n    future_tasks_no_pending = []\n    for task_k in task_set:\n        if task_k.id != J_i.task_id: # Exclude current J_i's task\n            # Check if task_k has a pending job. For simplicity, assume no other pending jobs for future_tasks_no_pending\n            # In a full system, this would check if task_k.id is in pending_jobs\n            # For this sketch, we assume 'pending_jobs' only contains J_i and others are 'future'\n            future_tasks_no_pending.append(task_k)\n            \n    # Sort future tasks by their next deadline\n    future_tasks_no_pending.sort(key=lambda task_k: calculate_D_next_k_t(t_current, task_k))\n    \n    if not future_tasks_no_pending: # No other tasks to consider for critical window\n        return 'SCHEDULE', J_i.id # Just schedule J_i, no future conflict\n        \n    # Calculate L_p_t values for the sorted future tasks\n    L_times_map = calculate_L_p_t_recursive(t_current, future_tasks_no_pending)\n    \n    # L_1_t is the latest start time of the first task in the sorted future_tasks_no_pending list\n    critical_task = future_tasks_no_pending[0]\n    L_1_t = L_times_map[critical_task.id]\n    \n    # 3. Decision logic\n    if t_current + J_i.wcet <= L_1_t:\n        return 'SCHEDULE', J_i.id\n    else:\n        # Schedule an idle interval until the release of the critical job\n        critical_job_release_time = (math.floor(t_current / critical_task.T) + 1) * critical_task.T\n        idle_duration = critical_job_release_time - t_current\n        return 'IDLE', idle_duration",
+        "key_insights": [
+          "CW-EDF is a non-work-conserving algorithm that uses a look-ahead mechanism to improve schedulability.",
+          "It prioritizes preventing future deadline misses over immediate processor utilization.",
+          "The 'critical time window' and 'latest start time' calculations are key to its predictive capability.",
+          "It aims to be more effective than Precautious-RM, especially for task sets with small period ratios (K_min < 3)."
+        ]
+      },
+      "dependencies": [
+        "Next Deadline Calculation",
+        "Critical Time Window",
+        "Latest Start Time for Last Job in List",
+        "Latest Start Time for Preceding Jobs"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 6: CW-EDF Schedulability for Harmonic/Loose Harmonic Task Sets",
+      "formal_description": {
+        "statement": "CW-EDF is able to guarantee the schedulability of any harmonic and loose harmonic task set with synchronous release and period ratio k_i >= 3 (for 1 < i <= n) as long as the necessary condition of schedulability in (2) holds.",
+        "variables": {
+          "CW-EDF": "Critical Time Window EDF scheduling algorithm.",
+          "k_i": "The period ratio of task tau_i."
+        },
+        "assumptions": [
+          "Harmonic or loose harmonic task set.",
+          "Synchronous release.",
+          "Period ratio k_i >= 3 for all i > 1.",
+          "Necessary Schedulability Condition (2) holds (C_i <= 2 * (T_1 - C_1))."
+        ],
+        "conclusion": "CW-EDF can successfully schedule a specific class of 'well-behaved' task sets (harmonic/loose harmonic with large period ratios) that satisfy a basic necessary condition."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem proves that CW-EDF is at least as good as (and likely better than) previous non-work-conserving algorithms like Precautious-RM for a specific, important class of task sets. For these 'simple' task sets, CW-EDF's complex look-ahead logic simplifies down to the same effective decision rule as Precautious-RM, ensuring it schedules them successfully.",
+        "steps": [
+          "Given the assumptions: harmonic/loose harmonic task set, synchronous release, 'k_i >= 3', and 'Necessary Schedulability Condition (2)' holds.",
+          "By 'Lemma 1: Critical Job in Harmonic/Loose Harmonic Task Sets', the critical job for CW-EDF's decision is always the next job of 'tau_1'.",
+          "By 'Lemma 2: Remaining Time for L_1(t) in Harmonic/Loose Harmonic Task Sets', the calculation of 'L_1_t' for this critical job simplifies to 'r_next_1 + T_1 - C_1'.",
+          "Therefore, CW-EDF's scheduling condition ('current_time + C_i <= L_1_t') becomes equivalent to 'current_time + C_i <= r_next_1 + T_1 - C_1'.",
+          "This is precisely the same condition used by Precautious-RM (as described in 'Lemma 3: Schedulability Condition for Precautious-RM') to decide whether to schedule or insert idle time.",
+          "Since the decision logic and resulting idle times are identical to a policy proven feasible by Lemma 3, CW-EDF also guarantees schedulability for these task sets."
+        ],
+        "pseudocode": "def theorem_6_cw_edf_schedulability(task_set):\n    # Assumes task_set is sorted by period\n    \n    # Check assumptions for the theorem\n    if not (is_harmonic(task_set) or is_loose_harmonic(task_set)):\n        return False # Theorem does not apply\n    if not all(k_i >= 3 for k_i in calculate_period_ratios(task_set).values()):\n        return False # Theorem does not apply\n    if not check_necessary_condition_2(task_set):\n        return False # Theorem does not apply\n        \n    # If all assumptions hold, the theorem guarantees schedulability.\n    # The proof relies on the equivalence of CW-EDF's decision logic\n    # to Precautious-RM's logic under these specific conditions,\n    # which is proven feasible by Lemma 3.\n    \n    print(\"Given the task set meets the conditions (harmonic/loose harmonic, k_i >= 3, condition 2 holds),\")\n    print(\"CW-EDF is guaranteed to schedule it successfully.\")\n    return True",
+        "key_insights": [
+          "This theorem establishes a baseline of effectiveness for CW-EDF, showing it retains the benefits of prior non-work-conserving approaches for certain task sets.",
+          "It highlights how the complex look-ahead of CW-EDF can simplify under specific, favorable task set properties.",
+          "The paper then emphasizes that CW-EDF's true strength lies in handling more complex task sets (K_min < 3) where these simplifications do not hold."
+        ]
+      },
+      "dependencies": [
+        "Harmonic Task Set",
+        "Loose Harmonic Task Set",
+        "Task Ordering and Period Ratio",
+        "Necessary Schedulability Condition (2)",
+        "Lemma 1: Critical Job in Harmonic/Loose Harmonic Task Sets",
+        "Lemma 2: Remaining Time for L_1(t) in Harmonic/Loose Harmonic Task Sets",
+        "Lemma 3: Schedulability Condition for Precautious-RM"
+      ]
+    }
+  ]
+}

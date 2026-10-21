@@ -1,0 +1,664 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Modeling Real-time Garbage Collection Cost</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Wei</forename><surname>Fu</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">School of Electrical Engineering and Computer Science</orgName>
+								<orgName type="institution">Washington State University Pullman</orgName>
+								<address>
+									<region>WA</region>
+									<country key="US">U.S.A</country>
+								</address>
+							</affiliation>
+						</author>
+						<author role="corresp">
+							<persName><forename type="first">Carl</forename><surname>Hauser</surname></persName>
+							<email>hauser@eecs.wsu.edu</email>
+							<affiliation key="aff1">
+								<orgName type="department">School of Electrical Engineering and Computer Science</orgName>
+								<orgName type="institution">Washington State University Pullman</orgName>
+								<address>
+									<region>WA</region>
+									<country key="US">U.S.A</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Modeling Real-time Garbage Collection Cost</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">E6B1995F9FBF0DE926319F5E03EC7817</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T23:36+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Given the major advantages of productivity and safety, the use of garbage collection (GC) in real-time systems has gained increasing attention. Guaranteeing garbage collection activities' worst-case execution time (WCET) is necessary for a real-time system to perform scheduling and schedulability analysis.</p><p>This paper describes a detailed GC cost model for incremental mark-and-sweep GC exemplified by a modified Boehm-Demers-Weiser (BDW) collector. The GC cost model computes the WCET for garbage collection in terms of (1) the performance of collector operations and (2) the garbage collection load offered by a real-time task. Separating these aspects is a step along the road to an engineering approach to garbage collection in real-time systems, allowing prediction of system behavior from knowledge of component behavior and environmental specifications. The model incorporates the cost of write barriers that are needed to support incremental GC.</p><p>To be useful for real-time systems, a model's predicted WCET must be no less than the actual WCET. However, unreasonably large overestimates are also problematic as they may lead to the incorrect conclusion that the application cannot be feasibly scheduled. A pessimism metric assesses the degree to which the model's predictions exceed the measured worst-case cost in particular instances.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.">Introduction</head><p>Today's embedded systems have much faster, larger microcontrollers with larger memory space, much greater functionality and more complex software implementations than were found in embedded systems a few years ago. These trends are outstripping implementors' ability to do memory management using static or manual methods, the classical approaches in embedded systems. At the same time, given the major advantages of productivity and safety, the use of garbage collection in real-time systems has gained increasing attention. Garbage Collection (GC) is an attractive option for complex embedded systems if realtime constraints can be satisfied. The cost of GC should be predictable based on <ref type="bibr" target="#b0">(1)</ref> the performance of collector operations and (2) the garbage collection load offered by a realtime task. Separation of these aspects is a step along the road to an engineering approach to garbage collection in real-time systems, allowing prediction of system behavior from knowledge of component behavior and environmental specifications.</p><p>Using GC in real-time system development complicates the situation because enough time must be allotted for GCrelated activities and time spent in GC must be scheduled so as not to interfere with mutators meeting their deadlines. The amount of time required depends not only on the algorithms used in the GC but also on the collection load, which in turn depends on the implementation of the mutator tasks (which do the useful work in the system) and the load imposed on them by the environment. To perform scheduling and schedulability analysis in a system using GC, worstcase execution time (WCET) of both mutator and GC tasks are needed. There are many existing techniques to model and analyze real-time tasks' WCETs either statically or dynamically, <ref type="bibr" target="#b19">[20,</ref><ref type="bibr" target="#b22">23,</ref><ref type="bibr" target="#b24">25]</ref> and these may be used for the mutator tasks. For garbage collection activities, themselves, it is crucial to have a complete and accurate GC cost model, based on the particular GC implementation in use, which accounts for the collection loads offered by the mutator tasks allocation behavior.</p><p>Work on estimating GC costs in order to perform realtime garbage collection (RTGC) has been occuring since the early 1990's. An early model due to Bengtsson, <ref type="bibr" target="#b1">[2]</ref>, using fine-grained accounting for costs, potentially captures costs with great precision. The model describes GC costs in terms of the cost of primitive operations such as moving one memory cell. The difficulty with this model is that it is hard to relate application and workload characteristics to the number of primitive operations during system design. Other approaches, for example Henriksson, <ref type="bibr" target="#b16">[17]</ref> and Kim, <ref type="bibr" target="#b18">[19]</ref>, attempt to model GC costs at the granularity of significant GC execution stages such as rootscan, barrier processing, heap marking, etc., without decomposing the work of each stage. These coarse-granularity GC cost estimates suffer in accuracy because they are insensitive to differences in application behavior that affect different aspects of the algorithms that make up each substage. For instance, if a single cost coefficient δ M is associated with GC heap marking phase as in <ref type="bibr" target="#b18">[19]</ref>, the coefficient depends not only on the GC implementation but also on characteristics of the application such as the reference density in live memory. This works against the goal of separately characterizing the GC implementation and the GC load offered by the application and its workload.</p><p>More recently, Bacon, <ref type="bibr" target="#b0">[1]</ref>, introduced a GC cost model for their Metronome real-time GC implementation with a granularity in between the detailed granularity of Bengtsson's approach and coarse granularity of the Henriksson and Kim approaches. In Metronome, major contributors to the cost of each GC stage are characterized by GC coefficients that express the rate at which that kind of work is performed. The Metronome GC is designed to provide a specific minimum mutator utilization (MMU) over a given time interval ∆t; the cost model is used in the real-time scheduling analysis to ensure that the required MMU is achieved.</p><p>Goh, <ref type="bibr" target="#b14">[15,</ref><ref type="bibr" target="#b15">16]</ref>, presented a GC cost model for an RTGC implementation in Mono 0.25, <ref type="bibr" target="#b25">[26]</ref>. The GC cost estimation granularity is of the same degree as Bacon's. The model expresses GC cost in terms of GC coefficients such as "marking an object in root-scan phase", "scan heap memory to find references in mark phase", etc. and mutatordependent parameters such as "size of memory scanned in root-scan phase", "number of objects marked in mark phase", etc.. The model does not fully separate the GC implementation, application, and workload effects: the definitions of the mutator-dependent parameters are expressed in terms that depend on the details of the GC implementation. For example, the parameter "Number of objects marked in mark phase", in addition to depending on the mutator code and workload, depends on both the GC implementation and details of the mutual scheduling of the mutator and GC.</p><p>Compared to the Bengtsson, [2], Henriksson, <ref type="bibr" target="#b16">[17]</ref>, Kim, [19], Bacon, <ref type="bibr" target="#b0">[1]</ref> and Goh, <ref type="bibr" target="#b14">[15]</ref>, approaches, our approach to modeling GC cost strives to separately model the effects of the GC implementation, the mutator implementation, the offered load from the environment, and the effects of scheduling on the total costs of GC. Like Bacon and Goh, we use a granularity just fine enough that the part of the model pertaining to the GC implementation (the GC cost coefficients) is stable across applications and workloads. The application-dependent parameters that characterize the effects of mutator behavior are defined in a way that existing programming analysis techniques <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b20">21,</ref><ref type="bibr" target="#b21">22]</ref> can be directly used to estimate them. The model also accounts for the cost of write barriers required by the incremental collection approach but executed by the mutators.</p><p>The remainder of this paper is organized as follows: section 2 describes the Boehm-Demers-Weiser(BDW) marksweep collector <ref type="bibr" target="#b5">[6]</ref>, upon which our GC cost model is built and discusses some modifications to make it more nearly a real-time collector; section 3 describes the complete GC cost model for a single mutator task, including the calculation of worst-case GC cost and write barrier cost; section 4 discusses our related ongoing work and draws conclusions.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.">Overview of the BDW mark-and-sweep collector</head><p>The modeled GC system is the mark-and-sweep BDW GC library, <ref type="bibr" target="#b5">[6]</ref>, in the Mono 1.1.16 Common Language Infrastructure virtual machine, <ref type="bibr" target="#b10">[11,</ref><ref type="bibr" target="#b25">26]</ref>, with some modifications to improve its real-time abilities. There are three design goals of the GC modifications: separating GC work from mutator, making GC increments controllable through GC configuration parameters and instrumenting GC work measurement to build an accurate GC cost model. Some GC implementation changes help to achieve a more accurate cost model. The modifications presented here follow closely the directions established by Goh in modifying the BDW collector for Mono 0.25, <ref type="bibr" target="#b15">[16]</ref>. The major differences are that additional phases have been made incrementalparticularly, uncollectable object marking, finalization, and sweeping small objects. Furthermore, exposure of the GC interface in the more recent Mono allowed the write barrier to be more transparently integrated into the system.</p><p>The BDW library is a freely available library that provides C and C++ programs with garbage collection capabilities. The BDW algorithm is conservative in that it assumes that any value that could be a pointer to dynamic data actually is a pointer to that data. Thus, it may retain unreachable data, but will never collect reachable data. In Mono, the GC almost always has precise pointer information, so the GC need not be conservative in most cases, improving predictability.</p><p>The stock BDW GC provides mostly-parallel collection in order to reduce pause times due to GC activity by making the marking and sweeping activities partially incremental, <ref type="bibr" target="#b3">[4]</ref>. The mark phase occurs incrementally during memory allocations in mutators. Virtual memory protection mechanisms using the operating system mprotect system call realize the write barrier needed for this incrementality. The sweep phase immediately reclaims completely empty mem-ory blocks those containing only garbage objects. It reclaims objects in partially empty blocks on-demand when a memory allocation for the particular size cannot be satisfied.</p><p>The details of a GC cost model depend to some extent on how GC-related work is carried out. For example, if some GC work is carried out directly by mutator the model needs to account for this work as part of the mutator's worst-case execution time. On the other hand, GC work that occurs outside the mutator thread can be modeled as a concurrent thread with its own worst-case execution time, latency and period.</p><p>We have modified the BDW GC implementation to facilitate modeling and measurement. GC work in the modified collector is carried out in a single Mono run-time thread. A GC cycle consists of ten phases. Fine-grained interleaving of small units of garbage collection work (GC increments) with small units of real-time task execution is required <ref type="bibr" target="#b11">[12]</ref> in order to support real-time applications. The incrementality of the stock BDW collector is insufficient because it does not incrementalize all phases that can take arbitrarily long. Our modifications therefore include incrementalizing all such phases (marked with an I in the list below). Heap marking in the stock BDW collector contains many self-admitted "ugly hacks", <ref type="bibr" target="#b4">[5]</ref>, to speed things up. In order to make GC costs predictable these "hacks" are disabled in our implementation. Heap marking is simplified to scanning the main mark stack and calling a uniform heap marking function on each mark stack entry until stack becomes empty.</p><p>Barrier techniques are necessary to ensure that the mutator's view of data connectivity is consistent, i.e., that it does not attempt to access objects through obsolete references, <ref type="bibr" target="#b17">[18]</ref>. As in Goh's modified BDW collector, our collector uses Yuasa's snapshop-at-the-beginning write barrier, <ref type="bibr" target="#b26">[27]</ref>, to protect reference updates during the GC heap marking phase and the GC root scan phase. <ref type="foot" target="#foot_4">3</ref></p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.">GC cost model</head><p>The previous section described the BDW collector and modifications that make it more suitable as an RTGC. The modifications both improve the incrementality of the collector and make it more amenable to accurate modeling. We turn now to the model, itself.</p><p>As previously noted, the GC cost model has three parts:</p><p>1. A model of the GC implementation expressed as a set of constants and processing rate coefficients 2. A model of the way that mutators influence the amount of work done by the GC, expressed as a set of application-dependent parameters 3. A model of GC-related overhead incurred by the mutators, in particular the cost of barrier execution to allow the GC to execute incrementally which will be addressed in turn.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.1.">GC cost coefficients</head><p>At the coarsest level the GC cycle worst-case execution time C GC is needed for real-time scheduling analysis. A GC cycle execution time is the sum of all GC phase times:</p><formula xml:id="formula_0">C GC = i=9 i=0 T Pi .</formula><p>The execution time of each phase depends on both the GC implementation and mutators' memory usage. GC cost coefficients are a set of basic GC processing rates and work units defined with respect to the GC implementation and measured in units of time per work unit. For instance in phase P 1 , one work unit consists of clearing one block's mark bits. There are no GC cost coefficients defined for atomic GC phases; their executions take constant times which are denoted as T P0 , T P3 and T P9 . For each other GC phase, there are one or more GC cost coefficients. The GC cost coefficients are: The incremental phases (all except P 0 , P 3 and P 9 ) are each made up of multiple GC increments as illustrated in Figure <ref type="figure">1</ref> which shows how mutator activity interleaves with the increments. The execution of GC phases P 0 through P 9 constitute one GC cycle. The sizes of the increments and the mutator activity are tunable in order to meet the joint GC and mutator scheduling requirements.</p><formula xml:id="formula_1">P 1 : GC clear • δ C :</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Figure 1. RTGC incrementality for a marksweep collector</head><p>As previously noted, GC cost coefficients are attributes of GC implementation itself. Alone they are insufficient to characterize the GC costs for a particular application. Application-dependent parameters provide additional information about the GC workload.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.2.">Application-dependent Parameters</head><p>The application-dependent parameters are categorized into two groups: one group depends only on the application; the other depends on both the application and the GC execution pattern. Heap reference density is differentiated between reference density, θ h , and valid reference density, θ hv , because the conservative BDW collector tests reference validity during application execution. Any main mark stack entry that fails the reference validity test is pushed onto an allocation blacklist to avoid allocation at addresses that are known to be subject to false retention. θ hv is the density of references that pass validity test and whose referents must themselves be scanned.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.2.1">Group 1: Purely application-dependent parameters</head><formula xml:id="formula_2">•</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.2.2">Group 2: Other parameters</head><p>Several parameters depend on both the application and the pattern of GC executions.</p><p>• A max : maximum memory allocated in bytes during application execution; • G l : maximum garbage in bytes needing to be reclaimed during phase P 7 ; • G s : maximum garbage in bytes needing to be reclaimed during phase P 8 .</p><p>The maximum memory that the GC needs to reclaim is the difference between maximum allocated memory and minimum live memory at any point of application's execution. A naive minimum live memory approximation is 0. Then the amount of garbage to reclaim is the maximum memory allocation A max , which means</p><formula xml:id="formula_3">G l + G s ≤ A max .</formula><p>Different GC execution patterns result in different A max for the same application. For instance, if garbage collection is triggered when the amount of free memory becomes too small, then the free memory threshold F to trigger collection is an approximation of maximum memory allocation, since applications are only allowed to allocate until free memory hits the threshold at which point the garbage collector is invoked.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.3.">Determining application-dependent parameters</head><p>Modeling the interactions between the application, scheduler, and GC to derive values for A max , G l , and G s is, at this time, an open problem.</p><p>• A max : the worst-case execution time analysis already determines the maximum execution time that can be consumed over all possible paths in real-time application. It is straightforward to determine maximum amount of data allocated over any possible path for a real-time application. How to statically obtain maximum allocation is demonstrated in <ref type="bibr" target="#b12">[13,</ref><ref type="bibr" target="#b20">21]</ref>. • L: the maximum live memory at any point during an application's execution is statically undecidable. Type analysis or bounding annotation techniques can be applied so that L is determined for a subset of applications with constraints. Chin et al., <ref type="bibr" target="#b7">[8]</ref>, proposed static memory usage analysis on the basis of type system with size properties that specifies the amount of memory required to execute a well-typed object-oriented program. Leena, Stoller and Liu, <ref type="bibr" target="#b23">[24]</ref>, demonstrated an automatic space usage analysis approach for their language named MEMFL which contains many features commonly found in high-level languages. Persson, <ref type="bibr" target="#b21">[22]</ref>, made an attempt to derive such bounds using annotations, such as specifying the maximum recursion depth. It is generally assumed that developers who execute Java applications know maximum live memory for a given application, <ref type="bibr" target="#b23">[24,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b2">3,</ref><ref type="bibr" target="#b20">21]</ref>.</p><p>• θ h : since liveness is determined by tracing references from a program's live root-set, reference density directly affects GC work load. Fortunately, in languages like Java or C#, reference fields are explicitly declared. Each object type's reference density can be determined as long as all object types are known a priori. Worstcase total reference density can be bounded by assuming worst-case reference density for all objects, <ref type="bibr" target="#b20">[21]</ref>. Other application-dependent parameters were discussed in <ref type="bibr" target="#b8">[9,</ref><ref type="bibr" target="#b1">2,</ref><ref type="bibr" target="#b9">10]</ref>.</p><p>Here however, all the application-dependent parameters used in the experiments are derived by sampling runs of the application with instrumentation in the collector to capture these values. Codes were instrumented in the GC implementation to keep the track of the memory-related metrics. The maximum application-dependent parameters are calculated during the sampling runs by the GC and gathered at the end of the program's execution.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.4.">The calculation of C GC</head><p>The most basic calculation supported by the model is that of C GC , the actual processing time required to complete a GC cycle from the beginning of P 0 to the end of P 9 . Besides the GC cost coefficients of Section 3.1 and the applicationdependent parameters of Section 3.2, four global systemspecific parameters are required:</p><p>• H: the total available heap size in bytes • B: the block size in bytes • M t : the maximum thread stack size in bytes • N T : the maximum number of active threads in system.</p><p>The seven incremental GC phases P 1 , P 2 , P 4 , P 5 ,P 6 P 7 and P 8 are calculated according to (1) through ( <ref type="formula" target="#formula_14">7</ref>) below.</p><formula xml:id="formula_4">T P1 = A max B • δ C (<label>1</label></formula><formula xml:id="formula_5">)</formula><formula xml:id="formula_6">T P2 = A max B • δ Ue + U max B • δ Up (<label>2</label></formula><formula xml:id="formula_7">)</formula><formula xml:id="formula_8">T P4 = M t •N T •θ t •(δ Re +max(δ Rmp , δ R bl ))+M t •N T •δ Rr (<label>3</label></formula><formula xml:id="formula_9">)</formula><formula xml:id="formula_10">T P5 = L • θ h • (δ Me + δ Mmp ) + (4) L • θ hv • (δ Me + δ M bl + δ Msr ) + L • δ M hr T P6 = T fin + L • θ dl • δ F dl (<label>5</label></formula><formula xml:id="formula_11">)</formula><formula xml:id="formula_12">T P7 = T sp + H • δ Sr + G l B • δ S l (<label>6</label></formula><formula xml:id="formula_13">)</formula><formula xml:id="formula_14">T P8 = G s B • (δ Ss + δ Senq )<label>(7)</label></formula><p>In ( <ref type="formula" target="#formula_10">5</ref>) and ( <ref type="formula" target="#formula_12">6</ref>), T fin and T sp are the execution time initializing finalization and sweep phase. Equations ( <ref type="formula" target="#formula_4">1</ref>),( <ref type="formula" target="#formula_6">2</ref>), ( <ref type="formula" target="#formula_8">3</ref>), ( <ref type="formula">4</ref>), ( <ref type="formula" target="#formula_10">5</ref>), ( <ref type="formula" target="#formula_12">6</ref>) and ( <ref type="formula" target="#formula_14">7</ref>), combine to give <ref type="bibr" target="#b7">(8)</ref> for the worst-case GC cycle execution time.</p><formula xml:id="formula_15">C GC = i=9 i=0 T Pi = (T P0 + T P3 + T P9 )+ (8) M t • N T • θ t • (δ Re + max(δ Rmp , δ R bl )) + M t • N T • δ Rr + L • θ h • (δ Me + δ Mmp ) + L • θ hv • (δ Me + δ M bl + δ Msr ) + L • δ M hr + A max B • (δ C + δ Ue ) + U max B • δ Up + T fin + δ F dl • θ dl • L + T sp + H • δ Sr + G l B • δ S l + G s B • (δ Ss + δ Senq )</formula><p>It is hard to estimate G l and G s separately. A worst-case approximation is to assume that all garbage is either large or small and use the larger of G l or G s . Equation ( <ref type="formula">9</ref>) then is used to calculate sweeping cost instead of Equation ( <ref type="formula" target="#formula_12">6</ref>) and <ref type="bibr" target="#b6">(7)</ref>.</p><formula xml:id="formula_16">T Psweep = T P7 + T P8 (9) ≤ T sp + H • δ Sr + G s + G l B • max(δ Ss + δ Senq , δ S l ) ≤ T sp + H • δ Sr + A max B • max(δ Ss + δ Senq , δ S l )</formula><p>To be useful for real-time systems, a model's predicted WCET must be no less than the actual WCET. However, unreasonably large overestimates are also problematic as they may lead to the incorrect conclusion that the application cannot be feasibly scheduled. A pessimism metric assesses the degree to which the model's predictions exceed the measured worst-case cost in particular situations. The model's pessimism for a cost, m, denoted by ρ m is the ratio between the calculated and measured worst-case values of that cost. To be correct, the pessimism for each modeled cost should be greater than 1; to be useful, the pessimism should be as close to 1 as possible.</p><p>Experiments with the GC cost model and the modified BDW collector show that experimentally-determined GC coefficients on specific hardware are stable over a variety of applications. Cost coefficient measurements, for several applications, taken on a Lenovo Thinkpad T60 (Intel Dualcore 1.83GHz) running the Linux kernel 2.6.17 with the real-time patch-2.6.17-rt8 are given in table 1 and 2. These coefficients predict C GC with pessimism values in the range approximately 40 to 100 for these applications.</p><p>The large pessimism is due to a few outlier measurements for each of the coefficients (fewer than 1 in 1000). Eliminating the outliers still leads to stable coefficients but the pessimism for C GC falls to less than 10. Table <ref type="table" target="#tab_4">3</ref> illustrates the cost coefficient measurements without outliers.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.5.">Write Barrier overhead</head><p>The final effect of using garbage collection on realtime performance arises because mutators need to cooperate with the collector to allow incremental concurrent collection which is in turn needed to shorten the times when the GC runs uninterruptably. For the modified BDW collector described here, mutator pointer updates are protected by write barrier execution whenever the GC is in incremental thread stack root scan phase P 4 or heap marking phase P 5 . The cost of write barrier executions is counted as a "tax" on the WCET of the mutators themselves as follows.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.5.1">Write Barrier Implementation</head><p>Algorithm 1 is the implementation of Yuasa's cooperative four-step write barrier. Whenever there is a pointer update, WB-BDW will be invoked. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>end if 8: end if</head><p>The need for write barriers makes this RTGC unsuitable for use with general C/C++ code. In C or C++ code, the location of pointers is not known, so the write barrier would have to be invoked on every memory write. However, in the context of Mono, the centralized runtime support for writes provides a hook where the necessary write barrier code can be installed to support arbitrary CIL code. Writes in the Mono runtime C code itself have been individually wrapped by hand in the source code.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.5.2">Write Barrier cost calculation</head><p>In order to calculate write barrier cost, first we specify a set of write barrier cost coefficients: • δ W BC 1 : Check GC status in lines ( <ref type="formula" target="#formula_4">1</ref>) and ( <ref type="formula">4</ref>) in Algorithm 1; • δ W BC 2 : Check whether the pointer is marked or not in line (2); • δ W BP : Push a pointer to the mark stack in lines <ref type="bibr" target="#b2">(3)</ref> and <ref type="bibr" target="#b4">(5)</ref>.</p><p>When write barrier execution is carried out by a mutator, the worst-case mutator execution time C m needs to recalculated to include the write barrier overhead. The overhead depends on a set of application-dependent parameters:</p><p>• W m total : the maximum number of total pointer updates during a complete mutator execution; • W m r : the maximum number of pointer updates when GC is in P 4 during a complete mutator execution; • W m m : the maximum number of pointer updates when GC is in P 5 during a complete mutator execution; • W m p : the maximum number of old pointers in pointer update that are not marked during a complete mutator execution.</p><p>Worst-case extra execution cost C wb resulting from write barrier execution is calculated as</p><formula xml:id="formula_17">C wb = δ W BC 1 • W m total + δ W BC 2 • (2W m r + W m m ) (10) +δ W BP • (W m</formula><p>p + W m r ) Among the four parameters, W m total depends solely on the application implementation, the other three have additional dependency on GC execution pattern. Equation <ref type="bibr" target="#b10">(11)</ref> provides approximations of W m r and W m m as functions of W m total with the knowledge of maximum GC utilization U max GC calculated over a GC cycle. The number of pointer updates that are trapped by the write barrier in line (1) in Algorithm 1 depends on how often GC thread stack root scan P 4 and heap marking P 5 is ongoing within a GC cycle and how much CPU the GC utilizes during that GC cycle.</p><formula xml:id="formula_18">W m r = T P4 • U max GC C GC • W m total (<label>11</label></formula><formula xml:id="formula_19">)</formula><formula xml:id="formula_20">W m m = T P5 • U max GC C GC • W m total A naive worst-case estimation of W m p is W m r + W m m</formula><p>comes from assuming that none of the pointer updates trapped by write barrier in line (2) in Algorithm 1 is marked, so all trapped pointer updates from line (2) proceed to line (3). Hence, write barrier cost C wb for the application is recalculated in Equation <ref type="bibr" target="#b11">(12)</ref>. For C wb and σ wb , both measured and calculated values are given. r M is the application's mutation rate calculated over a complete application execution. In table 4, write barrier overheads are measured and calculated with Equation ( <ref type="formula" target="#formula_21">12</ref>).</p><formula xml:id="formula_21">C wb = δ W BC 1 • W m total +(δ W BC 2 + δ W BP ) • (2W m r + W m m )<label>(12)</label></formula><formula xml:id="formula_22">= (δ W BC 2 + δ W BP ) • (2T P4 + T P5 ) • U max GC C GC • W m total +δ W BC 1 • W m</formula><p>The complete GC cost model provides input to the realtime scheduling of the application. The GC implementation and the model may both be parameterized, for example to allow control of the uninterruptible incremental work activities undertaken by the GC.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.">Conclusion and Ongoing Work</head><p>The real-time GC cost model described here separates the contributions of the GC implementation and the   application-imposed workload. GC cost coefficients together with application-dependent parameters allow computation of the GC cycle time. Separation of these aspects is a step along the road to an engineering approach to garbage collection in real-time systems, allowing prediction of system behavior from knowledge of component behavior and environmental specifications. The coefficients defined in this model have been found to be stable when measured across a variety of applications. The pessimism, however, is largely due to a small number of outlier measurements used in computing the coefficients. We believe, but cannot prove (yet), that the outliers are due to variations in the execution by either the operating system or the hardware cache subsystem during the measurement process. The dramatic improvement in the pessimism when outliers are removed suggests that effort to identify and remove this source of variability would be well worthwhile.</p><p>Thus far, the applications used to validate the model have been more along the lines of benchmarks than actual real-time applications. As a first real application we are re-implementing the GridStat status router, a multi-casting packet forwarder with real-time processing requirements, <ref type="bibr" target="#b13">[14]</ref>. The original prototype status router was built in Java, ignoring the real-time requirement, with the result that GCinduced delays occasionally disrupt its operation. In the long term, the status router is a good test of the GC model approach because it is a real-time application that needs to be scheduled during operation as the offered load pattern changes.</p><p>The modified BDW collector for Mono is parameterized by a number of "knobs" that control the size of the uninterruptable increments in the various phases. The model coefficients and parameters described here were chosen to support scheduling GC and mutator activity at the level of these increments.</p><p>Our space of scheduling aims at two groups of realtime systems: minimum mutator utilization MMU-based systems,<ref type="foot" target="#foot_7">4</ref> , <ref type="bibr" target="#b6">[7]</ref> and fixed-priority systems. GC is scheduling using GC incrementality-based scheduling parameters. The GC incrementality specifies the GC increment sizes in time or space. These sizes are determined by the scheduling and schedulability analysis. Work is currently under way to design the scheduling rules and algorithms that can take advantage of that capability. The status router will be an interesting test of those designs.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>•</head><label></label><figDesc>GC start(P 0 ): Initialization of a new GC cycle. • GC clear(P 1 ): Clear mark bits in all allocated heap blocks. (I) • GC uncollectable(P 2 ): Mark uncollectable objects in allocated heap and push them on the mark stack. 1 (I) • GC rootscan nonthread(P 3 ): Scan non-thread-stack roots including static, global and register data, and GC internal roots. • GC rootscan threads(P 4 ): Scan thread stacks to mark heap references reachable directly from the stacks. (I) • GC mark heap(P 5 ): Scan heap memory and mark all accessible references starting from marked references in root set. (I) • GC finalization(P 6 ): Run registered finalizers on objects about to be collected. 2 (I) • GC sweep large(P 7 ): Reclaim unmarked large objects and entirely empty small-object blocks to the heap block free list; during this process, enqueue smallobject blocks containing both marked and unmarked objects for processing in next phase. (I) • GC sweep small(P 8 ): Reclaim unmarked small objects in the nonempty blocks, which are enqueued in P 7 phase, to the appropriate free list. (I) • GC reset(P 9 ): Reset global variables and (optionally) gather statistics data.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Algorithm 1 2 :</head><label>12</label><figDesc>Write barrier Algorithm in Mono (WB-BDW) Require: This function is called upon reference update r old = r new 1: if GC state is P 4 or P 5 then if r old is NOT marked then 3: push r old into mark stack 4: if GC state in P 4 then</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>total</head><label></label><figDesc>With C wb , the worst-case execution time for the application, including write barrier overhead, is C wb m = C m + C wb , where C m is the application's execution time without the existence of GC. Define σ wb = C wb m C m = C m + C wb C m that a real-time task's worst-case execution time including write barrier overhead is recalculated by σ wb • C m .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head></head><label></label><figDesc>13th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications(RTCSA 2007) 0-7695-2975-5/07 $25.00 © 2007</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head></head><label></label><figDesc>Me : Examine one pointer in heap (µs); Sr : Scanning rate of heap to reclaim garbage for both P 7 and P 8 (µs/Byte).• δ S l : Reclaim one empty block (µs); • δ Senq : Enqueue small objects reclamation work into reclaim list to be processed in P 8 (µs);</figDesc><table><row><cell>• δ Mmp : Mark and push a valid object in heap to</cell></row><row><cell>the marking stack (µs);</cell></row><row><cell>• δ M bl : Record a value from heap in blacklist to</cell></row><row><cell>prevent it being misinterpreted as a valid pointer</cell></row><row><cell>(µs);</cell></row><row><cell>P P 8 : GC sweep small</cell></row><row><cell>• δ Ss : Reclaim unused small objects in one block</cell></row><row><cell>(µs);</cell></row></table><note><p>Clear one block's mark bits (µs); P 2 : GC uncollectable • δ Ue : Get one allocated block and check whether it is uncollectable (µs); • δ Up : Push pointers to all objects in one uncollectable block (µs); P 4 : GC thread stack scan • δ Rr : Scanning rate of thread stacks for pointers (µs/Byte), which is the rate of fetching next available slot in thread stack to process; • δ Re : Examine one pointer in thread stack (µs); • δ Rmp : Mark and push a valid pointer to the main marking stack (µs); • δ R bl : Record a value in blacklist to prevent it being misinterpreted as a valid pointer (µs); P 5 : GC heap mark • δ Msr : Scanning cost of an entry in main mark stack when marking the heap (µs/Byte); • δ M hr : Scanning rate of live heap for pointers (µs/Byte); • δ 6 : GC finalize • δ F dl : process one disappearing link in heap (µs); P 7 : GC sweep • δ</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head></head><label></label><figDesc>θ t : upper bound on reference density in thread stacks, per byte; • θ h : upper bound on reference density in live heap, per byte; • θ hv : upper bound on valid reference density in live heap, per byte; • θ dl : upper bound on disappearing link density in live heap, per byte; • L: maximum live memory size in bytes; • U max : maximum uncollectable memory in bytes during application execution.</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head>Table 1 . Worst case RTGC cost coefficients (µs)</head><label>1</label><figDesc></figDesc><table><row><cell></cell><cell>P1</cell><cell>P2</cell><cell></cell><cell></cell><cell>P4</cell><cell></cell><cell></cell><cell>P5</cell><cell></cell><cell>P6</cell><cell></cell><cell>P7, P8</cell><cell></cell></row><row><cell>Benchmark</cell><cell>δC</cell><cell>δU e</cell><cell>δU p</cell><cell>δR e</cell><cell>δR mp</cell><cell>δR bl</cell><cell>δM e</cell><cell>δM mp</cell><cell>δM bl</cell><cell>δF dl</cell><cell>δS l</cell><cell>δS s</cell><cell>δS enq</cell></row><row><cell>GC-stress</cell><cell>19.193</cell><cell>15.692</cell><cell>3.933</cell><cell>15.969</cell><cell>14.807</cell><cell>1.395</cell><cell>17.768</cell><cell>16.769</cell><cell>1.407</cell><cell>0.623</cell><cell>19.205</cell><cell>16.138</cell><cell>2.225</cell></row><row><cell>GCBench</cell><cell>19.675</cell><cell>15.758</cell><cell>3.753</cell><cell>15.842</cell><cell>14.519</cell><cell>1.347</cell><cell>18.039</cell><cell>17.683</cell><cell>1.353</cell><cell>0.686</cell><cell>19.242</cell><cell>18.279</cell><cell>2.881</cell></row><row><cell>BinaryTree</cell><cell>20.222</cell><cell>15.834</cell><cell>3.561</cell><cell>16.346</cell><cell>15.764</cell><cell>1.341</cell><cell>18.351</cell><cell>15.885</cell><cell>1.376</cell><cell>0.680</cell><cell>19.476</cell><cell>18.291</cell><cell>2.647</cell></row><row><cell>Graph</cell><cell>18.869</cell><cell>15.758</cell><cell>3.621</cell><cell>15.920</cell><cell>14.480</cell><cell>1.371</cell><cell>18.766</cell><cell>16.240</cell><cell>1.450</cell><cell>0.601</cell><cell>20.426</cell><cell>16.884</cell><cell>2.678</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head>Table 2 . Worst-case RTGC cost coefficients -processing rate (µs/Bytes)</head><label>2</label><figDesc></figDesc><table><row><cell></cell><cell>P4</cell><cell></cell><cell></cell><cell>P5</cell><cell></cell><cell></cell><cell></cell><cell>P7,P8</cell></row><row><cell>Application</cell><cell>δR r</cell><cell></cell><cell>δM sr</cell><cell></cell><cell>δM hr</cell><cell></cell><cell></cell><cell>δS r</cell></row><row><cell></cell><cell>CPU cycles/B</cell><cell>µs/B</cell><cell>CPU cycles/B</cell><cell>µs/B</cell><cell>CPU cycles/B</cell><cell>µs/B</cell><cell>CPU cycles/B</cell><cell>µs/B</cell></row><row><cell>GC-stress</cell><cell>27.64</cell><cell>0.01512</cell><cell>19.93</cell><cell>0.0109</cell><cell>36.38</cell><cell>0.0199</cell><cell>0.0500</cell><cell>0.000027345</cell></row><row><cell>GCBench</cell><cell>28.30</cell><cell>0.01548</cell><cell>17.18</cell><cell>0.0094</cell><cell>36.74</cell><cell>0.0201</cell><cell>0.0526</cell><cell>0.000028758</cell></row><row><cell>BinaryTree</cell><cell>28.59</cell><cell>0.01564</cell><cell>16.63</cell><cell>0.0091</cell><cell>36.19</cell><cell>0.0198</cell><cell>0.0598</cell><cell>0.000032750</cell></row><row><cell>Graph</cell><cell>28.30</cell><cell>0.01548</cell><cell>16.81</cell><cell>0.0092</cell><cell>37.29</cell><cell>0.0204</cell><cell>0.0620</cell><cell>0.000033971</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head>Table 3 . Worst case RTGC cost coefficients without Outliers (µs)</head><label>3</label><figDesc></figDesc><table><row><cell></cell><cell>P1</cell><cell>P2</cell><cell></cell><cell></cell><cell>P4</cell><cell></cell><cell></cell><cell>P5</cell><cell></cell><cell>P6</cell><cell></cell><cell>P7, P8</cell><cell></cell></row><row><cell>Benchmark</cell><cell>δC</cell><cell>δU e</cell><cell>δU p</cell><cell>δR e</cell><cell>δR mp</cell><cell>δR bl</cell><cell>δM e</cell><cell>δM mp</cell><cell>δM bl</cell><cell>δF dl</cell><cell>δS l</cell><cell>δS s</cell><cell>δS enq</cell></row><row><cell>GC-stress</cell><cell>0.523</cell><cell>0.325</cell><cell>3.328</cell><cell>0.529</cell><cell>0.511</cell><cell>1.311</cell><cell>0.487</cell><cell>0.229</cell><cell>1.221</cell><cell>0.546</cell><cell>1.010</cell><cell>5.744</cell><cell>1.153</cell></row><row><cell>GCBench</cell><cell>0.541</cell><cell>0.259</cell><cell>3.329</cell><cell>0.535</cell><cell>0.505</cell><cell>1.209</cell><cell>0.487</cell><cell>0.229</cell><cell>1.221</cell><cell>0.546</cell><cell>1.010</cell><cell>5.744</cell><cell>1.153</cell></row><row><cell>BinaryTree</cell><cell>0.541</cell><cell>0.293</cell><cell>3.178</cell><cell>0.548</cell><cell>0.271</cell><cell>1.281</cell><cell>0.535</cell><cell>0.271</cell><cell>1.104</cell><cell>0.523</cell><cell>1.089</cell><cell>5.780</cell><cell>1.089</cell></row><row><cell>Graph</cell><cell>0.529</cell><cell>0.211</cell><cell>3.108</cell><cell>0.535</cell><cell>0.421</cell><cell>1.119</cell><cell>0.541</cell><cell>0.271</cell><cell>1.233</cell><cell>0.517</cell><cell>0.830</cell><cell>5.329</cell><cell>1.102</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>Table 4 .</head><label>4</label><figDesc>The calculation of write barrier cost C wb (µs, #/µs)</figDesc><table><row><cell>Application</cell><cell>W total</cell><cell>U max GC</cell><cell>2TP 4 + TP 5 CGC</cell><cell>Cm</cell><cell>C wb</cell><cell>C wb</cell><cell>σ wb</cell><cell>σ wb</cell><cell>rM</cell><cell>ρ σ wb =</cell><cell>σ wb σ wb</cell></row><row><cell>GC-stress</cell><cell>401</cell><cell>0.583</cell><cell>0.161</cell><cell>3290105</cell><cell>56</cell><cell>11887</cell><cell>1.000018</cell><cell>1.0036</cell><cell>0.00013</cell><cell cols="2">1.0036</cell></row><row><cell>GCBench</cell><cell>1452115</cell><cell>0.635</cell><cell>0.981</cell><cell>2467593</cell><cell>1920789</cell><cell>133195528</cell><cell>1.778</cell><cell>54.98</cell><cell>0.588</cell><cell cols="2">30.92</cell></row><row><cell>BinaryTree</cell><cell>1591477</cell><cell>0.847</cell><cell>0.982</cell><cell>5313741</cell><cell>3239997</cell><cell>184974212</cell><cell>1.609</cell><cell>35.81</cell><cell>0.300</cell><cell cols="2">22.26</cell></row><row><cell>Graph</cell><cell>3244416</cell><cell>0.716</cell><cell>0.998</cell><cell>8001384</cell><cell>1558434</cell><cell>332479346</cell><cell>1.195</cell><cell>42.55</cell><cell>0.405</cell><cell cols="2">35.61</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>13th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications(RTCSA 2007)</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_1"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 04:53:05 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_2"><p>The BDW allocator allows mutators to designate some allocated objects as uncollectable. These essentially become additional roots for mark-</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_3"><p>ing.<ref type="bibr" target="#b1">2</ref> Although the modified collector supports the full BDW finalization interface the model supports only the "disappearing links" technique for weak pointers. The difficulty is that arbitrary application-specific finalization routines are not easily modeled.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_4"><p>This replaces the memory-protection based barrier used in the mostlyparallel BDW collector. 13th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications(RTCSA 2007) 0-7695-2975-5/07 $25.00 © 2007 Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 04:53:05 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_5"><p>13th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications(RTCSA 2007) 0-7695-2975-5/07 $25.00 © 2007 Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 04:53:05 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_6"><p>13th IEEE International Conference Embedded and Real-Time Computing Systems and Applications(RTCSA 2007)</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_7"><p>MMU is the minimum mutator utilization over a given time interval ∆t, denoted as µ MMU . 13th IEEE International Conference Embedded and Real-Time Computing Systems and Applications(RTCSA 2007) 0-7695-2975-5/07 $25.00 © 2007 Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 04:53:05 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Real-time garbage collector with low overhead and consistent utilization</title>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">F</forename><surname>Bacon</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Cheng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><forename type="middle">T</forename><surname>Rajan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM, POPL&apos;03</title>
+		<imprint>
+			<date type="published" when="2003-01">January 2003</date>
+			<biblScope unit="page" from="15" to="17" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<title level="m" type="main">Real-Time Garbage Collection</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bengtsson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1990">1990</date>
+		</imprint>
+		<respStmt>
+			<orgName>Computer Science, Lund University</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">PhD thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<title level="m" type="main">A garbage collection design and bakeoff in jmtk: An efficient entensible java memory management toolkit</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">M</forename><surname>Blackburn</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">P</forename></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">K S</forename></persName>
+		</author>
+		<idno>TR-CS-03-02</idno>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+		<respStmt>
+			<orgName>Department of Computer Science, FEIT, Australian National University</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Mostly parallel garbage collection</title>
+		<author>
+			<persName><forename type="first">H.-J</forename><surname>Boehm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">J</forename><surname>Demers</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Shenker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">PLDI &apos;91: Proceedings of the ACM SIGPLAN 1991 conference on Programming language design and implementation</title>
+		<meeting><address><addrLine>New York, NY, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>ACM Press</publisher>
+			<date type="published" when="1991">1991</date>
+			<biblScope unit="page" from="157" to="164" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<author>
+			<persName><forename type="first">H.-J</forename><surname>Boehm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Weiser</surname></persName>
+		</author>
+		<ptr target="http://www.hpl.hp.com/personal/HansBoehm/gc/#where" />
+		<title level="m">BDW collector library source code</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Garbage collection in an uncooperative environment</title>
+		<author>
+			<persName><forename type="first">H.-J</forename><surname>Boehm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Weiser</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Software Practice and Experience</title>
+		<imprint>
+			<date type="published" when="1988">1988</date>
+			<biblScope unit="page" from="807" to="820" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">A parallel, real-time garbage collector</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Cheng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">E</forename><surname>Blelloch</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM SIGPLAN Conference on Programming Language Design and Implementation</title>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+			<biblScope unit="page" from="125" to="136" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">Predictable memory usage for object-oriented programs</title>
+		<author>
+			<persName><forename type="first">W.-N</forename><surname>Chin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><forename type="middle">H</forename><surname>Nguyen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Qin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Rinard</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2004-11">November 2004</date>
+		</imprint>
+		<respStmt>
+			<orgName>School of Computing, National University of Singapore</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical report</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">A hard look at hard real-time garbage collection</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Detlefs</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Object-Oriented Real-Time Distributed Computing, Proceedings. Seventh IEEE International Symposium</title>
+		<imprint>
+			<date type="published" when="2004-05">May 2004</date>
+			<biblScope unit="page" from="23" to="32" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Dynamic metrics for java</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Dufour</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Driesen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Hendren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Verbrugge</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the ACM SIGPLAN 2003 Conference on Object-Oriented Programming, Systems, Languages, and Applications (OOPSLA &apos;03)</title>
+		<meeting>the ACM SIGPLAN 2003 Conference on Object-Oriented Programming, Systems, Languages, and Applications (OOPSLA &apos;03)</meeting>
+		<imprint>
+			<publisher>ACM Press</publisher>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">Ecma-335 common languange infrastructure</title>
+		<author>
+			<persName><surname>Ecma</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2002">2002</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">A real-time garbage collection framework for embedded systems</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Fu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Hauser</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 9th International Workshop on Software and Compilers for Embedded Systems</title>
+		<meeting>the 9th International Workshop on Software and Compilers for Embedded Systems</meeting>
+		<imprint>
+			<date type="published" when="2005-10">October 2005</date>
+			<biblScope unit="page" from="20" to="26" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">Statically determining memory consumption of real-time Java threads</title>
+		<author>
+			<persName><forename type="first">O</forename><surname>Gheorghioiu</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2002">2002</date>
+		</imprint>
+		<respStmt>
+			<orgName>Massachusetts Institute of Technology</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Master&apos;s thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Flexible QoS-Managed Status Dissemination Middleware Framework For The Electric Power Grid</title>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">H</forename><surname>Gjermundrød</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2006-08">August 2006</date>
+		</imprint>
+		<respStmt>
+			<orgName>School of Electrical Engineering and Computer Science, Washington State University</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">PhD thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">A schedulable garbage collection for embedded applications in CLI</title>
+		<author>
+			<persName><forename type="first">O</forename><surname>Goh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y.-H</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Kaakani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Rachlin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTCSA &apos;05: Proceedings of the 11th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA&apos;05)</title>
+		<meeting><address><addrLine>Washington, DC, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2005">2005</date>
+			<biblScope unit="page" from="189" to="192" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Integrated scheduling with garbage collection for realtime embedded applications in CLI</title>
+		<author>
+			<persName><forename type="first">O</forename><surname>Goh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y.-H</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Kaakani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Rachlin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Ninth IEEE International Symposium on Object and Component-Oriented Real-Time Distributed Computing</title>
+		<meeting><address><addrLine>ISORC, Washington, DC, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2006-04">April 2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<title level="m" type="main">Scheduling garbage collection in Embedded systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Henriksson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+		<respStmt>
+			<orgName>Department of Computer Science, Lund Institute of Technology, Lund University</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">PhD thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">Garbage Collection: Algorithms for Automatic Storage Management</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Jones</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Lins</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1996">1996</date>
+			<publisher>John Wiley &amp; Sons Ltd</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Scheduling garbage collector for embedded real-time systems</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Chang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Shin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the ACM SIGPLAN 1999 workshop on Languages, Compilers, and Tools for Embedded Systems</title>
+		<meeting>the ACM SIGPLAN 1999 workshop on Languages, Compilers, and Tools for Embedded Systems</meeting>
+		<imprint>
+			<date type="published" when="1999">1999</date>
+			<biblScope unit="page" from="55" to="64" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Using measurements to derive the worst-case execution time</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lindgren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Hansson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Thane</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of RTCSA 2000 Cheju Island, South Korea</title>
+		<meeting>RTCSA 2000 Cheju Island, South Korea</meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2000">2000. 2000</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Static determination of allocation rates to support real-time garbage collection</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Mann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Deters</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Legrand</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">K</forename><surname>Cytron</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2002 ACM Conferences on Languages, Compilers, and Tools for Embedded Systems(LCTES 2005)</title>
+		<meeting>the 2002 ACM Conferences on Languages, Compilers, and Tools for Embedded Systems(LCTES 2005)</meeting>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Live memory analysis for garbage collection in embedded systems</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Persson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the ACM Sigplan 1999 Workshop on Languages, compilers and Tools for embedded systems (LCTES&apos;99)</title>
+		<meeting>the ACM Sigplan 1999 Workshop on Languages, compilers and Tools for embedded systems (LCTES&apos;99)</meeting>
+		<imprint>
+			<date type="published" when="1999-06">June 1999</date>
+			<biblScope unit="page" from="45" to="54" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Static timing analysis of real-time operating system code</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Sandell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Ermedahl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Gustafsson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Lisper</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">1st International Symposium on Leveraging Applications of Formal Methods (ISOLA&apos;04)</title>
+		<meeting><address><addrLine>Cyprus</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2004-10">October 2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Automatic accurate stack space and heap space analysis for high-level languages</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Unnikrishnan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">D</forename><surname>Stoller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><forename type="middle">A</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Technical Report</title>
+		<imprint>
+			<biblScope unit="volume">538</biblScope>
+			<date type="published" when="2000-04">April 2000</date>
+		</imprint>
+		<respStmt>
+			<orgName>Computer Science Department, Indiana University</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Automatic generation of path tests by combining static and dynamic analysis</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Williams</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Marre</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Mouy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Roger</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Pathcrawler</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Dependable Computing -EDCC-5, 5th European Dependable Computing Conference</title>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+			<biblScope unit="page" from="281" to="292" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Ximian</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Mono</surname></persName>
+		</author>
+		<ptr target="http://www.go-mono.org" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Real-time garbage collection on generalpurpose machines</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Yuasa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. Syst. Softw</title>
+		<imprint>
+			<biblScope unit="volume">11</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="181" to="198" />
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

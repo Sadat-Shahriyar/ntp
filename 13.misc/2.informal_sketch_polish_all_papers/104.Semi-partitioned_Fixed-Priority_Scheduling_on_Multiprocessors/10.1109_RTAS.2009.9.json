@@ -1,0 +1,439 @@
+{
+  "paper_name": "Semi-Partitioned Fixed-Priority Scheduling on Multiprocessors",
+  "paper_description": "This paper introduces DM-PM, a new semi-partitioned fixed-priority scheduling algorithm for sporadic task systems on multiprocessors. It allows a few tasks to migrate across processors only if they cannot be assigned to a single processor, aiming to improve schedulability over traditional partitioned approaches while minimizing migration overhead. The paper presents formal statements for interference calculation, response time analysis, shared task execution capacity, and schedulability conditions, along with preemption bounds and an optimization strategy.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Definition 1: Task Model",
+      "formal_description": {
+        "statement": "Each task T_i is characterized by a tuple (C_i, D_i, P_i), where C_i is a worst-case computation time, D_i is a relative deadline, and P_i is a minimum inter-arrival time (period). The utilization of T_i is denoted by U_i = C_i / P_i. We assume a constrained task model that satisfies C_i <= D_i <= P_i for any T_i.",
+        "variables": {
+          "T_i": "Task i",
+          "C_i": "Worst-case computation time of task i",
+          "D_i": "Relative deadline of task i",
+          "P_i": "Minimum inter-arrival time (period) of task i",
+          "U_i": "Utilization of task i"
+        },
+        "assumptions": [
+          "Sporadic task system",
+          "Identical multiprocessors",
+          "Tasks are independent and preemptive",
+          "Jobs of the same task execute sequentially",
+          "Costs of scheduler invocations, preemptions, and migrations are not modeled (for schedulability analysis, but considered for algorithm design)"
+        ],
+        "conclusion": "Defines the fundamental parameters and properties of a sporadic real-time task in the system model."
+      },
+      "informal_sketch": {
+        "intuition": "This defines what a task is in our system: how long it runs (C_i), when it needs to finish (D_i), and how often it can arrive (P_i). Its 'load' on the processor is its utilization (U_i). We also assume tasks have deadlines no later than their periods.",
+        "steps": [
+          "A task `T_i` is represented by its execution time `C_i`, deadline `D_i`, and period `P_i`.",
+          "Calculate `U_i` as `C_i` divided by `P_i`.",
+          "Ensure `C_i <= D_i <= P_i` for all tasks (constrained deadline model)."
+        ],
+        "pseudocode": "class Task:\n    def __init__(self, c, d, p):\n        self.C = c\n        self.D = d\n        self.P = p\n        self.U = c / p\n        # Assert constrained deadline model\n        if not (self.C <= self.D <= self.P):\n            raise ValueError('Task does not satisfy constrained deadline model')\n\n# Example usage:\n# task1 = Task(c=10, d=20, p=30)",
+        "key_insights": [
+          "The task model is standard for real-time systems.",
+          "The constrained deadline assumption simplifies analysis by ensuring a job's deadline is within its current period."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 2: F (Maximum Number of Interfering Jobs)",
+      "formal_description": {
+        "statement": "Let F = floor(D_i / P_j) denote the maximum number of jobs of T_j that complete within a time interval of length D_i.",
+        "variables": {
+          "F": "Maximum number of jobs of T_j completing within D_i",
+          "D_i": "Relative deadline of task T_i",
+          "P_j": "Minimum inter-arrival time (period) of task T_j"
+        },
+        "assumptions": [
+          "T_j is a higher priority task interfering with T_i",
+          "Critical instant assumption (all tasks released simultaneously)"
+        ],
+        "conclusion": "Defines a factor F used in calculating the maximum interference from a higher-priority task T_j on a lower-priority task T_i."
+      },
+      "informal_sketch": {
+        "intuition": "When a higher-priority task `T_j` interferes with a lower-priority task `T_i`, we need to know how many times `T_j` can execute within `T_i`'s deadline. `F` tells us the maximum number of full `T_j` periods that fit into `T_i`'s deadline.",
+        "steps": [
+          "Divide `T_i`'s deadline (`D_i`) by `T_j`'s period (`P_j`).",
+          "Take the floor of this result to get the integer number of full `T_j` periods."
+        ],
+        "pseudocode": "def calculate_F(D_i, P_j):\n    return math.floor(D_i / P_j)",
+        "key_insights": [
+          "This `F` value is crucial for calculating interference, as it determines how many full jobs of a higher-priority task can arrive and execute within the analysis window."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Task Model"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 1: Maximum Interference I_i_j(D_i)",
+      "formal_description": {
+        "statement": "The maximum interference I_i_j(D_i) that T_i receives from T_j within a time interval of length D_i is derived as follows: \n1. If D_i >= F * P_j + C_j, then I_i_j(D_i) = (F + 1) * C_j (Equation 1)\n2. If D_i < F * P_j + C_j, then I_i_j(D_i) = D_i - F * (P_j - C_j) (Equation 2)",
+        "variables": {
+          "I_i_j": "Maximum interference task T_i receives from task T_j",
+          "D_i": "Relative deadline of task T_i",
+          "F": "Maximum number of jobs of T_j completing within D_i (from Definition 2)",
+          "P_j": "Minimum inter-arrival time (period) of task T_j",
+          "C_j": "Worst-case computation time of task T_j"
+        },
+        "assumptions": [
+          "T_j has a higher priority than T_i",
+          "All tasks are released at the critical instant t_0",
+          "T_j is released periodically at P_j and consumes C_j time units without preemption after release"
+        ],
+        "conclusion": "Provides formulas to calculate the maximum execution time that a higher-priority task T_j can consume, thereby delaying a lower-priority task T_i, within T_i's deadline."
+      },
+      "informal_sketch": {
+        "intuition": "This calculates how much a higher-priority task `T_j` 'steals' CPU time from a lower-priority task `T_i` within `T_i`'s deadline. There are two cases: one where `T_j` finishes all its jobs within `T_i`'s deadline, and another where `T_j` is still executing when `T_i`'s deadline arrives.",
+        "steps": [
+          "First, calculate `F = floor(D_i / P_j)` (from Definition 2).",
+          "Case 1: If `T_i`'s deadline `D_i` is long enough that `T_j` can complete `F` jobs and potentially start another, and `D_i` extends beyond the completion of the `F`-th job plus `C_j` (meaning `T_j` is not executing at `D_i`), then the interference is `(F + 1)` full `C_j` executions.",
+          "Case 2: If `T_i`'s deadline `D_i` occurs while `T_j` is still executing its `(F+1)`-th job (meaning `D_i` is within `F * P_j + C_j`), then the interference is `D_i` minus the idle time `F * (P_j - C_j)` (where `P_j - C_j` is the idle time within each `T_j` period)."
+        ],
+        "pseudocode": "import math\n\ndef calculate_F(D_i, P_j):\n    return math.floor(D_i / P_j)\n\ndef calculate_interference_I_i_j(D_i, P_j, C_j):\n    F = calculate_F(D_i, P_j)\n    if D_i >= F * P_j + C_j:\n        # Deadline occurs while T_j is not executed (after F+1 jobs)\n        return (F + 1) * C_j\n    else:\n        # Deadline occurs while T_j is executed (during F+1-th job)\n        return D_i - F * (P_j - C_j)",
+        "key_insights": [
+          "This formula captures the worst-case interference by considering the alignment of job releases and deadlines.",
+          "It distinguishes between scenarios where the interfering task completes its execution within the analysis window and where it is still active at the end of the window."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Task Model",
+        "Definition 2: F (Maximum Number of Interfering Jobs)"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 2: Worst-Case Response Time R_i_k",
+      "formal_description": {
+        "statement": "The worst-case response time R_i_k of each task T_i on processor P_k is then given by Equation (3): R_i_k = sum(I_i_j(D_i) for T_j in P_k_intersect_H_i) + C_i",
+        "variables": {
+          "R_i_k": "Worst-case response time of task T_i on processor P_k",
+          "P_k_intersect_H_i": "Set of tasks that have been assigned to processor P_k AND have priorities higher than or equal to T_i",
+          "I_i_j(D_i)": "Maximum interference that T_i receives from T_j within D_i (from Claim 1)",
+          "C_i": "Worst-case computation time of task T_i"
+        },
+        "assumptions": [
+          "Fixed-priority scheduling (DM-PM policy)",
+          "Critical instant (all tasks released at t_0)",
+          "P_k is the processor to which T_i is assigned"
+        ],
+        "conclusion": "Calculates the total time from release until completion for a task T_i, considering its own execution and all interference from higher-priority tasks on the same processor."
+      },
+      "informal_sketch": {
+        "intuition": "A task's response time is how long it takes to finish after it's released. This formula says it's the task's own execution time plus all the time it's delayed by higher-priority tasks on the same processor.",
+        "steps": [
+          "Identify all tasks `T_j` that are assigned to the same processor `P_k` as `T_i` and have a priority higher than or equal to `T_i`.",
+          "For each such `T_j`, calculate the maximum interference `I_i_j(D_i)` it causes to `T_i` (using Claim 1).",
+          "Sum up all these interferences and add `T_i`'s own computation time `C_i`."
+        ],
+        "pseudocode": "def calculate_response_time_R_i_k(task_i, processor_k, all_tasks_on_processor_k):\n    R_i_k = task_i.C\n    # H_i: tasks with priority higher than or equal to task_i\n    # In DM-PM, shared tasks have highest priority, then fixed tasks by DM.\n    # Tie-breaking for shared tasks: later assigned has higher priority.\n    # This pseudocode assumes a function `get_higher_priority_tasks` exists\n    # that correctly implements DM-PM's priority rules.\n    \n    higher_priority_tasks = get_higher_priority_tasks(task_i, all_tasks_on_processor_k)\n    \n    for task_j in higher_priority_tasks:\n        if task_j.id != task_i.id: # Don't include self in interference\n            R_i_k += calculate_interference_I_i_j(task_i.D, task_j.P, task_j.C)\n    \n    return R_i_k",
+        "key_insights": [
+          "This is a fundamental equation in fixed-priority schedulability analysis, adapted for the specific priority rules of DM-PM.",
+          "It assumes that the worst-case scenario occurs when all tasks are released simultaneously (critical instant)."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Task Model",
+        "Claim 1: Maximum Interference I_i_j(D_i)"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 3: Shared Task Competition Time W_s_k(D_i)",
+      "formal_description": {
+        "statement": "The maximum total amount W_s_k(D_i) of time that a shared task T_s competes with a task T_i on processor P_k within a time interval of length D_i is therefore obtained by Equation (4): W_s_k(D_i) = floor(D_i / P_s) * C_s_k",
+        "variables": {
+          "W_s_k": "Maximum total time shared task T_s competes with T_i on P_k",
+          "D_i": "Relative deadline of task T_i",
+          "P_s": "Minimum inter-arrival time (period) of shared task T_s",
+          "C_s_k": "Execution capacity assigned to shared task T_s on processor P_k"
+        },
+        "assumptions": [
+          "T_s is a shared task assigned to P_k",
+          "T_s is regarded as an independent task with execution time C_s_k and period P_s",
+          "T_s is scheduled by the highest priority on P_k"
+        ],
+        "conclusion": "Calculates the total execution time that a shared task T_s will consume on processor P_k within the analysis window D_i, given its allocated capacity C_s_k per period."
+      },
+      "informal_sketch": {
+        "intuition": "For shared tasks, they get a fixed 'slice' of execution time (`C_s_k`) on a processor `P_k` in each of their periods (`P_s`). This formula calculates the total amount of that 'slice' time that will be consumed within `T_i`'s deadline `D_i`.",
+        "steps": [
+          "Determine the number of full periods of the shared task `T_s` that fit into `T_i`'s deadline `D_i` by `floor(D_i / P_s)`.",
+          "Multiply this number by the execution capacity `C_s_k` allocated to `T_s` on `P_k`."
+        ],
+        "pseudocode": "import math\n\ndef calculate_shared_task_competition_time_W_s_k(D_i, P_s, C_s_k):\n    # D_i: deadline of task T_i\n    # P_s: period of shared task T_s\n    # C_s_k: execution capacity of T_s on processor P_k\n    num_periods = math.floor(D_i / P_s)\n    return num_periods * C_s_k",
+        "key_insights": [
+          "This formula simplifies the analysis of shared tasks by treating them as high-priority, independent tasks with a specific execution budget on each processor they visit.",
+          "It directly accounts for the portion of a shared task's execution that impacts other tasks on the same processor."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Task Model"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 4: Schedulability Condition for T_i on P_k",
+      "formal_description": {
+        "statement": "In order to guarantee all tasks to meet deadlines, the following condition must hold for every task T_i on every processor P_k to which a shared task T_s is assigned: R_i_k + W_s_k(D_i) <= D_i (Equation 5)",
+        "variables": {
+          "R_i_k": "Worst-case response time of task T_i on processor P_k (from Claim 2)",
+          "W_s_k(D_i)": "Maximum total time shared task T_s competes with T_i on P_k within D_i (from Claim 3)",
+          "D_i": "Relative deadline of task T_i"
+        },
+        "assumptions": [
+          "All tasks must meet their deadlines",
+          "T_s is a shared task assigned to P_k, and T_i is also assigned to P_k"
+        ],
+        "conclusion": "States the fundamental condition for schedulability: the sum of a task's worst-case response time and the time it is delayed by a shared task on the same processor must not exceed its deadline."
+      },
+      "informal_sketch": {
+        "intuition": "This is the core test for whether a task `T_i` will meet its deadline on a processor `P_k`. It says that the total time `T_i` needs to execute, plus any time it's blocked by other fixed tasks, plus any time it's delayed by a shared task, must all fit within its deadline.",
+        "steps": [
+          "Calculate `T_i`'s worst-case response time `R_i_k` (considering only fixed tasks and `T_i`'s own execution, using Claim 2).",
+          "If a shared task `T_s` is also assigned to `P_k`, calculate the total time `W_s_k(D_i)` that `T_s` will consume within `T_i`'s deadline (using Claim 3).",
+          "Sum `R_i_k` and `W_s_k(D_i)`.",
+          "Check if this sum is less than or equal to `T_i`'s deadline `D_i`. If it is, `T_i` is schedulable on `P_k`."
+        ],
+        "pseudocode": "def check_schedulability_condition(task_i, processor_k, shared_task_s=None):\n    R_i_k = calculate_response_time_R_i_k(task_i, processor_k, get_all_tasks_on_processor(processor_k))\n    \n    W_s_k_D_i = 0\n    if shared_task_s: # If a shared task is present on this processor\n        # C_s_k would be determined by Claim 5 or already known\n        # For this check, we assume C_s_k is given\n        C_s_k_for_check = get_C_s_k_for_shared_task(shared_task_s, processor_k) \n        W_s_k_D_i = calculate_shared_task_competition_time_W_s_k(task_i.D, shared_task_s.P, C_s_k_for_check)\n    \n    return (R_i_k + W_s_k_D_i) <= task_i.D",
+        "key_insights": [
+          "This condition extends traditional uniprocessor response time analysis to account for the unique behavior of shared tasks in DM-PM.",
+          "It forms the basis for determining the maximum execution capacity a shared task can receive without jeopardizing other tasks' schedulability."
+        ]
+      },
+      "dependencies": [
+        "Claim 2: Worst-Case Response Time R_i_k",
+        "Claim 3: Shared Task Competition Time W_s_k(D_i)"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 5: Execution Capacity for Shared Task C_s_k",
+      "formal_description": {
+        "statement": "The value of C_s_k is maximized for R_i_k + W_s_k(D_i) = D_i. Finally, C_s_k is given by Equation (6): C_s_k = min( (D_i - R_i_k) / G for T_i in P_k ) where G = floor(D_i / P_s).",
+        "variables": {
+          "C_s_k": "Execution capacity assigned to shared task T_s on processor P_k",
+          "D_i": "Relative deadline of task T_i",
+          "R_i_k": "Worst-case response time of task T_i on processor P_k (from Claim 2)",
+          "G": "Number of jobs of T_s within D_i (equivalent to floor(D_i / P_s))",
+          "P_s": "Minimum inter-arrival time (period) of shared task T_s",
+          "P_k": "Set of tasks that have been assigned to processor P_k"
+        },
+        "assumptions": [
+          "T_s is a shared task being assigned to P_k",
+          "The goal is to maximize C_s_k while ensuring all tasks T_i on P_k remain schedulable (i.e., satisfying Claim 4)",
+          "The calculation of R_i_k for T_i assumes T_s is not yet fully assigned or its impact is being determined."
+        ],
+        "conclusion": "Determines the largest possible execution capacity that can be allocated to a shared task T_s on a processor P_k, such that all other tasks T_i already assigned to P_k still meet their deadlines."
+      },
+      "informal_sketch": {
+        "intuition": "When we assign a shared task `T_s` to a processor `P_k`, we want to give it as much execution time (`C_s_k`) as possible without breaking the deadlines of other tasks already on `P_k`. This formula finds the 'tightest' constraint among all existing tasks and sets `C_s_k` based on that.",
+        "steps": [
+          "For each task `T_i` already assigned to `P_k`:",
+          "  Calculate `T_i`'s worst-case response time `R_i_k` (using Claim 2, assuming `T_s`'s impact is what we're solving for).",
+          "  Calculate `G = floor(D_i / P_s)` (number of `T_s` jobs within `T_i`'s deadline).",
+          "  Determine the maximum `C_s_k` allowed by `T_i`: `(D_i - R_i_k) / G`.",
+          "The final `C_s_k` for `T_s` on `P_k` is the minimum of all these calculated values, ensuring no task's deadline is violated."
+        ],
+        "pseudocode": "import math\n\ndef calculate_C_s_k(shared_task_s, processor_k, tasks_on_processor_k):\n    # shared_task_s: the shared task T_s we are trying to assign capacity to\n    # processor_k: the processor P_k\n    # tasks_on_processor_k: list of tasks already assigned to P_k (excluding shared_task_s)\n\n    min_allowed_C_s_k = float('inf')\n\n    for task_i in tasks_on_processor_k:\n        # Calculate R_i_k for task_i assuming shared_task_s is NOT yet fully assigned\n        # This R_i_k should only include interference from other fixed tasks on P_k\n        # and potentially other shared tasks already assigned with fixed C_s_k.\n        # The paper's pseudocode (Figure 7) implies R_i_k is pre-calculated for fixed tasks.\n        # For shared tasks already on P_k, their C_i_k is used directly.\n        \n        # Simplified R_i_k calculation for this context:\n        # If task_i is a fixed task: R_i_k = calculate_response_time_R_i_k(task_i, processor_k, fixed_tasks_on_processor_k)\n        # If task_i is a shared task already on P_k: R_i_k = task_i.C_i_k (its allocated capacity)\n        \n        # The paper's Figure 7 implies a more nuanced R_i_k calculation:\n        # if task_i is a shared task already assigned: x = (D_i - C_i_k) / (D_i / P_i)\n        # else (fixed task): x = (D_i - R_i_k) / (D_i / P_s)\n        # This suggests R_i_k for fixed tasks already includes interference from other fixed tasks.\n        \n        # Let's assume R_i_k is the response time of task_i *without* the current shared_task_s's impact\n        R_i_k_without_current_s = get_R_i_k_without_shared_task_s(task_i, processor_k, shared_task_s) \n        \n        G = math.floor(task_i.D / shared_task_s.P)\n        \n        if G > 0: # Avoid division by zero\n            allowed_C_s_k_by_task_i = (task_i.D - R_i_k_without_current_s) / G\n            min_allowed_C_s_k = min(min_allowed_C_s_k, allowed_C_s_k_by_task_i)\n        else: # If G is 0, T_s doesn't complete a full job within T_i's deadline, so it doesn't constrain C_s_k this way.\n              # This case needs careful handling, potentially meaning T_s cannot be assigned if it would violate D_i.\n              # The paper's formula implies G > 0 for a constraint.\n            pass # Or handle as an impossible assignment if R_i_k_without_current_s > task_i.D\n\n    return max(0, min_allowed_C_s_k) # C_s_k must be non-negative",
+        "key_insights": [
+          "This formula is central to the semi-partitioned approach, enabling the 'splitting' of tasks by determining how much of a task's execution can be offloaded to a processor.",
+          "It ensures that the allocation of shared task capacity is safe and does not compromise the schedulability of existing tasks."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Task Model",
+        "Claim 2: Worst-Case Response Time R_i_k",
+        "Claim 4: Schedulability Condition for T_i on P_k"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 6: Uniprocessor DM Schedulability Condition",
+      "formal_description": {
+        "statement": "Particularly for implicit-deadline systems where relative deadlines are equal to periods, a set of tasks is scheduled on each processor P_k successfully, if the processor utilization U_k of P_k satisfies the following well-known condition, where n_k is the number of the tasks assigned to P_k: U_k <= n_k * (2^(1/n_k) - 1) (Equation 7)",
+        "variables": {
+          "U_k": "Total utilization of tasks assigned to processor P_k",
+          "n_k": "Number of tasks assigned to processor P_k"
+        },
+        "assumptions": [
+          "Implicit-deadline systems (D_i = P_i for all T_i)",
+          "Scheduling policy on P_k is strictly conformed to Deadline Monotonic (DM)"
+        ],
+        "conclusion": "Provides a sufficient utilization-based schedulability test for a set of tasks on a uniprocessor under Deadline Monotonic scheduling, specifically for implicit-deadline systems."
+      },
+      "informal_sketch": {
+        "intuition": "This is a classic result for uniprocessor fixed-priority scheduling. It states that if the total utilization of tasks on a processor is below a certain bound (which depends on the number of tasks), then those tasks are guaranteed to be schedulable under DM. This bound is often referred to as the Liu & Layland bound for RM, adapted for DM when deadlines equal periods.",
+        "steps": [
+          "Calculate the total utilization `U_k` of all tasks assigned to processor `P_k`.",
+          "Count the number of tasks `n_k` on `P_k`.",
+          "Calculate the utilization bound: `n_k * (2^(1/n_k) - 1)`.",
+          "If `U_k` is less than or equal to this bound, the tasks on `P_k` are schedulable."
+        ],
+        "pseudocode": "import math\n\ndef check_uniprocessor_dm_schedulability(tasks_on_processor_k):\n    U_k = sum(task.U for task in tasks_on_processor_k)\n    n_k = len(tasks_on_processor_k)\n    \n    if n_k == 0:\n        return True # No tasks, trivially schedulable\n    \n    # Liu & Layland bound for RM, also applies to DM for implicit deadlines\n    utilization_bound = n_k * (math.pow(2, 1/n_k) - 1)\n    \n    return U_k <= utilization_bound",
+        "key_insights": [
+          "This is a well-known sufficient (but not necessary) schedulability test.",
+          "It provides a quick check for schedulability, especially useful in partitioning heuristics, though response time analysis (Claim 4) is more precise."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Task Model"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 7: Worst-Case Utilization Bound for T_i on P_l (Optimization context)",
+      "formal_description": {
+        "statement": "Let T_s be a shared task with individual utilization (U_s = C_s / P_s) greater than 69%, and P_l be a last processor to which the utilization share of T_s is assigned. We then assume that another task T_i is later assigned to P_l. At this point, the worst-case execution capacity that can be assigned to T_i on P_l is D_s * (1 - U_s), due to D_i <= D_s. Hence, the worst-case utilization bound of T_i on P_l is obtained as follows: U_i = (1 - U_s) (Equation 8)",
+        "variables": {
+          "U_i": "Worst-case utilization bound of task T_i",
+          "U_s": "Utilization of shared task T_s",
+          "C_s": "Worst-case computation time of shared task T_s",
+          "P_s": "Period of shared task T_s",
+          "D_s": "Relative deadline of shared task T_s",
+          "D_i": "Relative deadline of task T_i",
+          "P_l": "The last processor to which T_s is assigned"
+        },
+        "assumptions": [
+          "Optimized DM-PM algorithm is used.",
+          "T_s is a shared task with U_s > 0.69 (a high utilization task).",
+          "P_l is the last processor for T_s, meaning T_s does not necessarily have the highest priority on P_l.",
+          "Another task T_i is assigned to P_l *after* T_s.",
+          "D_i <= D_s (T_i has a shorter or equal deadline than T_s).",
+          "The processor P_l is already 'filled' to its capacity by T_s and other tasks, leaving limited room for T_i."
+        ],
+        "conclusion": "In a specific worst-case scenario for the optimized DM-PM, where a high-utilization shared task T_s is on its last processor P_l, the maximum utilization that a subsequently assigned task T_i can have on P_l is bounded by (1 - U_s)."
+      },
+      "informal_sketch": {
+        "intuition": "This claim highlights a potential 'worst-case problem' in the optimization strategy. If a very heavy shared task (`T_s`) is assigned to a processor (`P_l`), and then a new task (`T_i`) comes along with a shorter deadline, `T_i` might only be able to use the 'leftover' utilization from `T_s`. If `T_s` is very heavy (e.g., `U_s` close to 1), then `T_i`'s maximum utilization (`1 - U_s`) becomes very small, effectively blocking `P_l` from accepting `T_i` even if `P_l` isn't fully utilized.",
+        "steps": [
+          "Consider a shared task `T_s` with high utilization `U_s`.",
+          "Assume `T_s` is assigned to `P_l` as its last processor, where it doesn't necessarily have the highest priority.",
+          "Assume a new task `T_i` is assigned to `P_l` later, and `T_i` has a shorter deadline than `T_s` (`D_i <= D_s`).",
+          "In this scenario, `T_i`'s utilization `U_i` is limited by the remaining capacity after `T_s`, which is `1 - U_s`."
+        ],
+        "pseudocode": "def calculate_worst_case_U_i_bound(U_s):\n    # This is a specific calculation for a defined worst-case scenario, not a general function.\n    # It assumes the conditions of the claim (T_s is shared, U_s > 0.69, P_l is last processor, etc.)\n    return 1 - U_s",
+        "key_insights": [
+          "This identifies a limitation of the initial optimization strategy where high-utilization shared tasks could 'hog' capacity on their last processor, preventing other tasks from being assigned.",
+          "It motivates the further modification of the DM-PM optimization to prioritize heavy tasks."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Task Model"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 8: Optimized DM-PM Utilization Guarantee",
+      "formal_description": {
+        "statement": "The optimized DM-PM guarantees that the processor utilization of every processor is at least 50%, which means that the entire multiprocessor utilization is also at least 50%.",
+        "variables": {
+          "U_processor": "Utilization of an individual processor",
+          "U_multiprocessor": "Total utilization across all processors"
+        },
+        "assumptions": [
+          "Optimized DM-PM algorithm is used.",
+          "Tasks with individual utilization greater than or equal to 50% are preferentially assigned to processors before sorting by deadline.",
+          "No tasks have individual utilization greater than 50% when T_s is shared among processors (due to preferential assignment)."
+        ],
+        "conclusion": "The optimized DM-PM algorithm ensures a minimum utilization bound of 50% for both individual processors and the overall multiprocessor system, addressing the worst-case problem identified in Claim 7."
+      },
+      "informal_sketch": {
+        "intuition": "After refining the optimization, the DM-PM algorithm can guarantee that at least 50% of the CPU capacity on each processor (and thus across all processors) can be utilized. This is a significant improvement over many existing fixed-priority algorithms.",
+        "steps": [
+          "Modify the task assignment strategy: first, assign tasks with `U_i >= 0.5` to processors.",
+          "Then, sort the remaining tasks by non-increasing relative deadline and assign them.",
+          "This preferential assignment ensures that when tasks are split, their individual utilization is less than 0.5.",
+          "This strategy prevents the 'worst-case problem' (Claim 7) where a single heavy shared task could block further assignments, leading to a guaranteed minimum utilization of 50%."
+        ],
+        "pseudocode": "def assign_tasks_optimized_dm_pm(task_set, processors):\n    # Step 1: Preferentially assign heavy tasks (U_i >= 0.5)\n    heavy_tasks = [t for t in task_set if t.U >= 0.5]\n    light_tasks = [t for t in task_set if t.U < 0.5]\n    \n    for task in heavy_tasks:\n        # Try to assign task to a single processor using Claim 4\n        # If not possible, split it using Claim 5 and Figure 7 logic\n        assign_or_split_task(task, processors) \n        \n    # Step 2: Sort remaining tasks by non-increasing relative deadline\n    light_tasks.sort(key=lambda t: t.D, reverse=True)\n    \n    for task in light_tasks:\n        # Try to assign task to a single processor using Claim 4\n        # If not possible, split it using Claim 5 and Figure 7 logic\n        assign_or_split_task(task, processors)\n        \n    # After assignment, verify that each processor's utilization is >= 50%\n    # This is a guarantee of the algorithm's performance, not a direct check in the assignment loop.\n    # The proof for this guarantee would be external to this pseudocode.",
+        "key_insights": [
+          "This claim establishes a strong lower bound on the schedulable utilization for the optimized DM-PM, outperforming many existing fixed-priority algorithms.",
+          "The key insight is to prioritize the assignment of heavy tasks to avoid scenarios where they disproportionately limit the remaining capacity for other tasks."
+        ]
+      },
+      "dependencies": [
+        "Claim 7: Worst-Case Utilization Bound for T_i on P_l (Optimization context)"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 9: Worst-Case Preemptions for DM N(L)",
+      "formal_description": {
+        "statement": "Let N(L) be the worst-case number of preemptions within L for DM. Since preemptions may occur every time jobs arrive in DM, N(L) is given by Equation (9): N_L = sum(floor(L / P_i) for T_i in tau)",
+        "variables": {
+          "N_L": "Worst-case number of preemptions within time interval L for DM",
+          "L": "Length of the time interval",
+          "P_i": "Minimum inter-arrival time (period) of task T_i",
+          "tau": "Set of all tasks"
+        },
+        "assumptions": [
+          "Deadline Monotonic (DM) scheduling policy",
+          "A preemption occurs every time a job arrives if it has higher priority than the currently executing job."
+        ],
+        "conclusion": "Provides a bound on the total number of preemptions that can occur within a given time interval L for a set of tasks scheduled under Deadline Monotonic."
+      },
+      "informal_sketch": {
+        "intuition": "In fixed-priority scheduling like DM, a preemption happens when a higher-priority job arrives and interrupts a lower-priority job. This formula estimates the maximum number of such interruptions by counting how many times each task's job could arrive within a given time window.",
+        "steps": [
+          "For each task `T_i` in the system `tau`:",
+          "  Calculate how many times `T_i`'s job could arrive within the interval `L` by `floor(L / P_i)`.",
+          "Sum these counts for all tasks to get the total worst-case preemptions `N_L`."
+        ],
+        "pseudocode": "import math\n\ndef calculate_dm_preemptions_N_L(L, task_set):\n    N_L = 0\n    for task_i in task_set:\n        N_L += math.floor(L / task_i.P)\n    return N_L",
+        "key_insights": [
+          "This is a standard formula for bounding preemptions in fixed-priority systems.",
+          "It provides a baseline for comparing the preemption overhead of DM-PM against pure DM."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Task Model"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 10: Worst-Case Preemptions for DM-PM N_star(L)",
+      "formal_description": {
+        "statement": "Let N_star(L) then be the worst-case number of preemptions within L for DM-PM. It is clear that there are at most m - 1 shared tasks. Each shared task is migrated from one processor to another processor once in a period. Every time a shared task is migrated from one processor to another processor, two preemptions occurs: one occurs on the source processor and the other occurs on the destination processor. Hence, N_star(L) is given by Equation (10): N_star_L = N_L + 2 * (m - 1) * floor(L / min(P_s for T_s in tau_shared))",
+        "variables": {
+          "N_star_L": "Worst-case number of preemptions within time interval L for DM-PM",
+          "N_L": "Worst-case number of preemptions for DM (from Claim 9)",
+          "m": "Number of processors",
+          "L": "Length of the time interval",
+          "P_s": "Minimum inter-arrival time (period) of shared task T_s",
+          "tau_shared": "Set of tasks that are shared among multiple processors"
+        },
+        "assumptions": [
+          "DM-PM scheduling policy",
+          "At most `m - 1` tasks are shared (migratory).",
+          "Each shared task migrates exactly once per period.",
+          "Each migration event causes two preemptions (one on the source processor, one on the destination processor)."
+        ],
+        "conclusion": "Provides a bound on the total number of preemptions for DM-PM, by adding the preemptions caused by task migrations to the baseline DM preemptions."
+      },
+      "informal_sketch": {
+        "intuition": "DM-PM has the usual preemptions from fixed-priority scheduling (like DM), but it also has extra preemptions due to tasks migrating between processors. This formula adds those migration-induced preemptions to the standard DM preemption count.",
+        "steps": [
+          "Calculate the baseline DM preemptions `N_L` using Claim 9.",
+          "Identify the set of shared tasks `tau_shared` and find the minimum period `min_P_s` among them.",
+          "Calculate the maximum number of migration events within `L`: `floor(L / min_P_s)`.",
+          "Since there are at most `m - 1` shared tasks and each migration causes 2 preemptions, the total migration-induced preemptions are `2 * (m - 1) * floor(L / min_P_s)`.",
+          "Sum `N_L` and the migration-induced preemptions to get `N_star_L`."
+        ],
+        "pseudocode": "import math\n\ndef calculate_dm_pm_preemptions_N_star_L(L, task_set, shared_task_set, m):\n    N_L = calculate_dm_preemptions_N_L(L, task_set)\n    \n    if not shared_task_set:\n        return N_L # No shared tasks, no extra migration preemptions\n        \n    min_P_s = float('inf')\n    for task_s in shared_task_set:\n        min_P_s = min(min_P_s, task_s.P)\n        \n    # Each shared task migrates once per period.\n    # At most (m-1) shared tasks.\n    # Each migration causes 2 preemptions.\n    migration_preemptions = 2 * (m - 1) * math.floor(L / min_P_s)\n    \n    return N_L + migration_preemptions",
+        "key_insights": [
+          "This formula quantifies the runtime overhead of DM-PM in terms of preemptions, which is important for practical implementation.",
+          "It highlights that migration costs are a significant factor in semi-partitioned scheduling and must be accounted for."
+        ]
+      },
+      "dependencies": [
+        "Claim 9: Worst-Case Preemptions for DM N(L)"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,919 @@
+{
+  "paper_name": "End-to-End Delay Analysis for Fixed Priority Scheduling in WirelessHART Networks",
+  "paper_description": "This paper proposes a novel end-to-end delay analysis for fixed priority scheduled real-time data flows in WirelessHART networks. It maps the multi-channel transmission scheduling to global multiprocessor CPU scheduling and incorporates delays due to both channel contention and transmission conflicts to derive a safe and tight upper bound of the end-to-end delay for each periodic flow. This analysis can be used for design-time and online admission control.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Definition: Flow (for analysis)",
+      "formal_description": {
+        "statement": "A flow_i, 1 <= i <= N, is associated with a period period_i, a deadline deadline_i, a source_node_i, a destination_node_i, and a route route_i from source_node_i to destination_node_i. This represents an individual flow through a specific route, derived from a higher-level flow_j that might use multiple routes.",
+        "variables": {
+          "flow_i": "An individual real-time data flow through a specific route",
+          "N": "Total number of individual flows",
+          "period_i": "Period of flow_i",
+          "deadline_i": "Deadline of flow_i, where deadline_i <= period_i",
+          "source_node_i": "Source device of flow_i",
+          "destination_node_i": "Destination device of flow_i",
+          "route_i": "Specific route taken by flow_i"
+        },
+        "assumptions": [
+          "Flows are periodic",
+          "Deadlines are less than or equal to periods"
+        ],
+        "conclusion": "Defines the fundamental unit of analysis (an individual flow on a specific route)."
+      },
+      "informal_sketch": {
+        "intuition": "To simplify analysis, each potential path a packet can take for a higher-level application flow is treated as its own 'individual flow'. This allows us to analyze each path's delay independently.",
+        "steps": [
+          "For an application flow_j with multiple routes, create a separate 'individual flow_i' for each route.",
+          "Assign the application flow's period and deadline to each individual flow_i.",
+          "Identify the specific source, destination, and route for each individual flow_i."
+        ],
+        "pseudocode": "class Flow:\n    def __init__(self, id, period, deadline, source, destination, route):\n        self.id = id\n        self.period = period\n        self.deadline = deadline\n        self.source = source\n        self.destination = destination\n        self.route = route\n\ndef create_individual_flows(application_flows):\n    individual_flows = []\n    flow_id_counter = 1\n    for app_flow in application_flows:\n        for route in app_flow.routes:\n            individual_flows.append(Flow(flow_id_counter, app_flow.period, app_flow.deadline, app_flow.source, app_flow.destination, route))\n            flow_id_counter += 1\n    return individual_flows",
+        "key_insights": [
+          "Simplifies multi-path routing into a single-path problem for analysis.",
+          "Ensures redundancy requirements are met by analyzing each path."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: Number of Transmissions (C_i)",
+      "formal_description": {
+        "statement": "For each flow_i, the number of transmissions required to deliver a packet from source_node_i to destination_node_i through its route_i is denoted by num_transmissions_i. Thus, num_transmissions_i is the number of time slots required by flow_i.",
+        "variables": {
+          "flow_i": "An individual real-time data flow",
+          "source_node_i": "Source device of flow_i",
+          "destination_node_i": "Destination device of flow_i",
+          "route_i": "Specific route taken by flow_i",
+          "num_transmissions_i": "Number of time slots (transmissions) required for flow_i to complete its execution along route_i"
+        },
+        "assumptions": [
+          "Each transmission takes exactly one time slot."
+        ],
+        "conclusion": "Defines the 'execution time' or 'workload' of a flow in terms of time slots."
+      },
+      "informal_sketch": {
+        "intuition": "This is like the 'computation time' for a CPU task. It's the total number of individual communication steps (transmissions) needed for a packet to travel its entire route.",
+        "steps": [
+          "Trace the route_i from source_node_i to destination_node_i.",
+          "Count the number of links (hops) in the route.",
+          "Each link traversal corresponds to one transmission, so num_transmissions_i equals the number of hops."
+        ],
+        "pseudocode": "class Flow:\n    # ... (previous attributes)\n    def __init__(self, id, period, deadline, source, destination, route):\n        # ...\n        self.num_transmissions = len(route) - 1 # Assuming route is a list of nodes, num_transmissions is num_hops\n\n# Example: route = [A, B, C] means A->B, B->C, so 2 transmissions.\n# If route is a list of edges, then num_transmissions = len(route_edges)",
+        "key_insights": [
+          "Directly relates route length to communication cost.",
+          "Forms the basis for workload calculations."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: End-to-End Delay (L_j_phi)",
+      "formal_description": {
+        "statement": "For flow_j, if a packet generated at slot release_time is delivered to destination_j at slot finish_time through a route phi, its end-to-end delay through phi is defined as end_to_end_delay_j_phi = finish_time - release_time + 1.",
+        "variables": {
+          "flow_j": "An application-level flow",
+          "release_time": "Time slot when the packet is generated at the source",
+          "finish_time": "Time slot when the packet is delivered to the destination",
+          "phi": "A specific route for flow_j",
+          "end_to_end_delay_j_phi": "The total time elapsed from packet generation to delivery, inclusive of both start and end slots"
+        },
+        "assumptions": [
+          "Time is synchronized and slotted."
+        ],
+        "conclusion": "Defines the actual observed delay for a packet of a flow."
+      },
+      "informal_sketch": {
+        "intuition": "This is the total time a packet spends in the system, from when it's ready to be sent until it arrives at its final destination. It's like 'response time' but for a communication path.",
+        "steps": [
+          "Record the time slot (release_time) when a packet is first generated.",
+          "Record the time slot (finish_time) when the packet successfully reaches its destination.",
+          "Calculate the delay as (finish_time - release_time + 1) to include both the start and end slots."
+        ],
+        "pseudocode": "def calculate_end_to_end_delay(release_time, finish_time):\n    return finish_time - release_time + 1",
+        "key_insights": [
+          "Crucial metric for real-time systems, as it's directly compared against deadlines.",
+          "Includes all queuing, transmission, and propagation delays."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: Higher Priority Flows (hp_flow_i)",
+      "formal_description": {
+        "statement": "Each flow_i, 1 <= i <= N, has a fixed priority. We assume that all flows are ordered by priorities such that flow_i has higher priority than flow_j if and only if i < j. We use hp_flow_i to denote the set of flows whose priorities are higher than that of flow_i. That is, hp_flow_i = {flow_1, flow_2, ..., flow_i_minus_1}.",
+        "variables": {
+          "flow_i": "An individual real-time data flow",
+          "N": "Total number of individual flows",
+          "hp_flow_i": "Set of flows with higher priority than flow_i"
+        },
+        "assumptions": [
+          "Fixed priority scheduling policy is used.",
+          "Flows are indexed in decreasing order of priority (flow_1 is highest priority)."
+        ],
+        "conclusion": "Defines the set of flows that can preempt or delay a given flow_i due to priority."
+      },
+      "informal_sketch": {
+        "intuition": "In fixed priority scheduling, higher priority tasks can interrupt or delay lower priority tasks. This set identifies all such 'interfering' tasks for a given flow.",
+        "steps": [
+          "Assign a unique priority to each flow.",
+          "Order the flows from highest priority (index 1) to lowest priority (index N).",
+          "For any flow_i, the set hp_flow_i includes all flows with an index smaller than i."
+        ],
+        "pseudocode": "class Flow:\n    # ... (previous attributes)\n    def __init__(self, id, period, deadline, source, destination, route, priority_rank):\n        # ...\n        self.priority_rank = priority_rank # 1 for highest, N for lowest\n\ndef get_higher_priority_flows(flow_i, all_flows):\n    hp_flows = []\n    for other_flow in all_flows:\n        if other_flow.priority_rank < flow_i.priority_rank:\n            hp_flows.append(other_flow)\n    return hp_flows",
+        "key_insights": [
+          "Central to fixed priority analysis, as interference from higher priority tasks is the primary source of delay.",
+          "The specific priority assignment policy (e.g., DM, PD) is external to this definition but determines the ordering."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: Schedulable Flow Set",
+      "formal_description": {
+        "statement": "The set of periodic flows flow_set is called schedulable under a scheduling algorithm algorithm_A, if algorithm_A is able to schedule all transmissions in num_channels such that no deadline is missed, i.e., end_to_end_delay_i <= deadline_i, for all flow_i in flow_set, with end_to_end_delay_i being the end-to-end delay of flow_i.",
+        "variables": {
+          "flow_set": "The set of all individual real-time data flows",
+          "algorithm_A": "The fixed priority scheduling algorithm used",
+          "num_channels": "The total number of available communication channels",
+          "end_to_end_delay_i": "The worst-case end-to-end delay of flow_i",
+          "deadline_i": "The deadline of flow_i"
+        },
+        "assumptions": [
+          "Fixed priority scheduling algorithm algorithm_A is applied.",
+          "num_channels are available for concurrent transmissions."
+        ],
+        "conclusion": "Defines the condition under which a set of flows is considered to meet its real-time requirements."
+      },
+      "informal_sketch": {
+        "intuition": "A system is 'schedulable' if all its real-time communication tasks (flows) can complete their journey from source to destination before their respective deadlines, given the available channels and scheduling rules.",
+        "steps": [
+          "For every flow_i in the flow_set:",
+          "Determine its worst-case end-to-end delay (end_to_end_delay_i) under the given scheduling algorithm and network conditions.",
+          "Check if end_to_end_delay_i is less than or equal to its deadline_i.",
+          "If this condition holds for ALL flows, the flow_set is schedulable."
+        ],
+        "pseudocode": "def is_flow_set_schedulable(flow_set, scheduling_algorithm, num_channels):\n    for flow_i in flow_set:\n        # This function would be the core of the analysis, calculating WCRT\n        worst_case_delay_i = calculate_worst_case_end_to_end_delay(flow_i, flow_set, scheduling_algorithm, num_channels)\n        if worst_case_delay_i > flow_i.deadline:\n            return False # A deadline is missed\n    return True # All deadlines are met",
+        "key_insights": [
+          "The ultimate goal of schedulability analysis is to determine this condition.",
+          "Requires calculating worst-case delays, not just average delays."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: End-to-End Delay (L_j_phi)"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim: Sufficiency of WCRT for Schedulability",
+      "formal_description": {
+        "statement": "To determine the schedulability of a set of flows, it is sufficient to show that, for every flow_i, an upper bound of its worst case end-to-end delay (R_channel_conflict_i) is no greater than its deadline_i.",
+        "variables": {
+          "flow_i": "An individual real-time data flow",
+          "R_channel_conflict_i": "An upper bound of the worst-case end-to-end delay of flow_i",
+          "deadline_i": "The deadline of flow_i"
+        },
+        "assumptions": [
+          "The calculated R_channel_conflict_i is indeed a safe upper bound of the worst-case end-to-end delay."
+        ],
+        "conclusion": "If R_channel_conflict_i <= deadline_i for all flows, then the set of flows is schedulable."
+      },
+      "informal_sketch": {
+        "intuition": "If we can prove that even in the absolute worst-case scenario, a packet will arrive before its deadline, then we are guaranteed that it will always meet its deadline under any circumstances.",
+        "steps": [
+          "For each flow_i, calculate its worst-case end-to-end delay (R_channel_conflict_i).",
+          "Compare R_channel_conflict_i with flow_i's deadline_i.",
+          "If R_channel_conflict_i <= deadline_i for all flows, the system is schedulable."
+        ],
+        "pseudocode": "def check_schedulability_with_wcrt(flow_set):\n    for flow_i in flow_set:\n        # Assume R_channel_conflict_i is already computed\n        if flow_i.R_channel_conflict > flow_i.deadline:\n            return False # Not schedulable\n    return True # Schedulable",
+        "key_insights": [
+          "This is the standard approach for real-time schedulability analysis.",
+          "The challenge lies in accurately and safely calculating the worst-case response time (R_channel_conflict_i)."
+        ]
+      },
+      "dependencies": [
+        "Definition: Schedulable Flow Set",
+        "Definition: End-to-End Delay (L_j_phi)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: Level-k Busy Period (busy_period_k_t)",
+      "formal_description": {
+        "statement": "For flow_k, a level-k busy period is defined as the maximum continuous time interval during which all num_channels are occupied by flows of priority higher than or equal to flow_k's priority, until flow_k finishes its active instance. We use the notation busy_period_k_t to denote a level-k busy period of t slots.",
+        "variables": {
+          "flow_k": "The flow for which the busy period is defined",
+          "num_channels": "The number of available channels (processors in the mapped CPU scheduling problem)",
+          "t": "The length of the busy period in time slots",
+          "busy_period_k_t": "A level-k busy period of length t"
+        },
+        "assumptions": [
+          "Fixed priority scheduling.",
+          "Mapping to multiprocessor CPU scheduling where channels are processors."
+        ],
+        "conclusion": "Defines a critical interval for calculating worst-case interference, where flow_k and all higher priority flows keep the system busy."
+      },
+      "informal_sketch": {
+        "intuition": "Imagine a period where the system is constantly busy with high-priority work. A 'level-k busy period' is the longest such period where flow_k (and all higher priority flows) are actively demanding resources, keeping all channels occupied, until flow_k finally gets its turn and finishes.",
+        "steps": [
+          "Start at a critical instant where flow_k is released simultaneously with all higher priority flows.",
+          "Track the execution of flow_k and all flows in hp_flow_k.",
+          "The busy period continues as long as there's pending work from flow_k or hp_flow_k that keeps all num_channels occupied.",
+          "It ends when flow_k completes its current instance and at least one channel becomes free from higher or equal priority work."
+        ],
+        "pseudocode": "def calculate_busy_period_length(flow_k, hp_flows, num_channels):\n    # This is typically part of an iterative response time calculation\n    # The length 't' is the variable being solved for in the response time equation.\n    # The busy period is implicitly defined by the workload equation.\n    pass",
+        "key_insights": [
+          "Crucial for worst-case response time analysis, as it captures the maximum interference.",
+          "The 'critical instant' (all higher priority tasks released simultaneously) is assumed to trigger the worst-case busy period."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Higher Priority Flows (hp_flow_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: Carry-in Workload",
+      "formal_description": {
+        "statement": "Flow_i is said to have carry-in workload in a busy_period_k_t, if it has one instance with release time earlier than the busy_period_k_t and deadline in the busy_period_k_t.",
+        "variables": {
+          "flow_i": "A higher priority flow",
+          "busy_period_k_t": "A level-k busy period of length t"
+        },
+        "assumptions": [
+          "The busy period has a defined start time."
+        ],
+        "conclusion": "Identifies a specific scenario where a higher priority flow's instance, released before the busy period, can still interfere with flow_k within that busy period."
+      },
+      "informal_sketch": {
+        "intuition": "Imagine a higher priority task that started just before the 'busy period' we're analyzing. If that task hasn't finished yet and its deadline falls within our busy period, it will 'carry in' some of its execution demand into our busy period, potentially delaying our target flow.",
+        "steps": [
+          "Identify instances of flow_i that are released before the start of busy_period_k_t.",
+          "Check if any of these instances have their deadlines falling within busy_period_k_t.",
+          "If such an instance exists, flow_i has carry-in workload."
+        ],
+        "pseudocode": "def has_carry_in(flow_i, busy_period_start_time, busy_period_end_time):\n    # Simplified check, actual calculation is more complex\n    # An instance released at (busy_period_start_time - offset)\n    # If (busy_period_start_time - offset) + flow_i.response_time > busy_period_start_time\n    # and (busy_period_start_time - offset) + flow_i.deadline > busy_period_start_time\n    # then it might have carry-in.\n    pass",
+        "key_insights": [
+          "Accounts for interference from tasks that are already running when the busy period begins.",
+          "Crucial for accurate worst-case analysis, especially in multiprocessor systems where tasks can migrate."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Level-k Busy Period (busy_period_k_t)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: Carry-in Parameter (mu_i)",
+      "formal_description": {
+        "statement": "The carry-in parameter mu_i for flow_i is defined as: mu_i = min(max(lambda_val - (period_i - response_time_i), 0), num_transmissions_i - 1); where lambda_val = max(t - num_transmissions_i, 0) mod period_i; with response_time_i being the worst case response time of flow_i.",
+        "variables": {
+          "mu_i": "The carry-in parameter for flow_i, representing the maximum amount of work from a carry-in instance that can fall into the busy period.",
+          "lambda_val": "A temporary variable related to the remaining time in the busy period after accounting for flow_i's execution time.",
+          "period_i": "Period of flow_i",
+          "response_time_i": "Worst-case response time of flow_i (this is an iterative value, initially R_i, later R_channel_conflict_i)",
+          "num_transmissions_i": "Number of transmissions for flow_i",
+          "t": "Length of the busy period (busy_period_k_t)"
+        },
+        "assumptions": [
+          "Flow_i has carry-in workload."
+        ],
+        "conclusion": "Quantifies the maximum amount of work from a carry-in instance of flow_i that can interfere with flow_k."
+      },
+      "informal_sketch": {
+        "intuition": "This parameter helps calculate how much of a higher priority task's execution, which started *before* our current analysis window, will actually spill over and interfere *within* our analysis window. It considers the task's period, its own response time, and the length of the busy period.",
+        "steps": [
+          "Calculate lambda_val based on the busy period length 't' and flow_i's execution time.",
+          "Determine the potential carry-in work by considering the difference between lambda_val and the remaining time until flow_i's deadline (period_i - response_time_i).",
+          "Ensure the carry-in work is non-negative and does not exceed flow_i's total execution time minus one (as one transmission is assumed to be completed before the busy period starts for carry-in)."
+        ],
+        "pseudocode": "def calculate_mu_i(flow_i, t, response_time_i):\n    lambda_val = max(t - flow_i.num_transmissions, 0) % flow_i.period\n    mu_i = min(max(lambda_val - (flow_i.period - response_time_i), 0), flow_i.num_transmissions - 1)\n    return mu_i",
+        "key_insights": [
+          "Accounts for the 'straddling' job scenario in multiprocessor scheduling.",
+          "Requires an iterative approach since response_time_i itself is being calculated."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Number of Transmissions (C_i)",
+        "Definition: Carry-in Workload"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: Conflicting Flows",
+      "formal_description": {
+        "statement": "Two flows flow_k and flow_i are said to be conflicting when a transmission of flow_k conflicts with a transmission of flow_i, i.e., their transmissions involve a common node.",
+        "variables": {
+          "flow_k": "A target flow",
+          "flow_i": "Another flow (typically a higher priority flow)"
+        },
+        "assumptions": [
+          "A node cannot both transmit and receive in the same time slot.",
+          "Two transmissions with the same intended receiver interfere with each other."
+        ],
+        "conclusion": "Defines the condition under which two flows cannot transmit simultaneously due to shared network resources (nodes)."
+      },
+      "informal_sketch": {
+        "intuition": "If two different packets try to use the same device (either as sender or receiver) at the same time, they 'conflict'. Only one can proceed, and the lower priority one gets delayed.",
+        "steps": [
+          "Identify all nodes involved in a transmission of flow_k (sender and receiver).",
+          "Identify all nodes involved in a transmission of flow_i (sender and receiver).",
+          "If there is any common node between these two sets, the transmissions conflict."
+        ],
+        "pseudocode": "def do_transmissions_conflict(tx_k_sender, tx_k_receiver, tx_i_sender, tx_i_receiver):\n    if tx_k_sender == tx_i_sender or \\\n       tx_k_sender == tx_i_receiver or \\\n       tx_k_receiver == tx_i_sender or \\\n       tx_k_receiver == tx_i_receiver:\n        return True\n    return False\n\ndef do_flows_conflict(flow_k, flow_i):\n    # This would involve checking all transmission pairs along their routes\n    for tx_k in flow_k.transmissions:\n        for tx_i in flow_i.transmissions:\n            if do_transmissions_conflict(tx_k.sender, tx_k.receiver, tx_i.sender, tx_i.receiver):\n                return True\n    return False",
+        "key_insights": [
+          "This is a unique challenge in WirelessHART compared to traditional CPU scheduling.",
+          "Even if channels are available, conflicts can cause delays."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: Q_k_i (Total Conflicting Transmissions)",
+      "formal_description": {
+        "statement": "Let Q_k_i be the total number of flow_i's transmissions that share nodes on flow_k's route.",
+        "variables": {
+          "Q_k_i": "An upper bound on the number of transmissions of flow_i that could potentially conflict with flow_k.",
+          "flow_k": "The target flow",
+          "flow_i": "A higher priority flow"
+        },
+        "assumptions": [
+          "Routes are known.",
+          "Node connectivity is known."
+        ],
+        "conclusion": "Provides an initial, potentially loose, upper bound on the delay flow_k can experience from flow_i due to conflicts."
+      },
+      "informal_sketch": {
+        "intuition": "This is a simple count: how many individual communication steps (transmissions) of a higher priority flow (flow_i) involve any of the devices that are part of the lower priority flow's (flow_k) path? Each such transmission is a potential conflict.",
+        "steps": [
+          "Identify all nodes on flow_k's route.",
+          "For each transmission of flow_i, identify its sender and receiver nodes.",
+          "If either the sender or receiver of flow_i's transmission is on flow_k's route, increment Q_k_i."
+        ],
+        "pseudocode": "def calculate_Q_k_i(flow_k, flow_i):\n    Q_k_i = 0\n    flow_k_nodes = set(flow_k.route.nodes) # Assuming route.nodes gives all nodes on path\n    for tx_i in flow_i.transmissions: # Assuming flow_i.transmissions is a list of (sender, receiver) tuples\n        if tx_i.sender in flow_k_nodes or tx_i.receiver in flow_k_nodes:\n            Q_k_i += 1\n    return Q_k_i",
+        "key_insights": [
+          "Provides a basic measure of route overlap and potential conflict.",
+          "Often overestimates actual conflict delay because not all potential conflicts lead to actual delays (e.g., if transmissions are far apart on the route)."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Conflicting Flows"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: Maximal Common Path (mcp_j_k_i)",
+      "formal_description": {
+        "statement": "A maximal common path (mcp_j_k_i) between flow_k and flow_i is defined as a path v_1 -> v_2 -> ... -> v_h, where v_l = v_q for l = q (where 1 <= l, q <= h), on flow_i's route such that v_1 -> v_2 -> ... -> v_h or v_h -> v_h_minus_1 -> ... -> v_1 is a path on flow_k's route and it is maximal, i.e., no such longer path contains it.",
+        "variables": {
+          "mcp_j_k_i": "The j-th maximal common path between flow_k and flow_i.",
+          "flow_k": "The target flow",
+          "flow_i": "A higher priority flow",
+          "v_1, ..., v_h": "Nodes forming the common path"
+        },
+        "assumptions": [
+          "Routes are known and represented as sequences of nodes."
+        ],
+        "conclusion": "Identifies contiguous segments of routes that are shared between two flows, which is critical for more accurate conflict delay calculation."
+      },
+      "informal_sketch": {
+        "intuition": "Instead of just counting individual node overlaps, we look for actual 'shared road segments' between two flows. If flow_k and flow_i both use the path A->B->C, then A->B->C is a maximal common path. This helps refine conflict analysis because conflicts within a shared segment behave differently than isolated node conflicts.",
+        "steps": [
+          "Identify all paths on flow_i's route.",
+          "For each such path, check if it (or its reverse) also exists as a path on flow_k's route.",
+          "From these common paths, select only those that are 'maximal' (not contained within a longer common path).",
+          "Each such maximal path is an mcp_j_k_i."
+        ],
+        "pseudocode": "def find_maximal_common_paths(flow_k_route, flow_i_route):\n    mcps = []\n    # This is a complex graph algorithm, simplified for pseudocode\n    # Iterate through all subpaths of flow_i_route\n    # For each subpath, check if it exists in flow_k_route (forward or reverse)\n    # If it does, and it's not a subpath of an already found MCP, add it.\n    return mcps",
+        "key_insights": [
+          "Refines the understanding of how routes intersect.",
+          "Allows for a more precise calculation of conflict delays by recognizing that conflicts within a shared segment are not independent."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition: Length of MCP (delta_j_k_i)",
+      "formal_description": {
+        "statement": "For mcp_j_k_i, we define its length delta_j_k_i as the total number of flow_i's transmissions along it. (Example: if mcp_j_k_i = v_1 -> ... -> v_h, and u -> v_1 -> ... -> v_h -> w is on flow_i's route, then delta_j_k_i = h + 1 if u, w exist; h if only u or w exists; h - 1 if neither u nor w exists).",
+        "variables": {
+          "delta_j_k_i": "The length of the j-th maximal common path between flow_k and flow_i, measured in terms of flow_i's transmissions.",
+          "mcp_j_k_i": "A maximal common path",
+          "flow_i": "A higher priority flow"
+        },
+        "assumptions": [
+          "The structure of mcp_j_k_i and flow_i's route are known."
+        ],
+        "conclusion": "Quantifies the extent of a maximal common path in terms of the higher priority flow's activity."
+      },
+      "informal_sketch": {
+        "intuition": "This measures how many 'hops' of the higher priority flow (flow_i) are part of a shared segment (MCP). It's not just the number of nodes in the MCP, but how many transmissions of flow_i actually traverse that segment, potentially including transmissions just before or after the explicit MCP nodes if they are part of flow_i's route.",
+        "steps": [
+          "Identify the transmissions of flow_i that occur along the mcp_j_k_i.",
+          "Count these transmissions.",
+          "Adjust the count based on whether flow_i's route extends beyond the mcp_j_k_i at its start or end, as described in the formal statement (e.g., u -> v1...vh -> w). This implies that transmissions *adjacent* to the MCP on flow_i's route might also be considered part of its 'length' for conflict purposes."
+        ],
+        "pseudocode": "def calculate_delta_j_k_i(mcp_j_k_i, flow_i_route):\n    # This is a simplified interpretation based on the example given in the paper.\n    # The paper's definition is a bit ambiguous without the full context of u,w.\n    # A common interpretation is the number of transmissions of flow_i that use nodes in mcp_j_k_i.\n    \n    mcp_nodes = mcp_j_k_i.nodes # Assuming mcp_j_k_i has a list of nodes\n    flow_i_transmissions_on_mcp = 0\n    \n    # Iterate through flow_i's transmissions\n    for i in range(len(flow_i_route.nodes) - 1):\n        sender = flow_i_route.nodes[i]\n        receiver = flow_i_route.nodes[i+1]\n        \n        # If this transmission involves nodes within the MCP\n        if sender in mcp_nodes or receiver in mcp_nodes:\n            flow_i_transmissions_on_mcp += 1\n            \n    return flow_i_transmissions_on_mcp",
+        "key_insights": [
+          "Provides a more nuanced measure of conflict potential within shared route segments.",
+          "Recognizes that conflicts are not just about shared nodes, but shared *transmissions*."
+        ]
+      },
+      "dependencies": [
+        "Definition: Maximal Common Path (mcp_j_k_i)",
+        "Definition: Flow (for analysis)"
+      ]
+    },
+    {
+      "type": "formula",
+      "identifier": "Equation (1): Workload No Carry-in (W_no_carry_in_k_i_t)",
+      "formal_description": {
+        "statement": "W_no_carry_in_k_i_t = floor(t / period_i) * num_transmissions_i + min(t mod period_i, num_transmissions_i)",
+        "variables": {
+          "W_no_carry_in_k_i_t": "Upper bound of workload of flow_i in a busy_period_k_t when flow_i has no carry-in.",
+          "t": "Length of the busy period (busy_period_k_t)",
+          "period_i": "Period of flow_i",
+          "num_transmissions_i": "Number of transmissions for flow_i"
+        },
+        "assumptions": [
+          "Flow_i has no carry-in workload in busy_period_k_t.",
+          "This is for a single flow_i interfering with flow_k."
+        ],
+        "conclusion": "Calculates the maximum amount of time flow_i can execute within a time interval 't', assuming it starts fresh at the beginning of the interval."
+      },
+      "informal_sketch": {
+        "intuition": "This formula estimates how much 'work' a higher priority task (flow_i) can do within a given time window 't', assuming it starts its first instance at the beginning of 't'. It counts full instances and then any partial instance at the end.",
+        "steps": [
+          "Calculate the number of full instances of flow_i that can occur in time 't' (floor(t / period_i)).",
+          "Multiply this by flow_i's execution time (num_transmissions_i).",
+          "Add the work from any partial instance at the end of 't': this is the minimum of the remaining time in 't' (t mod period_i) and flow_i's full execution time (num_transmissions_i)."
+        ],
+        "pseudocode": "def calculate_workload_no_carry_in(t, flow_i):\n    full_instances_work = (t // flow_i.period) * flow_i.num_transmissions\n    partial_instance_work = min(t % flow_i.period, flow_i.num_transmissions)\n    return full_instances_work + partial_instance_work",
+        "key_insights": [
+          "Standard workload calculation for periodic tasks without carry-in.",
+          "Forms the basis for interference calculations."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Number of Transmissions (C_i)",
+        "Definition: Level-k Busy Period (busy_period_k_t)"
+      ]
+    },
+    {
+      "type": "formula",
+      "identifier": "Equation (2): Interference No Carry-in (I_no_carry_in_k_i_t)",
+      "formal_description": {
+        "statement": "I_no_carry_in_k_i_t = min(W_no_carry_in_k_i_t, t - num_transmissions_k + 1)",
+        "variables": {
+          "I_no_carry_in_k_i_t": "Upper bound of delay (interference) caused by flow_i to flow_k in a busy_period_k_t when flow_i has no carry-in.",
+          "W_no_carry_in_k_i_t": "Workload of flow_i in busy_period_k_t (from Eq 1).",
+          "t": "Length of the busy period (busy_period_k_t)",
+          "num_transmissions_k": "Number of transmissions for flow_k"
+        },
+        "assumptions": [
+          "Flow_i has no carry-in workload.",
+          "This is for a single flow_i interfering with flow_k."
+        ],
+        "conclusion": "Calculates the maximum interference flow_i can cause to flow_k, bounded by its total workload and the remaining time in the busy period after flow_k's own execution."
+      },
+      "informal_sketch": {
+        "intuition": "The interference a higher priority task causes cannot exceed its total work, nor can it exceed the total time available in the busy period minus the time the lower priority task (flow_k) needs for itself. This ensures the interference value is realistic.",
+        "steps": [
+          "Calculate W_no_carry_in_k_i_t using Equation (1).",
+          "Calculate the maximum possible interference duration: t - num_transmissions_k + 1 (this represents the total time available for interference within the busy period, considering flow_k must also execute).",
+          "Take the minimum of these two values to get the tightest upper bound for interference."
+        ],
+        "pseudocode": "def calculate_interference_no_carry_in(t, flow_i, flow_k):\n    workload = calculate_workload_no_carry_in(t, flow_i)\n    max_interference_duration = t - flow_k.num_transmissions + 1\n    return min(workload, max_interference_duration)",
+        "key_insights": [
+          "Bounds interference by both the interferer's demand and the available 'interference budget' in the busy period.",
+          "Ensures that the interference calculation is not overly pessimistic by considering the target task's own execution."
+        ]
+      },
+      "dependencies": [
+        "Definition: Number of Transmissions (C_i)",
+        "Definition: Level-k Busy Period (busy_period_k_t)",
+        "Equation (1): Workload No Carry-in (W_no_carry_in_k_i_t)"
+      ]
+    },
+    {
+      "type": "formula",
+      "identifier": "Equation (3): Workload With Carry-in (W_carry_in_k_i_t)",
+      "formal_description": {
+        "statement": "W_carry_in_k_i_t = floor(max(t - num_transmissions_i, 0) / period_i) * num_transmissions_i + num_transmissions_i + mu_i",
+        "variables": {
+          "W_carry_in_k_i_t": "Upper bound of workload of flow_i in a busy_period_k_t when flow_i has carry-in.",
+          "t": "Length of the busy period (busy_period_k_t)",
+          "num_transmissions_i": "Number of transmissions for flow_i",
+          "period_i": "Period of flow_i",
+          "mu_i": "Carry-in parameter for flow_i (from Definition: Carry-in Parameter (mu_i))"
+        },
+        "assumptions": [
+          "Flow_i has carry-in workload in busy_period_k_t.",
+          "This is for a single flow_i interfering with flow_k."
+        ],
+        "conclusion": "Calculates the maximum amount of time flow_i can execute within a time interval 't', considering a carry-in instance and subsequent full instances."
+      },
+      "informal_sketch": {
+        "intuition": "This formula estimates the work of a higher priority task (flow_i) within a time window 't' when one of its instances started *before* 't' and spills into 't' (carry-in). It accounts for the carry-in portion, plus any full instances that fit after the carry-in, and the execution time of the carry-in instance itself.",
+        "steps": [
+          "Calculate the number of full instances of flow_i that can occur *after* the carry-in instance, within the remaining time (max(t - num_transmissions_i, 0)).",
+          "Multiply this by flow_i's execution time (num_transmissions_i).",
+          "Add flow_i's full execution time (num_transmissions_i) for the carry-in instance itself.",
+          "Add the carry-in parameter (mu_i) which quantifies the specific amount of carry-in work."
+        ],
+        "pseudocode": "def calculate_workload_carry_in(t, flow_i, mu_i):\n    remaining_time_after_first_instance = max(t - flow_i.num_transmissions, 0)\n    full_instances_work = (remaining_time_after_first_instance // flow_i.period) * flow_i.num_transmissions\n    return full_instances_work + flow_i.num_transmissions + mu_i",
+        "key_insights": [
+          "Accounts for the 'straddling' job scenario, which is critical for accurate multiprocessor analysis.",
+          "More complex than no-carry-in workload due to the mu_i parameter."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Number of Transmissions (C_i)",
+        "Definition: Level-k Busy Period (busy_period_k_t)",
+        "Definition: Carry-in Parameter (mu_i)"
+      ]
+    },
+    {
+      "type": "formula",
+      "identifier": "Equation (4): Interference With Carry-in (I_carry_in_k_i_t)",
+      "formal_description": {
+        "statement": "I_carry_in_k_i_t = min(W_carry_in_k_i_t, t - num_transmissions_k + 1)",
+        "variables": {
+          "I_carry_in_k_i_t": "Upper bound of delay (interference) caused by flow_i to flow_k in a busy_period_k_t when flow_i has carry-in.",
+          "W_carry_in_k_i_t": "Workload of flow_i in busy_period_k_t (from Eq 3).",
+          "t": "Length of the busy period (busy_period_k_t)",
+          "num_transmissions_k": "Number of transmissions for flow_k"
+        },
+        "assumptions": [
+          "Flow_i has carry-in workload.",
+          "This is for a single flow_i interfering with flow_k."
+        ],
+        "conclusion": "Calculates the maximum interference flow_i can cause to flow_k, bounded by its total workload (with carry-in) and the remaining time in the busy period after flow_k's own execution."
+      },
+      "informal_sketch": {
+        "intuition": "Similar to the no-carry-in interference, the actual delay caused by a higher priority task with carry-in is limited by its total work and the available 'interference budget' in the busy period. This ensures the interference value is realistic even with carry-in.",
+        "steps": [
+          "Calculate W_carry_in_k_i_t using Equation (3).",
+          "Calculate the maximum possible interference duration: t - num_transmissions_k + 1.",
+          "Take the minimum of these two values to get the tightest upper bound for interference."
+        ],
+        "pseudocode": "def calculate_interference_carry_in(t, flow_i, flow_k, mu_i):\n    workload = calculate_workload_carry_in(t, flow_i, mu_i)\n    max_interference_duration = t - flow_k.num_transmissions + 1\n    return min(workload, max_interference_duration)",
+        "key_insights": [
+          "Extends the interference bounding principle to scenarios with carry-in.",
+          "Ensures consistency in how interference is capped."
+        ]
+      },
+      "dependencies": [
+        "Definition: Number of Transmissions (C_i)",
+        "Definition: Level-k Busy Period (busy_period_k_t)",
+        "Equation (3): Workload With Carry-in (W_carry_in_k_i_t)"
+      ]
+    },
+    {
+      "type": "formula",
+      "identifier": "Equation (5): Total Interference (Omega_k_t)",
+      "formal_description": {
+        "statement": "Omega_k_t = x_k_t + sum_{flow_i in hp_flow_k} I_no_carry_in_k_i_t",
+        "variables": {
+          "Omega_k_t": "Upper bound of the total delay caused by all higher priority flows to an instance of flow_k during a busy_period_k_t due to channel contention.",
+          "x_k_t": "Sum of the min(|hp_flow_k|, num_channels - 1) largest values of the differences (I_carry_in_k_i_t - I_no_carry_in_k_i_t) among all flow_i in hp_flow_k.",
+          "hp_flow_k": "Set of flows with higher priority than flow_k",
+          "I_no_carry_in_k_i_t": "Interference from flow_i without carry-in (from Eq 2)",
+          "I_carry_in_k_i_t": "Interference from flow_i with carry-in (from Eq 4)",
+          "num_channels": "Number of available channels"
+        },
+        "assumptions": [
+          "At most num_channels - 1 higher priority flows can have carry-in (a property of global multiprocessor scheduling).",
+          "This calculation is for delays due to channel contention only."
+        ],
+        "conclusion": "Provides a comprehensive upper bound on the total channel contention delay experienced by flow_k from all higher priority flows."
+      },
+      "informal_sketch": {
+        "intuition": "This is the total 'blocking time' flow_k experiences from all higher priority tasks competing for channels. It's calculated by summing up the 'no carry-in' interference from all higher priority tasks, and then adding an extra amount for the few tasks (at most m-1) that might have carry-in, as they can cause more interference.",
+        "steps": [
+          "For each flow_i in hp_flow_k, calculate its I_no_carry_in_k_i_t (Equation 2).",
+          "Sum all these I_no_carry_in_k_i_t values.",
+          "For each flow_i in hp_flow_k, calculate the difference (I_carry_in_k_i_t - I_no_carry_in_k_i_t).",
+          "Select the min(|hp_flow_k|, num_channels - 1) largest of these differences; sum them to get x_k_t.",
+          "Add x_k_t to the sum of I_no_carry_in_k_i_t to get Omega_k_t."
+        ],
+        "pseudocode": "def calculate_total_interference_channel_contention(t, flow_k, hp_flows, num_channels):\n    sum_i_no_carry_in = 0\n    carry_in_differences = []\n\n    for flow_i in hp_flows:\n        # Need to calculate R_i for mu_i, which is iterative\n        # For initial calculation, R_i might be approximated or taken from previous iteration\n        # For the final algorithm, R_i is R_channel_conflict_i of higher priority flows\n        \n        # Placeholder for R_i, which will be R_channel_conflict_i in the full algorithm\n        current_R_i = flow_i.R_channel_conflict if hasattr(flow_i, 'R_channel_conflict') else flow_i.num_transmissions \n        \n        mu_i = calculate_mu_i(flow_i, t, current_R_i)\n        w_no_carry_in = calculate_workload_no_carry_in(t, flow_i)\n        i_no_carry_in = calculate_interference_no_carry_in(t, flow_i, flow_k)\n        \n        w_carry_in = calculate_workload_carry_in(t, flow_i, mu_i)\n        i_carry_in = calculate_interference_carry_in(t, flow_i, flow_k, mu_i)\n        \n        sum_i_no_carry_in += i_no_carry_in\n        carry_in_differences.append(i_carry_in - i_no_carry_in)\n    \n    carry_in_differences.sort(reverse=True)\n    x_k_t = sum(carry_in_differences[:min(len(hp_flows), num_channels - 1)])\n    \n    return x_k_t + sum_i_no_carry_in",
+        "key_insights": [
+          "Leverages a known result from multiprocessor scheduling (Guan et al. [4]).",
+          "The 'm-1 carry-in' rule is a key optimization for multiprocessor analysis, as only a limited number of tasks can truly 'straddle' the busy period start and cause extra interference."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Higher Priority Flows (hp_flow_i)",
+        "Definition: Level-k Busy Period (busy_period_k_t)",
+        "Definition: Carry-in Workload",
+        "Definition: Carry-in Parameter (mu_i)",
+        "Equation (1): Workload No Carry-in (W_no_carry_in_k_i_t)",
+        "Equation (2): Interference No Carry-in (I_no_carry_in_k_i_t)",
+        "Equation (3): Workload With Carry-in (W_carry_in_k_i_t)",
+        "Equation (4): Interference With Carry-in (I_carry_in_k_i_t)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 1: Conflict Delay Bound (Delta_k_i)",
+      "formal_description": {
+        "statement": "Let delta_j_k_i denote the length of an mcp_j_k_i between flow_k and flow_i in hp_flow_k with length at least 4. If there are total num_mcps MCPs between flow_k and flow_i each with length at least 4, then delta_k_i = Q_k_i - sum_{j=1 to num_mcps} (delta_j_k_i - 3).",
+        "variables": {
+          "delta_k_i": "A more precise upper bound of the delay that flow_k can experience from an instance of flow_i due to conflicts.",
+          "Q_k_i": "Total number of flow_i's transmissions that share nodes on flow_k's route (from Definition: Q_k_i).",
+          "num_mcps": "Total number of maximal common paths (mcp_j_k_i) between flow_k and flow_i, each with length at least 4.",
+          "delta_j_k_i": "Length of the j-th mcp_j_k_i (from Definition: Length of MCP (delta_j_k_i))."
+        },
+        "assumptions": [
+          "Flow_i is a higher priority flow than flow_k.",
+          "MCPs with length less than 4 are not considered for this refinement (their contribution is implicitly covered by Q_k_i).",
+          "Within an MCP, a transmission of flow_k can be delayed by at most 3 transmissions of flow_i."
+        ],
+        "conclusion": "Provides a tighter upper bound for conflict delay by subtracting the 'redundant' conflict counts from Q_k_i that occur within long maximal common paths."
+      },
+      "informal_sketch": {
+        "intuition": "The initial conflict count (Q_k_i) can be too high because if two flows share a long segment of their routes, they don't conflict for *every single hop* within that segment. Once the lower priority flow is delayed at the start of the shared segment, subsequent transmissions can often happen in parallel. This lemma refines Q_k_i by saying that for each long shared segment (MCP), only the first 3 transmissions cause delay, and the rest (delta_j_k_i - 3) don't add *new* delays.",
+        "steps": [
+          "Calculate Q_k_i (total potential conflicts).",
+          "Identify all maximal common paths (mcp_j_k_i) between flow_k and flow_i.",
+          "For each mcp_j_k_i with length (delta_j_k_i) at least 4:",
+          "Calculate the 'excess' conflict count: (delta_j_k_i - 3). This is the number of transmissions within that MCP that are *not* considered to cause additional delay beyond the initial 3.",
+          "Sum these 'excess' counts for all relevant MCPs.",
+          "Subtract this sum from Q_k_i to get the refined delta_k_i."
+        ],
+        "pseudocode": "def calculate_delta_k_i(flow_k, flow_i, mcps_k_i):\n    Q_k_i = calculate_Q_k_i(flow_k, flow_i)\n    \n    sum_excess_conflicts = 0\n    for mcp in mcps_k_i:\n        delta_j_k_i = calculate_delta_j_k_i(mcp, flow_i.route) # Assuming flow_i.route is available\n        if delta_j_k_i >= 4:\n            sum_excess_conflicts += (delta_j_k_i - 3)\n            \n    return Q_k_i - sum_excess_conflicts",
+        "key_insights": [
+          "Addresses the overestimation of conflict delays by Q_k_i.",
+          "Recognizes that conflicts within a shared path are not independent and can be 'amortized' after an initial delay.",
+          "The '3 slots' rule is a specific finding from the paper's analysis of node sharing."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Higher Priority Flows (hp_flow_i)",
+        "Definition: Q_k_i (Total Conflicting Transmissions)",
+        "Definition: Maximal Common Path (mcp_j_k_i)",
+        "Definition: Length of MCP (delta_j_k_i)"
+      ]
+    },
+    {
+      "type": "formula",
+      "identifier": "Equation (7): Total Conflict Delay (Theta_k_t)",
+      "formal_description": {
+        "statement": "Theta_k_t = sum_{flow_i in hp_flow_k} floor(t / period_i) * delta_k_i",
+        "variables": {
+          "Theta_k_t": "Upper bound of the total delay an instance of flow_k can experience from all higher priority flows due to conflicts during a time interval of t slots.",
+          "t": "Length of the time interval (e.g., busy period or response time window).",
+          "hp_flow_k": "Set of flows with higher priority than flow_k",
+          "period_i": "Period of flow_i",
+          "delta_k_i": "Refined conflict delay bound from Lemma 1."
+        },
+        "assumptions": [
+          "This calculation is for delays due to transmission conflicts only.",
+          "Each instance of flow_i contributes delta_k_i to the conflict delay."
+        ],
+        "conclusion": "Provides a comprehensive upper bound on the total conflict delay experienced by flow_k from all higher priority flows over a given interval."
+      },
+      "informal_sketch": {
+        "intuition": "This calculates the total delay caused by conflicts. For each higher priority task (flow_i), we figure out how many times it could potentially conflict with our target flow (flow_k) within a given time window 't'. We multiply the number of instances of flow_i by the refined conflict delay (delta_k_i) it causes per instance, and sum this up for all higher priority flows.",
+        "steps": [
+          "For each flow_i in hp_flow_k:",
+          "Calculate the number of instances of flow_i that can occur within time 't' (floor(t / period_i)).",
+          "Multiply this by delta_k_i (the refined conflict delay per instance from Lemma 1).",
+          "Sum these products for all flow_i in hp_flow_k."
+        ],
+        "pseudocode": "def calculate_total_conflict_delay(t, flow_k, hp_flows):\n    total_conflict_delay = 0\n    for flow_i in hp_flows:\n        # Need to calculate mcps_k_i for delta_k_i\n        mcps_k_i = find_maximal_common_paths(flow_k.route, flow_i.route)\n        delta_k_i = calculate_delta_k_i(flow_k, flow_i, mcps_k_i)\n        \n        num_instances_i = t // flow_i.period\n        total_conflict_delay += num_instances_i * delta_k_i\n    return total_conflict_delay",
+        "key_insights": [
+          "Combines the refined conflict delay (delta_k_i) with the periodicity of interfering flows.",
+          "This delay is additive to channel contention delays, as conflicts can occur even with available channels."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Higher Priority Flows (hp_flow_i)",
+        "Lemma 1: Conflict Delay Bound (Delta_k_i)"
+      ]
+    },
+    {
+      "type": "formula",
+      "identifier": "Equation (8): Workload No Carry-in (W_no_carry_in_k_i_x) - Iterative Context",
+      "formal_description": {
+        "statement": "W_no_carry_in_k_i_x = floor(x / period_i) * num_transmissions_i + min(x mod period_i, num_transmissions_i)",
+        "variables": {
+          "W_no_carry_in_k_i_x": "Upper bound of workload of flow_i in a busy period of length 'x' when flow_i has no carry-in.",
+          "x": "Length of the current time interval being evaluated for R_channel_k.",
+          "period_i": "Period of flow_i",
+          "num_transmissions_i": "Number of transmissions for flow_i"
+        },
+        "assumptions": [
+          "This is identical to Equation (1) but is presented in the context of the iterative calculation for R_channel_k, where 'x' is the current estimate of the busy period length.",
+          "Flow_i has no carry-in workload."
+        ],
+        "conclusion": "Calculates the maximum amount of time flow_i can execute within a time interval 'x', assuming it starts fresh at the beginning of the interval, for the purpose of calculating R_channel_k."
+      },
+      "informal_sketch": {
+        "intuition": "This is the same workload calculation as Equation (1), but it's explicitly used within the iterative process to find the response time. The variable 'x' represents the current guess for the response time or busy period length.",
+        "steps": [
+          "Same steps as Equation (1), but using 'x' instead of 't'."
+        ],
+        "pseudocode": "def calculate_workload_no_carry_in_iterative(x, flow_i):\n    return calculate_workload_no_carry_in(x, flow_i)",
+        "key_insights": [
+          "Emphasizes the iterative nature of response time analysis.",
+          "The workload of a higher priority flow without carry-in does not depend on its own response time, simplifying this part of the calculation."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Number of Transmissions (C_i)"
+      ]
+    },
+    {
+      "type": "formula",
+      "identifier": "Equation (9): Workload With Carry-in (W_carry_in_k_i_x) - Iterative Context",
+      "formal_description": {
+        "statement": "W_carry_in_k_i_x = floor(max(x - num_transmissions_i, 0) / period_i) * num_transmissions_i + num_transmissions_i + mu_i_updated; where mu_i_updated = min(max(lambda_val - (period_i - R_channel_conflict_i), 0), num_transmissions_i - 1) and lambda_val = max(x - num_transmissions_i, 0) mod period_i.",
+        "variables": {
+          "W_carry_in_k_i_x": "Upper bound of workload of flow_i in a busy period of length 'x' when flow_i has carry-in.",
+          "x": "Length of the current time interval being evaluated for R_channel_k.",
+          "num_transmissions_i": "Number of transmissions for flow_i",
+          "period_i": "Period of flow_i",
+          "mu_i_updated": "Carry-in parameter for flow_i, using R_channel_conflict_i of flow_i.",
+          "R_channel_conflict_i": "The already calculated worst-case end-to-end delay of flow_i (which is a higher priority flow)."
+        },
+        "assumptions": [
+          "This is identical to Equation (3) but is presented in the context of the iterative calculation for R_channel_k, where 'x' is the current estimate of the busy period length.",
+          "Flow_i has carry-in workload.",
+          "R_channel_conflict_i for higher priority flows (flow_i) has already been computed."
+        ],
+        "conclusion": "Calculates the maximum amount of time flow_i can execute within a time interval 'x', considering a carry-in instance and subsequent full instances, using the previously computed R_channel_conflict_i for higher priority flows."
+      },
+      "informal_sketch": {
+        "intuition": "This is the same workload calculation as Equation (3), but it's explicitly used within the iterative process. Crucially, the 'response_time_i' in the mu_i calculation is replaced by the *already computed* R_channel_conflict_i of the higher priority flow_i. This makes the calculation for flow_k dependent on the final bounds of higher priority flows.",
+        "steps": [
+          "Same steps as Equation (3), but using 'x' instead of 't'.",
+          "When calculating mu_i_updated, use the R_channel_conflict_i value that was previously determined for flow_i (since flow_i has higher priority, its R_channel_conflict_i would have been calculated in a prior iteration of the overall algorithm)."
+        ],
+        "pseudocode": "def calculate_workload_carry_in_iterative(x, flow_i, R_channel_conflict_i_for_flow_i):\n    lambda_val = max(x - flow_i.num_transmissions, 0) % flow_i.period\n    mu_i_updated = min(max(lambda_val - (flow_i.period - R_channel_conflict_i_for_flow_i), 0), flow_i.num_transmissions - 1)\n    \n    remaining_time_after_first_instance = max(x - flow_i.num_transmissions, 0)\n    full_instances_work = (remaining_time_after_first_instance // flow_i.period) * flow_i.num_transmissions\n    return full_instances_work + flow_i.num_transmissions + mu_i_updated",
+        "key_insights": [
+          "Highlights the iterative and priority-ordered nature of the overall response time analysis.",
+          "The dependency on R_channel_conflict_i for higher priority flows is key to the inductive proof of Theorem 2."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Number of Transmissions (C_i)",
+        "Definition: Carry-in Parameter (mu_i)",
+        "Definition: R_channel_conflict_i (implicit, as it's used as an input)"
+      ]
+    },
+    {
+      "type": "formula",
+      "identifier": "Equation (10): Pseudo Upper Bound (R_channel_k)",
+      "formal_description": {
+        "statement": "x = floor(Omega_k_x / num_channels) + num_transmissions_k",
+        "variables": {
+          "x": "The pseudo upper bound R_channel_k, representing the worst-case end-to-end delay of flow_k considering only channel contention.",
+          "Omega_k_x": "Total interference caused by higher priority flows to flow_k due to channel contention over an interval of length 'x' (calculated using Equation (5) with 'x' as the interval length and updated mu_i values).",
+          "num_channels": "Number of available channels.",
+          "num_transmissions_k": "Number of transmissions for flow_k."
+        },
+        "assumptions": [
+          "Flow_k does not conflict with any higher priority flow (this is a 'pseudo' bound).",
+          "The calculation is performed iteratively to find the fixed point 'x'."
+        ],
+        "conclusion": "Determines the worst-case end-to-end delay of flow_k if only channel contention were present, by finding the smallest 'x' that satisfies the equation."
+      },
+      "informal_sketch": {
+        "intuition": "This is the core response time equation for multiprocessor systems. It says that the response time 'x' for flow_k is its own execution time (num_transmissions_k) plus all the interference it experiences (Omega_k_x), divided by the number of available channels (num_channels). The division by 'm' accounts for parallelism. It's a recursive equation because Omega_k_x itself depends on 'x'.",
+        "steps": [
+          "Initialize x = num_transmissions_k (flow_k's own execution time).",
+          "Iteratively update x using the formula: x_new = floor(calculate_total_interference_channel_contention(x_old, flow_k, hp_flows, num_channels) / num_channels) + num_transmissions_k.",
+          "Repeat until x_new = x_old (fixed point) or x exceeds deadline_k (unschedulable).",
+          "The fixed point is R_channel_k."
+        ],
+        "pseudocode": "def calculate_R_channel_k(flow_k, hp_flows, num_channels, deadline_k):\n    x = flow_k.num_transmissions # Initial guess\n    while True:\n        omega_k_x = calculate_total_interference_channel_contention(x, flow_k, hp_flows, num_channels)\n        x_new = (omega_k_x // num_channels) + flow_k.num_transmissions\n        \n        if x_new == x:\n            return x # Fixed point found\n        if x_new > deadline_k:\n            return float('inf') # Unschedulable\n        x = x_new",
+        "key_insights": [
+          "Applies the multiprocessor response time analysis framework.",
+          "The iterative fixed-point approach is standard for response time calculations.",
+          "The division by 'm' is crucial for multiprocessor/multi-channel systems, as interference can be parallelized."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Number of Transmissions (C_i)",
+        "Definition: Higher Priority Flows (hp_flow_i)",
+        "Definition: Num Channels (m)",
+        "Equation (5): Total Interference (Omega_k_t)",
+        "Equation (9): Workload With Carry-in (W_carry_in_k_i_x) - Iterative Context"
+      ]
+    },
+    {
+      "type": "formula",
+      "identifier": "Equation (11): Final Upper Bound (R_channel_conflict_k)",
+      "formal_description": {
+        "statement": "y = R_channel_k + Theta_k_y",
+        "variables": {
+          "y": "The final upper bound R_channel_conflict_k, representing the worst-case end-to-end delay of flow_k considering both channel contention and transmission conflicts.",
+          "R_channel_k": "The pseudo upper bound of flow_k's delay due to channel contention only (from Equation (10)).",
+          "Theta_k_y": "Total delay flow_k experiences from higher priority flows due to conflicts over an interval of length 'y' (calculated using Equation (7) with 'y' as the interval length)."
+        },
+        "assumptions": [
+          "R_channel_k has been accurately computed.",
+          "The calculation is performed iteratively to find the fixed point 'y'."
+        ],
+        "conclusion": "Determines the comprehensive worst-case end-to-end delay of flow_k by adding the conflict delays to the channel contention delays, finding the smallest 'y' that satisfies the equation."
+      },
+      "informal_sketch": {
+        "intuition": "This is the final step to get the true worst-case delay. We take the delay from channel contention (R_channel_k) and add the additional delays caused by conflicts (Theta_k_y). Conflicts are added directly because they can delay a transmission regardless of channel availability. This is also a recursive equation because Theta_k_y depends on 'y'.",
+        "steps": [
+          "Initialize y = R_channel_k (the pseudo bound from Equation (10)).",
+          "Iteratively update y using the formula: y_new = R_channel_k + calculate_total_conflict_delay(y_old, flow_k, hp_flows).",
+          "Repeat until y_new = y_old (fixed point) or y exceeds deadline_k (unschedulable).",
+          "The fixed point is R_channel_conflict_k."
+        ],
+        "pseudocode": "def calculate_R_channel_conflict_k(flow_k, hp_flows, R_channel_k, deadline_k):\n    y = R_channel_k # Initial guess\n    while True:\n        theta_k_y = calculate_total_conflict_delay(y, flow_k, hp_flows)\n        y_new = R_channel_k + theta_k_y\n        \n        if y_new == y:\n            return y # Fixed point found\n        if y_new > deadline_k:\n            return float('inf') # Unschedulable\n        y = y_new",
+        "key_insights": [
+          "Combines the two main sources of delay: channel contention and transmission conflicts.",
+          "Conflict delays are added directly, reflecting their independent nature from channel availability.",
+          "The iterative fixed-point approach ensures a safe upper bound."
+        ]
+      },
+      "dependencies": [
+        "Definition: Flow (for analysis)",
+        "Definition: Higher Priority Flows (hp_flow_i)",
+        "Equation (10): Pseudo Upper Bound (R_channel_k)",
+        "Equation (7): Total Conflict Delay (Theta_k_t)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 2: Correctness of End-to-End Delay Bound",
+      "formal_description": {
+        "statement": "For every flow_k in flow_set, let R_channel_k be the minimal value of x that solves Equation (10) starting with x = num_transmissions_k. Let R_channel_conflict_k be the minimal value of y that solves Equation (11) starting with y = R_channel_k. Then R_channel_conflict_k is an upper bound of the worst case end-to-end delay of flow_k.",
+        "variables": {
+          "flow_k": "An individual real-time data flow",
+          "flow_set": "The set of all individual real-time data flows",
+          "R_channel_k": "The pseudo upper bound of flow_k's delay due to channel contention only (from Equation (10)).",
+          "num_transmissions_k": "Number of transmissions for flow_k.",
+          "R_channel_conflict_k": "The final upper bound of flow_k's delay due to both channel contention and conflicts (from Equation (11))."
+        },
+        "assumptions": [
+          "Flows are ordered by priority (flow_1 highest, flow_N lowest).",
+          "The analysis proceeds in decreasing order of priority.",
+          "The iterative fixed-point algorithms for Equations (10) and (11) converge or report unschedulable."
+        ],
+        "conclusion": "The calculated R_channel_conflict_k provides a safe upper bound for the worst-case end-to-end delay of any flow_k in the WirelessHART network."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem formally states that the two-step iterative process (first for channel contention, then adding conflicts) correctly calculates the maximum possible delay a packet will experience. The proof uses induction: it shows that the highest priority task's delay is trivial, and then assumes the bound is correct for all higher priority tasks to prove it for the current task.",
+        "steps": [
+          "**Base Case (k=1, highest priority flow_1):** For flow_1, there are no higher priority flows, so Omega_1_x = 0 and Theta_1_y = 0. Equation (10) yields R_channel_1 = num_transmissions_1. Equation (11) yields R_channel_conflict_1 = num_transmissions_1. This is correct as flow_1 cannot be delayed.",
+          "**Inductive Hypothesis:** Assume that R_channel_conflict_h is a correct upper bound for all flows flow_h with h < k.",
+          "**Inductive Step (for flow_k):**",
+          "**Step 1 (R_channel_k):** Calculate R_channel_k using Equation (10). This step uses the *already computed* R_channel_conflict_h values for all higher priority flows flow_h (h < k) when calculating their carry-in workload (mu_h_updated in Equation (9)). This ensures that the interference from higher priority flows is accurately accounted for, assuming no conflicts for flow_k itself. Thus, R_channel_k is a valid upper bound for delay due to channel contention only.",
+          "**Step 2 (R_channel_conflict_k):** Calculate R_channel_conflict_k using Equation (11). This step adds the worst-case conflict delay (Theta_k_y) to R_channel_k. Since conflicts cause delays independently of channel availability, adding them directly to the channel contention delay provides the total worst-case delay. The iterative nature ensures the fixed point is a safe upper bound.",
+          "Therefore, by induction, R_channel_conflict_k is a safe upper bound for all flows."
+        ],
+        "pseudocode": "def prove_theorem_2(flow_set, num_channels):\n    # This is a conceptual proof sketch, not executable code\n    # The actual implementation is the iterative calculation of R_channel_conflict_k for each flow.\n\n    # Base Case: flow_1 (highest priority)\n    flow_1 = flow_set[0] # Assuming flow_set is sorted by priority\n    R_channel_1 = flow_1.num_transmissions\n    R_channel_conflict_1 = R_channel_1\n    assert R_channel_conflict_1 == flow_1.num_transmissions # No interference possible\n\n    # Inductive Step: For flow_k\n    for k in range(1, len(flow_set)):\n        flow_k = flow_set[k]\n        hp_flows_k = flow_set[:k] # All flows with higher priority\n\n        # Assume R_channel_conflict_h is correct for all h < k\n        # (These values are used in calculate_total_interference_channel_contention for flow_k)\n\n        # Step 1: Calculate R_channel_k (channel contention only)\n        R_channel_k = calculate_R_channel_k(flow_k, hp_flows_k, num_channels, flow_k.deadline)\n        \n        # Step 2: Calculate R_channel_conflict_k (channel contention + conflicts)\n        R_channel_conflict_k = calculate_R_channel_conflict_k(flow_k, hp_flows_k, R_channel_k, flow_k.deadline)\n        \n        # Assert that R_channel_conflict_k is indeed an upper bound\n        # This assertion is the core of the proof, showing it covers all delays.\n        # (Actual assertion would require a formal model and simulation/verification)\n        print(f\"R_channel_conflict for flow {flow_k.id} is {R_channel_conflict_k}\")\n    \n    return True # Theorem holds",
+        "key_insights": [
+          "The proof relies on mathematical induction on priority levels.",
+          "The sequential calculation of response times (highest priority first) is critical, as lower priority tasks depend on the calculated bounds of higher priority tasks.",
+          "Separating channel contention and conflict delays, then combining them, is the novel aspect of this analysis."
+        ]
+      },
+      "dependencies": [
+        "Claim: Sufficiency of WCRT for Schedulability",
+        "Definition: Flow (for analysis)",
+        "Definition: Number of Transmissions (C_i)",
+        "Definition: Higher Priority Flows (hp_flow_i)",
+        "Definition: Num Channels (m)",
+        "Equation (10): Pseudo Upper Bound (R_channel_k)",
+        "Equation (11): Final Upper Bound (R_channel_conflict_k)"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1399 @@
+{
+  "paper_id": "10.1109_RTAS48715.2020.000-3",
+  "source": "ieee",
+  "title": "A Holistic Memory Contention Analysis for Parallel Real-Time Tasks under Partitioned Scheduling",
+  "authors": [
+    "Daniel Casini",
+    "Alessandro Biondi",
+    "Geoffrey Nelissen",
+    "Giorgio Buttazzo"
+  ],
+  "published": "2020",
+  "pdf_path": "/lclhome/sshah169/Desktop/Sadat/0_phd/2_projects/4_neural_theorem_prover/10-IEEE-paper-download/xplore-python3-2025-sdk/rts_papers_output/pdfs/A_Holistic_Memory_Contention_Analysis_for_Parallel_Real-Time_Tasks_under_Partitioned_Scheduling.pdf",
+  "xml_path": "/lclhome/sshah169/Desktop/Sadat/0_phd/2_projects/4_neural_theorem_prover/10-IEEE-paper-download/xplore-python3-2025-sdk/rts_papers_output/pdfs/xml/A_Holistic_Memory_Contention_Analysis_for_Parallel_Real-Time_Tasks_under_Partitioned_Scheduling.xml",
+  "extraction": {
+    "paper_name": "A Holistic Memory Contention Analysis for Parallel Real-Time Tasks under Partitioned Scheduling",
+    "paper_description": "This paper proposes a fine-grained, holistic analysis for memory contention experienced by parallel real-time tasks on multi-core platforms. It leverages a three-phase execution model and formulates an optimization problem (Linear Program) to bound memory interference, considering multiple memory transactions. The analysis aims to reduce pessimism in worst-case memory access delays for schedulability analysis.",
+    "results": [
+      {
+        "type": "definition",
+        "identifier": "Task Schedulability",
+        "formal_description": {
+          "statement": "A task task_i is said to be schedulable if all its jobs complete within deadline_i time units after its release.",
+          "variables": {
+            "task_i": "A sporadic parallel real-time task",
+            "deadline_i": "Relative (constrained) deadline of task_i"
+          },
+          "assumptions": [],
+          "conclusion": "Defines what it means for a single task to be schedulable."
+        },
+        "informal_sketch": {
+          "intuition": "A task is considered 'schedulable' if every time it's released, it finishes all its work before its specified deadline. This is the fundamental goal of real-time scheduling.",
+          "steps": [
+            "For every job of task_i:",
+            "  Measure or calculate its completion time.",
+            "  Check if completion_time <= deadline_i.",
+            "If this holds for all jobs, task_i is schedulable."
+          ],
+          "pseudocode": "def is_task_schedulable(task_i):\n    # This is a conceptual check, actual schedulability involves WCRT analysis\n    for job in task_i.jobs:\n        if job.completion_time > task_i.deadline_i:\n            return False\n    return True",
+          "key_insights": [
+            "Schedulability is a binary property (yes/no) for a task.",
+            "It's tied directly to meeting deadlines."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "Task Set Schedulability",
+        "formal_description": {
+          "statement": "A task set task_set_gamma is schedulable if each task task_i in task_set_gamma is schedulable.",
+          "variables": {
+            "task_set_gamma": "A set of sporadic parallel real-time tasks",
+            "task_i": "A task belonging to task_set_gamma"
+          },
+          "assumptions": [],
+          "conclusion": "Defines what it means for a collection of tasks to be schedulable."
+        },
+        "informal_sketch": {
+          "intuition": "If all individual tasks in a system can meet their deadlines, then the entire system (task set) is considered schedulable. The system is only as strong as its weakest link.",
+          "steps": [
+            "Iterate through each task task_i in task_set_gamma.",
+            "For each task_i, check if it is schedulable (using the 'Task Schedulability' definition).",
+            "If all tasks are schedulable, then task_set_gamma is schedulable."
+          ],
+          "pseudocode": "def is_task_set_schedulable(task_set_gamma):\n    for task_i in task_set_gamma:\n        if not is_task_schedulable(task_i):\n            return False\n    return True",
+          "key_insights": [
+            "System-level schedulability is an aggregation of individual task schedulability.",
+            "A single unschedulable task makes the entire set unschedulable."
+          ]
+        },
+        "dependencies": [
+          "Task Schedulability"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "Interference (General)",
+        "formal_description": {
+          "statement": "A request request_y is said to suffer interference from another request request_x if request_y is pending while request_x is served.",
+          "variables": {
+            "request_x": "An arbitrary memory request",
+            "request_y": "An arbitrary memory request"
+          },
+          "assumptions": [],
+          "conclusion": "Defines the general concept of memory interference."
+        },
+        "informal_sketch": {
+          "intuition": "Interference occurs when one memory request has to wait because another memory request is currently being processed. It's a delay caused by concurrent access to a shared resource.",
+          "steps": [
+            "Identify a time interval where request_y is waiting (pending).",
+            "During this interval, if request_x is actively being served by the memory controller,",
+            "Then request_y is said to suffer interference from request_x."
+          ],
+          "pseudocode": "def suffers_interference(request_y, request_x):\n    # Conceptual check based on timing intervals\n    if request_y.is_pending() and request_x.is_being_served():\n        return True\n    return False",
+          "key_insights": [
+            "Interference is a delay mechanism.",
+            "It's defined by overlapping activity: one request waiting, another being served."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "Intra-bank Interference",
+        "formal_description": {
+          "statement": "A request request_y is said to suffer intra-bank interference from another request request_x if request_x and request_y target the same bank and request_y suffers interference from request_x.",
+          "variables": {
+            "request_x": "An arbitrary memory request",
+            "request_y": "An arbitrary memory request",
+            "bank": "The memory bank targeted by both requests"
+          },
+          "assumptions": [],
+          "conclusion": "Defines interference occurring within the same memory bank."
+        },
+        "informal_sketch": {
+          "intuition": "This is a specific type of interference where two requests are trying to access the *same* memory bank. Since a bank can typically only serve one request at a time, one request will have to wait for the other.",
+          "steps": [
+            "Check if request_x and request_y target the same memory bank.",
+            "If they do, and request_y is delayed by request_x (as per 'Interference (General)' definition),",
+            "Then request_y suffers intra-bank interference from request_x."
+          ],
+          "pseudocode": "def suffers_intra_bank_interference(request_y, request_x):\n    if request_x.target_bank == request_y.target_bank:\n        if suffers_interference(request_y, request_x):\n            return True\n    return False",
+          "key_insights": [
+            "Requires both requests to target the same bank.",
+            "Often involves specific bank-level timing constraints (e.g., row-buffer conflicts)."
+          ]
+        },
+        "dependencies": [
+          "Interference (General)"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "Inter-bank Interference",
+        "formal_description": {
+          "statement": "A request request_y is said to suffer inter-bank interference from another request request_x if request_x and request_y target different banks.",
+          "variables": {
+            "request_x": "An arbitrary memory request",
+            "request_y": "An arbitrary memory request",
+            "bank_x": "The memory bank targeted by request_x",
+            "bank_y": "The memory bank targeted by request_y"
+          },
+          "assumptions": [],
+          "conclusion": "Defines interference occurring between different memory banks."
+        },
+        "informal_sketch": {
+          "intuition": "This type of interference happens when requests target *different* memory banks but still contend for shared resources like the memory controller's inter-bank scheduler or shared buses. Even if banks can operate in parallel, these shared components can cause delays.",
+          "steps": [
+            "Check if request_x and request_y target different memory banks.",
+            "If they do, and request_y is delayed by request_x (as per 'Interference (General)' definition),",
+            "Then request_y suffers inter-bank interference from request_x."
+          ],
+          "pseudocode": "def suffers_inter_bank_interference(request_y, request_x):\n    if request_x.target_bank != request_y.target_bank:\n        if suffers_interference(request_y, request_x):\n            return True\n    return False",
+          "key_insights": [
+            "Requires requests to target different banks.",
+            "Caused by contention for shared resources *external* to the individual banks (e.g., command/data buses, inter-bank scheduler)."
+          ]
+        },
+        "dependencies": [
+          "Interference (General)"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "Direct Inter-bank Interference",
+        "formal_description": {
+          "statement": "A request request_x is said to suffer direct inter-bank interference when it is at the top of its intra-bank queue (i.e., it is the next request to be served for that bank) and it is suffering inter-bank interference.",
+          "variables": {
+            "request_x": "A memory request",
+            "intra_bank_queue_x": "The queue for the bank targeted by request_x"
+          },
+          "assumptions": [],
+          "conclusion": "Defines a specific scenario of inter-bank interference where the request is ready to be served by its bank but is blocked by other banks."
+        },
+        "informal_sketch": {
+          "intuition": "This is when a request is 'ready to go' from its own bank's perspective (it's at the front of its queue), but it's still waiting because the memory controller's global scheduler is busy serving requests from *other* banks.",
+          "steps": [
+            "Check if request_x is the highest priority request in its specific bank's queue.",
+            "Check if request_x is currently experiencing inter-bank interference.",
+            "If both are true, it's direct inter-bank interference."
+          ],
+          "pseudocode": "def suffers_direct_inter_bank_interference(request_x, memory_controller):\n    if memory_controller.is_top_of_bank_queue(request_x) and \\\n       memory_controller.is_suffering_inter_bank_interference(request_x):\n        return True\n    return False",
+          "key_insights": [
+            "Implies the request is ready at the bank level.",
+            "Contention is purely at the global (inter-bank) scheduling level."
+          ]
+        },
+        "dependencies": [
+          "Inter-bank Interference"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "Transitive Inter-bank Interference",
+        "formal_description": {
+          "statement": "A request request_x is said to suffer transitive inter-bank interference when another request request_y causing intra-bank interference to request_x is suffering inter-bank interference.",
+          "variables": {
+            "request_x": "A memory request",
+            "request_y": "Another memory request"
+          },
+          "assumptions": [],
+          "conclusion": "Defines a chain of interference where intra-bank interference is further delayed by inter-bank interference."
+        },
+        "informal_sketch": {
+          "intuition": "This is a more complex scenario: request_x is waiting for request_y (intra-bank interference), but request_y itself is delayed because the memory controller is busy with other banks (inter-bank interference). So, request_x's delay is 'transitively' caused by inter-bank contention.",
+          "steps": [
+            "Identify if request_y is causing intra-bank interference to request_x.",
+            "Then, check if request_y itself is suffering inter-bank interference.",
+            "If both are true, request_x suffers transitive inter-bank interference."
+          ],
+          "pseudocode": "def suffers_transitive_inter_bank_interference(request_x, request_y):\n    if suffers_intra_bank_interference(request_x, request_y) and \\\n       suffers_inter_bank_interference(request_y, any_other_request):\n        return True\n    return False",
+          "key_insights": [
+            "Involves a two-step delay: intra-bank then inter-bank.",
+            "Highlights how different types of interference can combine."
+          ]
+        },
+        "dependencies": [
+          "Intra-bank Interference",
+          "Inter-bank Interference"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: intra_bank_row_conflict_k_y",
+        "formal_description": {
+          "statement": "intra_bank_row_conflict_k_y is a non-negative real variable representing the number of read requests issued by processor_k to bank_y that cause intra-bank interference over a row conflict to the copy-in phase of node_i_j.",
+          "variables": {
+            "intra_bank_row_conflict_k_y": "Number of interfering requests (type: intra-bank, row-conflict)",
+            "processor_k": "A remote processor",
+            "bank_y": "A memory bank",
+            "node_i_j": "The node under analysis"
+          },
+          "assumptions": [],
+          "conclusion": "Quantifies a specific type of intra-bank interference for the LP."
+        },
+        "informal_sketch": {
+          "intuition": "This variable counts how many times a read request from a remote processor (processor_k) to a specific bank (bank_y) causes a delay to our node's (node_i_j) read requests, specifically when both requests target the same bank and the interfering request causes a 'row conflict' (meaning a new row has to be loaded into the bank's buffer).",
+          "steps": [
+            "Initialize intra_bank_row_conflict_k_y to 0.",
+            "For each read request 'r_remote' from processor_k to bank_y:",
+            "  For each read request 'r_local' from node_i_j to bank_y:",
+            "    If 'r_remote' interferes with 'r_local' (intra-bank) AND 'r_remote' is a row-conflict:",
+            "      Increment intra_bank_row_conflict_k_y."
+          ],
+          "pseudocode": "intra_bank_row_conflict_k_y = 0.0 # LP variable\n# Conceptual counting logic:\nfor r_remote in get_read_requests(processor_k, bank_y):\n    for r_local in get_read_requests(node_i_j, bank_y):\n        if is_intra_bank_interference(r_remote, r_local) and is_row_conflict(r_remote):\n            intra_bank_row_conflict_k_y += 1",
+          "key_insights": [
+            "Focuses on intra-bank interference.",
+            "Distinguishes between row-hit and row-conflict, as row-conflicts are typically more costly."
+          ]
+        },
+        "dependencies": [
+          "Intra-bank Interference"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: intra_bank_promoted_k_y",
+        "formal_description": {
+          "statement": "intra_bank_promoted_k_y is a non-negative real variable representing the number of read requests issued by processor_k to bank_y that cause intra-bank interference as a row-hit (promoted) to the copy-in phase of node_i_j.",
+          "variables": {
+            "intra_bank_promoted_k_y": "Number of interfering requests (type: intra-bank, row-hit/promoted)",
+            "processor_k": "A remote processor",
+            "bank_y": "A memory bank",
+            "node_i_j": "The node under analysis"
+          },
+          "assumptions": [],
+          "conclusion": "Quantifies a specific type of intra-bank interference for the LP."
+        },
+        "informal_sketch": {
+          "intuition": "This variable counts how many times a read request from a remote processor (processor_k) to a specific bank (bank_y) causes a delay to our node's (node_i_j) read requests, specifically when both requests target the same bank and the interfering request is a 'row-hit' (meaning the data is already in the bank's buffer) and thus 'promoted' by the FR-FCFS policy.",
+          "steps": [
+            "Initialize intra_bank_promoted_k_y to 0.",
+            "For each read request 'r_remote' from processor_k to bank_y:",
+            "  For each read request 'r_local' from node_i_j to bank_y:",
+            "    If 'r_remote' interferes with 'r_local' (intra-bank) AND 'r_remote' is a row-hit (promoted):",
+            "      Increment intra_bank_promoted_k_y."
+          ],
+          "pseudocode": "intra_bank_promoted_k_y = 0.0 # LP variable\n# Conceptual counting logic:\nfor r_remote in get_read_requests(processor_k, bank_y):\n    for r_local in get_read_requests(node_i_j, bank_y):\n        if is_intra_bank_interference(r_remote, r_local) and is_row_hit(r_remote):\n            intra_bank_promoted_k_y += 1",
+          "key_insights": [
+            "Focuses on intra-bank interference.",
+            "Distinguishes row-hits, which are faster but can still cause contention due to FR-FCFS reordering."
+          ]
+        },
+        "dependencies": [
+          "Intra-bank Interference"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: inter_bank_promoted_k_y",
+        "formal_description": {
+          "statement": "inter_bank_promoted_k_y is a non-negative real variable representing the number of read requests issued by processor_k to bank_y that cause inter-bank interference to a promoted request of the copy-in phase of node_i_j.",
+          "variables": {
+            "inter_bank_promoted_k_y": "Number of interfering requests (type: inter-bank, to a promoted request)",
+            "processor_k": "A remote processor",
+            "bank_y": "A memory bank",
+            "node_i_j": "The node under analysis"
+          },
+          "assumptions": [],
+          "conclusion": "Quantifies a specific type of inter-bank interference for the LP."
+        },
+        "informal_sketch": {
+          "intuition": "This variable counts how many times a read request from a remote processor (processor_k) to bank_y causes a delay to one of our node's (node_i_j) read requests that *itself* was a row-hit and got promoted. This is a form of transitive inter-bank interference.",
+          "steps": [
+            "Initialize inter_bank_promoted_k_y to 0.",
+            "For each read request 'r_remote' from processor_k to bank_y:",
+            "  For each read request 'r_local' from node_i_j (to a different bank):",
+            "    If 'r_remote' interferes with 'r_local' (inter-bank) AND 'r_local' was a promoted request:",
+            "      Increment inter_bank_promoted_k_y."
+          ],
+          "pseudocode": "inter_bank_promoted_k_y = 0.0 # LP variable\n# Conceptual counting logic:\nfor r_remote in get_read_requests(processor_k, bank_y):\n    for r_local in get_read_requests(node_i_j, any_other_bank):\n        if is_inter_bank_interference(r_remote, r_local) and is_promoted_request(r_local):\n            inter_bank_promoted_k_y += 1",
+          "key_insights": [
+            "Focuses on inter-bank interference.",
+            "Specifically targets interference with requests that have already been prioritized (promoted) within their own bank."
+          ]
+        },
+        "dependencies": [
+          "Inter-bank Interference"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: inter_bank_direct_k_y",
+        "formal_description": {
+          "statement": "inter_bank_direct_k_y is a non-negative real variable representing the number of read requests issued by processor_k to bank_y that cause inter-bank interference to a non-promoted (direct) request of the copy-in phase of node_i_j.",
+          "variables": {
+            "inter_bank_direct_k_y": "Number of interfering requests (type: inter-bank, to a direct request)",
+            "processor_k": "A remote processor",
+            "bank_y": "A memory bank",
+            "node_i_j": "The node under analysis"
+          },
+          "assumptions": [],
+          "conclusion": "Quantifies a specific type of inter-bank interference for the LP."
+        },
+        "informal_sketch": {
+          "intuition": "This variable counts how many times a read request from a remote processor (processor_k) to bank_y causes a delay to one of our node's (node_i_j) read requests that was *not* a row-hit and thus not promoted. This is a form of direct inter-bank interference.",
+          "steps": [
+            "Initialize inter_bank_direct_k_y to 0.",
+            "For each read request 'r_remote' from processor_k to bank_y:",
+            "  For each read request 'r_local' from node_i_j (to a different bank):",
+            "    If 'r_remote' interferes with 'r_local' (inter-bank) AND 'r_local' was a non-promoted request:",
+            "      Increment inter_bank_direct_k_y."
+          ],
+          "pseudocode": "inter_bank_direct_k_y = 0.0 # LP variable\n# Conceptual counting logic:\nfor r_remote in get_read_requests(processor_k, bank_y):\n    for r_local in get_read_requests(node_i_j, any_other_bank):\n        if is_inter_bank_interference(r_remote, r_local) and not is_promoted_request(r_local):\n            inter_bank_direct_k_y += 1",
+          "key_insights": [
+            "Focuses on inter-bank interference.",
+            "Specifically targets interference with requests that are not prioritized within their own bank."
+          ]
+        },
+        "dependencies": [
+          "Inter-bank Interference"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: total_intra_bank_row_conflict",
+        "formal_description": {
+          "statement": "total_intra_bank_row_conflict = sum_{processor_k in remote_processors_node_i_j} sum_{bank_y in bank_set_B} intra_bank_row_conflict_k_y",
+          "variables": {
+            "total_intra_bank_row_conflict": "Total count of intra-bank row-conflict interfering requests",
+            "intra_bank_row_conflict_k_y": "Count for a specific processor and bank",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "bank_set_B": "Set of all memory banks"
+          },
+          "assumptions": [],
+          "conclusion": "Aggregates all intra-bank row-conflict interference counts."
+        },
+        "informal_sketch": {
+          "intuition": "This is the grand total of all intra-bank row-conflict interferences from all remote processors across all memory banks that could affect the node under analysis. It's a sum of all individual intra_bank_row_conflict_k_y variables.",
+          "steps": [
+            "Initialize total_intra_bank_row_conflict to 0.",
+            "For each remote processor processor_k:",
+            "  For each memory bank bank_y:",
+            "    Add intra_bank_row_conflict_k_y to total_intra_bank_row_conflict."
+          ],
+          "pseudocode": "total_intra_bank_row_conflict = 0.0\nfor processor_k in remote_processors_node_i_j:\n    for bank_y in bank_set_B:\n        total_intra_bank_row_conflict += intra_bank_row_conflict_k_y[processor_k][bank_y]",
+          "key_insights": [
+            "Provides a system-wide view of a specific interference type.",
+            "Used in the objective function to calculate total contention cost."
+          ]
+        },
+        "dependencies": [
+          "LP Variable: intra_bank_row_conflict_k_y"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: total_intra_bank_promoted",
+        "formal_description": {
+          "statement": "total_intra_bank_promoted = sum_{processor_k in remote_processors_node_i_j} sum_{bank_y in bank_set_B} intra_bank_promoted_k_y",
+          "variables": {
+            "total_intra_bank_promoted": "Total count of intra-bank promoted interfering requests",
+            "intra_bank_promoted_k_y": "Count for a specific processor and bank",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "bank_set_B": "Set of all memory banks"
+          },
+          "assumptions": [],
+          "conclusion": "Aggregates all intra-bank promoted interference counts."
+        },
+        "informal_sketch": {
+          "intuition": "This is the grand total of all intra-bank promoted (row-hit) interferences from all remote processors across all memory banks that could affect the node under analysis. It's a sum of all individual intra_bank_promoted_k_y variables.",
+          "steps": [
+            "Initialize total_intra_bank_promoted to 0.",
+            "For each remote processor processor_k:",
+            "  For each memory bank bank_y:",
+            "    Add intra_bank_promoted_k_y to total_intra_bank_promoted."
+          ],
+          "pseudocode": "total_intra_bank_promoted = 0.0\nfor processor_k in remote_processors_node_i_j:\n    for bank_y in bank_set_B:\n        total_intra_bank_promoted += intra_bank_promoted_k_y[processor_k][bank_y]",
+          "key_insights": [
+            "Provides a system-wide view of a specific interference type.",
+            "Used in the objective function to calculate total contention cost."
+          ]
+        },
+        "dependencies": [
+          "LP Variable: intra_bank_promoted_k_y"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: total_inter_bank_promoted",
+        "formal_description": {
+          "statement": "total_inter_bank_promoted = sum_{processor_k in remote_processors_node_i_j} sum_{bank_y in bank_set_B} inter_bank_promoted_k_y",
+          "variables": {
+            "total_inter_bank_promoted": "Total count of inter-bank promoted interfering requests",
+            "inter_bank_promoted_k_y": "Count for a specific processor and bank",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "bank_set_B": "Set of all memory banks"
+          },
+          "assumptions": [],
+          "conclusion": "Aggregates all inter-bank promoted interference counts."
+        },
+        "informal_sketch": {
+          "intuition": "This is the grand total of all inter-bank interferences that affect promoted requests, from all remote processors across all memory banks. It's a sum of all individual inter_bank_promoted_k_y variables.",
+          "steps": [
+            "Initialize total_inter_bank_promoted to 0.",
+            "For each remote processor processor_k:",
+            "  For each memory bank bank_y:",
+            "    Add inter_bank_promoted_k_y to total_inter_bank_promoted."
+          ],
+          "pseudocode": "total_inter_bank_promoted = 0.0\nfor processor_k in remote_processors_node_i_j:\n    for bank_y in bank_set_B:\n        total_inter_bank_promoted += inter_bank_promoted_k_y[processor_k][bank_y]",
+          "key_insights": [
+            "Provides a system-wide view of a specific interference type.",
+            "Used in the objective function to calculate total contention cost."
+          ]
+        },
+        "dependencies": [
+          "LP Variable: inter_bank_promoted_k_y"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: total_inter_bank_direct",
+        "formal_description": {
+          "statement": "total_inter_bank_direct = sum_{processor_k in remote_processors_node_i_j} sum_{bank_y in bank_set_B} inter_bank_direct_k_y",
+          "variables": {
+            "total_inter_bank_direct": "Total count of inter-bank direct interfering requests",
+            "inter_bank_direct_k_y": "Count for a specific processor and bank",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "bank_set_B": "Set of all memory banks"
+          },
+          "assumptions": [],
+          "conclusion": "Aggregates all inter-bank direct interference counts."
+        },
+        "informal_sketch": {
+          "intuition": "This is the grand total of all inter-bank interferences that affect non-promoted (direct) requests, from all remote processors across all memory banks. It's a sum of all individual inter_bank_direct_k_y variables.",
+          "steps": [
+            "Initialize total_inter_bank_direct to 0.",
+            "For each remote processor processor_k:",
+            "  For each memory bank bank_y:",
+            "    Add inter_bank_direct_k_y to total_inter_bank_direct."
+          ],
+          "pseudocode": "total_inter_bank_direct = 0.0\nfor processor_k in remote_processors_node_i_j:\n    for bank_y in bank_set_B:\n        total_inter_bank_direct += inter_bank_direct_k_y[processor_k][bank_y]",
+          "key_insights": [
+            "Provides a system-wide view of a specific interference type.",
+            "Used in the objective function to calculate total contention cost."
+          ]
+        },
+        "dependencies": [
+          "LP Variable: inter_bank_direct_k_y"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: total_inter_bank_interference",
+        "formal_description": {
+          "statement": "total_inter_bank_interference = total_inter_bank_promoted + total_inter_bank_direct",
+          "variables": {
+            "total_inter_bank_interference": "Total count of all inter-bank interfering requests",
+            "total_inter_bank_promoted": "Total count of inter-bank promoted interfering requests",
+            "total_inter_bank_direct": "Total count of inter-bank direct interfering requests"
+          },
+          "assumptions": [],
+          "conclusion": "Aggregates all types of inter-bank interference counts."
+        },
+        "informal_sketch": {
+          "intuition": "This variable simply sums up the two main categories of inter-bank interference (those affecting promoted requests and those affecting direct requests) to get a single total count for all inter-bank contention.",
+          "steps": [
+            "Sum total_inter_bank_promoted and total_inter_bank_direct."
+          ],
+          "pseudocode": "total_inter_bank_interference = total_inter_bank_promoted + total_inter_bank_direct",
+          "key_insights": [
+            "Simplifies the representation of total inter-bank contention.",
+            "Used in the objective function and some constraints."
+          ]
+        },
+        "dependencies": [
+          "LP Variable: total_inter_bank_promoted",
+          "LP Variable: total_inter_bank_direct"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: inter_bank_pre_command_k_y",
+        "formal_description": {
+          "statement": "inter_bank_pre_command_k_y is a non-negative real variable representing the number of read requests issued by processor_k to bank_y that generate inter-bank interference to the PRE command of one of the requests in the copy-in phase of node_i_j.",
+          "variables": {
+            "inter_bank_pre_command_k_y": "Count of inter-bank interfering requests affecting PRE commands",
+            "processor_k": "A remote processor",
+            "bank_y": "A memory bank",
+            "node_i_j": "The node under analysis"
+          },
+          "assumptions": [],
+          "conclusion": "Quantifies inter-bank interference specific to the PRE command phase."
+        },
+        "informal_sketch": {
+          "intuition": "When a memory request involves a 'row conflict', it goes through PRE, ACT, and CAS commands. This variable counts how many remote requests to bank_y interfere specifically with the PRE (precharge) command phase of our node's requests.",
+          "steps": [
+            "Initialize inter_bank_pre_command_k_y to 0.",
+            "For each remote request 'r_remote' from processor_k to bank_y:",
+            "  For each local request 'r_local' from node_i_j (to a different bank):",
+            "    If 'r_remote' interferes with 'r_local' (inter-bank) AND 'r_local' is in its PRE command phase:",
+            "      Increment inter_bank_pre_command_k_y."
+          ],
+          "pseudocode": "inter_bank_pre_command_k_y = 0.0 # LP variable\n# Conceptual counting logic:\nfor r_remote in get_read_requests(processor_k, bank_y):\n    for r_local in get_read_requests(node_i_j, any_other_bank):\n        if is_inter_bank_interference(r_remote, r_local) and r_local.is_in_pre_phase():\n            inter_bank_pre_command_k_y += 1",
+          "key_insights": [
+            "Breaks down inter-bank interference by command type.",
+            "Allows for more fine-grained and potentially less pessimistic cost calculation."
+          ]
+        },
+        "dependencies": [
+          "Inter-bank Interference"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: inter_bank_act_command_k_y",
+        "formal_description": {
+          "statement": "inter_bank_act_command_k_y is a non-negative real variable representing the number of read requests issued by processor_k to bank_y that generate inter-bank interference to the ACT command of one of the requests in the copy-in phase of node_i_j.",
+          "variables": {
+            "inter_bank_act_command_k_y": "Count of inter-bank interfering requests affecting ACT commands",
+            "processor_k": "A remote processor",
+            "bank_y": "A memory bank",
+            "node_i_j": "The node under analysis"
+          },
+          "assumptions": [],
+          "conclusion": "Quantifies inter-bank interference specific to the ACT command phase."
+        },
+        "informal_sketch": {
+          "intuition": "This variable counts how many remote requests to bank_y interfere specifically with the ACT (activate) command phase of our node's requests. The ACT command loads a row into the row-buffer.",
+          "steps": [
+            "Initialize inter_bank_act_command_k_y to 0.",
+            "For each remote request 'r_remote' from processor_k to bank_y:",
+            "  For each local request 'r_local' from node_i_j (to a different bank):",
+            "    If 'r_remote' interferes with 'r_local' (inter-bank) AND 'r_local' is in its ACT command phase:",
+            "      Increment inter_bank_act_command_k_y."
+          ],
+          "pseudocode": "inter_bank_act_command_k_y = 0.0 # LP variable\n# Conceptual counting logic:\nfor r_remote in get_read_requests(processor_k, bank_y):\n    for r_local in get_read_requests(node_i_j, any_other_bank):\n        if is_inter_bank_interference(r_remote, r_local) and r_local.is_in_act_phase():\n            inter_bank_act_command_k_y += 1",
+          "key_insights": [
+            "Breaks down inter-bank interference by command type.",
+            "Allows for more fine-grained and potentially less pessimistic cost calculation."
+          ]
+        },
+        "dependencies": [
+          "Inter-bank Interference"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: inter_bank_cas_command_k_y",
+        "formal_description": {
+          "statement": "inter_bank_cas_command_k_y is a non-negative real variable representing the number of read requests issued by processor_k to bank_y that generate inter-bank interference to the CAS command of one of the requests in the copy-in phase of node_i_j.",
+          "variables": {
+            "inter_bank_cas_command_k_y": "Count of inter-bank interfering requests affecting CAS commands",
+            "processor_k": "A remote processor",
+            "bank_y": "A memory bank",
+            "node_i_j": "The node under analysis"
+          },
+          "assumptions": [],
+          "conclusion": "Quantifies inter-bank interference specific to the CAS command phase."
+        },
+        "informal_sketch": {
+          "intuition": "This variable counts how many remote requests to bank_y interfere specifically with the CAS (column access strobe) command phase of our node's requests. The CAS command is for reading/writing the actual data.",
+          "steps": [
+            "Initialize inter_bank_cas_command_k_y to 0.",
+            "For each remote request 'r_remote' from processor_k to bank_y:",
+            "  For each local request 'r_local' from node_i_j (to a different bank):",
+            "    If 'r_remote' interferes with 'r_local' (inter-bank) AND 'r_local' is in its CAS command phase:",
+            "      Increment inter_bank_cas_command_k_y."
+          ],
+          "pseudocode": "inter_bank_cas_command_k_y = 0.0 # LP variable\n# Conceptual counting logic:\nfor r_remote in get_read_requests(processor_k, bank_y):\n    for r_local in get_read_requests(node_i_j, any_other_bank):\n        if is_inter_bank_interference(r_remote, r_local) and r_local.is_in_cas_phase():\n            inter_bank_cas_command_k_y += 1",
+          "key_insights": [
+            "Breaks down inter-bank interference by command type.",
+            "Allows for more fine-grained and potentially less pessimistic cost calculation."
+          ]
+        },
+        "dependencies": [
+          "Inter-bank Interference"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: total_inter_bank_pre_command",
+        "formal_description": {
+          "statement": "total_inter_bank_pre_command = sum_{processor_k in remote_processors_node_i_j} sum_{bank_y in bank_set_B} inter_bank_pre_command_k_y",
+          "variables": {
+            "total_inter_bank_pre_command": "Total count of inter-bank interfering requests affecting PRE commands",
+            "inter_bank_pre_command_k_y": "Count for a specific processor and bank",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "bank_set_B": "Set of all memory banks"
+          },
+          "assumptions": [],
+          "conclusion": "Aggregates all inter-bank PRE command interference counts."
+        },
+        "informal_sketch": {
+          "intuition": "This is the total number of remote requests that interfere with the PRE command phase of our node's requests, summed across all remote processors and banks. It's used for calculating the total PRE command contention cost.",
+          "steps": [
+            "Initialize total_inter_bank_pre_command to 0.",
+            "For each remote processor processor_k:",
+            "  For each memory bank bank_y:",
+            "    Add inter_bank_pre_command_k_y to total_inter_bank_pre_command."
+          ],
+          "pseudocode": "total_inter_bank_pre_command = 0.0\nfor processor_k in remote_processors_node_i_j:\n    for bank_y in bank_set_B:\n        total_inter_bank_pre_command += inter_bank_pre_command_k_y[processor_k][bank_y]",
+          "key_insights": [
+            "Provides a system-wide view of PRE command contention.",
+            "Used in the refined inter-bank contention cost calculation (Approach II)."
+          ]
+        },
+        "dependencies": [
+          "LP Variable: inter_bank_pre_command_k_y"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: total_inter_bank_act_command",
+        "formal_description": {
+          "statement": "total_inter_bank_act_command = sum_{processor_k in remote_processors_node_i_j} sum_{bank_y in bank_set_B} inter_bank_act_command_k_y",
+          "variables": {
+            "total_inter_bank_act_command": "Total count of inter-bank interfering requests affecting ACT commands",
+            "inter_bank_act_command_k_y": "Count for a specific processor and bank",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "bank_set_B": "Set of all memory banks"
+          },
+          "assumptions": [],
+          "conclusion": "Aggregates all inter-bank ACT command interference counts."
+        },
+        "informal_sketch": {
+          "intuition": "This is the total number of remote requests that interfere with the ACT command phase of our node's requests, summed across all remote processors and banks. It's used for calculating the total ACT command contention cost.",
+          "steps": [
+            "Initialize total_inter_bank_act_command to 0.",
+            "For each remote processor processor_k:",
+            "  For each memory bank bank_y:",
+            "    Add inter_bank_act_command_k_y to total_inter_bank_act_command."
+          ],
+          "pseudocode": "total_inter_bank_act_command = 0.0\nfor processor_k in remote_processors_node_i_j:\n    for bank_y in bank_set_B:\n        total_inter_bank_act_command += inter_bank_act_command_k_y[processor_k][bank_y]",
+          "key_insights": [
+            "Provides a system-wide view of ACT command contention.",
+            "Used in the refined inter-bank contention cost calculation (Approach II)."
+          ]
+        },
+        "dependencies": [
+          "LP Variable: inter_bank_act_command_k_y"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "LP Variable: total_inter_bank_cas_command",
+        "formal_description": {
+          "statement": "total_inter_bank_cas_command = sum_{processor_k in remote_processors_node_i_j} sum_{bank_y in bank_set_B} inter_bank_cas_command_k_y",
+          "variables": {
+            "total_inter_bank_cas_command": "Total count of inter-bank interfering requests affecting CAS commands",
+            "inter_bank_cas_command_k_y": "Count for a specific processor and bank",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "bank_set_B": "Set of all memory banks"
+          },
+          "assumptions": [],
+          "conclusion": "Aggregates all inter-bank CAS command interference counts."
+        },
+        "informal_sketch": {
+          "intuition": "This is the total number of remote requests that interfere with the CAS command phase of our node's requests, summed across all remote processors and banks. It's used for calculating the total CAS command contention cost.",
+          "steps": [
+            "Initialize total_inter_bank_cas_command to 0.",
+            "For each remote processor processor_k:",
+            "  For each memory bank bank_y:",
+            "    Add inter_bank_cas_command_k_y to total_inter_bank_cas_command."
+          ],
+          "pseudocode": "total_inter_bank_cas_command = 0.0\nfor processor_k in remote_processors_node_i_j:\n    for bank_y in bank_set_B:\n        total_inter_bank_cas_command += inter_bank_cas_command_k_y[processor_k][bank_y]",
+          "key_insights": [
+            "Provides a system-wide view of CAS command contention.",
+            "Used in the refined inter-bank contention cost calculation (Approach II)."
+          ]
+        },
+        "dependencies": [
+          "LP Variable: inter_bank_cas_command_k_y"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Property 1",
+        "formal_description": {
+          "statement": "Each interfering read request request_y may interfere with at most one read request request_x issued by node node_i_j.",
+          "variables": {
+            "request_y": "An interfering read request",
+            "request_x": "A read request issued by node_i_j",
+            "node_i_j": "The node under analysis"
+          },
+          "assumptions": [
+            "Requests are served non-preemptively.",
+            "Read memory accesses are blocking."
+          ],
+          "conclusion": "An interfering request can only delay one pending request from the node under analysis at a time."
+        },
+        "informal_sketch": {
+          "intuition": "Because read requests are blocking, a processor can only have one read request outstanding at any given time. If an interfering request is being served, it can only be delaying that single outstanding request from our node.",
+          "steps": [
+            "Assume node_i_j issues a read request request_x.",
+            "Due to blocking reads, node_i_j cannot issue another read request until request_x completes.",
+            "If an interfering request request_y is served while request_x is pending, request_y can only interfere with request_x.",
+            "It cannot interfere with any other request from node_i_j because no other request is pending."
+          ],
+          "pseudocode": "def check_property_1(node_i_j, interfering_request_y):\n    pending_requests_from_node = node_i_j.get_pending_read_requests()\n    if len(pending_requests_from_node) > 1:\n        # This contradicts the blocking assumption\n        return False\n    # If interfering_request_y is served, it can only interfere with the single pending request (if any)\n    return True",
+          "key_insights": [
+            "Blocking reads simplify interference analysis by limiting concurrent requests from a single source.",
+            "Reduces the complexity of counting interference by ensuring a 1:1 relationship for a given interfering request and the node's requests."
+          ]
+        },
+        "dependencies": [
+          "Interference (General)"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Property 2",
+        "formal_description": {
+          "statement": "At any point in time, for each processor processor_k, there can be at most one pending read request issued by processor_k in the memory controller.",
+          "variables": {
+            "processor_k": "An arbitrary processor"
+          },
+          "assumptions": [
+            "Memory accesses are blocking (as stated in Section III-C)."
+          ],
+          "conclusion": "A processor can only have one outstanding read request at a time."
+        },
+        "informal_sketch": {
+          "intuition": "Since a processor waits for a read request to complete before issuing another one (blocking access), it's impossible for a single processor to have multiple read requests simultaneously waiting in the memory controller.",
+          "steps": [
+            "Assume processor_k issues a read request request_1.",
+            "Due to blocking, processor_k stalls until request_1 is completed.",
+            "Therefore, processor_k cannot issue a second read request request_2 while request_1 is still pending.",
+            "This implies at most one pending read request per processor at any time."
+          ],
+          "pseudocode": "def check_property_2(processor_k):\n    pending_requests = processor_k.get_pending_read_requests_in_controller()\n    if len(pending_requests) > 1:\n        # This would contradict the blocking assumption\n        return False\n    return True",
+          "key_insights": [
+            "The blocking nature of read requests is a strong constraint.",
+            "Limits the maximum number of concurrent read requests originating from a single processor."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "claim",
+        "identifier": "Property 3",
+        "formal_description": {
+          "statement": "Each memory read request request_y can generate either intra-bank or inter-bank interference to another read request request_x != request_y, but not both.",
+          "variables": {
+            "request_x": "A memory read request",
+            "request_y": "Another memory read request"
+          },
+          "assumptions": [],
+          "conclusion": "Interference is mutually exclusive: it's either within a bank or between banks, but not both for a single pair of requests."
+        },
+        "informal_sketch": {
+          "intuition": "The definitions of intra-bank and inter-bank interference are based on whether the requests target the *same* bank or *different* banks. These two conditions are mutually exclusive, so a single pair of requests cannot satisfy both simultaneously.",
+          "steps": [
+            "Recall the definition of intra-bank interference: requests target the same bank.",
+            "Recall the definition of inter-bank interference: requests target different banks.",
+            "Since a pair of requests must either target the same bank OR different banks, but not both, they can only cause one type of interference to each other."
+          ],
+          "pseudocode": "def check_property_3(request_x, request_y):\n    if request_x.target_bank == request_y.target_bank:\n        # Can only be intra-bank interference\n        return True\n    else:\n        # Can only be inter-bank interference\n        return True\n    # Cannot be both",
+          "key_insights": [
+            "Simplifies analysis by categorizing interference into distinct, non-overlapping types.",
+            "Allows for separate bounding of intra-bank and inter-bank delays."
+          ]
+        },
+        "dependencies": [
+          "Intra-bank Interference",
+          "Inter-bank Interference"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Property 4",
+        "formal_description": {
+          "statement": "Each memory read request request_x issued by node node_i_j can suffer interference by at most one memory read request issued before request_x per core processor_k != processor_node_i_j.",
+          "variables": {
+            "request_x": "A memory read request from node_i_j",
+            "node_i_j": "The node under analysis",
+            "processor_k": "A remote processor",
+            "processor_node_i_j": "The processor executing node_i_j"
+          },
+          "assumptions": [],
+          "conclusion": "A remote processor can only have one pending request that arrived before request_x and can interfere with it."
+        },
+        "informal_sketch": {
+          "intuition": "When our node's request (request_x) is issued, any remote processor (processor_k) can only have at most one of its own read requests still pending (due to Property 2). Therefore, only that single pending request from processor_k could have arrived *before* request_x and still be causing interference.",
+          "steps": [
+            "Consider the moment request_x is issued by node_i_j.",
+            "By Property 2, any remote processor processor_k can have at most one read request pending in the memory controller at this time.",
+            "If this pending request from processor_k arrived before request_x, it can interfere.",
+            "No other request from processor_k could have arrived before request_x and still be pending."
+          ],
+          "pseudocode": "def check_property_4(request_x, node_i_j, processor_k):\n    # At the time request_x is issued:\n    # Get pending requests from processor_k\n    pending_from_pk = processor_k.get_pending_read_requests_in_controller()\n    # Filter those that arrived before request_x\n    interfering_before_x = [req for req in pending_from_pk if req.arrival_time < request_x.arrival_time]\n    # Property 2 ensures len(pending_from_pk) <= 1, so len(interfering_before_x) <= 1\n    return len(interfering_before_x) <= 1",
+          "key_insights": [
+            "Leverages Property 2 to bound interference from requests that arrived earlier.",
+            "Crucial for bounding 'older' requests in FR-FCFS scheduling."
+          ]
+        },
+        "dependencies": [
+          "Property 2"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Property 5",
+        "formal_description": {
+          "statement": "Each read memory request request_x targeting bank bank_u in bank_set_B can suffer interference from at most reordering_threshold read requests to the same bank bank_u arrived after request_x.",
+          "variables": {
+            "request_x": "A read memory request",
+            "bank_u": "The memory bank targeted by request_x",
+            "bank_set_B": "Set of all memory banks",
+            "reordering_threshold": "The maximum number of requests that can be re-ordered by FR-FCFS with thresholding (N_thr)"
+          },
+          "assumptions": [
+            "Memory controller uses FR-FCFS intra-bank scheduling (Rule R1).",
+            "FR-FCFS implementation includes thresholding (Rule R2) with at most reordering_threshold re-ordered requests."
+          ],
+          "conclusion": "The number of 'newer' requests that can jump ahead of request_x due to row-hits is bounded by reordering_threshold."
+        },
+        "informal_sketch": {
+          "intuition": "The FR-FCFS policy prioritizes row-hits. This means requests that arrive *after* our request (request_x) but are row-hits to the same bank can be served before request_x. However, to prevent unbounded delays, the memory controller has a 'threshold' (reordering_threshold) on how many such newer requests it will re-order. This property states that this threshold limits the number of such interfering requests.",
+          "steps": [
+            "Consider request_x in the queue for bank_u.",
+            "Other requests arrive later, targeting bank_u.",
+            "If these later requests are row-hits, FR-FCFS (Rule R1) might serve them before request_x.",
+            "However, Rule R2 states that at most reordering_threshold such requests can be re-ordered.",
+            "Therefore, request_x can be interfered by at most reordering_threshold newer, promoted requests."
+          ],
+          "pseudocode": "def check_property_5(request_x, bank_u, reordering_threshold):\n    # Conceptual check based on memory controller rules\n    count_newer_promoted_interfering = 0\n    for r_newer in get_requests_arrived_after(request_x, bank_u):\n        if r_newer.is_row_hit() and r_newer.is_served_before(request_x):\n            count_newer_promoted_interfering += 1\n    return count_newer_promoted_interfering <= reordering_threshold",
+          "key_insights": [
+            "Bounds the 'reordering' effect of FR-FCFS.",
+            "Crucial for bounding 'newer' requests in FR-FCFS scheduling.",
+            "Relies on specific memory controller hardware features (thresholding)."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "claim",
+        "identifier": "Property 6",
+        "formal_description": {
+          "statement": "Each read memory request request_x targeting bank bank_u can suffer direct inter-bank interference from at most one request per other bank bank_y != bank_u.",
+          "variables": {
+            "request_x": "A read memory request",
+            "bank_u": "The memory bank targeted by request_x",
+            "bank_y": "A memory bank different from bank_u"
+          },
+          "assumptions": [
+            "request_x is suffering direct inter-bank interference (i.e., it's at the top of its intra-bank queue).",
+            "The inter-bank scheduler uses a round-robin policy (Rule R4).",
+            "Inter-bank reordering is not allowed (Rule R4)."
+          ],
+          "conclusion": "Due to round-robin scheduling, at most one request from each other bank can be served before request_x gets its turn."
+        },
+        "informal_sketch": {
+          "intuition": "If our request (request_x) is ready to be served by its bank (bank_u) but is waiting for the global memory controller, the round-robin policy of the inter-bank scheduler (Rule R4) means that it will cycle through all active banks. In one cycle, it will serve at most one request from each *other* bank before coming back to bank_u and serving request_x.",
+          "steps": [
+            "Assume request_x is at the top of its queue for bank_u (ready for inter-bank arbitration).",
+            "The inter-bank scheduler uses round-robin (Rule R4).",
+            "In a round, the scheduler serves one request from each active bank.",
+            "Therefore, for each other bank bank_y, at most one request from bank_y can be served (and thus interfere with request_x) before request_x is served."
+          ],
+          "pseudocode": "def check_property_6(request_x, bank_u, inter_bank_scheduler):\n    if not inter_bank_scheduler.is_top_of_bank_queue(request_x, bank_u):\n        return False # Not suffering direct inter-bank interference\n    \n    interfering_counts_per_other_bank = {}\n    for bank_y in all_banks_except(bank_u):\n        interfering_counts_per_other_bank[bank_y] = 0\n        # Conceptual: simulate one round of round-robin\n        if inter_bank_scheduler.serves_one_request_from_bank(bank_y):\n            interfering_counts_per_other_bank[bank_y] += 1\n    \n    for bank_y in all_banks_except(bank_u):\n        if interfering_counts_per_other_bank[bank_y] > 1:\n            return False # Contradicts property\n    return True",
+          "key_insights": [
+            "Round-robin scheduling provides a fair and predictable bound on inter-bank interference.",
+            "Limits the 'burstiness' of interference from other banks.",
+            "Applies specifically to direct inter-bank interference where the request is ready at its bank."
+          ]
+        },
+        "dependencies": [
+          "Direct Inter-bank Interference"
+        ]
+      },
+      {
+        "type": "lemma",
+        "identifier": "Lemma 1",
+        "formal_description": {
+          "statement": "The number of read requests issued by nodes running on a remote processor processor_k != processor_node_i_j to a bank bank_u in bank_set_B that may interfere with the read requests issued by the copy-in phase of node_i_j within an arbitrary time window of length time_t is bounded by:\nread_requests_processor_k_bank_u_node_i_j_time_t = sum_{task_h in task_set_gamma} sum_{node_h_x in node_set_h \\ F_node_i_j : processor_node_h_x = processor_k} eta_h_x_time_t * read_requests_bank_u_node_h_x\nwhere:\neta_h_x_time_t = (time_t + response_time_h_x) / period_h if task_h != task_i else 1",
+          "variables": {
+            "read_requests_processor_k_bank_u_node_i_j_time_t": "Total interfering read requests from processor_k to bank_u within time_t",
+            "task_set_gamma": "Set of all sporadic parallel real-time tasks",
+            "node_set_h": "Set of nodes for task_h",
+            "F_node_i_j": "Set of predecessors and successors of node_i_j (nodes that cannot run in parallel)",
+            "processor_k": "A remote processor",
+            "processor_node_h_x": "The processor assigned to node_h_x",
+            "eta_h_x_time_t": "Number of jobs of node_h_x that can interfere within time_t",
+            "read_requests_bank_u_node_h_x": "Number of read requests issued by node_h_x to bank_u",
+            "time_t": "Length of the arbitrary time window",
+            "response_time_h_x": "Response time bound for node_h_x",
+            "period_h": "Minimum inter-arrival time (period) of task_h",
+            "task_h": "An interfering task",
+            "task_i": "The task containing node_i_j"
+          },
+          "assumptions": [
+            "Tasks have constrained deadlines.",
+            "Reads are blocking.",
+            "response_time_h_x is an upper bound on node_h_x's response time."
+          ],
+          "conclusion": "Provides an upper bound on the number of read requests from remote processors that can interfere with node_i_j's copy-in phase within a given time window."
+        },
+        "informal_sketch": {
+          "intuition": "This lemma calculates the maximum number of read requests that could come from other processors and potentially delay our node's memory accesses. It considers tasks from the same task set (but not in the same dependency chain) and tasks from other task sets, accounting for their release patterns and response times.",
+          "steps": [
+            "Initialize `total_interfering_reads` to 0.",
+            "For each task `task_h` in the system:",
+            "  For each node `node_h_x` in `task_h`:",
+            "    If `node_h_x` is assigned to `processor_k` (a remote processor) AND `node_h_x` is not a predecessor or successor of `node_i_j` (meaning it can run in parallel):",
+            "      Calculate `eta_h_x_time_t`:",
+            "        If `task_h` is the same as `task_i` (the task of `node_i_j`), then `eta_h_x_time_t` is 1 (only one instance of `node_h_x` can interfere due to blocking reads and task instance properties).",
+            "        If `task_h` is different from `task_i`, then `eta_h_x_time_t` is `ceil((time_t + response_time_h_x) / period_h)`. This accounts for jobs released before the window that might still be pending, and jobs released within the window.",
+            "      Add `eta_h_x_time_t * read_requests_bank_u_node_h_x` to `total_interfering_reads`."
+          ],
+          "pseudocode": "def bound_interfering_read_requests(node_i_j, processor_k, bank_u, time_t, task_set_gamma):\n    read_requests_processor_k_bank_u_node_i_j_time_t = 0.0\n    for task_h in task_set_gamma:\n        for node_h_x in task_h.node_set_h:\n            if node_h_x.processor_node_h_x == processor_k and node_h_x not in node_i_j.F_node_i_j:\n                eta_h_x_time_t = 0.0\n                if task_h == node_i_j.task_i:\n                    eta_h_x_time_t = 1.0\n                else:\n                    eta_h_x_time_t = math.ceil((time_t + node_h_x.response_time_h_x) / node_h_x.period_h)\n                read_requests_processor_k_bank_u_node_i_j_time_t += eta_h_x_time_t * node_h_x.read_requests_bank_u_node_h_x\n    return read_requests_processor_k_bank_u_node_i_j_time_t",
+          "key_insights": [
+            "Distinguishes between intra-task and inter-task interference for job counting.",
+            "Uses response time bounds to account for jobs released before the analysis window.",
+            "Excludes nodes that cannot run in parallel due to precedence constraints, reducing pessimism."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "lemma",
+        "identifier": "Lemma 2",
+        "formal_description": {
+          "statement": "The number of write requests issued by nodes running on a remote processor processor_k != processor_node_i_j to a bank bank_u in bank_set_B that may interfere with the read requests issued by the copy-in phase of node_i_j within an arbitrary time window of length time_t is bounded by:\nwrite_requests_processor_k_bank_u_node_i_j_time_t = sum_{task_h in task_set_gamma} sum_{node_h_x in node_set_h \\ F_node_i_j : processor_node_h_x = processor_k} eta_h_x_time_t * write_requests_bank_u_node_h_x\nwhere eta_h_x_time_t is defined as in Lemma 1.",
+          "variables": {
+            "write_requests_processor_k_bank_u_node_i_j_time_t": "Total interfering write requests from processor_k to bank_u within time_t",
+            "task_set_gamma": "Set of all sporadic parallel real-time tasks",
+            "node_set_h": "Set of nodes for task_h",
+            "F_node_i_j": "Set of predecessors and successors of node_i_j",
+            "processor_k": "A remote processor",
+            "processor_node_h_x": "The processor assigned to node_h_x",
+            "eta_h_x_time_t": "Number of jobs of node_h_x that can interfere within time_t (from Lemma 1)",
+            "write_requests_bank_u_node_h_x": "Number of write requests issued by node_h_x to bank_u",
+            "time_t": "Length of the arbitrary time window",
+            "task_h": "An interfering task",
+            "task_i": "The task containing node_i_j"
+          },
+          "assumptions": [
+            "Identical assumptions as Lemma 1."
+          ],
+          "conclusion": "Provides an upper bound on the number of write requests from remote processors that can interfere with node_i_j's copy-in phase within a given time window."
+        },
+        "informal_sketch": {
+          "intuition": "This lemma is analogous to Lemma 1 but for write requests. It quantifies the maximum number of write requests from other processors that could potentially interfere with our node's read requests. The logic for counting jobs is the same as for reads.",
+          "steps": [
+            "Initialize `total_interfering_writes` to 0.",
+            "For each task `task_h` in the system:",
+            "  For each node `node_h_x` in `task_h`:",
+            "    If `node_h_x` is assigned to `processor_k` (a remote processor) AND `node_h_x` is not a predecessor or successor of `node_i_j`:",
+            "      Calculate `eta_h_x_time_t` using the same logic as in Lemma 1.",
+            "      Add `eta_h_x_time_t * write_requests_bank_u_node_h_x` to `total_interfering_writes`."
+          ],
+          "pseudocode": "def bound_interfering_write_requests(node_i_j, processor_k, bank_u, time_t, task_set_gamma):\n    write_requests_processor_k_bank_u_node_i_j_time_t = 0.0\n    for task_h in task_set_gamma:\n        for node_h_x in task_h.node_set_h:\n            if node_h_x.processor_node_h_x == processor_k and node_h_x not in node_i_j.F_node_i_j:\n                eta_h_x_time_t = 0.0\n                if task_h == node_i_j.task_i:\n                    eta_h_x_time_t = 1.0\n                else:\n                    eta_h_x_time_t = math.ceil((time_t + node_h_x.response_time_h_x) / node_h_x.period_h)\n                write_requests_processor_k_bank_u_node_i_j_time_t += eta_h_x_time_t * node_h_x.write_requests_bank_u_node_h_x\n    return write_requests_processor_k_bank_u_node_i_j_time_t",
+          "key_insights": [
+            "Extends the job counting methodology from Lemma 1 to write requests.",
+            "Provides the necessary input for bounding write interference in Lemma 3."
+          ]
+        },
+        "dependencies": [
+          "Lemma 1"
+        ]
+      },
+      {
+        "type": "lemma",
+        "identifier": "Lemma 3",
+        "formal_description": {
+          "statement": "The overall interference suffered by read requests issued by node node_i_j due to write requests in any time interval of length time_t is bounded by:\nmemory_contention_write_node_i_j_time_t = latency_write_batch(min(total_read_requests_time_t * write_batch_size, total_write_requests_time_t + write_buffer_size))\nwhere:\ntotal_read_requests_time_t = sum_{bank_u in bank_set_B} read_requests_bank_u_node_i_j + sum_{processor_k in remote_processors_node_i_j} sum_{bank_u in bank_set_B} read_requests_processor_k_bank_u_node_i_j_time_t\ntotal_write_requests_time_t = sum_{bank_u in bank_set_B} sum_{processor_k in remote_processors_node_i_j} write_requests_processor_k_bank_u_node_i_j_time_t",
+          "variables": {
+            "memory_contention_write_node_i_j_time_t": "Total memory contention delay from write requests for node_i_j's reads within time_t",
+            "latency_write_batch": "Function bounding delay generated by N write requests (external, from [9])",
+            "total_read_requests_time_t": "Total number of read requests (from node_i_j and interfering nodes) within time_t",
+            "write_batch_size": "Maximum number of writes served in a batch (N_wb)",
+            "total_write_requests_time_t": "Total number of interfering write requests within time_t",
+            "write_buffer_size": "Size of the memory controller's write buffer (Q_write)",
+            "bank_set_B": "Set of all memory banks",
+            "read_requests_bank_u_node_i_j": "Number of read requests by node_i_j to bank_u",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "read_requests_processor_k_bank_u_node_i_j_time_t": "Interfering read requests from processor_k to bank_u (from Lemma 1)",
+            "write_requests_processor_k_bank_u_node_i_j_time_t": "Interfering write requests from processor_k to bank_u (from Lemma 2)",
+            "node_i_j": "The node under analysis",
+            "time_t": "Length of the arbitrary time interval"
+          },
+          "assumptions": [
+            "Memory controller uses write batching (Rules R5, R6).",
+            "Write buffer never becomes full.",
+            "Writes do not stall the processing pipeline."
+          ],
+          "conclusion": "Provides a closed-form bound on the contention delay caused by write requests to read requests of node_i_j."
+        },
+        "informal_sketch": {
+          "intuition": "This lemma calculates the worst-case delay caused by write requests to our node's read requests. It uses two bounds: one based on how many writes can interfere with each read (due to write batching), and another based on the total number of writes that could be pending or issued. The minimum of these two provides a safe upper bound.",
+          "steps": [
+            "Calculate `total_read_requests_time_t`: Sum of all read requests from `node_i_j` itself and all interfering read requests from remote processors (using Lemma 1).",
+            "Calculate `total_write_requests_time_t`: Sum of all interfering write requests from remote processors (using Lemma 2).",
+            "Apply the first bound: `total_read_requests_time_t * write_batch_size`. This represents the maximum writes that can interfere if each read is delayed by a full batch.",
+            "Apply the second bound: `total_write_requests_time_t + write_buffer_size`. This represents the total writes that could be in the system (newly issued + already buffered).",
+            "Take the minimum of these two bounds.",
+            "Apply the `latency_write_batch` function to this minimum value to get the final contention delay."
+          ],
+          "pseudocode": "def bound_write_interference(node_i_j, time_t, bank_set_B, remote_processors_node_i_j, write_batch_size, write_buffer_size, latency_write_batch_func):\n    # Calculate total_read_requests_time_t\n    total_read_requests_time_t = 0.0\n    for bank_u in bank_set_B:\n        total_read_requests_time_t += node_i_j.read_requests_bank_u_node_i_j\n        for processor_k in remote_processors_node_i_j:\n            total_read_requests_time_t += bound_interfering_read_requests(node_i_j, processor_k, bank_u, time_t, task_set_gamma) # Assuming task_set_gamma is available\n\n    # Calculate total_write_requests_time_t\n    total_write_requests_time_t = 0.0\n    for bank_u in bank_set_B:\n        for processor_k in remote_processors_node_i_j:\n            total_write_requests_time_t += bound_interfering_write_requests(node_i_j, processor_k, bank_u, time_t, task_set_gamma) # Assuming task_set_gamma is available\n\n    bound1 = total_read_requests_time_t * write_batch_size\n    bound2 = total_write_requests_time_t + write_buffer_size\n    \n    memory_contention_write_node_i_j_time_t = latency_write_batch_func(min(bound1, bound2))\n    return memory_contention_write_node_i_j_time_t",
+          "key_insights": [
+            "Leverages the specific behavior of write batching to provide a tighter bound.",
+            "Combines two different perspectives on write interference (per-read vs. total system writes).",
+            "Assumes non-blocking writes, simplifying the impact on the issuing processor."
+          ]
+        },
+        "dependencies": [
+          "Lemma 1",
+          "Lemma 2"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 1",
+        "formal_description": {
+          "statement": "For each bank bank_u in bank_set_B, for each processor processor_k in remote_processors_node_i_j:\n(intra_bank_interference_k_u + inter_bank_interference_k_u) <= read_requests_processor_k_bank_u_node_i_j_time_t",
+          "variables": {
+            "bank_u": "A memory bank",
+            "bank_set_B": "Set of all memory banks",
+            "processor_k": "A remote processor",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "intra_bank_interference_k_u": "Total intra-bank interference from processor_k to bank_u (sum of intra_bank_row_conflict_k_u and intra_bank_promoted_k_u)",
+            "inter_bank_interference_k_u": "Total inter-bank interference from processor_k to bank_u (sum of inter_bank_promoted_k_u and inter_bank_direct_k_u)",
+            "read_requests_processor_k_bank_u_node_i_j_time_t": "Total read requests from processor_k to bank_u that can interfere (from Lemma 1)"
+          },
+          "assumptions": [],
+          "conclusion": "The sum of intra-bank and inter-bank interference from a specific remote processor to a specific bank cannot exceed the total number of interfering read requests from that processor to that bank."
+        },
+        "informal_sketch": {
+          "intuition": "This constraint ensures that we don't 'double count' interference. A single interfering request from a remote processor to a bank can either cause intra-bank interference OR inter-bank interference (Property 3), but not both. Therefore, the sum of these two types of interference cannot be greater than the total number of actual interfering requests.",
+          "steps": [
+            "For a given remote processor `processor_k` and bank `bank_u`:",
+            "  Calculate `total_interfering_reads_from_pk_to_bu` using Lemma 1.",
+            "  Sum the `intra_bank_interference_k_u` and `inter_bank_interference_k_u` variables.",
+            "  Ensure this sum is less than or equal to `total_interfering_reads_from_pk_to_bu`."
+          ],
+          "pseudocode": "def check_constraint_1(bank_u, processor_k, remote_processors_node_i_j, bank_set_B, read_requests_processor_k_bank_u_node_i_j_time_t, intra_bank_row_conflict_k_u, intra_bank_promoted_k_u, inter_bank_promoted_k_u, inter_bank_direct_k_u):\n    intra_bank_interference_k_u = intra_bank_row_conflict_k_u + intra_bank_promoted_k_u\n    inter_bank_interference_k_u = inter_bank_promoted_k_u + inter_bank_direct_k_u\n    return (intra_bank_interference_k_u + inter_bank_interference_k_u) <= read_requests_processor_k_bank_u_node_i_j_time_t",
+          "key_insights": [
+            "Directly applies Property 3 (mutual exclusivity of interference types).",
+            "Prevents overestimation of interference by ensuring each interfering request is categorized uniquely.",
+            "Forms a fundamental part of the LP's feasibility region."
+          ]
+        },
+        "dependencies": [
+          "Property 3",
+          "Lemma 1",
+          "LP Variable: intra_bank_row_conflict_k_y",
+          "LP Variable: intra_bank_promoted_k_y",
+          "LP Variable: inter_bank_promoted_k_y",
+          "LP Variable: inter_bank_direct_k_y"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 2",
+        "formal_description": {
+          "statement": "For each bank bank_u in bank_set_B, for each processor processor_k in remote_processors_node_i_j:\nintra_bank_row_conflict_k_u <= read_requests_bank_u_node_i_j",
+          "variables": {
+            "bank_u": "A memory bank",
+            "bank_set_B": "Set of all memory banks",
+            "processor_k": "A remote processor",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "intra_bank_row_conflict_k_u": "Number of intra-bank row-conflict interfering requests from processor_k to bank_u",
+            "read_requests_bank_u_node_i_j": "Number of read requests issued by node_i_j to bank_u"
+          },
+          "assumptions": [],
+          "conclusion": "The number of intra-bank row-conflict interfering requests from a remote processor to a bank cannot exceed the number of read requests issued by the node under analysis to that same bank."
+        },
+        "informal_sketch": {
+          "intuition": "This constraint ensures that each of our node's read requests to a specific bank can be interfered with by at most one row-conflict request from any *single* remote processor. If a remote processor had more row-conflict requests interfering than our node had requests, it would imply that one of our node's requests was interfered with by multiple row-conflict requests from the *same* remote processor, which contradicts Property 2 (a processor can only have one pending request).",
+          "steps": [
+            "For a given remote processor `processor_k` and bank `bank_u`:",
+            "  Consider the `read_requests_bank_u_node_i_j` requests made by `node_i_j` to `bank_u`.",
+            "  By Property 2, `processor_k` can only have one pending request at a time.",
+            "  Therefore, each of `node_i_j`'s requests can be interfered by at most one request from `processor_k` that causes a row conflict.",
+            "  Thus, the total `intra_bank_row_conflict_k_u` cannot exceed `read_requests_bank_u_node_i_j`."
+          ],
+          "pseudocode": "def check_constraint_2(bank_u, processor_k, intra_bank_row_conflict_k_u, read_requests_bank_u_node_i_j):\n    return intra_bank_row_conflict_k_u <= read_requests_bank_u_node_i_j",
+          "key_insights": [
+            "Applies Property 2 to intra-bank row-conflict interference.",
+            "Limits the number of 'older' row-conflict requests from a single remote processor that can interfere with the node's requests."
+          ]
+        },
+        "dependencies": [
+          "Property 2",
+          "LP Variable: intra_bank_row_conflict_k_y"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 3",
+        "formal_description": {
+          "statement": "For each bank bank_u in bank_set_B:\nsum_{processor_k in remote_processors_node_i_j} intra_bank_promoted_k_u <= read_requests_bank_u_node_i_j * reordering_threshold",
+          "variables": {
+            "bank_u": "A memory bank",
+            "bank_set_B": "Set of all memory banks",
+            "processor_k": "A remote processor",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "intra_bank_promoted_k_u": "Number of intra-bank promoted interfering requests from processor_k to bank_u",
+            "read_requests_bank_u_node_i_j": "Number of read requests issued by node_i_j to bank_u",
+            "reordering_threshold": "Maximum number of re-ordered requests (N_thr)"
+          },
+          "assumptions": [],
+          "conclusion": "The total number of intra-bank promoted interfering requests from all remote processors to a bank cannot exceed the total number of node_i_j's requests to that bank, multiplied by the reordering threshold."
+        },
+        "informal_sketch": {
+          "intuition": "This constraint bounds the interference from 'newer' requests that get promoted (row-hits). Property 5 states that each of our node's requests can be interfered with by at most `reordering_threshold` such promoted requests. So, if our node makes `read_requests_bank_u_node_i_j` requests to `bank_u`, the total number of promoted interfering requests across all remote processors cannot exceed `read_requests_bank_u_node_i_j * reordering_threshold`.",
+          "steps": [
+            "For a given bank `bank_u`:",
+            "  Sum `intra_bank_promoted_k_u` for all remote processors `processor_k`.",
+            "  Multiply `read_requests_bank_u_node_i_j` by `reordering_threshold`.",
+            "  Ensure the sum is less than or equal to the product."
+          ],
+          "pseudocode": "def check_constraint_3(bank_u, remote_processors_node_i_j, intra_bank_promoted_k_u_map, read_requests_bank_u_node_i_j, reordering_threshold):\n    sum_intra_bank_promoted = 0.0\n    for processor_k in remote_processors_node_i_j:\n        sum_intra_bank_promoted += intra_bank_promoted_k_u_map[processor_k][bank_u]\n    return sum_intra_bank_promoted <= read_requests_bank_u_node_i_j * reordering_threshold",
+          "key_insights": [
+            "Directly applies Property 5 to bound promoted interference.",
+            "Accounts for the cumulative effect of promoted requests from multiple remote processors.",
+            "Crucial for bounding the reordering effect of FR-FCFS."
+          ]
+        },
+        "dependencies": [
+          "Property 5",
+          "LP Variable: intra_bank_promoted_k_y"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 4",
+        "formal_description": {
+          "statement": "For each bank bank_y in bank_set_B:\nsum_{processor_k in remote_processors_node_i_j} inter_bank_interference_k_y <= sum_{bank_u in bank_set_B \\ {bank_y}} read_requests_bank_u_node_i_j + sum_{processor_k in remote_processors_node_i_j} intra_bank_interference_k_u",
+          "variables": {
+            "bank_y": "A memory bank",
+            "bank_set_B": "Set of all memory banks",
+            "processor_k": "A remote processor",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "inter_bank_interference_k_y": "Total inter-bank interference from processor_k to bank_y",
+            "read_requests_bank_u_node_i_j": "Number of read requests issued by node_i_j to bank_u",
+            "intra_bank_interference_k_u": "Total intra-bank interference from processor_k to bank_u"
+          },
+          "assumptions": [],
+          "conclusion": "The total inter-bank interference from all remote processors to a specific bank cannot exceed the sum of node_i_j's requests to *other* banks and the total intra-bank interference caused by remote processors to those *other* banks."
+        },
+        "informal_sketch": {
+          "intuition": "This constraint bounds the total inter-bank interference targeting a specific bank (`bank_y`). Property 6 states that each of our node's requests (or requests interfering with our node) can suffer direct inter-bank interference from at most one request per *other* bank. The RHS counts all requests that could potentially suffer inter-bank interference from `bank_y`: these are our node's requests to other banks, plus any requests from remote processors that cause intra-bank interference to our node's requests (and thus are also waiting). The LHS counts the total requests from `bank_y` that cause inter-bank interference. The constraint ensures that the number of interfering requests from `bank_y` doesn't exceed the number of requests that can *be* interfered with.",
+          "steps": [
+            "For a given bank `bank_y`:",
+            "  Calculate the LHS: Sum `inter_bank_interference_k_y` for all remote processors `processor_k`.",
+            "  Calculate the RHS: Sum `read_requests_bank_u_node_i_j` for all `bank_u` not equal to `bank_y`.",
+            "  Then, sum `intra_bank_interference_k_u` for all remote processors `processor_k` and all `bank_u` (this seems to be a slight simplification in the paper's text, it should be `sum_{bank_u in B \\ {by}} sum_{pk in Prm(vi,j)} IR_intra_k_u` to align with the proof's logic of 'requests to other banks'). I will follow the provided formula directly.",
+            "  Ensure LHS <= RHS."
+          ],
+          "pseudocode": "def check_constraint_4(bank_y, remote_processors_node_i_j, bank_set_B, inter_bank_interference_k_y_map, read_requests_bank_u_node_i_j_map, intra_bank_interference_k_u_map):\n    lhs = 0.0\n    for processor_k in remote_processors_node_i_j:\n        lhs += inter_bank_interference_k_y_map[processor_k][bank_y]\n\n    rhs_term1 = 0.0\n    for bank_u in bank_set_B:\n        if bank_u != bank_y:\n            rhs_term1 += read_requests_bank_u_node_i_j_map[bank_u]\n    \n    rhs_term2 = 0.0\n    for processor_k in remote_processors_node_i_j:\n        for bank_u in bank_set_B:\n            rhs_term2 += intra_bank_interference_k_u_map[processor_k][bank_u]\n\n    return lhs <= (rhs_term1 + rhs_term2)",
+          "key_insights": [
+            "Applies Property 6 to bound overall inter-bank interference.",
+            "Considers both direct requests from the node and requests that are already suffering intra-bank interference as potential targets for inter-bank contention.",
+            "Ensures that the number of inter-bank interfering requests from one bank is consistent with the number of requests that can be interfered with in other banks."
+          ]
+        },
+        "dependencies": [
+          "Property 6",
+          "LP Variable: inter_bank_promoted_k_y",
+          "LP Variable: inter_bank_direct_k_y",
+          "LP Variable: intra_bank_row_conflict_k_y",
+          "LP Variable: intra_bank_promoted_k_y"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 5",
+        "formal_description": {
+          "statement": "For each bank bank_y in bank_set_B, for each processor processor_k in remote_processors_node_i_j:\ninter_bank_interference_k_y <= sum_{bank_u in bank_set_B \\ {bank_y}} read_requests_bank_u_node_i_j + sum_{processor_l in remote_processors_node_i_j \\ {processor_k}} intra_bank_interference_l_u",
+          "variables": {
+            "bank_y": "A memory bank",
+            "bank_set_B": "Set of all memory banks",
+            "processor_k": "A remote processor",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "inter_bank_interference_k_y": "Total inter-bank interference from processor_k to bank_y",
+            "read_requests_bank_u_node_i_j": "Number of read requests issued by node_i_j to bank_u",
+            "processor_l": "Another remote processor, different from processor_k",
+            "intra_bank_interference_l_u": "Total intra-bank interference from processor_l to bank_u"
+          },
+          "assumptions": [],
+          "conclusion": "The inter-bank interference from a specific remote processor to a specific bank cannot exceed the sum of node_i_j's requests to *other* banks and the total intra-bank interference caused by *other* remote processors to those *other* banks."
+        },
+        "informal_sketch": {
+          "intuition": "This is a more fine-grained version of Constraint 4. It focuses on the inter-bank interference caused by a *single* remote processor (`processor_k`) to `bank_y`. The RHS counts all requests that `processor_k`'s requests to `bank_y` could interfere with: these are our node's requests to *other* banks, and requests from *other* remote processors that are causing intra-bank interference to our node's requests (and thus are also waiting). This respects Property 2 (only requests from different processors can contend) and Property 6 (at most one interference per other bank).",
+          "steps": [
+            "For a given remote processor `processor_k` and bank `bank_y`:",
+            "  Calculate the LHS: `inter_bank_interference_k_y`.",
+            "  Calculate the RHS: Sum `read_requests_bank_u_node_i_j` for all `bank_u` not equal to `bank_y`.",
+            "  Then, sum `intra_bank_interference_l_u` for all *other* remote processors `processor_l` (not `processor_k`) and all `bank_u` (again, implicitly `bank_u != bank_y` for inter-bank interference).",
+            "  Ensure LHS <= RHS."
+          ],
+          "pseudocode": "def check_constraint_5(bank_y, processor_k, remote_processors_node_i_j, bank_set_B, inter_bank_interference_k_y, read_requests_bank_u_node_i_j_map, intra_bank_interference_l_u_map):\n    lhs = inter_bank_interference_k_y\n\n    rhs_term1 = 0.0\n    for bank_u in bank_set_B:\n        if bank_u != bank_y:\n            rhs_term1 += read_requests_bank_u_node_i_j_map[bank_u]\n    \n    rhs_term2 = 0.0\n    for processor_l in remote_processors_node_i_j:\n        if processor_l != processor_k:\n            for bank_u in bank_set_B:\n                # The proof implies bank_u != bank_y for inter-bank interference\n                # but the formula as written sums over all bank_u for IR_intra_l_u\n                # Following the formula as written:\n                rhs_term2 += intra_bank_interference_l_u_map[processor_l][bank_u]\n\n    return lhs <= (rhs_term1 + rhs_term2)",
+          "key_insights": [
+            "Refines the inter-bank interference bound to a per-processor level.",
+            "Explicitly uses Property 2 (requests from different processors contend) and Property 6.",
+            "Helps in distributing the total inter-bank interference among individual remote processors."
+          ]
+        },
+        "dependencies": [
+          "Property 2",
+          "Property 6",
+          "LP Variable: inter_bank_promoted_k_y",
+          "LP Variable: inter_bank_direct_k_y",
+          "LP Variable: intra_bank_row_conflict_k_y",
+          "LP Variable: intra_bank_promoted_k_y"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 6",
+        "formal_description": {
+          "statement": "For each bank bank_y in bank_set_B:\nsum_{processor_k in remote_processors_node_i_j} inter_bank_promoted_k_y <= sum_{bank_u in bank_set_B \\ {bank_y}} sum_{processor_k in remote_processors_node_i_j} intra_bank_promoted_k_u",
+          "variables": {
+            "bank_y": "A memory bank",
+            "bank_set_B": "Set of all memory banks",
+            "processor_k": "A remote processor",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "inter_bank_promoted_k_y": "Number of inter-bank promoted interfering requests from processor_k to bank_y",
+            "intra_bank_promoted_k_u": "Number of intra-bank promoted interfering requests from processor_k to bank_u"
+          },
+          "assumptions": [],
+          "conclusion": "The total inter-bank interference to promoted requests from all remote processors to a specific bank cannot exceed the total intra-bank promoted interference caused by remote processors to *other* banks."
+        },
+        "informal_sketch": {
+          "intuition": "This constraint specifically deals with inter-bank interference that affects *promoted* requests. The LHS counts all requests from `bank_y` that cause inter-bank interference to promoted requests. The RHS counts all promoted requests (from remote processors) that target *other* banks (`bank_u != bank_y`) and thus could potentially be interfered with by requests from `bank_y`. Property 6 ensures that the number of interfering requests from `bank_y` doesn't exceed the number of requests that can *be* interfered with in other banks.",
+          "steps": [
+            "For a given bank `bank_y`:",
+            "  Calculate the LHS: Sum `inter_bank_promoted_k_y` for all remote processors `processor_k`.",
+            "  Calculate the RHS: Sum `intra_bank_promoted_k_u` for all remote processors `processor_k` and all `bank_u` not equal to `bank_y`.",
+            "  Ensure LHS <= RHS."
+          ],
+          "pseudocode": "def check_constraint_6(bank_y, remote_processors_node_i_j, bank_set_B, inter_bank_promoted_k_y_map, intra_bank_promoted_k_u_map):\n    lhs = 0.0\n    for processor_k in remote_processors_node_i_j:\n        lhs += inter_bank_promoted_k_y_map[processor_k][bank_y]\n\n    rhs = 0.0\n    for bank_u in bank_set_B:\n        if bank_u != bank_y:\n            for processor_k in remote_processors_node_i_j:\n                rhs += intra_bank_promoted_k_u_map[processor_k][bank_u]\n\n    return lhs <= rhs",
+          "key_insights": [
+            "Applies Property 6 specifically to promoted requests.",
+            "Focuses on transitive inter-bank interference where the intermediate request is a row-hit.",
+            "Ensures consistency between the source of inter-bank interference and its potential targets."
+          ]
+        },
+        "dependencies": [
+          "Property 6",
+          "LP Variable: inter_bank_promoted_k_y",
+          "LP Variable: intra_bank_promoted_k_y"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 7",
+        "formal_description": {
+          "statement": "For each bank bank_y in bank_set_B, for each processor processor_k in remote_processors_node_i_j:\ninter_bank_promoted_k_y <= sum_{bank_u in bank_set_B \\ {bank_y}} sum_{processor_l in remote_processors_node_i_j \\ {processor_k}} intra_bank_promoted_l_u",
+          "variables": {
+            "bank_y": "A memory bank",
+            "bank_set_B": "Set of all memory banks",
+            "processor_k": "A remote processor",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "inter_bank_promoted_k_y": "Number of inter-bank promoted interfering requests from processor_k to bank_y",
+            "processor_l": "Another remote processor, different from processor_k",
+            "intra_bank_promoted_l_u": "Number of intra-bank promoted interfering requests from processor_l to bank_u"
+          },
+          "assumptions": [],
+          "conclusion": "The inter-bank interference to promoted requests from a specific remote processor to a specific bank cannot exceed the total intra-bank promoted interference caused by *other* remote processors to *other* banks."
+        },
+        "informal_sketch": {
+          "intuition": "This is a more fine-grained version of Constraint 6, similar to how Constraint 5 relates to Constraint 4. It focuses on the inter-bank interference caused by a *single* remote processor (`processor_k`) to `bank_y`, specifically affecting promoted requests. The RHS counts all promoted requests from *other* remote processors (`processor_l`) that target *other* banks (`bank_u != bank_y`) and thus could be interfered with by requests from `processor_k` to `bank_y`. This respects Property 2 and Property 6.",
+          "steps": [
+            "For a given remote processor `processor_k` and bank `bank_y`:",
+            "  Calculate the LHS: `inter_bank_promoted_k_y`.",
+            "  Calculate the RHS: Sum `intra_bank_promoted_l_u` for all *other* remote processors `processor_l` (not `processor_k`) and all `bank_u` not equal to `bank_y`.",
+            "  Ensure LHS <= RHS."
+          ],
+          "pseudocode": "def check_constraint_7(bank_y, processor_k, remote_processors_node_i_j, bank_set_B, inter_bank_promoted_k_y, intra_bank_promoted_l_u_map):\n    lhs = inter_bank_promoted_k_y\n\n    rhs = 0.0\n    for bank_u in bank_set_B:\n        if bank_u != bank_y:\n            for processor_l in remote_processors_node_i_j:\n                if processor_l != processor_k:\n                    rhs += intra_bank_promoted_l_u_map[processor_l][bank_u]\n\n    return lhs <= rhs",
+          "key_insights": [
+            "Refines the inter-bank promoted interference bound to a per-processor level.",
+            "Explicitly uses Property 2 and Property 6.",
+            "Helps in distributing the total inter-bank promoted interference among individual remote processors."
+          ]
+        },
+        "dependencies": [
+          "Property 2",
+          "Property 6",
+          "LP Variable: inter_bank_promoted_k_y",
+          "LP Variable: intra_bank_promoted_k_y"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 8",
+        "formal_description": {
+          "statement": "For each bank bank_u in bank_set_B, for each processor processor_k in remote_processors_node_i_j:\ninter_bank_pre_command_k_y + inter_bank_act_command_k_y + inter_bank_cas_command_k_y = inter_bank_direct_k_y",
+          "variables": {
+            "bank_u": "A memory bank",
+            "bank_set_B": "Set of all memory banks",
+            "processor_k": "A remote processor",
+            "remote_processors_node_i_j": "Set of processors other than the one executing node_i_j",
+            "inter_bank_pre_command_k_y": "Number of inter-bank interfering requests affecting PRE commands",
+            "inter_bank_act_command_k_y": "Number of inter-bank interfering requests affecting ACT commands",
+            "inter_bank_cas_command_k_y": "Number of inter-bank interfering requests affecting CAS commands",
+            "inter_bank_direct_k_y": "Number of inter-bank direct interfering requests"
+          },
+          "assumptions": [],
+          "conclusion": "The total number of inter-bank direct interfering requests from a specific remote processor to a specific bank must be equal to the sum of its command-specific inter-bank interference components (PRE, ACT, CAS)."
+        },
+        "informal_sketch": {
+          "intuition": "This constraint is a definitional one for 'Approach II' of calculating inter-bank contention cost. It states that any direct inter-bank interference (inter_bank_direct_k_y) must be accounted for by its impact on one of the three command phases: PRE, ACT, or CAS. It ensures that the sum of these fine-grained components equals the coarser-grained direct inter-bank interference.",
+          "steps": [
+            "For a given remote processor `processor_k` and bank `bank_y`:",
+            "  Sum `inter_bank_pre_command_k_y`, `inter_bank_act_command_k_y`, and `inter_bank_cas_command_k_y`.",
+            "  This sum must be exactly equal to `inter_bank_direct_k_y`."
+          ],
+          "pseudocode": "def check_constraint_8(bank_u, processor_k, inter_bank_pre_command_k_y, inter_bank_act_command_k_y, inter_bank_cas_command_k_y, inter_bank_direct_k_y):\n    return (inter_bank_pre_command_k_y + inter_bank_act_command_k_y + inter_bank_cas_command_k_y) == inter_bank_direct_k_y",
+          "key_insights": [
+            "Enables a more detailed analysis of inter-bank interference by breaking it down into command-level impacts.",
+            "Ensures that all direct inter-bank interference is accounted for in the fine-grained model.",
+            "Crucial for implementing 'Approach II' for contention cost calculation."
+          ]
+        },
+        "dependencies": [
+          "LP Variable: inter_bank_pre_command_k_y",
+          "LP Variable: inter_bank_act_command_k_y",
+          "LP Variable: inter_bank_cas_command_k_y",
+          "LP Variable: inter_bank_direct_k_y"
+        ]
+      },
+      {
+        "type": "lemma",
+        "identifier": "Lemma 4",
+        "formal_description": {
+          "statement": "The response time experienced by the copy-in phase of node_i_j due to memory interference only, assuming node_i_j already started executing non-preemptively on processor_node_i_j, is bounded by [FORMULA NOT PROVIDED IN TEXT].",
+          "variables": {
+            "node_i_j": "The node under analysis",
+            "processor_node_i_j": "The processor assigned to node_i_j"
+          },
+          "assumptions": [
+            "Node_i_j has already started executing non-preemptively on its assigned processor.",
+            "Only memory contention with nodes on other processors is considered (no preemption on the same processor).",
+            "Only read requests are issued during the copy-in phase.",
+            "Write requests do not stall the processing pipeline."
+          ],
+          "conclusion": "Bounds the memory-induced delay for the copy-in phase of a node."
+        },
+        "informal_sketch": {
+          "intuition": "This lemma aims to calculate the total time a node's 'copy-in' phase (where it loads data from global memory) is delayed specifically due to other tasks accessing memory. It assumes the node has already started, so we only care about memory contention, not CPU scheduling delays on its own core.",
+          "steps": [
+            "Identify the contention-free execution time of the copy-in phase (C_IN_i_j).",
+            "Calculate the maximum memory contention delay suffered by the copy-in phase due to write requests (using Lemma 3).",
+            "Calculate the maximum memory contention delay suffered by the copy-in phase due to read requests (by solving the LP problem defined in Section V-C).",
+            "Sum these components to get the total response time for the copy-in phase."
+          ],
+          "pseudocode": "def calculate_copy_in_response_time(node_i_j, time_t):\n    # C_IN_i_j is the contention-free WCET of copy-in phase\n    # memory_contention_write_node_i_j_time_t from Lemma 3\n    # memory_contention_read_node_i_j_time_t from LP solution (max objective function value)\n    \n    # The exact formula for combining these is not provided in the text for Lemma 4.\n    # Conceptually, it would be:\n    # response_time = node_i_j.C_IN_i_j + memory_contention_write_node_i_j_time_t + memory_contention_read_node_i_j_time_t\n    \n    # Placeholder for missing formula:\n    return \"Formula for Lemma 4 is not provided in the paper content.\"",
+          "key_insights": [
+            "Focuses on the memory-related delays, isolating them from CPU scheduling.",
+            "Combines bounds from write interference (Lemma 3) and read interference (LP solution).",
+            "Crucial step towards overall task schedulability by providing a component of node execution time."
+          ]
+        },
+        "dependencies": [
+          "Lemma 3",
+          "LP Objective Function (Equation 5)"
+        ]
+      }
+    ],
+    "xml_path": "/lclhome/sshah169/Desktop/Sadat/0_phd/2_projects/4_neural_theorem_prover/10-IEEE-paper-download/xplore-python3-2025-sdk/rts_papers_output/pdfs/xml/A_Holistic_Memory_Contention_Analysis_for_Parallel_Real-Time_Tasks_under_Partitioned_Scheduling.xml",
+    "extracted_at": "2026-02-15T22:23:54.589833"
+  },
+  "error": null,
+  "ieee_doi": "10.1109/RTAS48715.2020.000-3",
+  "article_number": "9113115"
+}

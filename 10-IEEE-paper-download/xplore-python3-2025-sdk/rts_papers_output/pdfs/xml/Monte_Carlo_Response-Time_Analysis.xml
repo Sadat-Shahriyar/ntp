@@ -1,0 +1,1515 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Monte Carlo Response-Time Analysis</title>
+				<funder ref="#_D9gcwbM">
+					<orgName type="full">European Research Council</orgName>
+					<orgName type="abbreviated">ERC</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Sergey</forename><surname>Bozhko</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems (MPI-SWS)</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Georg</forename><surname>Von Der Brüggen</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems (MPI-SWS)</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems (MPI-SWS)</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Monte Carlo Response-Time Analysis</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">2D6031AE7ADD5F399BA587E86A89875F</idno>
+					<idno type="DOI">10.1109/RTSS52674.2021.00039</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-15T18:35+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Determining a soft or firm real-time task's probabilistic worst-case response time is a central goal when quantifying and bounding the probability of deadline misses, but current approaches are either (i) fast, but coarse-grained analytical bounds without precision guarantees, (ii) based on convolution and suffer from high space and time complexity, or (iii) combine convolution with resampling techniques that accrue pessimism in an uncontrolled manner. As a new alternative, this paper provides the first probabilistic response-time analysis method based on Monte Carlo simulation, which provides a controlled tradeoff between analysis runtime, the desired degree of accuracy, and the permissible probability of a misestimate. An evaluation shows the proposed Monte Carlo analysis to routinely provide more accurate worst-case deadline failure probability (WCDFP) estimates than prior approaches, especially when considering large task sets (where prior methods struggle). In particular, it is shown to scale to workloads with up to 500 tasks while achieving one to three orders of magnitude better precision than analytical or convolution-based approaches (given an equivalent time budget).</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>In most "every-day" real-time systems, occasional deadline misses do not cause disaster or complete failure of the system. In the real-time systems literature, such systems are classified as soft or firm. According to a recent survey of industry practice in real-time systems <ref type="bibr" target="#b2">[3]</ref>, about two thirds (62%) of the respondents indicated that the system they are working on includes soft or firm timing constraints, and only 5% indicated that they work on a system with purely hard timing constraints. Another interesting finding <ref type="bibr" target="#b2">[3]</ref> is that, when asked about the maximum allowed frequency at which the most time-critical function of a system can miss its deadlines, 45% of the respondents indicated that said functionality can miss some deadlines (ranging from 1 in 10 to 1 in 1 billion), 35% were unable to give a specific answer, and only 15% stated that deadlines cannot be missed.</p><p>Nonetheless, even in soft real-time systems, too-frequent deadline misses can cause unacceptable performance degradation; their likelihood should hence be assessed a priori. One of the central metrics in this context is the worst-case deadline failure probability (WCDFP) <ref type="bibr" target="#b16">[17]</ref> (defined formally in Section VI). Intuitively, this notion corresponds to an upper bound on the probability of observing the first deadline miss of a task under analysis in a given busy window. The WCDFP allows bounding the average time to (temporal) failure of a system and, if jobs that miss their deadlines are immediately aborted by the system, directly corresponds to an upper bound on the expected deadline-miss rate. Furthermore, even if tardy jobs are not aborted, the WCDFP still plays an important role when estimating the deadline-miss rate <ref type="bibr" target="#b10">[11]</ref>.</p><p>A common way to determine the WCDFP is to perform a probabilistic response-time analysis <ref type="bibr" target="#b38">[39,</ref><ref type="bibr" target="#b41">41,</ref><ref type="bibr" target="#b57">57]</ref>. In contrast to classic response-time analyses based on a scalar worst-case execution time (WCET) <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b6">7,</ref><ref type="bibr" target="#b17">18,</ref><ref type="bibr" target="#b26">27,</ref><ref type="bibr" target="#b31">32]</ref>, which conservatively assume each task activation (or job) to exhibit the worst possible execution time, probabilistic response-time analyses consider a distribution of potential execution times for each task and, based on this, estimate the resulting response-time distribution. Such response-time distributions are then used to derive the probability that a task misses a deadline.</p><p>Probabilistic response-time analyses are a basic building block for many probabilistic techniques and, in addition to bounding the WCDFP, are used in numerous other related problems such as analyses of controller area networks <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b49">49]</ref>, preemption-point selection <ref type="bibr" target="#b38">[39]</ref>, correlated response times <ref type="bibr" target="#b54">[54]</ref>, and fault tolerance <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b15">16,</ref><ref type="bibr" target="#b48">48]</ref>.</p><p>Unfortunately, a fundamental complication in any probabilistic response-time analysis is that a probabilistic response time is ultimately a sum of (many) random variables. Thus, a direct, exact computation via naïve convolution would result in extreme growth of the representation of the resulting distribution and is practically infeasible. Consequently, prior analyses have been driven towards faster techniques that safely upper-bound the response-time distribution <ref type="bibr" target="#b9">[10,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b42">42,</ref><ref type="bibr" target="#b43">43,</ref><ref type="bibr" target="#b50">50,</ref><ref type="bibr" target="#b57">57]</ref>. These methods can be informally divided into two families of approaches: convolution-based approaches and analytical bounds.</p><p>The convolution-based approaches trace their origin back to Díaz et al.'s concept of intentional pessimism in the probabilistic analysis of real-time systems <ref type="bibr" target="#b19">[20]</ref>. By defining a partial order on random variables that reflects approximation safety, Díaz et al. enabled a lossy, but sound and more scalable over-approximation of the resulting response-time distribution, which has since been reused in several papers <ref type="bibr" target="#b42">[42,</ref><ref type="bibr" target="#b43">43,</ref><ref type="bibr" target="#b50">50]</ref>. In particular, this idea was further developed by Refaat and Hladik <ref type="bibr" target="#b50">[50]</ref> and Maxim and Cucu-Grosjean <ref type="bibr" target="#b41">[41]</ref>, who proposed to resample after each convolution step such that the resulting distribution is upper-bounded by a distribution with a more compact representation. This allows controlling the size of the final distribution at the cost of some pessimism. However, the pessimism of the resulting distribution depends in non-obvious ways on the choice of resampling procedure and the number of points in the representation of the resampled distribution. Moreover, the pessimism tends to accumulate and compound. To date, no bound on the final pessimism has been proposed and there is no known way of ensuring that the pessimism remains below a given threshold.</p><p>Analytical upper bounds circumvent the need to actually obtain a response-time distribution and instead directly bound the proportion of the distribution that exceeds the relative deadline. These approaches make use of analytical upper bounds on random variables such as Chernoff's <ref type="bibr" target="#b12">[13]</ref> (Chen et al. <ref type="bibr" target="#b9">[10,</ref><ref type="bibr" target="#b11">12]</ref>), Bernstein's <ref type="bibr" target="#b5">[6]</ref>, or Hoeffding's <ref type="bibr" target="#b25">[26]</ref> inequalities (von der Brüggen et al. <ref type="bibr" target="#b57">[57]</ref>). These inequalities are general theorems about the probability of observing a given deviation of the sum of multiple random variables from its expected value that do not involve computing the underlying distribution. However, while yielding an upper bound quickly, these methods are also known to be quite pessimistic in many cases <ref type="bibr" target="#b11">[12,</ref><ref type="bibr" target="#b57">57]</ref>.</p><p>In this paper, we aim for a middle ground between the two families of prior approaches. To this end, we explore the application of Monte Carlo methods (i.e., probabilistic algorithms). The distinguishing feature of such algorithms is that they may output incorrect results with (arbitrarily) low probability for the benefit of significantly improved runtimes compared to deterministic algorithms.</p><p>More precisely, we present a novel approach based on Monte Carlo simulation that, at the cost of a configurable and bounded probability of a misestimate, provides two desirable features: (i) it allows estimating the probabilistic response-time of a job significantly faster than known convolution-based approaches, and (ii) in contrast to analytical bounds, it allows fine-grained control over the achieved precision.</p><p>Contributions. We consider the problem of determining the WCDFP of a task under uniprocessor fixed-priority preemptive scheduling when each task's execution time is defined using a discrete distribution. Our main contributions are:</p><p>• We provide a novel approach based on Monte Carlo simulation (Sections IV and V) that allows estimating the probabilistic response-time of a given job with controllable precision and controllable probability of a misestimate. • We show how the proposed Monte Carlo method can be used to bound the WCDFP under fixed-priority preemptive uniprocessor scheduling (Section VI). • We conducted an evaluation with randomized task sets (Section VII), demonstrating scalability to large sets with up to 500 tasks and improved accuracy compared to the state of the art: on average, the proposed approach was 1-3 orders of magnitude more precise than analytical or convolution-based methods (given the same time budget).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. SYSTEM MODEL AND BACKGROUND</head><p>We begin by describing the general system model and recalling some basic definitions on which our analysis rests. We assume a discrete-time model, where the smallest quantity γ &gt; 0 represents an indivisible unit of time (e.g., a processor cycle) and T {γ • k | k ∈ N } ⊂ R denotes the time domain.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Probability Theory Primer</head><p>To start, we briefly review key concepts of probability theory.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Def. 1.</head><p>A probability space is a triple (Ω, F, P), where Ω is the set of all possible outcomes of an experiment, F is a set of events, where each event is a subset of Ω, and P : F → [0, 1] is a probability function. If not specified otherwise, we assume that Ω is discrete and F is the powerset of Ω (i.e., F = 2 Ω ).</p><p>In our context, a random variable is a function that maps elements of the set of possible outcomes to a discrete set.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Def. 2.</head><p>A random variable is a function X : Ω → E from a set of possible outcomes to a space E. In this paper, E is a discrete subset of R or R k such as {0, 1}, N, T, or T k .</p><p>For notational brevity, it is common to omit the argument of a random variable and use the expression P [X = x] as an abbreviation for</p><formula xml:id="formula_0">P [{ω ∈ Ω|X(ω) = x}]. Similarly, the expres- sion P [X ≤ x] is an abbreviation for P [{ω ∈ Ω|X(ω) ≤ x}]. Furthermore, two random variables X, Y are independent if P [X = x ∧ Y = y] = P [X = x] • P [Y = y].</formula><p>Next, we define the cumulative distribution function.</p><formula xml:id="formula_1">Def. 3. Given a random variable X : Ω → E, where E ⊆ R, its cumulative distribution function (CDF) F [X] : R → [0, 1] is defined as F [X](x) P [X ≤ x].</formula><p>There is a simple relation between the equality of probabilities and the equality of CDFs of two discrete random variables.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Fact 4. For any two random variables X and Y with codomain</head><formula xml:id="formula_2">T, F [X] = F [Y] if and only if P [X = t] = P [Y = t] for t ∈ T.</formula><p>We adopt the notion of a partial order on random variables from Díaz et al. <ref type="bibr" target="#b19">[20]</ref>. In the following sections, the terms "upper bound" or "maximum" in the context of random variables or distributions should always be understood in the sense of Def. 5.</p><p>Def. 5 (from <ref type="bibr" target="#b19">[20]</ref>). Let X 1 and X 2 be two random variables. We say that X 1 is greater than or equal to X 2 if F [X 1 ](x) ≤ F [X 2 ](x) for any x ∈ R, and denote this relation by X 1 X 2 .</p><p>Next, we define the inverse cumulative distribution function.</p><formula xml:id="formula_3">Def. 6. Given a random variable X : Ω → E, where E ⊆ R, its inverse cumulative distribution function (ICDF) Q[X] : [0, 1] → R is defined as Q[X](q) inf {x ∈ R | F [X](x) ≥ q }.</formula><p>The first key result that plays an important role later in the paper is the inverse transform sampling method, which allows sampling from a complex distribution if the ICDF is known. We use the following notation: given a random variable X : Ω → E 1 and a function f :</p><formula xml:id="formula_4">E 1 → E 2 , we let f (X) : Ω → E 2 denote a random variable that maps each ω ∈ Ω to f (X(ω)).</formula><p>Theorem 7 (Lemma 2.4 in <ref type="bibr" target="#b51">[51]</ref>). Let X be a random variable with cumulative distribution function F</p><formula xml:id="formula_5">[X]. If a random variable Y has a uniform distribution U ([0, 1]), then the random variable Q[X](Y) has the same distribution as X.</formula><p>Second, we recall that a function of multiple random variables can be substituted with an equivalent expression involving only individual random variables. To express this concisely, let x denote the indicator function that evaluates to 1 if x is true, and to 0 otherwise. Furthermore, given a function f with domain</p><formula xml:id="formula_6">T k , let x1,...,x k f (x 1 , . . . , x k ) x1∈T x2∈T . . . x k ∈T f (x 1 , . . . , x k ) denote the sum over all possible tuples (x 1 , . . . , x k ) in T k . Fact 8. For a function f (x 1 , . . . , x k ) : T k → T and k indepen- dent random variables X 1 , . . . , X k , P [f (X 1 , . . . , X k ) = x] = x1,...,x k f (x 1 , . . . , x k ) = x • k i=1 P [X i = x i ].</formula><p>For the third and final major building block, recall that a random variable X is called a Bernoulli trial if it has exactly two outcomes that can be interpreted as "success" and "failure" and in which the probability of a success p is the same every time the experiment is conducted. Given a Bernoulli trial with probability of success p, the binomial random variable B(s, p) describes the probability of observing a given number of successes in s independent Bernoulli trials.</p><p>In practice, the success probability p is often unknown. To estimate the ground-truth success probability p from repeated observations of an experiment, binomial proportion confidence intervals are used. An interval [l, r] is called a (1ε)-confidence interval for parameter p if the probability that p ∈ [l, r] is at least 1ε. One commonly used confidence interval is the Agresti-Coull interval <ref type="bibr" target="#b1">[2]</ref>, which we adopt, too.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Theorem 9 ([2]</head><p>). Given k successes in s trials, let s s + z 2 , and p 1 s k + z 2 2 . Then a (1ε)-confidence interval for p is given by p ± z p(1p)/s, where z is the (1ε/2)-th quantile of the standard normal distribution (with mean 0 and variance 1), that is, z Φ -1 1 -ε 2 .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. System Model</head><p>We consider a system comprised of n sporadic firm realtime tasks τ {τ 1 , . . . , τ n }. We assume that a job that misses its deadline is immediately discarded (i.e., removed from the system); we later revisit this assumption in Section VI. Each task τ i (F i , T i , D i , π i ) is characterized by an execution-time distribution F i , its minimum inter-arrival time T i , its relative deadline D i , and its priority π i . We write π h π l to denote that task τ h has a priority equal to or exceeding that of task τ l . We consider constrained deadlines:</p><formula xml:id="formula_7">D i ≤ T i for any τ i ∈ τ .</formula><p>Whenever a task is activated, a corresponding job is released. Let J i,j denote the j-th job of task τ i . Each job J i,j has a release (or activation) time a i,j , an absolute deadline d i,j = a i,j + D i , a priority equal to its task's priority π i , and an execution time (or cost) c i,j , where the possible values of c i,j are distributed in accordance with the job's (usually unknown) probabilistic execution time (pET) C i,j , which describes the probability that the job exhibits a particular cost. We use the terms "execution time" and "job cost" interchangeably.</p><p>The task set is scheduled on a uniprocessor according to a fully preemptive fixed-priority scheduling policy. That is, at each point in time, the scheduler ensures that (one of) the ready job(s) with the highest priority is executed.</p><p>Unfortunately, pETs-which describe the probability that a job's actual execution time is equal to a given value-are exceedingly difficult to obtain and not necessarily independent random variables, which renders many analysis techniques inapplicable. To mitigate these challenges, it is common <ref type="bibr" target="#b14">[15]</ref> to instead consider a probabilistic worst-case execution time that upper-bounds the actual pET in the sense of Def. 5.</p><p>Def. 10. The probabilistic worst-case execution time (pWCET) C i,j of a job J i,j is a random variable with codomain T such that (i) it upper-bounds the pET of the job (i.e., C i,j C i,j ), (ii) its distribution is equal to task τ i 's execution-time distribution (i.e., F [C i,j ] = F i ), and (iii) pWCETs corresponding to different jobs are independent random variables.</p><p>Since we require F [C i,j ] = F i , we can state Def. 10 in a different manner. Given an arbitrary constant x ∈ T and a job J i,j of task τ i , it holds that P C i,j ≤ x ≥ F i (x). Visually, this means that the CDF of C i,j stays below the CDF of C i,j for any j (see Fig. <ref type="figure" target="#fig_0">1</ref>). We further assume that an ICDF Q i corresponding to F i is known for each τ i . That is, there is a function Q i : [0, 1] → R such that for any quantile q ∈ [0, 1] and any job J i,j ∈ τ i :</p><formula xml:id="formula_8">P C i,j ≤ Q i (q) ≥ q.</formula><p>For notational clarity, we introduce the arrival sequence ξ(t) {J i,j | J i,j : a i,j = t }, which maps each instant t to the set of jobs that arrive at t. Based on ξ, we introduce three auxiliary notions: the arrival sequence of a task τ i , defined as ξ i (t) ξ(t) ∩ {J i,j | j ∈ N }, the higher-or-equal priority arrival sequence of τ i , defined as ξ i (t) h:πh πi ξ h (t), and their extensions to intervals, e.g., ξ([t 1 , t 2 ))</p><p>t∈[t1,t2) ξ(t).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. FORMALIZATION OF THE RESPONSE-TIME BOUND</head><p>To lay a solid foundation for the subsequent development of our method and its proof of correctness, we take a short detour and derive the notion of a "probabilistic response-time bound" from first principles. What we present is a simple construction of a natural upper bound on the "probabilistic response time" of a job. While arguably similar definitions were used implicitly in many earlier papers on this topic <ref type="bibr" target="#b14">[15,</ref><ref type="bibr" target="#b18">19,</ref><ref type="bibr" target="#b33">34,</ref><ref type="bibr" target="#b38">39,</ref><ref type="bibr" target="#b41">41,</ref><ref type="bibr" target="#b45">45]</ref>, we are not aware of a similarly rigorous derivation of this key concept in prior work. In particular, we emphasize the separation between a random variable representing a responsetime bound and its distribution (in contrast to most prior work), which later allows us to estimate a property of the distribution using samples of the random variable without needing to compute the distribution itself.</p><p>In the following, we build up to the notion of the probabilistic response-time bound R ξ</p><p>x,y of a job J x,y in a given arrival sequence ξ (Def. 15 below). At a high level, the construction we describe is the following. Since the job J x,y under analysis is known, we can restrict our attention to the interval [0, d x,y ). We split this interval into two subintervals [0, a x,y ) and [a x,y , d x,y ) (i.e., at J x,y 's arrival time a x,y ). First, we define the accumlated probabilistic carry-in at the end of [0, a x,y ). Second, given this carry-in at time a x,y , we define a probabilistic response time bound of job J x,y only focusing on the interval [a x,y , d x,y ).</p><formula xml:id="formula_9">C ? i,1 &lt; l a t e x i t s h a 1 _ b a s e 6 4 = " 7 U D x V X Q P A 2 N t B x 8 L 7 C i h X A z d K B E = " &gt; A A A C A H i c d V D L S s N A F J 3 U V 6 2 v q g s X b g a r 4 E L K x K b a Z a E b l x X s A 5 o Y J t N J O 3 T y Y G Y i l J C N v + L G h S J u / Q x 3 / o 2 T t o K K H r h w O O d e 7 r 3 H i z m T C q E P o 7 C 0 v L K 6 V l w v b W x u b e + U d / e 6 M k o E o R 0 S 8 U j 0 P S w p Z y H t K K Y 4 7 c e C 4 s D j t O d N W r n f u 6 N C s i i 8 U d O Y O g E e h c x n B C s t u e U D O 8 B q T D B P W 5 m b s j M z u 7 W l w s I t V 1 A V W R Z q X E B U r d X q d c v U B K F a z T S h q U m O C l i g 7 Z b f 7 W F E k o C G i n A s 5 c B E s X J S L B Q j n G Y l O 5 E 0 x m S C R 3 S g a Y g D K p 1 0 9 k A G T 7 Q y h H 4 k d I U K z t T v E y k O p J w G n u 7 M z 5 W / v V z 8 y x s k y m 8 4 K Q v j R N G Q z B f 5 C Y c q g n k a c M g E J Y p P N c F E M H 0 r J G M s M F E 6 s 5 I O 4 e t T + D / p n l d N q 1 q / t i r N 4 0 U c R X A I j s A p M M E l a I I r 0 A Y d Q E A G H s A T e D b u j U f j x X i d t x a M x c w + + A H j 7 R M l v J a w &lt; / l a t e x i t &gt; C ? i,2 &lt; l a t e x i t s h a 1 _ b a s e 6 4 = " w N H q 8 u N h Y + Y Q Q H P D + L p Y k Z l b f n Y = " &gt; A A A C A H i c d V C 7 S g N B F J 2 N r x h f U Q s L m 8 E o W M g y m 2 x e X S C N Z Q Q T A 8 m 6 z E 4 m y Z D Z B z O z Q l i 2 8 V d s L B S x 9 T P s / B s n D 0 F F D 1 w 4 n H M v 9 9 7 j R Z x J h d C H k V l Z X V v f y G 7 m t r Z 3 d v f y + w c d G c a C 0 D Y J e S i 6 H p a U s 4 C 2 F V O c d i N B s e 9 x e u N N m j P / 5 o 4 K y c L g W k 0 j 6 v h 4 F L A h I 1 h p y c 0 f 9 X 2 s x g T z p J m 6 C b s o p r d 9 q b B w 8 w V k I t u q V W 2 I z B K q V K o 1 T S r 1 e r l k Q 8 t E c x T A E i 0 3 / 9 4 f h C T 2 a a A I x 1 L 2 L B Q p J 8 F C M c J p m u v H k k a Y T P C I 9 j Q N s E + l k 8 w f S O G Z V g Z w G A p d g Y J z 9 f t E g n 0 p p 7 6 n O 2 f n y t / e T P z L 6 8 V q W H M S F k S x o g F Z L B r G H K o Q z t K A A y Y o U X y q C S a C 6 V s h G W O B i d K Z 5 X Q I X 5 / C / 0 m n a F q 2 W b 6 y C 4 3 T Z R x Z c A x O w D m w Q B U 0 w C V o g T Y g I A U P 4 A k 8 G / f G o / F i v C 5 a M 8 Z y 5 h D 8 g P H 2 C V 7 J l t g = &lt; / l a t e x i t &gt; C i,j &lt; l a t e x i t s h a 1 _ b a s e 6 4 = " G + a X 9 Z R 5 h D h o 5 E D e s 3 d F M J G E g z w = " &gt; A A A B + n i c b V D L S s N A F L 3 x W e s r 1 a W b Y B V c S E m k o s t C N y 4 r 2 A e 0 I U y m k 3 b s Z B J m J k q J + R Q 3 L h R x 6 5 e 4 8 2 + c t F l o 6 4 G B w z n 3 c s 8 c P 2 Z U K t v + N l Z W 1 9 Y 3 N k t b 5 e 2 d 3 b 1 9 s 3 L Q k V E i M G n j i E W i 5 y N J G O W k r a h i p B c L g k K f k a 4 / a e Z + 9 4 E I S S N + p 6 Y x c U M 0 4 j S g G C k t e W Z l E C I 1 x o i l z c x L 6 f l 9 5 p l V u 2 b P Y C 0 T p y B V K N D y z K / B M M J J S L j C D E n Z d + x Y u S k S i m J G s v I g k S R G e I J G p K 8 p R y G R b j q L n l m n W h l a Q S T 0 4 8 q a q b 8 3 U h R K O Q 1 9 P Z k H l Y t e L v 7 n 9 R M V X L s p 5 X G i C M f z Q 0 H C L B V Z e Q / W k A q C F Z t q g r C g O q u F x 0 g g r H R b Z V 2 C s / j l Z d K 5 q D n 1 2 u V t v d o 4 K e o o w R E c w x k 4 c A U N u I E W t A H D I z z D K 7 w Z T 8 a L 8 W 5 8 z E d X j G L n E P 7 A + P w B b d i U B g = = &lt; / l a t e x i t &gt; 0 &lt; l a t e x i t s h a 1 _ b a s e 6 4 = " p v J E n x N P q o t z V u 9 M n k 3 3 o B m y l b g = " &gt; A A A B 6 H i c b V B N S 8 N A E J 3 4 W e t X 1 a O X x S p 4 K o l U 9 F j w 4 r E F + w F t K J v t p F 2 7 2 Y T d j V B C f 4 E X D 4 p 4 9 S d 5 8 9 + 4 b X P Q 1 g c D j / d m m J k X J I J r 4 7 r f z t r 6 x u b W d m G n u L u 3 f 3 B Y O j p u 6 T h V D J s s F r H q B F S j 4 B K b h h u B n U Q h j Q K B 7 W B 8 N / P b T 6 g 0 j + W D m S T o R 3 Q o e c g Z N V Z q u P 1 S 2 a 2 4 c 5 B V 4 u W k D D n q / d J X b x C z N E J p m K B a d z 0 3 M X 5 G l e F M 4 L T Y S z U m l I 3 p E L u W S h q h 9 r P 5 o V N y Y Z U B C W N l S x o y V 3 9 P Z D T S e h I F t j O i Z q S X v Z n 4 n 9 d N T X j r Z 1 w m q U H J F o v C V B A T k 9 n X Z M A V M i M m l l C m u L 2 V s B F V l B m b T d G G 4 C 2 / v E p a V x W v W r l u V M u 1 8 z y O A p z C G V y C B z d Q g 3 u o Q x M Y I D z D K 7 w 5 j 8 6 L 8 + 5 8 L F r X n H z m B P 7 A + f w B c q u M n g = = &lt; / l a t e x i t &gt; 1 &lt; l a t e x i t s h a 1 _ b a s e 6 4 = " d c Y c + 6 G g 6 P q V w 4 x 3 k M H L F + z o 8 h w = " &gt; A A A B 6 H i c b V B N S 8 N A E J 3 4 W e t X 1 a O X x S p 4 K o l U 9 F j w 4 r E F + w F t K J v t p F 2 7 2 Y T d j V B C f 4 E X D 4 p 4 9 S d 5 8 9 + 4 b X P Q 1 g c D j / d m m J k X J I J r 4 7 r f z t r 6 x u b W d m G n u L u 3 f 3 B Y O j p u 6 T h V D J s s F r H q B F S j 4 B K b h h u B n U Q h j Q K B 7 W B 8 N / P b T 6 g 0 j + W D m S T o R 3 Q o e c g Z N V Z q e P 1 S 2 a 2 4 c 5 B V 4 u W k D D n q / d J X b x C z N E J p m K B a d z 0 3 M X 5 G l e F M 4 L T Y S z U m l I 3 p E L u W S h q h 9 r P 5 o V N y Y Z U B C W N l S x o y V 3 9 P Z D T S e h I F t j O i Z q S X v Z n 4 n 9 d N T X j r Z 1 w m q U H J F o v C V B A T k 9 n X Z M A V M i M m l l C m u L 2 V s B F V l B m b T d G G 4 C 2 / v E p a V x W v W r l u V M u 1 8 z y O A p z C G V y C B z d Q g 3 u o Q x M Y I D z D K 7 w 5 j 8 6 L 8 + 5 8 L F r X n H z m B P 7 A + f w B d C + M n w = = &lt; / l a t e x i t &gt; t &lt; l a t e x i t s h a 1 _ b a s e 6 4 = " 4 i y 6 W F C V S 1 q + k + p m M r R 1 4 6 C L V R I = " &gt; A A A B 6 H i c b V B N S 8 N A E J 3 4 W e t X 1 a O X x S p 4 K o l U 9 F j w 4 r E F + w F t K J v t p l 2 7 2 Y T d i V B C f 4 E X D 4 p 4 9 S d 5 8 9 + 4 b X P Q 1 g c D j / d m m J k X J F I Y d N 1 v Z 2 1 9 Y 3 N r u 7 B T 3 N 3 b P z g s H R 2 3 T J x q x p s s l r H u B N R w K R R v o k D J O 4 n m N A o k b w f j u 5 n f f u L a i F g 9 4 C T h f k S H S o S C U b R S A / u l s l t x 5 y C r x M t J G X L U + 6 W v 3 i B m a c Q V M k m N 6 X p u g n 5 G N Q o m + b T Y S w 1 P K B v T I e 9 a q m j E j Z / N D 5 2 S C 6 s M S B h r W w r J X P 0 9 k d H I m E k U 2 M 6 I 4 s g s e z P x P 6 + b Y n j r Z 0 I l K X L F F o v C V B K M y e x r M h C a M 5 Q T S y j T w t 5 K 2 I h q y t B m U 7 Q h e M s v r 5 L W V c W r V q 4 b 1 X L t P I + j A K d w B p f g w Q 3 U 4 B 7 q 0 A Q G H J 7 h F d 6 c R + f F e X c + F q 1 r T j 5 z A n / g f P 4 A 2 b u M 4 g = = &lt; / l a t e x i t &gt;</formula><p>When discussing random variables, it is common to drop the dependency on their sample spaces. That is, given a random variable X : Ω → T, it is customary to write X instead of X(ω). For notational transparency, in the rest of this section, we do not follow this convention and explicitly specify the sample space.</p><p>We begin with a definition of an outcome space that can accommodate all the random variables needed to define R ξ x,y (ω). Let Ω i,j be the outcome set of the pWCET of a job J i,j . Since ξ is known, we can compute the exact number of jobs of task τ i arriving in the interval [0, d x,y ), defined as</p><formula xml:id="formula_10">m i |ξ i ([0, d x,y ))|.</formula><p>The outcome set Ω i of a random variable corresponding to the pWCETs of jobs of τ i arriving in the interval [0, d x,y ) is thus the cross-product of the initial outcome sets, that is Ω i Ω i,1 × . . . × Ω i,mi . Similarly, we combine the per-task outcome sets to obtain an outcome set capable of accommodating the pWCETs corresponding to all jobs arriving in the interval [0, d x,y ), defined as Ω Ω 1 × . . . × Ω n .</p><p>We use Ω i,j to refer to the j th outcome space of the i th task, and given an outcome ω ∈ Ω, analogously use ω i,j to refer to the j th outcome of the i th task in ω (where ω i,j ∈ Ω i,j ). Intuitively, every outcome ω ∈ Ω corresponds to some deterministic evolution (or scenario) of the system from time 0 to time d x,y . The corresponding event space 2 Ω and probability function, defined as the product of probabilities over the individual outcome sets Ω i,j , allow us to assign a notion of probability to such deterministic evolutions.</p><p>We next introduce probabilistic counterparts to the wellknown basic building blocks of deterministic response-time analysis. We start with a probabilistic request-bound function.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Def. 11. The probabilistic request-bound function for a given task τ i and interval</head><formula xml:id="formula_11">[t 1 , t 2 ) ⊆ [0, d x,y ) is a random variable that describes the workload of τ i in [t 1 , t 2 ). Formally, for ω ∈ Ω: RBF ξ i ([t 1 , t 2 ), ω) {C i,j (ω i,j ) | J i,j ∈ ξ i ([t 1 , t 2 )) }.</formula><p>Def. 11 upper-bounds a task's actual demand since job costs are modeled using pWCETs (and not pETs) and because jobs are assumed to contribute their full cost upon arrival (even if they are later aborted). Building on RBF ξ i , we next bound interference due to tasks with higher or equal priority.</p><p>Def. 12. The probabilistic higher-or-equal-priority workload with respect to task τ i in a given interval [t 1 , t 2 ) ⊆ [0, d x,y ) is a random variable that describes the total cost of all higheror-equal-priority jobs released in [t 1 , t 2 ). Formally, for ω ∈ Ω:</p><formula xml:id="formula_12">W ξ i ([t 1 , t 2 ), ω) RBF ξ h ([t 1 , t 2 ), ω) | τ h : π h π i . With W ξ i ([t 1 , t 2 )</formula><p>, ω) in place, we are ready to define the well-known fixpoint at the heart of response-time analysis.</p><p>Def. 13. The probabilistic fixpoint for a given task τ i , time instant t &lt; d x,y , and carry-in of size c is a ran-dom variable that describes the solution of the workloadfixpoint equation for an interval starting at time t with carryin c. Formally:</p><formula xml:id="formula_13">Z ξ i (c, t, ω) min ({d x,y + γ} ∪ F ), where F t + Δ Δ &gt; 0 : c + W ξ i ([t, t + Δ), ω) ≤ Δ .</formula><p>The artificial constant d x,y + γ encodes the occurrence of a deadline miss and upper-bounds the search range, as it ensures that any fixpoint solutions past the job's deadline (or the possibility that there are no solutions) are irrelevant.</p><p>Using the notion of a fixpoint, we define the carry-in at time t c . Note that the carry-in at time t c does not include the workload that arrives at time t c , and recall that a quiet time occurs at a time t if any higher-or-equal-priority job that arrived before time t is completed by time t.</p><p>Def. 14. The probabilistic carry-in for a given task τ i and time t c &lt; d x,y is a random variable that describes the unfinished interfering workload at time t c . Formally, let</p><formula xml:id="formula_14">T ξ i (t c , ω) min t t ∈ [0, t c ] : Z ξ i (0, t, ω) &gt; t c be the latest quiet time (w.r.t. task τ i ) no later than t c , then the carry-in at time t c is V ξ i (t c , ω) W ξ i [T ξ i (t c , ω), t c ), ω -(t c -T ξ i (t c , ω)</formula><p>). Finally, we arrive at a probabilistic response-time bound.</p><formula xml:id="formula_15">Def. 15. Job J x,y 's probabilistic response-time bound (pRT) is the random variable R ξ x,y (ω) Z ξ x (V ξ x (a x,y , ω), a x,y , ω). Intuitively, R ξ</formula><p>x,y (ω) describes the probability that the response time of J x,y with respect to arrival sequence ξ is equal to a given value. However, due to the "stop value" in Def. 13, the distribution of R ξ x,y (ω) is truncated at d x,y + γ, so that the intuition holds only for values not exceeding J x,y 's deadline. If J x,y misses its deadline (that is, Δ exceeds D x ), according to Def. 13, R ξ x,y (ω) is always equal to d x,y + γ, which suffices to define the job's probability of missing its deadline.</p><p>Def. <ref type="bibr" target="#b15">16</ref>. The deadline-failure probability (DFP) of a job J x,y in arrival sequence ξ is defined as P ω R ξ x,y (ω) &gt; D x .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. MONTE CARLO ESTIMATION</head><p>In this section, we present our method for estimating the probabilistic response-time bound of a given job. Due to the challenges discussed in Section I, we relax the problem and allow the algorithm to (i) fail with a small, quantifiable probability and (ii) output only an approximate solution, where the permissible degree of approximation can be specified. Problem statement. Given a task set τ , a task τ x ∈ τ , an arrival sequence ξ, a job J x,y of task τ x , the required accuracy δ &gt; 0, and the allowed misestimation probability ε &gt; 0, derive estimates l and r for the unknown</p><formula xml:id="formula_16">DFP p = P R ξ x,y &gt; D x such that |l -r| &lt; δ and P [l ≤ p ≤ r] ≥ 1 -ε.</formula><p>The misestimation probability has the frequentist interpretation that, among m runs of the algorithm, we expect on average ε • m runs to result in l and r such that p ∈ [l, r].</p><p>First, we explain why the reformulation of the problem still has practical significance. Indeed, usually we are not interested Algorithm 1: DFP estimation Input: τ , τ x , ξ, δ, and ε.</p><formula xml:id="formula_17">Output: Estimate of P R ξ x,y &gt; D x . 1 k := 0, z := Φ -1 1 -ε 2 , s := (z/δ) 2 ; 2 for 1 to s do 3 Draw sample via S ξ</formula><p>x,y (Def. 20 in Section V);</p><formula xml:id="formula_18">4 if S ξ x,y &gt; D x then 5 k := k + 1; 6 s := s + z 2 , p := 1 s k + z 2 2 ;</formula><p>7 return p ± z p(1-p) s in obtaining the distribution of R ξ x,y per se. Rather, the relevant information is the DFP, that is P R ξ x,y &gt; D x . Further, the DFP estimate needs to be neither exact nor absolutely certain. For instance, if one seeks to verify that the DFP is at most 10 -6 , one can use an inexact result, as long as the probability of the result being wrong is sufficiently small as to be negligible in the given engineering context (e.g., 10 -9 ) and the upper bound on the estimated result does not exceed 10 -6 , or in formal terms: l ≤ p ≤ r ≤ 10 -6 with probability at least 1 -10 -9 .</p><p>The above relaxations allow us to explore only a small fraction of the possible scenarios and then apply statistical generalization to estimate the actual probability of a deadline miss. Estimation algorithm. To start, note that the expression R ξ</p><p>x,y &gt; D x is itself a random variable. The inequality might resolve to a success if R ξ x,y is greater than D x , or to a failure otherwise-it is a Bernoulli trial. Given a sequence of Bernoulli trials, the success probability can be estimated using binomial proportion confidence intervals, which we do in the following.</p><p>For ease of explanation, in this section we assume access to a black-box sample generator S ξ x,y (later defined in Section V) that provides samples with the same distribution as the random variable R ξ x,y (that is,</p><formula xml:id="formula_19">F [R ξ x,y ] = F [S ξ x,y ]</formula><p>). Given S ξ x,y , the problem reduces to collecting a sufficient number of samples to make statistical generalizations with the desired accuracy and misestimation probability, as shown in Algorithm 1.</p><p>Algorithm 1 samples a large number of values using S ξ x,y , counts the number of outcomes for which S ξ</p><p>x,y turned out to be larger than D x , and then applies the Agresti-Coull confidence interval (Theorem 9) to estimate the ground-truth probability of observing S ξ x,y &gt; D x . Since both S ξ x,y and R ξ x,y have the same distribution, this gives us a DFP estimate for a job J x,y in context of the given arrival sequence ξ.</p><p>To determine the number of samples s needed to achieve the target accuracy and error probability, Algorithm 1 computes z Φ -1 1 -ε 2 , where Φ -1 is the ICDF of the standard normal distribution (i.e., with mean 0 and variance 1) and selects s ≥ z δ 2 . The algorithm then draws s samples from S ξ x,y while counting the number of successes k, that is, the number of outcomes in which S ξ x,y &gt; D x . Finally, since k is a binomial random variable, Algorithm 1 computes the Agresti-Coull confidence interval (Theorem 9) to determine l and r. We next argue that this statistical generalization is justified.</p><p>Theorem 17. Let τ, τ x , ξ, δ, and ε be the input to Algorithm 1 and let (l, r) be the estimate that the algorithm produces. Then l ≤ P R ξ x,y &gt; D x ≤ r with probability 1ε and rl ≤ δ. Proof. Under the assumption that F [R ξ</p><p>x,y ] = F [S ξ x,y ], it is sufficient to estimate the probability p = P S ξ x,y &gt; D x with accuracy at least δ and misestimation probability at most ε.</p><p>Let {r 1 , . . . , r s } be a sample of size s obtained by drawing from S ξ</p><p>x,y (as in Lines 2-5 of Algorithm 1), and let k s j=1 r j &gt; D x . The summands r j &gt; D x are independent and identically distributed Bernoulli trials; k is thus a binomial random variable. Let l and r denote the lower and the upper bounds returned by Algorithm 1, respectively. Applying the Agresti-Coull <ref type="bibr" target="#b1">[2]</ref> confidence interval (Theorem 9), we have that p ∈ [l, r] with probability 1ε. Further, the length of the returned interval is at most:</p><formula xml:id="formula_20">r -l = 2z p(1-p) s ≤ 2z 1 4s ≤ 2z 1 4s ≤ 2z δ 2 4z 2 = 2z δ 2z = δ.</formula><p>In the above proof, we use the coarse bound p(1p) ≤ 1/4. However, if the ground-truth probability p is low (as it usually is in practice) and the number of samples s is sufficiently large, then p(1p) becomes much smaller than 1/4. As we show in the evaluation (Section VII-C), this means the required accuracy is often reached already with significantly fewer samples. Conversely, usually a much better accuracy than δ is achieved with s samples.</p><p>In place of the Agresti-Coull confidence interval, one could also use other confidence intervals such as the Wilson score interval <ref type="bibr" target="#b59">[59]</ref> or the Clopper-Pearson interval <ref type="bibr" target="#b13">[14]</ref>, or concentration bounds such as Chernoff's bound <ref type="bibr" target="#b12">[13]</ref> and Hoeffding's bound <ref type="bibr" target="#b25">[26]</ref>. We use the Agresti-Coull confidence interval since it achieves a favorable trade-off between the probability to cover the ground-truth value and the length of the confidence interval for large samples <ref type="bibr" target="#b8">[9]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. RESPONSE-TIME BOUND SAMPLING</head><p>In this section, we define the sample generator S ξ x,y upon which Section IV rests. For Algorithm 1 to be practical, we must generate samples that are distributed as R ξ</p><p>x,y (i.e.,</p><formula xml:id="formula_21">F [R ξ x,y ] = F [S ξ</formula><p>x,y ]) in a sufficiently efficient manner. Fortunately, such a method exists: a simple simulation of the schedule together with inverse transform sampling does the trick.</p><p>We present this approach and argue its correctness in three steps. First, in Section V-A, we describe a simulation algorithm to compute the value of R ξ</p><p>x,y assuming that job costs are fixed. Second, in Section V-B, we show that such an algorithm, if it is applied on a sequence of job costs randomly drawn from the pWCET distributions, yields response times that are distributed identically to R ξ x,y . Finally, in Section V-C, we complete the sample generator by incorporating inverse transform sampling to facilitate the random generation of execution-time samples.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Simulation Algorithm</head><p>We start by introducing a simple algorithm that, assuming that all job costs are fixed, simulates the schedule in interval [0, d x,y ) and returns the response time of job J x,y .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Algorithm 2: Schedule simulation A ξ x,y</head><p>Input: τ , ξ, c, and J x,y . Output: Response time of J x,y if it meets its deadline or d i,j + γ in case of a deadline miss.</p><formula xml:id="formula_22">1 v 0 := 0; 2 for s := 1 to a do 3 w s-1 := {c i,j | J i,h ∈ ξ x ( s-1 ) }; 4 v s := max{0, v s-1 + w s-1 -( s -s-1 )}; 5 for s := a + 1 to d do 6 w := {c i,j | J i,j ∈ ξ x ([ a , s ) }; 7 if v a + w ≤ s -a then 8 return v a + w 9 return d i,j + γ</formula><p>For brevity, we first introduce a few auxiliary definitions.</p><p>Recall that, since we analyze job J x,y , we are interested in the interval [0, d x,y ). Let m i |ξ i ([0, d x,y ))| be the number of jobs of task τ i that arrive in the interval [0, d x,y ). Let #‰ c be a two-dimensional vector of job costs, where an element c i,j denotes the cost of job J i,j . ( #‰ c is not necessarily a rectangular matrix because each task may have a different number of jobs.) Finally, let {t | t ∈ [0, d x,y ) : ξ(t) = ∅ } ∪ {d x,y } be the union of (i) the set of time instants at which at least one job arrives and (ii) the deadline of the job J x,y under analysis. We assume to be sorted in increasing order and let i denote the i th element of the sequence. We also let a and d be the indices of respectively a x,y and d x,y in (i.e., a = a x,y and d = d x,y ).</p><p>Algorithm 2 defines the simulation algorithm A ξ x,y ( #‰ c ), which receives a vector of job costs #‰ c and outputs the response time of job J x,y in arrival sequence ξ. Conceptually, A ξ x,y is just a straight-forward deterministic simulation of the schedule for the given arrival times and job costs. First, the amount of the carry-in v a at time a is computed (Lines 2-4). For 0 , the carry-in is 0. For 0 &lt; s ≤ a , the carry-in can be computed recurrently based on the carry-in v s-1 at time s-1 , the workload w s-1 released at time s-1 , and the time difference between s-1 and s as v s max{0, v s-1 + w s-1 -( ss-1 )}.</p><p>Afterwards (lines Lines 5-8) the algorithm searches for a time s ≤ d such that the carry-in at time a and the new workload released in [ a , s ), w {c i,j | J i,j ∈ ξ x ([ a , s ) }, are fully consumed (i.e., v a + w ≤ sa ). If such a time s is found, then the algorithm returns the response time (i.e., v a + w). Otherwise, not all higher-or-equal-priority workload is consumed by the job's deadline. Hence, the simulation indicates that the response time exceeds the deadline by returning d x,y +γ in Line 9 (recall that γ is the smallest unit of time).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Sampling via Algorithm 2</head><p>In this subsection, we argue that if, instead of a vector of fixed job costs, Algorithm 2 is run on a vector of pWCETs (i.e., random variables), then the probability of A ξ x,y yielding some value r is equal to the probability of R ξ</p><p>x,y being equal to r. First, we prove an auxiliary lemma stating that A ξ x,y 's output agrees with the response-time bound R ξ x,y given in Def. 15. To state the claim formally, suppose we have some collection of job costs #‰ c and an outcome ω ∈ Ω such that C i,j (ω i,j ) = c i,j for each J i,j ∈ ξ([0, d x,y )). We observe that in this case the values of A ξ x,y ( #‰ c ) and R ξ x,y (ω) are the same. Lemma 18. Given a vector of job costs #‰ c and an outcome ω ∈ Ω, if C i,j (ω i,j ) = c i,j for each J i,j ∈ ξ([0, d x,y )), then A ξ</p><p>x,y ( #‰ c ) = R ξ x,y (ω). Proof. We carry out the proof in three steps. First, we show that, if i ≤ a is the last time before a with v i = 0, then i is also the last quiet time in the sense of Def. 14. Second, we show that Lines 1-4 indeed compute the carry-in at time a (Def. 14). Third, we show that Lines 5-9 compute R ξ x,y . Let q ≤ a be the last instant with carry-in 0, that is v q = 0 and ∀q ∈ {q + 1, . . . , a} : v q &gt; 0. This is equivalent to the conjunction of (i) Z ξ x (0, q , ω) &gt; a , since all v q following v q are positive, and (ii) ∀i ∈ {1, . . . , q -1} : Z ξ x (0, i , ω) ≤ q , since no fixpoint iteration that starts before q can exceed time q because v q = 0. The conjunction of (i) and (ii) is equivalent to the fact that T ξ x ( a , ω) = q (recall Def. 14). We next show that V ξ x ( a , ω) = v a : since v q =0 and ∀q ∈ {q + 1, . . . , a} : v q &gt; 0, we can replace v a with a-1</p><formula xml:id="formula_23">i=q w i - ( a -q ), which equals W ξ x ([ q , a ), ω) -( a -q ), since w i = W ξ x ([ i , i+1 ), ω) and T ξ x ( a , ω) = q . Hence v a = V ξ x ( a , ω). It remains to be shown that v a + w = R ξ x (ω). Recall from Def. 15 that R ξ x (ω) = Z ξ x (V ξ x ( a , ω), a , ω), where Z ξ x (V ξ</formula><p>x ( a , ω), a , ω) searches for the least time instant strictly greater than a when both the carry-in V ξ</p><p>x ( a , ω) and the higheror-equal-priority workload W ξ</p><p>x ([ a , s ), ω) are consumed. This is exactly the process performed in Lines 5-8, since the carry-in is v a = V ξ x ( a , ω) and the higher-or-equal-priority workload is w = W ξ</p><p>x ([ a , s ), ω). Hence the algorithm indeed searches for an s such that V ξ x ( a , ω)+W ξ x ([ a , s ), ω) = v a +w ≤ sa . Furthermore, R ξ x (ω) = d x,y + γ iff there is no fixpoint at or before d x,y (recall Z ξ x (V ξ x ( a , ω), a , ω)). This, in turn, is equivalent to the fact that the algorithm fails to find s ≤ d such that v a + w ≤ sa ; thus the algorithm returns d x,y + γ in Line 9. Therefore, the claimed equivalence follows.</p><p>Lemma 18 above is a claim about a (fixed) vector of constants representing job costs, #‰ c , related to a particular element of the outcome space ω ∈ Ω. To formally make a claim about the distribution of outputs of A ξ x,y if invoked repeatedly on inputs drawn from pWCET distributions, we need to lift the established equivalence to the level of random variables.</p><p>To this end, let #‰ C denote a two-dimensional vector of pWCETs, such that C i,j is the pWCET of job J i,j (Def. 10) for each J i,j ∈ ξ([0, d x,y )). We can interpret this vector as a random variable that maps each element of the outcome set ω ∈ Ω to a two-dimensional vector of job costs #‰ c , with c i,j = C i,j (ω i,j ). Taking this interpretation one step further, a function A ξ x,y ( #‰ C ) that applies A ξ x,y to the vector of job costs produced by #‰ C is itself a random variable that maps each element of the outcome set ω ∈ Ω to a scalar, namely the output of Algorithm 2. With this setup in place, we can formally relate the output probability of A ξ x,y with R ξ x,y .</p><p>Lemma 19. For any constant r ∈ T, with respect to the outcome set Ω, P A ξ x,y (</p><formula xml:id="formula_24">#‰ C ) = r = P R ξ x,y = r . Proof. It suffices to show that E 1 ω ∈ Ω R ξ x,y (ω) = r is equal to E 2 ω ∈ Ω A ξ x,y ( #‰ C (ω)) = r . We show that ω ∈ E 1 if and only if ω ∈ E 2 for an arbitrary ω ∈ Ω. Given ω ∈ Ω,</formula><p>#‰ C yields a vector #‰ c such that C i,j (ω i,j ) = c i,j for all i and j, which is used as input for A ξ x,y . Hence, it remains to be shown that A ξ x,y ( #‰ c ) = R ξ x,y (ω), which holds according to Lemma 18. Therefore ω ∈ E 1 ⇐⇒ ω ∈ E 2 .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Sampling Job Costs</head><p>In principle, one could use Algorithm 2 and Lemma 19 to sample values from R ξ x,y . That, however, would require a method for sampling uniformly at random from the underlying outcome set Ω, which conceptually represents the set of possible system evolutions. Sampling Ω directly would thus pose a multitude of challenges, as it is necessarily workload-specific (e.g., it encodes control-flow information such as the branches taken by each job) and in all likelihood extremely complicated to represent and manipulate. In other words, Ω is a key abstraction, but not a practical building block. To bypass the dependency on Ω, we employ inverse transform sampling, which allows us to sample job costs directly without a need to construct or even consider the underlying outcome set Ω.</p><p>Let U be a two-dimensional vector of uniform random variables ranging over the interval [0, 1] with the same shape as vector C. We use U i,j to refer to the j th element of the i th row of U . Furthermore, let Q( U ) denote a two-dimensional vector obtained by applying task τ i 's ICDF Q i (Def. 6) to every element of the i th row of U . In other words, an element of Q( U ) with indices i and j is equal to Q i (U i,j ).</p><p>The basic idea is to apply A ξ x,y to Q( U ) instead of C. As we show in the following, the output distribution of A ξ x,y does not change as a result. The benefit of switching from C to Q( U ) is that there exists a variety of readily available and fast methods to sample from U ([0, 1]) (e.g., <ref type="bibr" target="#b27">[28,</ref><ref type="bibr" target="#b29">30,</ref><ref type="bibr" target="#b58">58]</ref>), and by extension thus also from Q( U ). Hence, we define S ξ x,y as follows.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Def. 20. S ξ x,y</head><p>A ξ x,y (Q( U )). We now establish the defining property of S ξ</p><p>x,y : it has the same distribution as R ξ</p><p>x,y . We first note that pWCET samples and samples drawn from Q( U ) are identically distributed.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 21. For any C i,j and any a ∈ T, it holds that</head><formula xml:id="formula_25">P [C i,j = a] = P [Q i (U i,j ) = a].</formula><p>Proof. By Fact 4, it is sufficient to prove that the distribution of C i,j is equal to the distribution of Q i (U i,j ). By construction, U i,j is distributed uniformly in [0, 1]. Thus, by Theorem 7, the random variable Q i (U i,j ) has the distribution</p><formula xml:id="formula_26">F i = F [C i,j ].</formula><p>Finally, we show that S ξ x,y combines job-cost samples in such a way that the initial distribution is preserved.</p><formula xml:id="formula_27">Theorem 22. F [R ξ x,y ] = F [S ξ x,y ].</formula><p>Proof. By Fact 4, it suffices to show that P R ξ x,y = r is equal to P S ξ x,y = r for an arbitrary r ∈ T.</p><p>P R ξ x,y = r</p><p>(1)</p><formula xml:id="formula_28">= P A ξ x,y ( #‰ C ) = r (2) = c1,1,...,cn,m n A ξ x,y ( #‰ c ) = r i,j P [C i,j = c i,j ] (3) = c1,1,...,cn,m n A ξ x,y ( #‰ c ) = r i,j P [Q i (U i,j ) = c i,j ]<label>(4)</label></formula><p>= P S ξ x,y = r , where </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. WORST-CASE DEADLINE FAILURE PROBABILITY</head><p>In this section, we explain how to put everything together and apply the algorithm presented in Sections IV and V to estimate the WCDFP. To this end, we first recall its definition and a theorem proven by Maxim and Cucu-Grosjean <ref type="bibr" target="#b41">[41]</ref>.</p><p>The WCDFP of task τ i is an upper bound on the probability that any single job of the task misses its deadline <ref type="bibr" target="#b16">[17]</ref>.</p><p>Def. 24. The worst-case deadline failure probability (WCDFP) of a task τ i is Λ i max ξ max j P R ξ i,j &gt; D i . The DFP estimation algorithm (Algorithm 1) does not rely on any particular system properties (besides assuming a fully preemptive uniprocessor) and can estimate the DFP of a given job in a given arrival sequence independently of the kind of deadline constraints or structure of the arrival pattern. Furthermore, the estimated DFP remains sound regardless of a system's job abortion policy, since upon a job arrival Algorithm 2 (in Lines 3 and 6) accounts for the full job cost, which is a safe upper bound even if jobs are aborted <ref type="bibr" target="#b19">[20]</ref>.</p><p>Unfortunately, Def. 24 is not suitable for an actual computation of the WCDFP since it takes the maximum over an infinite set of arrival sequences and jobs. However, under some not too-restrictive assumptions, Maxim and Cucu-Grosjean <ref type="bibr" target="#b41">[41]</ref> showed that the calculation of the WCDFP under fixed-priority scheduling can be reduced to one specific situation. Specifically, for a set of constrained-deadline sporadic tasks scheduled by a fully preemptive fixed-priority scheduler, if overruns are prevented by aborting any incomplete jobs at their deadline, it is sufficient to analyze the first job under a critical-instant pattern ξ crit . (That is, the task under analysis and all higher-orequal-priority tasks release a job simultaneously at time 0 and continue to release jobs with minimal inter-arrival time.) Theorem 25 (Theorem 1 in <ref type="bibr" target="#b41">[41]</ref>). Given a fully preemptive fixed-priority scheduler, a set of constrained-deadline sporadic tasks, and under the assumption that incomplete jobs are aborted at their deadline, the first job in the synchronous busy period exhibits a task's WCDFP:</p><formula xml:id="formula_29">Λ i = P R ξcrit i,1 &gt; D i .</formula><p>Since our system model matches the system model studied by Maxim and Cucu-Grosjean <ref type="bibr" target="#b41">[41]</ref>, the WCDFP of task τ x can be estimated by running Algorithm 2 for J x,1 with ξ = ξ crit .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. EVALUATION</head><p>We conducted an empirical evaluation using synthetic workloads to asses the practicality of the proposed method and to compare its performance to state-of-the-art algorithms. Setup. We randomly generated sets of sporadic tasks with two execution modes each, representing a task's typical behavior and a rare exceptional mode. For a given task-set size n and expected total utilization u, we drew n periods p 1 , . . . , p n uniformly at random from {1, 2, 5, 10, 20, 50, 100, 200, 500, 1000}ms, a set of periods commonly used in automotive systems <ref type="bibr" target="#b24">[25,</ref><ref type="bibr" target="#b28">29,</ref><ref type="bibr" target="#b52">52,</ref><ref type="bibr" target="#b56">56]</ref>. Next, we used the Dirichlet-Rescale algorithm <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b23">24]</ref> to draw n utilization values u 1 , . . . , u n summing to u. The pWCET of each task τ i was defined as follows: c with probability 0.95 (the typical mode), and 4c with probability 0.05 (the exceptional mode), where c was scaled such that the expected value of the pWCET was u i • p i . Finally, we assigned ratemonotonic priorities.</p><p>We evaluated four algorithms: classic exact convolution with state merging (CX) by Maxim and Cucu-Grosjean <ref type="bibr" target="#b41">[41]</ref>; convolution with reduced-pessimism resampling (CR) by Maxim et al. <ref type="bibr" target="#b43">[43]</ref>; the analytical approach using Chernoff bounds (AB) by Chen and Chen <ref type="bibr" target="#b9">[10]</ref>; and the Monte Carlo approach (MC) proposed in this paper. We also tested k-most popular <ref type="bibr" target="#b42">[42]</ref> and uniform resampling <ref type="bibr" target="#b43">[43]</ref> as alternatives to CR and analytical bounds using Hoeffding's and Bernstein's inequalities <ref type="bibr" target="#b57">[57]</ref> as alternatives to AB, but do not report those results since they proved to be less precise than CR and AB, respectively.</p><p>To allow for meaningful runtime comparisons, all approaches were implemented in the same programming language, Rust, and deployed on the same machine equipped with two Intel Xeon "Platinum 8180" processors clocked at 2.50 GHz and 394 GiB RAM. To obtain a fair basis for comparison, we opted for a single-threaded implementation of all methods; the degree of parallelism offered by the hardware is hence irrelevant.</p><p>For convolution-based approaches, we implemented direct convolution (with quadratic time complexity) and used Rust's HashMap library for automatic state merging. We implemented the AB method's search for minimizing parameters using ternary search since the minimization problem is convex <ref type="bibr" target="#b11">[12]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Comparison with State-of-the-Art Approaches</head><p>We compared the WCDFP estimates produced by MC and the baselines. We generated 2500 task sets, 50 for each combination of u ∈ {0.75, 0.8, 0.85, 0.9, 0.95} and n ∈ {5, 10, . . . , 50}, and let AB, CR, and MC estimate the WCDFP of the lowest-priority task in each task set. Under CR, distributions were sampled down to 2000 values whenever reaching 4000 values. For MC, we set the misestimation probability to ε = 10 -6 (i.e., accepting one expected failure in 1 million runs) and the time budget to 8 minutes per task set (which was CR's average runtime for the evaluated task sets). Fig. <ref type="figure" target="#fig_2">2</ref> shows the accuracy of MC in comparison to CR and AB as scatter plots. Each point corresponds to one of the 2500 generated task sets. Compared to CR (left plot), MC provided a better result for 2075 of the tested task sets, whereas CR was more accurate for only 6 task sets, for which it could determine WCDFPs below ≈ 10 -6 . (The remaining 419 points are on or very close to the diagonal line and hence inconclusive.) In comparison to AB (right plot), MC provided a lower WCDFP estimate for 2358 task sets. However, the plot also shows that, in the given 8-minute time budget, MC struggled to obtain a sufficient number of samples to derive WCDFPs lower than ≈ 10 -6 , which is not an issue for AB. As a result, AB provided better estimates for 137 task sets. Generally, Fig. <ref type="figure" target="#fig_2">2</ref> shows MC to be an attractive alternative to both CR and AB.</p><p>To assess the impact of CR's resampling threshold, we also tested down-sampling to 250, 500, 1000, 2500, and 5000 retained values (when reaching twice the number of values). While increasing the number of retained values noticeably improved CR's accuracy, it also had a major runtime impact (doubling the threshold roughly doubled the runtime). Consequently, even when retaining 5000 values, MC still clearly outperformed CR. Retaining more than 5000 values proved difficult, since for such large thresholds it took CR on average more than 30 minutes to analyze a single task set.</p><p>In the remainder of the paper, we summarize scatter plots as box plots of the ratio between the WCDFP as given by a baseline method and by MC due to space constraints. Using this method, Fig. <ref type="figure">3</ref> reports the same data as Fig. <ref type="figure" target="#fig_2">2</ref>, grouped by either n or u. For instance, Fig. <ref type="figure">3a</ref> shows the WCDFP obtained via CR divided by r (i.e., the upper bound of the WCDFP interval reported by MC) for a varying n.</p><p>As evident in Fig. <ref type="figure">3a</ref>, for smaller cardinalities (i.e., n ≤ 15), MC performs similar to the CR baseline, yielding sometimes better and sometimes worse estimates. However, as the number of tasks grows (and thus the number of jobs that must be considered), the ratio grows steadily to around 10 1 -10 2 , meaning that MC is one to two orders of magnitude more Fig. <ref type="figure">3</ref>: Box plots of the ratios CR / MC (upper row) and AB / MC (lower row). A value exceeding 1 indicates MC yielding a lower (i.e., better) WCDFP estimate than the respective comparison algorithm. Each box extends from the lower to the upper quartile, with a line at the median; the bottom and top whiskers indicate the 1 st and 99 th quantile, respectively. precise than CR in these cases. The reason is that MC scales well with the number of jobs in the interval under analysis, and thus maintains roughly the same precision irrespective of n, whereas the number of resampling operations in CR grows with the number of jobs, each time accruing more pessimism.</p><p>Fig. <ref type="figure">3b</ref> shows the effects of varying the expected total utilization. For u = 0.75, MC delivered results roughly one to two orders of magnitude better than CR. As the utilization increases, the magnitude of the ratios decreases, but MC remains preferable to CR throughout the range. For u = 0.95, the actual WCDFP is ≈ 10 -1 , at which point the normalization obscures the trend due to the large denominator (e.g., even trivially reporting 1 would not register as a large ratio).</p><p>Figs. <ref type="figure">3c</ref> and<ref type="figure">3d</ref> show a larger variance in the comparison with AB. As both the median and the average are above 1, MC tends to yield preferable results for all considered n and u. The large variance stems from the fact that our sequential MC implementation can collect only a limited number of samples in the given 8-minute time budget, as already discussed in the context of Fig. <ref type="figure" target="#fig_2">2</ref>. Therefore, if the actual WCDFP is vanishingly small, MC outputs conservative bounds dominated by the limited number of samples, whereas analytical upperbounds have no such restrictions. Since the AB approach can be computed very quickly, this suggests that one should apply it first, and run the MC method with a sufficiently large time budget only if the AB-provided estimate is unsatisfying.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Influence of the pWCET Distribution</head><p>To assess how each task's pWCET parameter influences analysis runtime and accuracy, we varied the the shape of the generated pWCET distributions in three ways, as discussed next.</p><p>For each considered pWCET shape, we generated 500 task sets, 10 for each combination of u ∈ {0.75, 0.8, 0.85, 0.9, 0.95} and n ∈ {5, 10, . . . , 50}. As before, we let AB, CR, and MC estimate the WCDFP of the lowest-priority task in each task set.</p><p>First, we varied the difference between normal-and exceptional-mode execution times. For each task, the pWCET was defined to be c with probability 0.95 and k • c with probability 0.05, where the discrepancy k varied across {2, 3, 4, 5, 8, 16}. The results are shown in Figs. <ref type="figure" target="#fig_3">4a</ref> and<ref type="figure" target="#fig_3">4d</ref>. The main observation is that MC remains preferable as the discrepancy parameter increases, thus showing that it is not negatively affected by more extreme pWCETs. For higher discrepancy values, the ratios stabilize around 10 1 , which is due to the fact that higher-discrepancy task sets tend to exhibit higher WCDFPs, so that even a trivial upper bound of 1 would not register as a large ratio. Nonetheless, MC was more accurate than either CR or AB for virtually all task sets with k ≥ 5.</p><p>Next, we varied how frequently jobs execute in normal mode by defining each task's pWECT to be c with probability p, and 4c with probability 1p, where the normal-mode probability p varied across {0.5, 0.75, 0.9, 0.95, 0.99, 0.999}. The results shown in Figs. <ref type="figure" target="#fig_3">4b</ref> and<ref type="figure" target="#fig_3">4e</ref> reveal two main trends. If the normalmode probability is relatively low, AB yields good bounds while the results of CR are poor: in some cases, CR's estimates were five orders of magnitude worse than those provided by MC. In contrast, when the exceptional-mode probability is vanishingly small, AB becomes somewhat more pessimistic, while CR improves substantially: in some cases, CR yielded WCDFP estimates up to 12 orders of magnitude lower than MC. This observation is again explained by the employed sample budget, which limited MC's ability to assess rare events.</p><p>Finally, we varied the number of execution modes. To this end, each task's pWCET was defined as follows: for a given number of modes m ∈ {3, 4, 5, 6}, mode s ∈ {2, . . . , m} had execution time 2(s -1) • c and probability 2 m-s /100, with the remaining probability assigned to the normal mode s = 1 with execution time c. The results are depicted in Figs. <ref type="figure" target="#fig_3">4c</ref> and<ref type="figure" target="#fig_3">4f</ref>, which show that CR's accuracy relative to MC consistently degrades as the number of modes increases. AB's relative accuracy stabilizes at a plateau around one order of magnitude worse than MC, with some outliers where AB yields results below MC's resolution limit (for the given time budget).</p><p>Overall, we conclude that MC's performance is robust with regard to changes in the shapes of the pWCET distributions.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Scalability of the Approach</head><p>One might be worried that the precision grows too slowly with increasing sample counts. Indeed, as illustrated in Fig. <ref type="figure">5</ref>, according to the inequality s ≥ (z/δ) 2 , a precision of 10 -6</p><p>would require ≈ 10 12 (i.e., ≈ 2 40 ) samples, which is impractical. Luckily, as pointed out in Section IV, this is an artifact of the proof that upper-bounds the number of samples needed in the worst-case scenario, which corresponds to a ground-truth WCDFP of 0.5. However, in practice, one is usually interested in workloads with a WCDFP much lower than 10 -1 .</p><p>To explore MC's actual precision, we conducted an experiment in which we measured the attained precision as a function of the ground-truth WCDFP. To this end, we generated 1200 task sets in total, 80 task sets for each combination of u ∈ {0.55, 0.65, 0.75, 0.85, 0.95} and n ∈ {2, 4, 6}. The setup was restricted to small task sets to enable computation of the exact WCDFP via CX, which does not scale much further. Fig. <ref type="figure">5</ref>: Number of samples predicted to be needed in the worst case as a function of δ for various ε. The growth in the number of samples is largely driven by decreasing δ, with decreases in ε having a diminishing and comparably small effect.</p><p>Each task set was evaluated with CX with a 30-minute timeout to determine the ground-truth WCDFP. Task sets that CX could not analyze within 30 minutes were removed from further consideration, resulting in 730 task sets with a known exact WCDFP (i.e., 399, 253, and 78 task sets with 2, 4, and 6 tasks, respectively). Next, we evaluated these 730 task sets with MC (with ε = 10 -6 ) configured with different sample budgets 2 16 , 2 18 , . . . , 2 28 and measured the empirical width |r -l| of the confidence intervals reported by Algorithm 1.</p><p>Fig. <ref type="figure" target="#fig_4">6a</ref> shows the results. When the WCDFP is large (e.g., 10 -1 ), even with 2 28 ≈ 10 8.4 samples (the bottommost curve), MC cannot reach a modest estimation width of 10 -4 . The reason is that, for large WCDFPs, the term p(1p) in Line 7 of Algorithm 1 does not become substantially smaller than 1/4.</p><p>However, when the ground-truth WCDFP decreases, p(1-p) decreases too, which shortens the width of the actually attained confidence intervals considerably. Hence, as Fig. <ref type="figure" target="#fig_4">6a</ref> shows, if the ground-truth WCDFP is below 10 -6 , then 2 28 ≈ 10 8.4 samples actually result in an accuracy of |r -l| &lt; 10 -6 (in contrast to the 10 12 worst-case prediction, recall Fig. <ref type="figure">5</ref>).</p><p>Even though in practice we do not have a priori knowledge of the ground-truth WCDFP, the property highlighted in this subsection plays a big role in the choice of the number of samples. Usually, real-time systems are designed with some prior belief about the allowed WCDFP. If the WCDFP is expected to be small (e.g., 10 -6 ) and the needed accuracy is δ = 10 -6 , then one can simply try generating in the order of 2 28 ≈ 10 8.4 samples-most likely, MC will provide a satisfactory answer nonetheless. If however MC ultimately fails to provide an answer with the required accuracy (i.e., if it reports an interval length exceeding δ), then it is a reasonable guess to assume that the ground truth actually exceeds 10 -6 .</p><p>Finally, Fig. <ref type="figure" target="#fig_4">6a</ref> also confirms an effect already discussed in the context of Figs. <ref type="figure" target="#fig_2">2,</ref><ref type="figure">3c</ref>, and 3d: if MC is limited to a relatively small number of samples, such as 2 16 ≈ 10 4.8 (the topmost curve), then it cannot produce estimates below a certain threshold dependent on the sample budget, which manifests in Fig. <ref type="figure" target="#fig_4">6a</ref> as the flat plateaus of the curves extending to the left.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Choice of Misestimation Probability ε</head><p>We next conducted an experiment to assess the influence of the misestimation probability ε on the empirical width of the attained confidence interval. Intuitively, it stands to reason that, to increase confidence in the result, one should be more conservative in one's predictions. Thus, as ε decreases, we can expect the width of the confidence interval to grow. However, it is far from obvious how large an effect a decrease in ε has.</p><p>To measure this effect, we reused the 730 workloads with known exact WCDFPs already discussed in Section VII-C and ran MC with a fixed sample budget of 2 26 and ε ∈ {10 -1 , . . . , 10 -6 , 10 -9 }. Fig. <ref type="figure" target="#fig_4">6b</ref> depicts the results.</p><p>Similarly to Fig. <ref type="figure" target="#fig_4">6a</ref>, the width of the interval decreases with the ground-truth WCDFP. However, what may be surprising is that, when the allowed misestimation probability is decreased from ε = 10 -2 (i.e., one misestimate in one hundred runs) to ε = 10 -9 (i.e., one misestimate in one billion runs), the empirical width of the attained confidence intervals increases by only a factor of 10. The reason is that ε influences the width of There is thus little harm in picking a suitably low misestimation probability ε that can be considered negligible.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Scalability to Large Task Sets</head><p>In our last experiment, we evaluated the scalability of the MC approach with respect to the number of tasks. To this end, we generated 2250 task sets, 50 for each possible combination of u ∈ {0.75, 0.8, 0.85, 0.9, 0.95} and n ∈ {5, 10, 25, 50, 100, 200, 300, 400, 500}. For each task set, we measured the runtime of MC required to generate 10 5 samples.</p><p>The results are shown in Fig. <ref type="figure">7</ref>. Note that the x-axis of Fig. <ref type="figure">7</ref> is nonlinear. For n ≤ 50, our sequential MC implementation can sample 10 5 response times in approximately 30 seconds (with a mean of 32 s for n = 50 tasks). At the upper end, for n = 500, the generation of 10 5 samples took roughly 10 minutes in one case (with a mean of 8.9 minutes for n = 500). Looking at median runtimes, it typically took 1.1, 29.0, and 434.2 seconds to generate the required number of samples for task sets with cardinality 5, 50, and 500, respectively. The observed runtimes, while not perfectly linear, clearly show the MC approach to scale easily to large task-set sizes, well beyond the reach of any current convolution-based methods.</p><p>Finally, it should be noted that Monte Carlo simulation is an embarrassingly parallel workload-it is trivial to parallelize the sampling across dozens, hundreds, or even thousands of cores with minimal communication. Our sequential implementation evaluated herein does not yet reflect this potential. As such, it may be safely assumed that runtime scalability is not a limiting factor of the MC approach given modern computing facilities.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. RELATED WORK</head><p>Davis and Cucu-Grosjean <ref type="bibr" target="#b16">[17]</ref> recently provided a comprehensive survey of probabilistic schedulability analysis techniques. We focus our attention on the most closely related work.</p><p>Analyses modeling task execution times as pWCETs trace their roots to work by Tia et al. <ref type="bibr" target="#b55">[55]</ref> in 1995, who introduced Probabilistic Time Demand Analysis (PTDA) based on the time-demand analysis technique for the deterministic case by Lehoczky et al. <ref type="bibr" target="#b32">[33]</ref>. Gardner and Liu <ref type="bibr" target="#b21">[22]</ref> extended PTDA to Stochastic Time-Demand Analysis (STDA) by accounting for backlog due to jobs that are not finished by their deadline.</p><p>STDA relies on the convolution of random variables representing individual jobs. Continuing this line of work, Díaz et al. <ref type="bibr" target="#b19">[20]</ref> noticed that exact stochastic analysis of practical real-time systems is infeasible due to excessive computational costs, which lead them to introduce the notion of intentional pessimism captured by Def. 5. This idea was adopted by Refaat and Hladik <ref type="bibr" target="#b50">[50]</ref>, who introduced resampling techniques that trade some added pessimism for a decrease in the size of the convolved distributions. Following up on this idea, Maxim et al. <ref type="bibr" target="#b43">[43]</ref> presented a resampling approach that accrues less pessimism. Specifically, they suggested to keep the largest value as well as the k -1 values with the largest probability in the distribution when reducing it to size k, and to reassign the probability of each removed point to the next-largest retained point. While this approach reduces the pessimism compared to Refaat and Hladik's method <ref type="bibr" target="#b50">[50]</ref>, pessimism still accrues in an uncontrolled manner if the method is applied repeatedly.</p><p>Instead of trying to speed up job-level convolution, von der Brüggen et al. <ref type="bibr" target="#b57">[57]</ref> proposed to move the convolution operation to the task level, which is possible since all jobs of a task share the same pWCET distribution. Using multinomial distributions, they efficiently calculated each task's total demand distribution (for a given number of jobs in an interval under analysis) and optimized the computation via pruning techniques. While their method thus scales to larger task sets than prior approaches <ref type="bibr" target="#b57">[57]</ref>, it remains subject to the efficiency and precision issues inherent in convolution. Specifically, von der Brüggen et al. reported runtimes of multiple hours for sets of 25 or more tasks, while simultaneously employing pessimism-inducing statemerging heuristics to lower the memory needs of the method. As the results reported in Section VII strongly suggest that the proposed Monte Carlo approach can match the level of precision attained by task-level convolution for larger task sets (as reported by von der Brüggen et al. <ref type="bibr" target="#b57">[57]</ref>) with much lower runtimes, we chose to exclude task-level convolution from consideration in our experimental setup.</p><p>Concurrently with this study, Markovic et al. <ref type="bibr" target="#b39">[40]</ref> pointed out that implementing circular convolution (based on the Fourier transform)-rather than naïve direct convolution as done herein and in most of the just-cited studies, with the notable exception of Gardner and Liu's early work <ref type="bibr" target="#b21">[22]</ref>-can considerably lessens the scalability issues of convolution-based approaches. There is thus reason to expect the envelope in which convolution-based methods remain competitive to be pushed further in future work.</p><p>Alternatively, analytic approximation techniques provide an immediate upper bound on the probability of a deadline miss without resorting to convolution. Chen and Chen <ref type="bibr" target="#b9">[10]</ref> proposed a scalable approximation based on the Chernoff bound <ref type="bibr" target="#b12">[13]</ref>, which they later further enhanced with regard to both runtime and precision <ref type="bibr" target="#b11">[12]</ref>. Furthermore, von der Brüggen et al. <ref type="bibr" target="#b57">[57]</ref> presented analyses based on Bernstein's <ref type="bibr" target="#b20">[21]</ref> and Hoeffding's <ref type="bibr" target="#b25">[26]</ref> inequalities. As discussed in Section VII, it makes sense to try these upper bounds first since they are fast to compute, but they do tend to be quite pessimistic in general.</p><p>Lu, Nolte, and several co-authors <ref type="bibr" target="#b34">[35]</ref><ref type="bibr" target="#b35">[36]</ref><ref type="bibr" target="#b36">[37]</ref><ref type="bibr" target="#b37">[38]</ref> studied the applicability of statistical methods to estimate the response time of a job. Their approach runs a system under analysis for some time, records the observed response times, and applies extreme value theory (EVT) to derive a probabilistic bound on the maximum response time. Maxim et al. <ref type="bibr" target="#b44">[44]</ref> examined the soundness of such approaches. Note that this approach solves a different problem than this paper: we approximate the proportion of response times that exceed the deadline, whereas Lu et al. seek to estimate the worst-case response time.</p><p>Finally, stochastic model checking (SMC) <ref type="bibr" target="#b53">[53]</ref> is a wellestablished area with a rich literature <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b30">31]</ref> that may seem conceptually very similar. However, there are major differences in focus and technique. SMC provides an expressive modeling formalism tailored to verifying complex, user-defined properties specified with temporal logics (e.g., <ref type="bibr" target="#b46">[46,</ref><ref type="bibr" target="#b47">47]</ref>). Such flexibility comes with a significant runtime cost, and hence SMC works best for models comprised of a modest number of interacting entities exhibiting complex behavior. In contrast, we have developed-and rigorously justified-a minimal, extremely lightweight sampling procedure tailored specifically to the (much simpler) problem at hand that scales to hundreds of tasks and tens of thousands of jobs. It is unlikely that a general SMC approach could produce samples at a comparably high rate, which is essential to achieving the required high precision δ.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IX. CONCLUSION AND FUTURE WORK</head><p>We have proposed a novel approach based on Monte Carlo simulation to analyze the probabilistic response time of jobs under preemptive static-priority scheduling on a uniprocessor, and applied it to approximate the WCDFP of constraineddeadline sporadic firm real-time tasks. The essence of the Monte Carlo approach is to accept a minuscule possibility of misestimation for the benefit of a comparably fast runtime. In an evaluation with randomized task sets, the proposed approach was shown to be highly effective compared to the state of the art when given equivalent time budgets, scaling to large task sets with up to 500 tasks while providing better precision than prior analytical and convolution-based approaches.</p><p>In future work, it would be interesting to extend the proposed approach to more complex task models (e.g., to self-suspending tasks) and different scheduling policies like EDF, and to examine the applicability to non/limited-preemptive workloads or in situations where pWCETs are correlated.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 :</head><label>1</label><figDesc>Fig. 1: The pWCET C i,j upper-bounds the pETs C i,1 and C i,2 .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>( 1 )</head><label>1</label><figDesc>holds by Lemma 19, (2) holds by Fact 8, (3) holds by Lemma 21, and (4) holds by Fact 8 and Def. 20. A simple corollary of Theorem 22 is that we can use S ξ x,y to assess the probability of a deadline violation. Corollary 23. P S ξ x,y &gt; D x = P R ξ x,y &gt; D x .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Scatter plot of WCDFP estimates given by CR and MC (left plot) and AB and MC (right plot) for each of the generated task sets. A point under the blue diagonal line indicates a task set where MC provides a better result. The numeric labels in the top-left and bottom-right corners indicate the number of points above and below the line, respectively.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: Box plots of the ratios CR / MC (upper row) and AB / MC (lower row) grouped by the discrepancy (left column), probability of the normal mode (middle column), and the number of modes (right column).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 6 :</head><label>6</label><figDesc>Fig. 6: Empirical width |r -l| of the attained confidence interval in relation to the ground-truth WCDFP.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 7 : 2 in</head><label>72</label><figDesc>Fig. 7: Runtime of MC vs. n. Note the nonlinear x-axis.</figDesc></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 01:25:03 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGEMENTS</head><p>This project has received funding from the <rs type="funder">European Research Council (ERC)</rs> under the European Union's <rs type="programName">Horizon 2020 research and innovation program</rs> (grant agreement No <rs type="grantNumber">803111</rs>).</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_D9gcwbM">
+					<idno type="grant-number">803111</idno>
+					<orgName type="program" subtype="full">Horizon 2020 research and innovation program</orgName>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">A survey of statistical model checking</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Agha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Palmskog</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Model. Comput. Simul</title>
+		<imprint>
+			<biblScope unit="volume">28</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page">39</biblScope>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Approximate is better than &quot;exact&quot; for interval estimation of binomial proportions</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Agresti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">A</forename><surname>Coull</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">The American Statistician</title>
+		<imprint>
+			<biblScope unit="volume">52</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="119" to="126" />
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">A comprehensive survey of industry practice in realtime systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Akesson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Nasri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Altmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Tech. Rep</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Applying new scheduling theory to static priority preemptive scheduling</title>
+		<author>
+			<persName><forename type="first">N</forename><forename type="middle">C</forename><surname>Audsley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">M</forename><surname>Richardson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">J</forename><surname>Wellings</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Softw. Eng. J</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="284" to="292" />
+			<date type="published" when="1993">1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Probabilistic response time bound for CAN messages with arbitrary deadlines</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Axer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sebastian</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Design, Automation &amp; Test in Europe Conference &amp; Exhibition (DATE&apos;12)</title>
+		<meeting><address><addrLine>Dresden, Germany</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2012">March 12-16. 2012</date>
+			<biblScope unit="page" from="1114" to="1117" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Sur l&apos;extension du théorème limite du calcul des probabilités aux sommes de quantités dépendantes</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bernstein</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Mathematische Annalen</title>
+		<imprint>
+			<biblScope unit="volume">97</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="1" to="59" />
+			<date type="published" when="1927">1927</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Abstract Response-Time Analysis: A Formal Foundation for the Busy-Window Principle</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bozhko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">32nd Euromicro Conference on Real-Time Systems (ECRTS&apos;20)</title>
+		<imprint>
+			<date type="published" when="2020">July 7-10, 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Probabilistic analysis of CAN with faults</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Broster</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Rodríguez-Navas</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 23rd IEEE Real-Time Systems Symposium (RTSS&apos;02)</title>
+		<meeting>the 23rd IEEE Real-Time Systems Symposium (RTSS&apos;02)<address><addrLine>Austin, Texas, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2002-05">December 3-5. 2002</date>
+			<biblScope unit="page" from="269" to="278" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Interval estimation for a binomial proportion</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">D</forename><surname>Brown</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">T</forename><surname>Cai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Dasgupta</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Statistical science</title>
+		<imprint>
+			<biblScope unit="volume">16</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="101" to="117" />
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Probabilistic schedulability tests for uniprocessor fixed-priority scheduling under soft errors</title>
+		<author>
+			<persName><forename type="first">K.-H</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">12th IEEE International Symposium on Industrial Embedded Systems (SIES&apos;17)</title>
+		<meeting><address><addrLine>Toulouse, France</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2017">June 14-16. 2017</date>
+			<biblScope unit="page" from="1" to="8" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Analysis of deadline miss rates for uniprocessor fixed-priority scheduling</title>
+		<author>
+			<persName><forename type="first">K.-H</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">24th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA&apos;18)</title>
+		<meeting><address><addrLine>Hakodate, Japan</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2018">August 28-31. 2018</date>
+			<biblScope unit="page" from="168" to="178" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Efficient computation of deadline-miss probability and potential pitfalls</title>
+		<author>
+			<persName><forename type="first">K.-H</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Ueter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Design, Automation &amp; Test in Europe Conference &amp; Exhibition (DATE&apos;19)</title>
+		<meeting><address><addrLine>Florence, Italy</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2019">March 25-29. 2019</date>
+			<biblScope unit="page" from="896" to="901" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">A measure of asymptotic efficiency for tests of a hypothesis based on the sum of observations</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Chernoff</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">The Annals of Mathematical Statistics</title>
+		<imprint>
+			<date type="published" when="1952">1952</date>
+			<biblScope unit="volume">23</biblScope>
+			<biblScope unit="page" from="493" to="507" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">The Use of Confidence or Fiducial Limits Illustrated in The Case of The Binomial</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">J</forename><surname>Clopper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><forename type="middle">S</forename><surname>Pearson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Biometrika</title>
+		<imprint>
+			<biblScope unit="volume">26</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page">1934</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Independence-a misunderstood property of and for probabilistic real-time systems</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems: the past, the present and the future</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="29" to="37" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Robust priority assignment for messages on controller area network (CAN)</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real Time Syst</title>
+		<imprint>
+			<biblScope unit="volume">41</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="152" to="180" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">A survey of probabilistic schedulability analysis techniques for real-time systems</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+		<idno>04:1-04:53</idno>
+	</analytic>
+	<monogr>
+		<title level="j">Leibniz Trans. Embed. Syst</title>
+		<imprint>
+			<biblScope unit="volume">6</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Controller area network (CAN) schedulability analysis: Refuted, revisited and revised</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">J</forename><surname>Bril</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">J</forename><surname>Lukkien</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real Time Syst</title>
+		<imprint>
+			<biblScope unit="volume">35</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="239" to="272" />
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Stochastic analysis of periodic real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">L</forename><surname>Díaz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">F</forename><surname>García</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">L</forename><surname>Bello</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>López</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">L</forename><surname>Min</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Mirabella</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 23rd IEEE Real-Time Systems Symposium (RTSS&apos;02)</title>
+		<meeting>the 23rd IEEE Real-Time Systems Symposium (RTSS&apos;02)<address><addrLine>Austin, Texas, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2002-05">December 3-5. 2002</date>
+			<biblScope unit="page" from="289" to="300" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Pessimism in the stochastic analysis of realtime systems: Concept and applications</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">L</forename><surname>Díaz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>López</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">G</forename><surname>Vazquez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">M</forename><surname>Campos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">L</forename><surname>Bello</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th IEEE Real-Time Systems Symposium (RTSS&apos;04)</title>
+		<meeting>the 25th IEEE Real-Time Systems Symposium (RTSS&apos;04)<address><addrLine>Lisbon, Portugal</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2004-12">December. 2004</date>
+			<biblScope unit="page" from="197" to="207" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title/>
+		<author>
+			<persName><forename type="first">S</forename><surname>Foucart</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Rauhut</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">A Mathematical Introduction to Compressive Sensing, ser. Applied and Numerical Harmonic Analysis. Birkhäuser</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Analyzing stochastic fixed-priority real-time systems</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">K</forename><surname>Gardner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Tools and Algorithms for Construction and Analysis of Systems, 5th International Conference (TACAS&apos;99)</title>
+		<meeting><address><addrLine>Amsterdam, The Netherlands</addrLine></address></meeting>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="1999">March 22-28. 1999</date>
+			<biblScope unit="page" from="44" to="58" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<monogr>
+		<author>
+			<persName><forename type="first">D</forename><surname>Griffin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<title level="m">dgdguk/drs</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Generating utilization vectors for the systematic evaluation of schedulability tests</title>
+	</analytic>
+	<monogr>
+		<title level="m">41st IEEE Real-Time Systems Symposium (RTSS&apos;20)</title>
+		<meeting><address><addrLine>Houston, TX, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2020-04">December 1-4. 2020</date>
+			<biblScope unit="page" from="76" to="88" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Communication centric design in complex automotive embedded systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dasari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kramer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Pressler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Wurst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">29th Euromicro Conference on Real-Time Systems (ECRTS&apos;17)</title>
+		<meeting><address><addrLine>Dubrovnik, Croatia</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2017">June 27-30. 2017</date>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="page">20</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Probability inequalities for sums of bounded random variables</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Hoeffding</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">The Collected Works of Wassily Hoeffding</title>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="1994">1994</date>
+			<biblScope unit="page" from="409" to="426" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Finding response times in a realtime system</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Joseph</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">K</forename><surname>Pandya</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Comput. J</title>
+		<imprint>
+			<biblScope unit="volume">29</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="390" to="395" />
+			<date type="published" when="1986">1986</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Several extensively tested multiple recursive random number generators</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Kao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H.-C</forename><surname>Tang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Computers &amp; Mathematics with Applications</title>
+		<imprint>
+			<biblScope unit="volume">36</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="129" to="136" />
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Real world automotive benchmarks for free</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kramer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">th International Workshop on Analysis Tools and Methodologies for Embedded and Realtime Systems (WATERS)</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Fast random number generators based on linear recurrences modulo 2: overview and comparison</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Ecuyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Panneton</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 37th Winter Simulation Conference</title>
+		<meeting>the 37th Winter Simulation Conference<address><addrLine>Orlando, FL, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2005-07">December 4-7. 2005</date>
+			<biblScope unit="page" from="110" to="119" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Statistical model checking: An overview</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Legay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Delahaye</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bensalem</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Runtime Verification -First International Conference (RV&apos;10), St. Julians, Malta</title>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="2010">November 1-4, 2010. 2010</date>
+			<biblScope unit="page" from="122" to="135" />
+		</imprint>
+	</monogr>
+	<note>Proceedings</note>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Fixed priority scheduling of periodic task sets with arbitrary deadlines</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the Real-Time Systems Symposium (RTSS&apos;90)</title>
+		<meeting>the Real-Time Systems Symposium (RTSS&apos;90)<address><addrLine>Buena Vista, Florida, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="1990-12">December. 1990</date>
+			<biblScope unit="page" from="201" to="209" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">The rate monotonic scheduling algorithm: Exact characterization and average case behavior</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ding</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the Real-Time Systems Symposium (RTSS&apos;89)</title>
+		<meeting>the Real-Time Systems Symposium (RTSS&apos;89)<address><addrLine>Santa Monica, California, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="1989-12">December. 1989</date>
+			<biblScope unit="page" from="166" to="171" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">Stochastic analysis of real-time systems under preemptive priority-driven scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>López</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">L</forename><surname>Díaz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Entrialgo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">F</forename><surname>García</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real Time Syst</title>
+		<imprint>
+			<biblScope unit="volume">40</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="180" to="207" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">A statistical approach to response-time analysis of complex embedded realtime systems</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Kraft</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Norström</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">16th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA&apos;10)</title>
+		<meeting><address><addrLine>Macau, SAR, China</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2010-08">August. 2010</date>
+			<biblScope unit="page" from="153" to="160" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">Statistical-based response-time analysis of systems with execution dependencies between tasks</title>
+	</analytic>
+	<monogr>
+		<title level="m">15th IEEE International Conference on Engineering of Complex Computer Systems (ICECCS&apos;10)</title>
+		<meeting><address><addrLine>Oxford, United Kingdom</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2010-03">March. 2010</date>
+			<biblScope unit="page" from="169" to="179" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">A statistical response-time analysis of complex real-time embedded systems by using timing traces</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">th IEEE International Symposium on Industrial Embedded Systems (SIES&apos;11)</title>
+		<meeting><address><addrLine>Vasteras, Sweden</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2011">June 15-17. 2011</date>
+			<biblScope unit="page" from="43" to="46" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">A statistical response-time analysis of real-time embedded systems</title>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 33rd IEEE Real-Time Systems Symposium (RTSS&apos;12)</title>
+		<meeting>the 33rd IEEE Real-Time Systems Symposium (RTSS&apos;12)<address><addrLine>San Juan, PR, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2012-07">December 4-7. 2012</date>
+			<biblScope unit="page" from="351" to="362" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">Probabilistic response time analysis for fixed preemption point selection</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Markovic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Carlson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Dobrin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Lisper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Thekkilakattil</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">13th IEEE International Symposium on Industrial Embedded Systems (SIES&apos;18)</title>
+		<meeting><address><addrLine>Graz, Austria</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2018-08">June 6-8. 2018</date>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">On the convolution efficiency for probabilistic analysis of real-time systems</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Markovic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">V</forename><surname>Papadopoulos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">33rd Euromicro Conference on Real-Time Systems (ECRTS&apos;21)</title>
+		<imprint>
+			<date type="published" when="2021-09">July 5-9, 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Dagstuhl -Leibniz</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2021">-Zentrum für Informatik, 2021</date>
+			<biblScope unit="volume">16</biblScope>
+			<biblScope unit="page">22</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<analytic>
+		<title level="a" type="main">Response time analysis for fixed-priority tasks with multiple probabilistic parameters</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Maxim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the IEEE 34th Real-Time Systems Symposium (RTSS&apos;13)</title>
+		<meeting>the IEEE 34th Real-Time Systems Symposium (RTSS&apos;13)<address><addrLine>Vancouver, BC, Canada</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2013-06">December 3-6. 2013</date>
+			<biblScope unit="page" from="224" to="235" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">Improved sampling for statistical timing analysis of real-time systems</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Maxim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Santinelli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 18th International Conference on Real-Time Networks and Systems (RTNS&apos;10)</title>
+		<meeting>the 18th International Conference on Real-Time Networks and Systems (RTNS&apos;10)<address><addrLine>Toulouse, France</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<analytic>
+		<title level="a" type="main">Re-sampling for statistical timing analysis of real-time systems</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Maxim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Houston</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Santinelli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Bernat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">20th International Conference on Real-Time and Network Systems (RTNS&apos;12)</title>
+		<meeting><address><addrLine>Pont a Mousson, France</addrLine></address></meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2012-09">November 08 -09. 2012</date>
+			<biblScope unit="page" from="111" to="120" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b44">
+	<analytic>
+		<title level="a" type="main">Study of the reliability of statistical timing analysis for real-time systems</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Maxim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Soboczenski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Tovar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 23rd International Conference on Real Time Networks and Systems (RTNS&apos;15)</title>
+		<meeting>the 23rd International Conference on Real Time Networks and Systems (RTNS&apos;15)<address><addrLine>Lille, France</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2015-06">November 4-6. ACM, 2015</date>
+			<biblScope unit="page" from="55" to="64" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b45">
+	<analytic>
+		<title level="a" type="main">Probabilistic analysis for mixed criticality systems using fixed priority preemptive scheduling</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Maxim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Easwaran</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th International Conference on Real-Time Networks and Systems (RTNS&apos;17)</title>
+		<meeting>the 25th International Conference on Real-Time Networks and Systems (RTNS&apos;17)<address><addrLine>Grenoble, France</addrLine></address></meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2017">October 04 -06, 2017. 2017</date>
+			<biblScope unit="page" from="237" to="246" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b46">
+	<monogr>
+		<title level="m" type="main">Modeling and Analysis of Stochastic Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">L</forename><surname>Mediouni</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+		<respStmt>
+			<orgName>Université Grenoble Alpes</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b47">
+	<analytic>
+		<title level="a" type="main">S BIP 2.0: Statistical model checking stochastic real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">L</forename><surname>Mediouni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Nouri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bozga</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Dellabani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Legay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bensalem</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Automated Technology for Verification and Analysis -16th International Symposium (ATVA&apos;18)</title>
+		<meeting><address><addrLine>Los Angeles, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="2018">October 7-10, 2018. 2018</date>
+			<biblScope unit="page" from="536" to="542" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b48">
+	<analytic>
+		<title level="a" type="main">Worst-case deadline failure probability in real-time applications distributed over controller area network</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Navet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Song</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Simonot</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. Syst. Archit</title>
+		<imprint>
+			<biblScope unit="volume">46</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<biblScope unit="page" from="607" to="617" />
+			<date type="published" when="2000">2000</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b49">
+	<analytic>
+		<title level="a" type="main">Probabilistic worstcase response-time analysis for the controller area network</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Hansson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Norström</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 9th IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS&apos;03)</title>
+		<meeting>the 9th IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS&apos;03)<address><addrLine>Toronto, Canada</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2003">May 27-30. 2003</date>
+			<biblScope unit="page" from="200" to="207" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b50">
+	<analytic>
+		<title level="a" type="main">Efficient stochastic analysis of real-time systems via random sampling</title>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">S</forename><surname>Refaat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Hladik</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">22nd Euromicro Conference on Real-Time Systems (ECRTS&apos;10)</title>
+		<meeting><address><addrLine>Brussels, Belgium</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2010-09">July 6-9. 2010</date>
+			<biblScope unit="page" from="175" to="183" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b51">
+	<analytic>
+		<title/>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">P</forename><surname>Robert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Casella</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Monte Carlo Statistical Methods, ser. Springer Texts in Statistics</title>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+			<publisher>Springer</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b52">
+	<monogr>
+		<title level="m" type="main">Optimizing the task allocation step for multi-core processors within autosar</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Sailer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Schmidhuber</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Deubzer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Alfranseder</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Mucha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mottok</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2013">2013. 2013</date>
+			<publisher>IEEE</publisher>
+			<biblScope unit="page" from="1" to="6" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b53">
+	<analytic>
+		<title level="a" type="main">On statistical model checking of stochastic systems</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Sen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Viswanathan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Agha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Computer Aided Verification, 17th International Conference (CAV&apos;05)</title>
+		<meeting><address><addrLine>Edinburgh, Scotland, UK</addrLine></address></meeting>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="2005">July 6-10, 2005. 2005</date>
+			<biblScope unit="page" from="266" to="280" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b54">
+	<analytic>
+		<title level="a" type="main">Probabilistic response time and joint analysis of periodic tasks</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Tanasa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><forename type="middle">D</forename><surname>Bordoloi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Eles</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Peng</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">27th Euromicro Conference on Real-Time Systems (ECRTS&apos;15)</title>
+		<meeting><address><addrLine>Lund, Sweden</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2015-10">July 8-10. 2015</date>
+			<biblScope unit="page" from="235" to="246" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b55">
+	<analytic>
+		<title level="a" type="main">Probabilistic performance guarantee for real-time tasks with varying computation times</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Tia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Deng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Shankar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">F</forename><surname>Storch</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Wu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">1st IEEE Real-Time Technology and Applications Symposium</title>
+		<meeting><address><addrLine>Chicago, Illinois, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="1995">May 15-17, 1995. 1995</date>
+			<biblScope unit="page" from="164" to="173" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b56">
+	<analytic>
+		<title level="a" type="main">Systemlevel timing feasibility test for cyber-physical automotive systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Tobuschat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">11th IEEE Symposium on Industrial Embedded Systems (SIES&apos;16)</title>
+		<meeting><address><addrLine>Krakow, Poland</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2016">May 23-25. 2016</date>
+			<biblScope unit="page" from="121" to="130" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b57">
+	<analytic>
+		<title level="a" type="main">Efficiently approximating the probability of deadline misses in real-time systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Piatkowski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K.-H</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Morik</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">30th Euromicro Conference on Real-Time Systems (ECRTS&apos;18)</title>
+		<meeting><address><addrLine>Barcelona, Spain</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2018-06">July 3-6. 2018</date>
+			<biblScope unit="volume">6</biblScope>
+			<biblScope unit="page">22</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b58">
+	<analytic>
+		<title level="a" type="main">Generating good pseudorandom numbers</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">A</forename><surname>Wichmann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><forename type="middle">D</forename><surname>Hill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Comput. Stat. Data Anal</title>
+		<imprint>
+			<biblScope unit="volume">51</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="1614" to="1622" />
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b59">
+	<analytic>
+		<title level="a" type="main">Probable inference, the law of succession, and statistical inference</title>
+		<author>
+			<persName><forename type="first">E</forename><forename type="middle">B</forename><surname>Wilson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of the American Statistical Association</title>
+		<imprint>
+			<biblScope unit="volume">22</biblScope>
+			<biblScope unit="issue">158</biblScope>
+			<biblScope unit="page" from="209" to="212" />
+			<date type="published" when="1927">1927</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

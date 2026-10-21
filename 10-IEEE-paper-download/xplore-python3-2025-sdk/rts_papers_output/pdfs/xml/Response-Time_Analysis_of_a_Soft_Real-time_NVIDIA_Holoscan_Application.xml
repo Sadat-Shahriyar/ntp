@@ -1,0 +1,595 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Response-Time Analysis of a Soft Real-time NVIDIA Holoscan Application</title>
+				<funder>
+					<orgName type="full">Institute for Computing, Information and Cognitive Systems</orgName>
+				</funder>
+				<funder>
+					<orgName type="full">Natural Sciences and Engineering Research Council of Canada</orgName>
+					<orgName type="abbreviated">NSERC</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Philip</forename><surname>Schowitz</surname></persName>
+							<email>philpns@cs.ubc.ca</email>
+							<affiliation key="aff0">
+								<orgName type="institution">The University of British Columbia Vancouver</orgName>
+								<address>
+									<region>BC</region>
+									<country key="CA">Canada</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Soham</forename><surname>Sinha</surname></persName>
+							<email>sohams@nvidia.com</email>
+							<affiliation key="aff1">
+								<address>
+									<settlement>Santa Clara</settlement>
+									<region>CA</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Arpan</forename><surname>Gujarati</surname></persName>
+							<email>arpanbg@cs.ubc.ca</email>
+							<affiliation key="aff2">
+								<orgName type="institution">The University of British Columbia Vancouver</orgName>
+								<address>
+									<region>BC</region>
+									<country key="CA">Canada</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Response-Time Analysis of a Soft Real-time NVIDIA Holoscan Application</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">85670CC3CAAE91E018839B19C308ED65</idno>
+					<idno type="DOI">10.1109/RTSS62706.2024.00015</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-13T19:13+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>NVIDIA Holoscan SDK is a novel edge and embedded software development framework designed for NVIDIA Systemon-Chips (SoCs), primarily targeting medical device applications. This SDK facilitates complex data processing workflows using Directed Acyclic Graphs (DAGs) composed of functional units termed operators. These operators, running in separate threads, are usually interconnected with intricate execution dependencies influenced by both upstream and downstream conditions on communication data buffers. Current methods to measure the response time of a complex Holoscan application rely on empirical benchmarking, which can be costly, time-consuming, and unreliable -limitations that are particularly critical in sectors where safety and certification concerns are paramount.</p><p>This paper introduces a novel static analysis methodology to determine worst-case end-to-end response times in NVIDIA Holoscan applications. Our approach overcomes the drawbacks of existing empirical tools by providing a response-time analysis capable of handling complex operator interactions and communication buffering mechanisms inherent in Holoscan's architecture. Through rigorous theoretical analysis and empirical validation, our method not only ensures predictability in system behavior but also aids developers in identifying performance bottlenecks and optimizing system design. Evaluation using real-world NVIDIA HoloHub applications demonstrates the efficiency and accuracy of our analysis, achieving theoretical response times as close as 0.3% of empirically measured numbers on NVIDIA hardware using less than 1 ms computation time.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>The medical devices industry is increasingly adopting powerful edge and embedded computing platforms to meet the growing demand for computation power and real-time processing of streaming sensor data. Modern devices support complex workflows and are designed to be deployed on the premises of hospitals and medical care facilities, such that they can last for over a decade. NVIDIA Holoscan <ref type="bibr" target="#b0">[1]</ref> is one such platform that is gaining traction across the industry <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b2">3]</ref>.</p><p>The Holoscan SDK <ref type="bibr" target="#b0">[1]</ref> is a software development framework for ARM-based SoCs manufactured by NVIDIA, such as AGX and IGX Orin <ref type="bibr" target="#b3">[4]</ref>. It presents a unique programming model that facilitates a highly modular application development to help medical device application developers program complex interconnected workflows. The model composes individual function blocks (as vertices) into a Directed Acyclic Graph (DAG). The vertices (known as operators in Holoscan) run as threads and the edges govern data flow and dependencies between the vertices. The operators can be reused across applications.</p><p>Holoscan's programming model enables rapid prototyping and development of applications for an eventual productiongrade deployment. However, the intertwined architecture of queues, queue conditions, and operators in different threads complicates the analysis of a Holoscan application's behavior. For instance, Holoscan supports data transfers between operators through double-buffered queues and imposes restrictions on the execution of operators based on the status of these queues. Currently, Holoscan relies on empirical tools, such as the Data Flow Tracking feature <ref type="bibr" target="#b4">[5]</ref>, to measure end-to-end latency of a Holoscan application. As shown in Section III, such empirical tools are dependent on and limited by the testing setup and duration. In the regulated medical devices sector, deriving a static response-time analysis for Holoscan applications is highly desirable but missing.</p><p>Holoscan's application framework does not conform to wellknown system models, such as existing real-time scheduling models for DAG tasks. The closest model is synchronous dataflow (SDF), but existing response-time analyses for SDF <ref type="bibr" target="#b5">[6]</ref><ref type="bibr" target="#b6">[7]</ref><ref type="bibr" target="#b7">[8]</ref><ref type="bibr" target="#b8">[9]</ref> cannot account for the use of queues and restrictions on operator execution based on communication buffer states found in Holoscan. Our paper is the first attempt to bound the worstcase end-to-end response time for any item (e.g., a video frame) within Holoscan's streaming workflow model, considering blocking due to communication buffer constraints.</p><p>We evaluate our analysis using example application structures from NVIDIA HoloHub <ref type="bibr" target="#b9">[10]</ref>, a community-populated repository for Holoscan applications. For comparison, we use empirical results from the Holoscan Data Flow Tracking feature on NVIDIA hardware and simulated results on a simplified Holoscan application runtime model. Evaluation results demonstrate that our analysis is efficient, taking less than 1 ms to process the small DAGs used in Holoscan, and closely bounds approximate empirical results for most variations of the eight tested DAG application structures in HoloHub.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. HOLOSCAN INTERNALS</head><p>The Holoscan SDK's execution backend, called the Graph Execution Framework (GXF) <ref type="bibr" target="#b10">[11]</ref> (also developed by NVIDIA) handles scheduling, data transfers, and synchronization of Holoscan operators. This paper analyzes the Holoscan SDK source code and the GXF C++ header files (both of which are open-source) in order to model Holoscan's internal design and Fig. <ref type="figure" target="#fig_7">1</ref>. Illustration of Holoscan internals using an endoscopy tool tracking application. The application is composed of five functional blocks, which are combined in the form of a DAG, as shown in the top part of the figure. The interaction between the Format Converter and LSTM TensorRT Inference operators is highlighted to illustrate the key Holoscan components underlying the DAG. The two operators share a FIFO queue between them. Format Converter is subject to a downstream condition, which means that it cannot start processing a new input if there is no space in the (output) FIFO queue. LSTM TensorRT Inference is subject to an upstream condition, which simply means that it cannot start processing a new input if no input is available in the (input) FIFO queue. Operator execution, thread allocation, and scheduling is managed by the GXF backend, which is not shown in the figure . 
+
+conduct a response-time analysis of a Holoscan application. Fig. <ref type="figure" target="#fig_7">1</ref> illustrates the high-level interactions between two communicating Holoscan operators using a Holoscan endoscopy tool tracking application <ref type="bibr" target="#b11">[12]</ref> as an example.</p><p>Operators, the building blocks of a Holoscan application, perform recurring tasks such as processing sensor inputs and displaying a stream of images. These operators are interconnected in a DAG to facilitate complex interactions and dependencies in an application. Each operator features input and output ports, named Receivers and Transmitters, which handle data reception and transmission to other operators. The communication between each pair of output (transmitter) and input (receiver) ports (i.e., the data flow along an edge between two adjacent operators) is orchestrated by the backend using a First-In-First-Out (FIFO) double-buffered queue <ref type="bibr" target="#b12">[13]</ref>, which also serves as a data buffer for the ports. 1 If full, the queue can be configured to drop either old or new elements depending on the overflow discipline configured. 2 The queue implementation and the overflow discipline do not affect the FIFO property when considering items that are not dropped. Hence, we ignore these details in our worst-case response-time analysis.</p><p>Each operator is subjected to a number of conditions that can affect their execution. A condition could relate to an input port, determining if the connected input buffer has adequate space to accommodate a new message. Alternatively, it might be a periodic condition that verifies if a specified duration has elapsed since the last invocation of the operator. The two most prevalent conditions are MessageAvailableCondition 1 Each double-buffered queue configured to hold C items is actually divided into two stages, the main stage and the backstage, each of which has capacity C and which operate together as a FIFO ring buffer. When a new item is pushed, it is placed into the backstage. When an item is popped, the oldest item in the main stage is removed and returned. A sync function moves all the items in the backstage to the main stage whenever an operator reads from an input port or pushes to an output port. Despite the space for 2C items, the queue effectively operates as a single FIFO queue with capacity C.</p><p>2 Three overflow disciplines are allowed: kFault throws an error in case of an overflow, kReject drops the new item without disturbing any old items, whereas kPop removes the oldest item to make space for the new item.</p><p>and DownstreamMessageAffordableCondition, which we refer to as upstream and downstream conditions, respectively. The upstream condition ensures that an operator activates only when each of its input queue buffers is not empty. The downstream condition allows operator execution only when the output port buffers have space to accommodate new messages.</p><p>The Holoscan SDK offers two user-level schedulers for application operators: Greedy Scheduler <ref type="bibr" target="#b13">[14]</ref> and Multi-threaded Scheduler <ref type="bibr" target="#b14">[15]</ref>. The Greedy Scheduler processes operators in an application DAG in topological order using a single thread, preventing parallel operator execution. Response-time analysis is trivial as response times are simply the sum of individual operator execution times under default conditions. We focus on the Multi-threaded Scheduler. This scheduler also arranges operators in a DAG in topological order but executes them concurrently across multiple threads. For our response-time analysis, we assume that the number of threads matches the total number of operators, and each thread is pinned to a single exclusive CPU core. This assumption holds as our dataset, sourced from NVIDIA HoloHub, consists of applications where the operator and thread count do not surpass the core availability in NVIDIA AGX and IGX Orin platforms.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. MOTIVATING EXAMPLES</head><p>We first demonstrate how the downstream conditions in the Holoscan SDK add additional delays, which can have a substantial impact on worst-case response times.</p><p>Example 1. Consider a DAG with just two connected operators O 1 and O 2 requiring execution times of e 1 = 100 ms and e 2 = 1000 ms, respectively. Queue Q 1 buffers inputs before O 1 and queue Q 1,2 buffers intermediate data between O 1 and O 2 . Suppose both queues have a capacity of C = 1. A new input arrives every 100 ms. The overflow discipline ensures that if Q 1 is full, the input is dropped, else, the input is buffered in Q 1 . Fig. <ref type="figure" target="#fig_0">2</ref> illustrates the DAG structure and the state of its queues and operators at different times, as inputs I 1 , I 2 , . . . , I 32 arrive periodically. We assume multiple events can happen simultaneously and with no overhead. For example, input I 1 can leave operator O 1 and arrive at O 2 and another input I 2 can arrive at O 1 , all at the same time instant.</p><p>Initially, at t = 0 ms, input I 1 arrives; operator O 1 is idle at this time, so it immediately starts processing I 1 . At t = 100 ms, O 1 finishes processing I 1 and I 2 arrives; O 1 and O 2 hence immediately start processing I 2 and I 1 , respectively. After another 100 ms, at t = 200 ms, O 1 finishes processing I 2 and I 3 arrives; however, O 2 is still processing I 1 ; hence, I 2 is queued in Q 1,2 , and I 3 is queued in Q 1 . Note that I 3 is queued even though O 1 is idle because the downstream condition prevents O 1 from processing a new input until its downstream queue Q 1,2 has at least one empty space. All subsequent inputs I 4 , I 5 , . . . , I 11 are dropped, as the state of the DAG does not change during this time, and Q 1 remains full. Finally, at t = 1100 ms, when O 2 finishes processing I 1 , it consumes I 2 from Q 1,2 and starts processing it; this empties Q 1,2 , which satisfies O 1 's downstream condition, which in turn allows O 1 to start processing I 3 . The new input I 12 can now be buffered and need not be dropped, as Q 1 is empty. This behavior repeats periodically, as shown in the figure . 
+Ignoring inputs that are dropped, the worst-case response time in the above example is 2900 ms, e.g., I 3 arrived at t = 200 ms and O 2 finished processing it at t = 3100 ms. Developers may not be able to determine this worst-case response time easily. In fact, they may naively assume the worst-case response time to be 2100 ms: 1100 ms being the total processing time and 1000 ms being the queuing delay ahead of O 2 . The downstream condition, however, induces additional blocking that adds an extra delay of 800 ms. Ignoring delays prior to the first operator, the response time is simply the sum of all these delays, and indicated on the right of the chain. In the lower chain, the first operator has a lower execution time, but the worst-case response time is nonetheless higher due to queuing delays throughout the chain.</p><p>In this example, we used a simple linear chain with two operators. With more complex applications, reasoning about response times becomes even more difficult. In the following example, we show that the worst-case response time in a linear chain can often be sensitive to the ordering of execution times (specifically, it may depend on the operator in the chain with the greatest execution time), which can lead to performance anomalies that result in degraded response times. Ignoring the queuing delay prior to the first operator for this example, all other queuing delays are always zero. However, this is just a side-effect of the specific execution times. Operator O 1 consumes a new input only every 500 ms, i.e., at 0 ms, 500 ms, 1000 ms and so on. Consequently, O 2 , O 3 , and O 4 are also able to consume a new input only every 500 ms, i.e., O 2 at times 500 ms, 1000 ms, . . ., O 3 at times 600 ms, 1100 ms, . . ., and O 4 at times 700 ms, 1200 ms, . . . Since e 4 = 400 ms &lt; 500 ms, O 4 is always able to process the inputs faster than they are available, resulting in zero queuing delays between each pair of operators. In other words, ignoring delays prior to the first operator, the worst-case response time is the sum of all execution times, i.e., 1100 ms.</p><p>Suppose we wish to further improve the overall response time of this linear chain. We decide to optimize the implementation of the first operator, as it has the greatest execution time. Succeeding, we manage to reduce its execution time from e 1 = 500 ms to e ′ 1 = 300 ms. We expect an improvement of at least 200 ms in the end-to-end response time. In reality, though, the linear chain's worst-case response time is now 500 ms more than that of the original configuration. The new configuration is shown in Fig. <ref type="figure" target="#fig_1">3</ref> (bottom). A lower worst-case execution time for the first operator shifts the "bottleneck" of the linear chain from the first operator to the last operator, causing queuing delays throughout the chain (which was not the case before), resulting in this performance anomaly. The queuing delays shown in the figure are not encountered by the first few inputs, but the queues gradually start filling up, starting at the last operator, eventually resulting in these queuing delays.  The response times in this example are calculated using our linear chain analysis presented in Section V.</p><p>In the next example, we motivate why a worst-case responsetime analysis for DAGs with both upstream and downstream conditions is nontrivial and requires a careful consideration of multiple possible scenarios, and that individually analysing all linear chains (paths) in a DAG is insufficient. Hence, in a DAG, one of the paths may cause delays in another path due to precedence constraints, and, in conjunction with downstream conditions, these delays may affect input processing in a subsequent iteration. As a result of such interactions, the actual processing rate of an operator (O 1 in this example) may depend on all paths leading out of it up to the point where the paths merge (O 5 in this example).</p><p>In the final example, we show that even simple changes to the application program, such as adding or dropping a data flow edge in the program DAG, can change the response time in unintuitive ways. We also highlight the limitations of Holoscan's latency profiling tool using this example.</p><p>Example 4. Consider the DAG shown in Fig. <ref type="figure" target="#fig_6">6</ref>. We consider two versions of the DAG, with and without the edge labeled A. For each version, we use Holoscan's Data Flow Tracking tool to profile the response times across several iterations, and report the maximum observed response time. With edge A, the maximum observed response time is 2700 ms. Removing the edge reduces it to 2400 ms. To make matters worse, if the execution time of the second operator O 2 is increased from 300 ms to 700 ms, removing edge A actually increases the maximum observed response time from 3500 ms to 3600 ms. These complex timing behaviors highlight that application developers may overlook many potential timing issues during the design phase and encounter them only post-development (as the profiling tool cannot be used at design time).</p><p>Furthermore, Holoscan's Data Flow Tracking tool (or any empirical tool as a matter of fact) may need to be run for an extended duration to achieve a trustworthy and reliable upper bound on the response time. For example, consider the same DAG as shown in Fig. <ref type="figure" target="#fig_6">6</ref> but without edge A, and suppose that operators O 1 -O 5 have execution times 191 ms, 128 ms, 215 ms, 300 ms, and 414 ms, respectively. Holoscan's profiling tool required seven hours to converge on the worst-case response time bound for this DAG. Initial measurements after 30 minutes recorded a maximum response time of 2069 ms, which increased to 2075 ms after two hours, and reached 2080 ms after seven hours. Of course, with empirical tools, it is unclear if the observed bounds may increase further with a more prolonged execution. Therefore, a rigorous responsetime analysis is essential, especially in critical and regulated sectors like medical devices and industrial automation, which is currently missing for Holoscan-like frameworks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. SYSTEM MODEL</head><p>We model each Holoscan application as a directed acyclic graph D = (V, E), where the set of all vertices V corresponds to the set of all Holoscan operators and the set of all edges E corresponds to the set of all precedence relationships. Specifically, V is a partially ordered set of operators, such that if there is an edge from O x to O y , then O x is before O y in V . A segment S ⊆ V (also called a path) is an ordered set of operators such that each adjacent pair of operators O x , O y ∈ S is connected by an edge from O x to O y .</p><p>Each operator O i ∈ V is characterized by its best-case and worst-case execution times, denoted e lb i and e ub i , respectively. If the application uses two instances of the same Holoscan operator, they are mapped to separate vertices in V . We assume that D has exactly one source operator and exactly one sink (terminal) operator, which we commonly denote as O src and O sink , respectively. Any DAG with multiple sources or sinks can be easily reduced to our model by appending auxiliary source and sink nodes with zero execution times.</p><p>Each edge</p><formula xml:id="formula_0">E i,j = (O i → O j</formula><p>) is characterized by its sending and receiving operators O i and O j , respectively. The edges imply a dependency in the Holoscan application, e.g., O j needs an input from O i to execute. However, since O j may need to buffer this input until all conditions are met (discussed below), we assume that each edge E i,j has a dedicated FIFO queue Q i,j with capacity C i,j . The FIFO queue abstracts the double-buffered queue in the Holoscan implementation.</p><p>Both message available (upstream) and downstream conditions are typically set with a default threshold of one message. For example, if operator O i has three incoming edges,</p><formula xml:id="formula_1">E a,i = (O a → O i ), E b,i = (O b → O i ), and E c,i = (O c → O i ), and two outgoing edges E i,x = (O i → O x ) and E i,y = (O i → O y )</formula><p>, the message available condition on each incoming edge of O i ensures that it can start execution only if there is an input available in each incoming queue Q a,i , Q b,i , and Q c,i , and the downstream condition ensures that O i does not execute until there is an empty slot available in each outgoing queue Q i,x and Q i,y . Holoscan's scheduler is work conserving, i.e., if for any operator O i both message available and downstream conditions hold, the operator must execute.</p><p>Assumptions. We make four key assumptions based on how Holoscan is deployed today. A1. We assume that the queue capacity is 1 for each queue Q i,j , as Holoscan currently does not allow edge-specific queue sizes by default, and it is recommended to use the default queue capacity of 1 for an application. A2. We assume that the platform contains sufficient cores so that every operator can be executed in parallel. This is the de facto deployment scenario as the NVIDIA embedded platforms in use today typically have twelve or more cores whereas the Holoscan applications have fewer operators (e.g., see Figure <ref type="figure" target="#fig_16">9</ref> in Section VII).<ref type="foot" target="#foot_1">3</ref> A3. We assume that the Holoscan application, or DAG D, continuously processes an infinite stream of inputs. The inputs may arrive as frequently as possible with a minimum inter-arrival time of 0. However, this implies that some inputs may be dropped at source. For our worst-case response-time analysis, we ignore such inputs. Specifically, we assume that if O src is idle and all its downstream conditions are satisfied (note that O src does not have any upstream conditions), it never needs to wait for an input; and input will always be available. This also means that periodic arrivals are possible. For example, the period of 400 ms in Fig. <ref type="figure" target="#fig_4">5</ref> is the maximum period allowed for this graph, since any increase would cause the source operator to become idle at some point in the execution history. A4. We assume that the execution time of an operator, irrespective of the input it is processing, remains fixed throughout a single streaming run (during which the DAG may process several inputs continuously). This can be easily achieved by spinning (if needed) at the end of each operator execution.</p><p>Problem statement. Suppose D processes an infinite stream of inputs I = {I 1 , I 2 , . . .}, where each input I k is queued in front of the source operator O src at time start k and is finished being processed by the sink operator O sink at time finish k . Let I dropped ⊆ I denote the set of inputs in I that are dropped. For each input I x ∈ I dropped , we can ignore its start and finish times start x and finish x , or let start x = finish x = ∞. Let R(D) denote the worst-case response time (WCRT) experienced by any input that is successfully processed through the DAG. Given assumptions A1-A4, our objective is to find an upper-bound R ub (D) on this worst-case response time, i.e.,</p><formula xml:id="formula_2">R ub (D) ≥ R(D) = max ∀Ik∈I\Idropped (finish k -start k ) .<label>(1)</label></formula><p>MAX and OPT scenarios. Despite assumption A4, users may want to analyze different DAG instances with different execution time profiles, e.g., to understand when is it beneficial to optimize and reduce the execution time of certain operators. Also, the platform configuration, such as the clock frequencies, may affect the execution times. Hence, we consider two distinct scenarios: MAX and OPT. Let e i ∈ [e lb i , e ub i ] denote the execution time of operator O i in every iteration of a single streaming run. In the MAX scenario, we assume that e i = e ub i is always the maximum possible value. In the OPT scenario, we assume that e i ∈ [e lb i , e ub i ], say, due to some optimizing configurations. To see why OPT scenarios are relevant, recall Example 2 from Section III. The OPT scenario allows identifying performance anomalies at design time, which helps developers pursue productive optimizations.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. LINEAR CHAIN MODELING</head><p>We divide our response-time analysis into two parts. We discuss linear chains first and then in the next section extend our linear chain analysis for arbitrary DAGs. We model a linear chain using a simplified DAG.</p><formula xml:id="formula_3">D chain = (V chain , E chain ) : V chain = {O 1 , O 2 , . . . , O N }, E chain = {(O 1 → O 2 ), . . . , (O N -1 → O N )}, O src = O 1 and O sink = O N .<label>(2)</label></formula><p>We start with some preliminary definitions. (3) Definition 2. For any DAG D = (V, E), the service rate µ i of any operator O i ∈ V is defined as the inverse of its worst-case execution time, i.e., µ i = 1/e ub i . Recall from Section IV, assumption A3, that the source operator O 1 never needs to wait for an input, and may receive inputs as frequently as possible. If inputs arrive faster than the rate at which they can be processed, they may be dropped, and are not considered by our response-time analysis. However, subsequent operators in the linear chain may have to wait for an input owing to processing delays in the earlier part of the linear chain. For example, in a chain with only two operators O 1 and O 2 , if e 1 = 100 ms and e 2 = 1000 ms, because e 1 &lt; e 2 , assumption A3 implies that O 2 too never needs to wait for an input. In contrast, if e 1 = 1000 ms and e 2 = 100 ms, because e 1 &gt; e 2 , O 2 needs to wait for O 1 to finish executing. Generalizing this example, the bottleneck operator in the linear chain (as computed using Definition 1) limits the service rate µ(D chain ) of the entire linear chain. Definition 3. For any D chain = (V chain , E chain ), its service rate µ(D chain ) is defined as the service rate of its bottleneck operator, i.e., if</p><formula xml:id="formula_4">O b = B(V chain ), µ(D chain ) = µ b .</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Linear Chain with MAX Execution Times</head><p>In the following, D chain refers to the linear chain with N operators as defined in Eq. ( <ref type="formula" target="#formula_3">2</ref>), and O b is commonly used to refer to its bottleneck operator B(V chain ). The bottleneck operator allows us to divide a linear chain into two segments and analyse the response time of each segment separately. We first consider a special case in Lemma 1 where the bottleneck operator is the last operator, i.e., </p><formula xml:id="formula_5">O b = O N . Lemma 1. Given D chain , if O b = O N = B(V chain ), the worst- case response time in the MAX case is bounded by R ub MAX (D chain ) = e ub b • (b + 1).<label>(4</label></formula><formula xml:id="formula_6">′ chain = (V chain ∪ {O N +1 }, E chain ∪ {(O N → O N +1 )}), if O b = O N = B(V chain ) = B(V ′ chain ), the worst- case response time of D ′ chain in the MAX case is bounded by R ub MAX (D ′ chain ) = R ub MAX (D chain ) + e ub N +1 .<label>(5)</label></formula><p>Proof. Since O b = O N is also the bottleneck operator in the new linear chain D ′ chain , the rate at which operator O N produces its outputs is lower than the rate at which the newly added operator O N +1 consumes its inputs. Hence, no data item will ever have to wait in queue Q N,N +1 between these operators, i.e., no queuing delay can occur between operators O N and O N +1 . Hence, the worst-case response-time bound of D ′ chain is simply the worst-case response time-bound of D chain , i.e., R ub MAX (D chain ), plus the worst-case execution delay at the last operator O N +1 , i.e., e ub N +1 .</p><p>We generalize Lemma 2 by considering another linear chain D ′′ chain , which, like before, is an extended version of D chain with N + 1 operators, and with the same bottleneck operator as D chain , i.e., O b = B(V chain ) = B(V ′′ chain ). However, unlike before, the bottleneck operator may not necessarily be the N th operator O N , but can be any operator from O 1 to O N . Lemma 3. Given D chain , and another linear chain</p><formula xml:id="formula_7">D ′′ chain = (V chain ∪ {O N +1 }, E chain ∪ {(O N → O N +1 )}), if O b = B(V chain ) = B(V ′′ chain ) for some 1 ≤ b ≤ N , the worst-case response time of D ′′ chain in the MAX case is bounded by R ub MAX (D ′′ chain ) = R ub MAX (D chain ) + e ub N +1 .<label>(6)</label></formula><p>Proof. The effective rate at which D chain produces its outputs is µ(D chain ) = µ b (Definition 3). Since µ b &lt; µ N +1 , the remaining proof is analogous to that of Lemma 2.</p><p>In Lemma 4, we use Lemmas 1 to 3 to upper-bound the worstcase response time for D chain , without making any assumptions about which operator is the bottleneck. </p><p>Proof.</p><formula xml:id="formula_9">Let D b prefix = (V b prefix , E b prefix ) denote a sub-chain of D chain , with V b prefix = {O 1 , O 2 , . . . , O b-1 , O b }. As D b</formula><p>prefix is itself a chain ending in a bottleneck operator, Lemma 1 gives us the following upper bound on its response time:</p><formula xml:id="formula_10">R ub MAX (D prefix ) = e ub b • (b + 1).<label>(8)</label></formula><p>Now consider</p><formula xml:id="formula_11">D b+1 prefix = (V b prefix ∪ {O b+1 }, E b chain ∪ {(O b → O b+1 )}).</formula><p>From Lemma 2, and from the upper bound on the response time of D b prefix from Eq. ( <ref type="formula" target="#formula_10">8</ref>), we have:</p><formula xml:id="formula_12">R ub MAX (D b+1 prefix ) = R ub MAX (D b prefix ) + e ub b+1 = e ub b • (b + 1) + e ub b+1 .<label>(9)</label></formula><p>Next, we consider</p><formula xml:id="formula_13">D b+2 prefix = (V b prefix ∪{O b+1 , O b+2 }, E b chain ∪ {(O b → O b+1 ), (O b+1 → O b+2 )}).</formula><p>This time, from Lemma 3 and from Eq. ( <ref type="formula" target="#formula_12">9</ref>) above, we have:</p><formula xml:id="formula_14">R ub MAX (D b+2 prefix ) = R ub MAX (D b+1 prefix ) + e ub b+2 = e ub b • (b + 1) + e ub b+1 + e ub b+2 .<label>(10)</label></formula><p>Adding one operator at a time to D prefix for up to N -b iterations, and applying Lemma 3 every time like in Eq. ( <ref type="formula" target="#formula_14">10</ref>), we can have an upper-bound on the response time of D N prefix as</p><formula xml:id="formula_15">R ub MAX (D N prefix ) = e ub b • (b + 1) + N i=b+1 e ub i ,<label>(11)</label></formula><p>which also applies to D chain , as D N prefix = D chain .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Linear Chain with OPT Execution Times</head><p>In the previous section, we showed that the WCRT of a linear chain D chain in the MAX case depends on the bottleneck operator. In the OPT case, the bottleneck operator of the same chain may be different, and hence the WCRT may be different and needs to be separately derived.</p><p>To facilitate response-time analysis in the OPT case, we define a parameterized instance of D chain = (V chain , E chain ), parameterized by function λ. We use D chain (λ) = (V chain (λ), E chain (λ)) to denote this parameterized instance. While each operator O i in V chain required e ub i time to process an input in the MAX case, each operator O i in V chain (λ) requires λ(e lb i , e ub i ) ∈ [e lb i , e ub i ] time to process an input in the OPT case. Note that in both cases, the operator execution time remains constant in all iterations for all inputs.</p><p>The bottleneck operator may vary for different definitions of λ. The WCRT of D chain in the OPT case is thus upperbounded by the maximum MAX-case WCRT across all possible definitions of λ, i.e.,</p><formula xml:id="formula_16">R ub OPT (D chain ) = max ∀λ R ub MAX (D chain (λ)).<label>(12)</label></formula><p>The number of possible definitions of λ is exponentially large, depending on the number of operators and their range of execution times. However, since D chain contains N operators, there can be only up to N different bottleneck operators. Suppose λ b denotes any definition for which the bottleneck is operator O b . Thus, we can refine Eq. ( <ref type="formula" target="#formula_16">12</ref>) as follows. </p><formula xml:id="formula_17">R ub OPT (D chain ) = n max b=1 max ∀λb R ub MAX (D chain (λ b )).<label>(13</label></formula><p>then λ max b also yields the maximum WCRT among all possible definitions of λ b , i.e.,</p><formula xml:id="formula_19">R ub MAX (D chain (λ max b )) = max ∀λb R ub MAX (D chain (λ b )). (<label>17</label></formula><formula xml:id="formula_20">)</formula><p>Proof. From Eq. ( <ref type="formula" target="#formula_8">7</ref>) in Lemma 4, we know that the WCRT for a given chain is entirely dependent on the execution times of the bottleneck and of every operator following it. Thus, we can construct a maximal λ b by adjusting the execution time of every operator in the chain. Eq. ( <ref type="formula">14</ref>) maximizes the first term on the right-hand side of Eq. ( <ref type="formula" target="#formula_8">7</ref>). Eq. ( <ref type="formula">15</ref>) is a necessary condition, as otherwise O b would not be the bottleneck. Eq. ( <ref type="formula" target="#formula_18">16</ref>) maximizes the second term on the right-hand side of Eq. ( <ref type="formula" target="#formula_8">7</ref>) while ensuring that O b is still the bottleneck.</p><p>If any operator's lower bound on execution time is greater than the upper bound of O b , then no λ b exists, as it is impossible for O b to be the bottleneck. In this case, λ b will not be considered at all in Eq. ( <ref type="formula" target="#formula_17">13</ref>) and in Eq. ( <ref type="formula" target="#formula_21">18</ref>) below.</p><p>Since λ max b is easy to compute using Eqs. ( <ref type="formula">14</ref>) to ( <ref type="formula" target="#formula_18">16</ref>), we can also compute R ub OPT (D chain ) efficiently using:</p><formula xml:id="formula_21">R ub OPT (D chain ) = n max b=1 R ub MAX (D chain (λ max b )).<label>(18)</label></formula><p>VI. DAG MODELING Recall Example 3 from Section III. We demonstrated that using a naive approach of enumerating all paths in the DAG, deriving an upper bound on the response time of each path using a linear chain analysis, and then computing the maximum value among these upper bounds can result in an unsafe upper bound on the worst-case response time of the DAG. In other words, two or more paths in a DAG may interact through both upstream and downstream conditions to result in additional delays that do not exist in linear chains. We therefore define a different response-time analysis for DAGs.</p><p>Analogous to the worst-case execution time of an operator, we first define the worst-case inter-processing delay for each operator in the DAG. This differs from the worst-case execution time when two or more paths diverge from that operator. For instance, consider an operator O f from which P paths diverge, which then converge back at operator O g . Suppose each path i corresponds to a segment Proof. Consider the case where O f has a direct edge to O g , i.e., some path P y consisting of no other operators (e.g., edge A in Fig. <ref type="figure" target="#fig_6">6</ref>). This is the worst case scenario as O f cannot start processing an input until queue Q f,g is empty, but O g cannot start processing the input from Q f,g before inputs from all other paths are available, including from some path P x (which is the longest path between O f and O g ). Hence, in the worst case, the entire path latency of P x is added to O f 's worst-case inter-processing delay, in addition to</p><formula xml:id="formula_22">S i = {O f , O i1 , O i2 , . . . , O in i , O g } consisting of n i operators other than O f and O g .</formula><formula xml:id="formula_23">O f 's own WCET. That is, δ ub f = e ub f + nx k=1 e ub xk .</formula><p>See Fig. <ref type="figure" target="#fig_12">7</ref> for an example inter-processing delay calculation. For operators from which multiple paths do not diverge, i.e., they have only one following operator (like in a linear chain), their worst-case inter-processing delay is same as their worst-case execution time. Formally, as well, in the definition of δ ub f in Lemma 6, the summation term is zero as there are no paths with additional operators between O f and O g .</p><formula xml:id="formula_24">Corollary 1. If O f has only one outgoing edge (O f → O g )</formula><p>(like in a linear chain), then δ ub f = e ub f . Note that Lemma 6 defines δ ub f pessimistically. It assumes there exists an edge between O f and O g even though there may not be such an edge in reality. For instance, when defining the worst-case inter-processing delay for O 1 in the DAG illustrated Fig. <ref type="figure" target="#fig_3">4</ref>, Lemma 6 assumes a DAG as shown in Fig. <ref type="figure">8</ref> with an additional path C directly connecting O 1 and O 5 .</p><p>A consequence of this pessimistic assumption is that the operator with the maximum worst-case inter-processing delay, say O x , may not necessarily be the bottleneck, as its worst-Fig. <ref type="figure">8</ref>. A modified version of Fig. <ref type="figure" target="#fig_3">4</ref>, with a new path from source to sink (Path C). Despite the difference in structure, the two graphs yield identical worst-case inter-processing delays as per our definition in Lemma 6.</p><p>case delay may never be realized in practice. Instead, a different operator, say O y , with a smaller but tighter maximum worst-case inter-processing delay may become the bottleneck, resulting in a different worst-case response-time bound. This new bound may in fact be worse if O y is positioned much later in the DAG, i.e., y ≫ x (assuming operators are numbered incrementally from source to sink), which forces a longer prefix of operators to process their respective inputs at O y 's rate.</p><p>For instance, recall Example 3; for the DAG illustrated in Fig. <ref type="figure" target="#fig_3">4</ref>, Lemma 6 computes a worst-case inter-processing delay of δ ub 1 = 1000 ms for operator O 1 . However, the schedule in Fig. <ref type="figure" target="#fig_4">5</ref> suggests that the effective maximum inter-processing delay of O 1 is only 600 ms (e.g., interval [800 ms, 1400 ms) from the time when O 1 finishes processing I 2 to the time when it finishes processing I 3 ), and the resulting worst-case response time is 1600 ms (e.g., that of I 5 from its arrival at 1600 ms to its completion at 3200 ms). Now, suppose we add a new operator O 6 after the sink node O 5 , with an edge O 5 → O 6 , and with the highest execution time e 6 = 900 ms. The worstcase inter-processing delay for O 6 is δ ub 6 = e 6 = 900 ms, which is a tight bound, unlike δ ub 1 . Hence, although δ ub 1 &gt; δ ub 6 , O 6 becomes the bottleneck in practice. Moreover, since it is the last operator, it limits the processing rate of all previous operators, resulting in a much higher worst-case response time of 4500 ms (as analyzed using Lemma 11 later in this section). Hence, compared to our linear chain analysis, we adopt a more nuanced approach for analyzing DAGs that considers all possible operators as bottleneck candidates.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. DAG with MAX Execution Times</head><p>We compute the maximum possible response time assuming that operator O b with a worst-case inter-processing delay of δ ub b is the bottleneck (Lemmas 7 to 10). Once we have a formula for the worst-case response time of that DAG assuming O b is the bottleneck (Lemma 10), we apply this bound to all operators in D, taking the maximum to be the worst-case response time of the whole DAG (Lemma 11). </p><p>Proof. We proceed similar to the proof of Lemma 2. Since O b is the bottleneck operator, it produces its output slower than any downstream operator, at a rate upper-bounded by its worst-case inter-processing delay. Hence, no data item has to wait in any of its downstream queues. Thus, the worst-case delay ∆ after Ob incurred by any input after O b is simply the sum of all execution times on the slowest path in P after .</p><p>Lemma 8. Let P before denote the set of all paths from</p><formula xml:id="formula_26">O src to O b . Each path k corresponds to a segment S k = {O src , O k1 , O k2 , . . . , O km k -2 , O b } consisting of m k operators including O src and O b .</formula><p>Let ∆ before Ob denote an upper bound on the maximum delay that any input through D incurs before being processed by O b . ∆ before Ob depends on the length of the shortest path in P before and is defined as follows:</p><formula xml:id="formula_27">∆ before Ob = δ ub b • m y where y = |Pbefore | argmin k=1 m k .<label>(21)</label></formula><p>Proof. In the worst case, all operators in all paths in P before are either directly or transitively waiting on a downstream queue just before O b , which is the bottleneck. When this happens, operators in the paths in P before are not processing any inputs but simply holding an input in their respective input queues.</p><p>It must be noted that all paths in P before derive their inputs simultaneously from O src . Therefore, all paths in P before must always hold the same number of inputs at any point of time. For example, if the lengths of two paths in P before are 4 and 5, then maximum 4 inputs will be processed and held in each of the two paths. Hence, the number of pending inputs in P before is determined by the shortest path, i.e., the path with the fewest number of operators (or the fewest number of queues).</p><p>Furthermore, as we show in the proof of Lemma 1, the effective service rate of all operators on this path decreases to that of O b . Hence, the longest time it takes these inputs to move through this path is upper-bounded by δ ub b • m y , where m y is the length of the shortest path before and including O b . Lemma 9. Let P denote the set of all paths from O src to O sink . Each path j corresponds to a segment S j = {O src , O j1 , O j2 , . . . , O jl j , O sink } consisting of l j operators other than O src and O sink . Let z be the longest path in P in terms of total execution time. Let q be the longest path in P of which O b is a part of, i.e., O b ∈ S q . The maximum delay that an input through DAG D can incur increases by the difference in execution time between z and q. That is, Proof. If O b is not on the path z, then at some point, an item moving through O b 's path may need to wait for an input belonging to z to arrive to the operator where both paths join. The worst-case increase in delay due to this occurrence is equal to the difference in the execution time between the two paths, or the amount of time the item moving through q must wait for the item moving through z to arrive. If z = q, then the difference between their total execution times is 0. </p><formula xml:id="formula_28">∆ longest Ob =</formula><formula xml:id="formula_29">R ub MAX (D) b = ∆ before Ob + e b + ∆ after Ob + ∆ longest Ob<label>(23)</label></formula><p>Proof. Follows from Lemmas 7 to 9.</p><p>Lemma 11. If D is an arbitrary DAG with r operators, the worst-case response time of D in the MAX case is bounded:</p><formula xml:id="formula_30">R ub MAX (D) = max ∀r R ub MAX (D) r<label>(24)</label></formula><p>Proof. Lemma 10 bounds the worst-case response time an input can suffer in a DAG for which we know O b is the bottleneck. Assuming each operator in the DAG to be the bottleneck, and taking the maximum over all possible WCRTs bounds the worst-case response time through the DAG.</p><p>Using these results requires identifying, for each operator where paths diverge, the first operator at which those paths come back together (i.e., O f and O g in Lemma 6, respectively). This can be done by constructing the postdominator tree corresponding to D. The algorithm to identify dominance is quadratic in theory, but much faster in practice <ref type="bibr" target="#b15">[16]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. DAG with OPT Execution Times</head><p>Like in Section V-B, to facilitate response-time analysis in the OPT case, we define a parameterized instance</p><formula xml:id="formula_31">D(λ) = (V (λ), E(λ)). Each operator O i in V (λ) requires λ(e lb i , e ub i ) ∈ [e lb</formula><p>i , e ub i ] time to process an input in the OPT case. The WCRT of D in the OPT case is upper-bounded by the maximum MAX-case WCRT across all possible definitions of λ, i.e.,</p><formula xml:id="formula_32">R ub OPT (D) = max ∀λ R ub MAX (D(λ)).<label>(25)</label></formula><p>Section V-B proposed an efficient method to compute the OPT-case WCRT for linear chains. We reuse this methodology for arbitrary DAGs. First, we refine Eq. (25) as follows, (32)</p><formula xml:id="formula_33">R ub OPT (D) = n max b=1 max ∀λb R ub MAX (D(λ b )),<label>(26)</label></formula><p>Proof. The greatest difference between this scenario and the linear chain is the presence of ∆ longest Ob . This term subtracts an amount equal to lq k=1 e ub qk from the WCRT, where q is defined in Lemma 9. Notice that all the execution times after O b are added in ∆ after Ob . These terms always cancel out, so we do not need to consider that part of the subtraction in the optimization. This means the only part of the subtraction remaining corresponds to the operators before O b , the execution times of which we can minimize without affecting other parts of the equation.</p><p>We construct a maximum λ max b by adjusting the execution times of every relevant operator in the DAG.</p><p>Eq. ( <ref type="formula">28</ref>) is the first part of maximizing ∆ before Ob , as e b is a component of δ ub b and is also itself part of Eq. ( <ref type="formula" target="#formula_29">23</ref>). Eq. ( <ref type="formula">29</ref>) is the second part of maximizing ∆ before Ob , as well as maximizing ∆ after Ob . ∆ before Ob is maximized because all operators from O b to its postdominator are a component of δ ub b , as shown in Lemma 6. Eq. ( <ref type="formula">30</ref>) is the first part of maximizing ∆ longest Ob , as these are the negative execution times within that expression that do not cancel with another term.</p><p>Eq. ( <ref type="formula">31</ref>) is the second part of maximizing ∆ longest Ob . This maximizes the execution times along z, the path from source to sink with the greatest total execution time. Note that if z = q, this condition contradicts with Eq. (30) because we would be trying to maximize execution times in z while minimizing them in q. This does not matter, as if we ignore the two contradictory conditions, we are left with Eq. (28) and Eq. ( <ref type="formula">29</ref>), which maximize all parts of Eq. ( <ref type="formula" target="#formula_29">23</ref>) aside from ∆ longest Ob , which is 0 if z = q.</p><p>We can thus compute R ub OPT (D) efficiently using:</p><formula xml:id="formula_34">R ub OPT (D) = n max b=1 R ub MAX (D(λ max b )).<label>(33)</label></formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. EVALUATION</head><p>We evaluate the pessimism and scalability of our analytically derived response-time upper bounds using real-world Holoscan applications and larger synthetic DAGs. We use results from discrete event simulations as well as measurements from an NVIDIA embedded platform as baselines. Specifically, we use the NVIDIA Jetson AGX Orin Developer Kit featuring a 12core Arm Cortex-A78AE CPU and 64GB RAM for experiments. It runs an Ubuntu-based Linux for Tegra (L4T) OS, with kernel 5.15. The CPU frequency is fixed at 2.2 GHz (maximum). We run all experiments with Holoscan version 0.6.0 (we have also reproduced all results with Holoscan version 2.2.0).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Workloads</head><p>Our discrete event simulator is designed to mimic the behavior of the Holoscan framework. Each application is run for 30 minutes of simulated time. These simulations are also used in the scalability study to efficiently find WCRTs of large synthetic DAGs to compare against our analysis. For measurements on the NVIDIA hardware, we encode the graph structures into Holoscan applications using placeholder operators that busywait for their designated execution time upon each invocation. We run each graph variation for 30 minutes and measure the performance using Holoscan's Data Flow Tracking feature. We assume that new input is always available to the source operator immediately after it consumes its previous input. For our theoretical bounds, we use the analyses described in the previous sections. The average time to compute a response-time bound (outside of the scalability study) is 0.4 ms.</p><p>As part of evaluation on the NVIDIA hardware, we also characterize the overheads associated with running a Holoscan application, which correspond to the closed-source part of the GXF backend engine, Linux scheduling, and related system software underneath -components we have not modeled as part of our response-time analysis (Section VII-C). Our overhead analysis reveals a fairly straightforward relationship with the number of Holoscan operators in an application, but more in-depth analysis is reserved for future work.</p><p>The HoloHub repository by NVIDIA provides a number of realistic example applications in medical devices, radio signal processing and other industries, which are used as prototypes for production-quality software by commercial vendors <ref type="bibr" target="#b9">[10]</ref>. For evaluation, we use the DAG structures extracted from these existing 50 HoloHub applications. We exclude simplistic applications (such as with only two or three operators) and eliminate isomorphic and unconnected examples, leaving only unique graphs in our evaluation set. Fig. <ref type="figure" target="#fig_16">9</ref> shows the final eight types of DAG structures evaluated in this work.</p><p>For each graph, we create n variations, where n is the number of operators in the graph. The variations differ in terms of the WCET assigned to each operator, which we randomly select from the interval [100 ms, n * 100 ms]. We increase the upper bound based on the number of total operators in an application to allow a wider execution time range. Additionally, we enforce a condition that for each operator in the graph, there is one variation in which it has the greatest WCET across all operators. This is to help ensure that our randomly generated variations do not overly favor certain configurations (e.g., the source operator having the greatest WCET in every variation).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Evaluation in Simulation</head><p>Fig. <ref type="figure" target="#fig_14">10</ref> plots simulated worst-case response times against our predicted worst-case response times for different graph applications and variations. Our proposed algorithm provides a close upper bound on the WCRT for every graph variation. Most applications and variations are on or near the identity line, signifying a close match between predicted and simulated worst-case response times. We also note that no simulated WCRT is greater than our predicted upper bound.</p><p>The results show that most graph structures have a similar relationship between their corresponding predicted and simulated WCRT across all variations. Our analysis is conservative for all variations of certain graph structures, particularly Endoscopy Depth Estimation (CLAHE) (A) and MultiAI Ultrasound (H). Their simulated WCRT are several hundred milliseconds below our derived theoretical upper bounds. Our Section VI analysis makes a worst-case assumption about path length in Lemma 6, where we assume the existence of a direct edge between two operators which may not exist. This sometimes leads to an overly conservative, although safe, upper bound.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Evaluation on an Embedded Platform</head><p>We also evaluated HoloHub applications on an AGX Orin developer kit. The high-level difference between our simulated WCRTs and observed WCRT on AGX Orin is the presence of overheads. Here, overhead is defined as any part of the overall response time of a data item which is not the result of queuing and operator execution, and thus not part of our system model. As our response-time upper bounds can be very close to simulated WCRTs, as demonstrated in the previous section, even a minimal amount of execution overhead on real hardware may lead to underpredicting the WCRT of an application. Therefore, we perform a preliminary analysis of Holoscan system overheads to facilitate comparison of observed WCRTs with our theoretically derived bounds.</p><p>NVIDIA's Graph Execution Framework (GXF), which Holoscan uses as a backend execution engine, is partially opensource (only header files are available), restricting us from analyzing the source code to accurately model the overhead of scheduling operators belonging to a specific application in Linux. Instead, we empirically predict the overhead by carrying out experiments over different DAG structures. We experiment with increasing the length of linear chains of operators, like those shown in Fig. <ref type="figure" target="#fig_1">3</ref>. We fix each operator's execution time at 100 ms and use the default conditions at the input and output ports. Fig. <ref type="figure" target="#fig_7">11</ref> plots the theoretical WCRT using our responsetime analysis (simple to calculate as there should be no queuing or blocking) against the observed WCRT. It shows minimal overheads due to scheduling of operators by the GXF engine on Linux. We also observed that multiple paths in a DAG do not add any extra overheads compared to the longest linear chain of operators. Based on this empirical observation, we add 3 ms as overhead per operator in the longest linear chain in an application DAG, to achieve a safe and reliable upper bound for the NVIDIA hardware.</p><p>The theoretical WCRT including the heuristic overheads and the observed WCRT on AGX Orin for HoloHub application DAGs are shown in Fig. <ref type="figure" target="#fig_17">12</ref>. Our response-time analysis again provides a close upper bound for most graphs, with no observed WCRTs exceeding our upper bounds. Although system overheads play an important role in achieving close upper bounds, they are orthogonal to our response-time analysis of the Holoscan programming framework.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Scalability Study</head><p>Current Holoscan applications have only a small number of operators, but this is not a limitation inherent to our system model. To evaluate how our analysis fares for larger graphs, we randomly generate 50 synthetic series-parallel DAGs of increasing size using the Open Graph Drawing Framework (specifically the 'randomSeriesParallelDAG' function) <ref type="bibr" target="#b16">[17]</ref>. We consider series-parallel DAGs because all the HoloHub application graphs we have analyzed are series-parallel. The set of 50 graphs we consider consists of 10 graphs with 20, 40, 60, 80, and 100 edges each. We generate 10 sets of random execution times for these graphs for a total of 500 variations. We We observe a higher, more variable degree of pessimism. For a clearer understanding of the pessimism incurred, Fig. <ref type="figure" target="#fig_9">14</ref> compares the number of edges in each graph to its relative pessimism. The relative pessimism of the different graphs has a weak positive correlation with edge count. Pessimism in our analysis does not strictly scale linearly with the size of the graph, but is rather inherent to the specific structure of the graph. A graph with 70 nodes may suffer less pessimism that a graph with 30, depending on the unique structure of each. Fig. <ref type="figure" target="#fig_10">15</ref> shows the relationship between node count and analysis time. While the analysis time grows exponentially with the node count, it remains manageable even for larger DAGs (even though we do not expect to encounter such large DAGs for NVIDIA Holoscan applications).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. RELATED WORK</head><p>Many real-time scheduling works build upon Graham's classic worst-case response time bound for a DAG task described in <ref type="bibr" target="#b17">[18]</ref>. For example, He et al. <ref type="bibr" target="#b18">[19]</ref> dominate the classic bound by optimizing the order in which vertices are executed, and many other works such as <ref type="bibr" target="#b19">[20]</ref> or <ref type="bibr" target="#b20">[21]</ref> use the bound as a pessimistic starting point to improve on. These works on traditional DAG tasks only consider precedence constraints between vertices, as their main focus is on scheduling. In contrast, we model both upstream and downstream constraints between subtasks, which makes the Graham bound optimistic if applied to our problem.</p><p>More similar to the specifics of our work is the literature on synchronous data flow (SDF), which was first formalized by Lee et al. <ref type="bibr" target="#b21">[22]</ref>. SDF deals with data flow between tasks whose rates of data consumption and production are known a priori.</p><p>We believe the SDF model is general enough to allow for the modeling of Holoscan applications, but have not found a WCRT analysis for SDF that aligns with our objectives. A common approach for SDF analysis is to transform the graphs into a set of independent tasks and use existing hard-realtime scheduling algorithms <ref type="bibr" target="#b5">[6,</ref><ref type="bibr" target="#b6">7]</ref>. These techniques rely on assumptions incompatible with our system model. They require that tasks are periodic with period T i and a relative deadline D i such that D i &lt; T i . This precludes the possibility of queuing, as a task will always have either finished processing or have violated its deadline by the time a new task arrives. As much of our analysis depends on delays introduced by queuing and blocking, this approach is incompatible with our model.</p><p>The authors of <ref type="bibr" target="#b7">[8]</ref> do conduct analysis on an SDF to find a WCRT bound, but this setting also has the aforementioned periodic activations, in this case of a job consisting of multiple tasks rather than independent tasks. The SDF analysis in <ref type="bibr" target="#b8">[9]</ref> is more similar to our own in terms of assumptions, but it focuses on throughput, while our objective is a WCRT bound.</p><p>Also similar to our work are response-time analyses of frameworks comparable to Holoscan, such as ROS 2. In particular, the relation between ROS 2 components has been modeled as a DAG in <ref type="bibr" target="#b22">[23]</ref> and <ref type="bibr" target="#b23">[24]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IX. CONCLUSION AND FUTURE WORK</head><p>Our novel static analysis bounds worst-case end-to-end response times for Holoscan applications. The analysis relies on a DAG of Holoscan operators and their scheduling conditions dependent on communication data buffers. We derived an upper bound for the WCRT of a linear chain of operators and extended this approach to a DAG of operators. Our theoretical analysis was validated against real-world applications from the NVIDIA HoloHub, demonstrating that our WCRT bounds closely approximate actual performance, achieving within 99% accuracy of empirical measurements on NVIDIA hardware. This analysis marks the first response-time analysis of Holoscan applications, helping the development of reliable medical devices. However, there is still pessimism inherent to these bounds, which could be mitigated through further refinement that relaxes some of our worst-case assumptions. While this initial evaluation was conducted on a single embedded platform, future work will assess the adaptability of our theoretical framework across various SoCs. Additionally, we plan to explore more scheduling policies that incorporate both Linux thread and GPU task management.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 2 .</head><label>2</label><figDesc>Fig. 2. An example showing how the downstream condition can affect operator execution. The figure shows the state of a simple DAG with two operators and with periodic inputs at different times, with the timestamps shown on the left. Operators O 1 and O 2 have execution times 100 ms and 1000 ms, respectively, and are denoted with green boxes. An idle operator is shown with an empty box, whereas an operator processing an input is labeled with that input inside the box. The arrows show the queues of O 1 and O 2 , Q 1 , and Q 1,2 . A queue holding an input is labeled with that input on the top of its corresponding arrow, whereas an empty queue is not labeled at all.</figDesc><graphic coords="3,60.39,73.48,236.00,185.77" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 3 .</head><label>3</label><figDesc>Fig. 3. An example showing a performance anomaly where a local optimization increases the overall response time. The top chain shows a linear chain with four operators; the execution times are shown below respective operators and the queuing delays are shown below respective edges.Ignoring delays prior to the first operator, the response time is simply the sum of all these delays, and indicated on the right of the chain. In the lower chain, the first operator has a lower execution time, but the worst-case response time is nonetheless higher due to queuing delays throughout the chain.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Example 2 .</head><label>2</label><figDesc>Consider four operators O 1 , O 2 , O 3 , and O 4 connected in a linear chain, with execution times e 1 = 500 ms, e 2 = 100 ms, e 3 = 100 ms, and e 4 = 400 ms, respectively. Like in Example 1, suppose all queues have a capacity of C = 1 and that a new input arrives every 100 ms. Fig. 3 (top) illustrates this linear chain along with the queuing delays incurred between operators.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 4 .</head><label>4</label><figDesc>Fig. 4. An example DAG where the interaction of two paths results in a greater execution time that either have individually.</figDesc><graphic coords="4,60.39,72.48,235.99,66.93" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 5 .</head><label>5</label><figDesc>Fig. 5. Schedule for the DAG in Fig. 4, when inputs I 1 , I 2 , . . . , I 5 are released every 400 ms. Release times are indicated by upward-pointing arrows and response-time intervals are shown above. I 1 refers to the first input, while I 1B refers to the first input when moving through path B. Data transfer between two operators is indicated by a vertical dashed line, with a horizontal dashed line representing queuing and showing the name of both queue and item.</figDesc><graphic coords="4,60.39,180.75,235.99,98.74" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Example 3 .</head><label>3</label><figDesc>Consider the DAG shown in Fig. 4 consisting of five operators O 1 -O 5 , with O 1 being the source and O 5 being the sink, and two paths from source to sink, Path A, O 1 → O 2 → O 3 → O 5 , and Path B, O 1 → O 4 → O 5 . The operator execution times are e 1 = 400 ms, e 2 = e 3 = 300 ms, and e 4 = e 5 = 200 ms. A new input arrives every 400 ms. Path A is clearly the longer path among the two and, if analyzed individually as a linear chain, yields a worst-case response time of 1200 ms. However, as the timing diagram in Fig. 5 suggests, the response time of an input can be as high as 1600 ms. Further examination of the diagram reveals why this is the case: during the time window [800 ms, 1000 ms), O 1 is blocked from executing I 3 because Q 1,4 is full (i.e., holding I 2B ), meaning that execution is forbidden by the downstream condition; Q 1,4 , in turn, is full because Q 4,5 is full (i.e., holding I 1B ), meaning that O 4 cannot execute. In short, because Path B is shorter than Path A, items arrive at O 5 from Path B more quickly than from Path A, periodically blocking O 1 's execution and increasing the worst-case response time.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 6 .</head><label>6</label><figDesc>Fig. 6. Example showing that, due to downstream conditions, adding an edge to the DAG can significantly change its end-to-end response time (both increase or decrease depending on the operator execution times).</figDesc><graphic coords="4,314.14,69.98,235.99,80.72" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Definition 1 .</head><label>1</label><figDesc>Given a segment S = {O k+1 , . . . , O k+x } ⊆ V chain of length x, with k ≥ 0 and k + x ≤ N , bottleneck B(S) denotes the operator in S with the maximum execution time (ties broken in favor of the preceding operator), i.e., B(S) = O b s.t. e ub b = max 1≤i≤x (e ub k+i ) and ∀j ∈ [1, x], e ub b = e ub k+j =⇒ b ≤ k + j.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>)</head><label></label><figDesc>Proof. Consider O b and its preceding operator, O b-1 . Since O b is the bottleneck, µ b-1 &gt; µ b . As such, O b-1 will produce its outputs more often than O b can consume its inputs. This causes the number of inputs in queue Q b-1,b between these operators to grow without bound and eventually overflow.However, since all operators are subjected to a default downstream condition, an operator does not start execution if there is no space to push an item to the queue of the communication buffer. Therefore, the service rate of O b-1 effectively decreases to µ ′ b-1 = µ b . As O b is the bottleneck and has the minimum service rate, we can also conclude that µ b-2 &gt; µ ′ b-1 = µ b . Hence, the service rate of O b-2 also effectively decreases to µ ′ b-2 = µ b . More generally, for each operator O b-m in the linear chain (1 ≤ b -m &lt; b), its service rate µ b-m &gt; µ ′ b-m+1 = µ b ; and in order for the downstream condition to hold across the chain, its effective service rate decreases to µ ′ b-m = µ b . Since we have b operators in D chain , and each operator's effective service rate decreases to µ b , i.e., each operator releases an output only every e ub b units of time, the longest time it takes an input to move through the linear chain is e ub b • (b + 1), corresponding to b operators and the queue preceding O 1 . We consider another special case in Lemma 2. We consider a linear chain D ′ chain of length N + 1. D ′ chain is identical to D chain for up to the first N operators, but has an extra operator O N +1 and an extra edge (O N → O N +1 ). However, both chains share the same bottleneck operator O N . Lemma 2. Given D chain as in Lemma 1, and another linear chain D</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Lemma 4 .</head><label>4</label><figDesc>The worst-case response time of D chain in the MAX case is bounded by R ub MAX (D chain ) = e ub b • (b + 1) +</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>) Lemma 5 .</head><label>5</label><figDesc>If λ max b is defined as follows:</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_11"><head>Fig. 7 .Definition 4 .</head><label>74</label><figDesc>Fig. 7. An example showing an inter-processing delay calculation for the operators A and B. The number contained within each operator represents its execution time. As per Lemma 6, the inter-processing delay of B is defined as the longest path in terms of execution time from B to C, excluding the execution time of C. This comes to δ ub B = 500 + 200 = 700, with the operators used in the calculation shown with dashed outlines. The longest path from A to D includes both the operators with a dashed outline and those with a bold outline. Thus, A's inter-processing delay is δ ub A = 300 + 500 + 200 + 100 = 1100.</figDesc><graphic coords="8,65.32,71.98,224.19,62.47" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_12"><head>Lemma 7 .</head><label>7</label><figDesc>Let P after denote the set of all paths from O b to O sink . Each path i corresponds to a segment S i = {O b , O i1 , O i2 , . . . , O in i , O sink } consisting of n i operators other than O b and O sink . Let ∆ after Ob denote an upper bound on the maximum delay that any input through D incurs after being processed by O b . ∆ after Ob is the sum of all execution times except that of O b on the slowest path in P after , i.e., ∆ after Ob = nx k=1 e ub xk + e sink where x =</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_14"><head>Lemma 10 .</head><label>10</label><figDesc>If y is the shortest path from O src to O b with length m y , including O b , and x is the slowest path from O b to O sink , with length n x , the worst-case response time of D in the MAX case, assuming that O b is the bottleneck, is bounded by</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_15"><head>where λ b</head><label></label><figDesc>denotes any definition for which the bottleneck is operator O b . More formally, this means any definition where: R ub MAX (D(λ b )) = max ∀r R ub MAX (D(λ b )) r (27) Lemma 12. If λ max b is defined as follows: maximum WCRT among all possible definitions of λ b , i.e., R ub MAX (D(λ max b )) = max ∀λb R ub MAX (D(λ b )).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_16"><head>Fig. 9 .</head><label>9</label><figDesc>Fig. 9. Holoscan application DAGs used for evaluation. Green nodes are source operators while red nodes with dashed outlines are sink operators.</figDesc><graphic coords="10,314.14,72.48,235.98,131.15" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_17"><head>Fig. 12 .</head><label>12</label><figDesc>Fig. 10. Analysis versus simulation</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_18"><head>Fig. 13 .Fig. 15 .</head><label>1315</label><figDesc>Fig. 13. Analysis vs. sim. for synthetic DAGs</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0"><head></head><label></label><figDesc></figDesc><graphic coords="2,101.29,69.97,410.74,131.72" type="bitmap" /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 01:36:04 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_1"><p>In short, we leave the problem of interference and scheduling of more operators on fewer cores for future work; rather, our goal in this paper is to understand how the combination of upstream and downstream edge conditions affect the worst-case response times of a Holoscan application.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>X. ACKNOWLEDGEMENTS</head><p>We would like to thank our anonymous shepherd and reviewers for their comments. This work is supported in part by the <rs type="funder">Institute for Computing, Information and Cognitive Systems</rs> (ICICS) at <rs type="institution">UBC</rs> as well as the <rs type="funder">Natural Sciences and Engineering Research Council of Canada (NSERC)</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">Holoscan SDK -GitHub</title>
+		<author>
+			<persName><surname>Nvidia</surname></persName>
+		</author>
+		<ptr target="https://github.com/nvidia-holoscan/holoscan-sdk" />
+		<imprint>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<title level="m" type="main">Activ Surgical aims to bring real-time AI to their surgery platform using NVIDIA Clara Holoscan on newly-launched NVIDIA IGX</title>
+		<author>
+			<persName><forename type="first">Activ</forename><surname>Surgical</surname></persName>
+		</author>
+		<ptr target="https://www.activsurgical.com/news/nvidia-launches-igx-edge-ai-computing-platform-for-safe-secure-autonomous-systems%ef%bf%bc" />
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<title level="m" type="main">Medtronic adds Nvidia&apos;s AI to colorectal polyp-spotting software</title>
+		<author>
+			<persName><surname>Biotech</surname></persName>
+		</author>
+		<ptr target="https://www.fiercebiotech.com/medtech/medtronic-adds-nvidias-ai-colorectal-polyp-spotting-software" />
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<title level="m" type="main">NVIDIA Jetson Orin</title>
+		<author>
+			<persName><surname>Nvidia</surname></persName>
+		</author>
+		<ptr target="https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/" />
+		<imprint>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title/>
+		<ptr target="https://docs.nvidia.com/holoscan/sdk-user-guide/flowtracking.html" />
+	</analytic>
+	<monogr>
+		<title level="j">Data Flow Tracking</title>
+		<imprint>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<monogr>
+		<title level="m" type="main">On the hard-realtime scheduling of embedded streaming applications</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">A</forename><surname>Bamakhrama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Stefanov</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="page" from="221" to="249" />
+		</imprint>
+	</monogr>
+	<note>Design Automation for Embedded Systems</note>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Improved hard real-time scheduling of CSDF-modeled streaming applications</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Spasic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Cannella</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Stefanov</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Hardware/Software Codesign and System Synthesis</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Worst-Case Response Time Analysis of a Synchronous Dataflow Graph in a Multiprocessor System with Real-Time Tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Design Automation of Electronic Systems</title>
+		<imprint>
+			<biblScope unit="volume">22</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Throughput Analysis of Synchronous Data Flow Graphs</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Ghamarian</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Geilen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Stuijk</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Basten</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Theelen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Mousavi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Moonen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bekooij</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Sixth International Conference on Application of Concurrency to System Design</title>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<monogr>
+		<title level="m" type="main">HoloHub -GitHub</title>
+		<author>
+			<persName><surname>Nvidia</surname></persName>
+		</author>
+		<ptr target="https://github.com/nvidia-holoscan/holohub" />
+		<imprint>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">GXF Core Concepts</title>
+		<ptr target="https://docs.nvidia.com/holoscan/archive/0.6/gxf/gxfcoreconcepts.html" />
+		<imprint>
+			<date type="published" when="2023">2023</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<monogr>
+		<ptr target="https://github.com/nvidia-holoscan/holohub/tree/main/applications/endoscopytooltracking" />
+		<title level="m">HoloHub -Endoscopy Tool Tracking</title>
+		<imprint>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">1 1doublebufferreceiver.html#exhale-classclassholoscan-1-1doublebufferreceiver</title>
+		<ptr target="https://docs.nvidia.com/holoscan/sdk-user-guide/api/cpp/classholoscan" />
+	</analytic>
+	<monogr>
+		<title level="m">Double Buffer Receiver C++ Class Definition</title>
+		<imprint>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">1 1greedyscheduler.html#exhale-classclassholoscan-1-1greedyscheduler</title>
+		<ptr target="https://docs.nvidia.com/holoscan/sdk-user-guide/api/cpp/classholoscan" />
+	</analytic>
+	<monogr>
+		<title level="m">Greedy Scheduler C++ Class Definition</title>
+		<imprint>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">1 1multithreadscheduler.html#exhale-classclassholoscan-1-1multithreadscheduler</title>
+		<ptr target="https://docs.nvidia.com/holoscan/sdk-user-guide/api/cpp/classholoscan" />
+	</analytic>
+	<monogr>
+		<title level="m">Multi-Thread Scheduler C++ Class Definition</title>
+		<imprint>
+			<date type="published" when="2024">2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">A simple, fast dominance algorithm</title>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">D</forename><surname>Cooper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">J</forename><surname>Harvey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Kennedy</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software Practice &amp; Experience</title>
+		<imprint>
+			<biblScope unit="volume">4</biblScope>
+			<biblScope unit="issue">1-10</biblScope>
+			<biblScope unit="page" from="1" to="8" />
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<title level="m" type="main">The Open Graph Drawing Framework (OGDF),&quot; in Handbook of Graph Drawing and Visualization</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Chimani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gutwenger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Jünger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">W</forename><surname>Klau</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Mutzel</surname></persName>
+		</author>
+		<editor>R. Tamassia</editor>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<publisher>CRC Press</publisher>
+			<biblScope unit="page">17</biblScope>
+			<pubPlace>Ed</pubPlace>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Bounds on multiprocessing timing anomalies</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">L</forename><surname>Graham</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIAM Journal on Applied Mathematics</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="416" to="429" />
+			<date type="published" when="1969">1969</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Intra-Task Priority Assignment in Real-Time Scheduling of DAG Tasks on Multi-Cores</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Guo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="page" from="2283" to="2295" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Timing characterization of OpenMP4 tasking model</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">A</forename><surname>Serrano</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Melani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Vargas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marongiu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Quinones</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Compilers, Architecture and Synthesis for Embedded Systems</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Calculating Response-Time Bounds for OpenMP Task Systems with Conditional Branches</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Chi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<monogr>
+		<title level="m" type="main">Proceedings of the IEEE</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Messerschmitt</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1987">1987</date>
+			<biblScope unit="volume">75</biblScope>
+			<biblScope unit="page" from="1235" to="1245" />
+		</imprint>
+	</monogr>
+	<note>Synchronous data flow</note>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Response-time analysis of ROS 2 processing chains under reservation-based scheduling</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lütkebohle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">31st Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">A ROS 2 response-time analysis exploiting starvation freedom and execution-time variance</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bozhko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

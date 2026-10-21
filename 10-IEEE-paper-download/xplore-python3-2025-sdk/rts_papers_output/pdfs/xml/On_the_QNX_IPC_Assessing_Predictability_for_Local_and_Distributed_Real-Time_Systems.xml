@@ -1,0 +1,1367 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">On the QNX IPC: Assessing Predictability for Local and Distributed Real-Time Systems</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Matthias</forename><surname>Becker</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">KTH Royal Institute of Technology</orgName>
+								<address>
+									<settlement>Stockholm</settlement>
+									<country key="SE">Sweden</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Dakshina</forename><surname>Dasari</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="institution">Robert Bosch GmbH</orgName>
+								<address>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Daniel</forename><surname>Casini</surname></persName>
+							<affiliation key="aff2">
+								<orgName type="department">Department of Excellence in Robotics &amp; AI</orgName>
+								<orgName type="institution" key="instit1">TeCIP Institute</orgName>
+								<orgName type="institution" key="instit2">Scuola Superiore Sant&apos;Anna</orgName>
+								<address>
+									<settlement>Pisa</settlement>
+									<country key="IT">Italy</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">On the QNX IPC: Assessing Predictability for Local and Distributed Real-Time Systems</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">9812ADA3C52BFD9FC732AE01EC061492</idno>
+					<idno type="DOI">10.1109/RTAS58335.2023.00030</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T02:42+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>With the advent of massively distributed applications such as those required by the IoT-to-Edge-to-Cloud compute continuum (i.e., automotive, smart agriculture, smart manufacturing, and more), real-time communication mechanisms allowing physically distributed nodes to seamlessly communicate as if they were running on the same host acquired noteworthy importance. To this end, the synchronous inter-process communication (IPC) mechanism provided by the QNX operating system (OS) is a promising candidate, as it allows using the application programming interface for communicating both on a single-and multi-node setting. Furthermore, it provides priority and partition inheritance mechanisms to improve predictability when working with the Adaptive Partitioning Scheduler (APS), a reservationbased scheduler provided by the QNX OS. This paper explores the behavior of the QNX synchronous message-passing (SyncMP) IPC with an extensive set of experiments, using them to formalize its behavior and model it from a real-time perspective. Then, it provides a response-time analysis for client-server applications based on the QNX SyncMP building upon self-suspending task theory. Finally, we evaluate the analysis on an application based on the WATERS 2019 Challenge by Bosch.</p><p>289 2023 IEEE 29th Real-Time and Embedded Technology and Applications Symposium (RTAS)    </p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Modern applications across several domains are predominantly distributed and consist of a set of communicating components located on different nodes, possibly spanning the IoT, to the edge, up to the cloud. A case in point is autonomous driving <ref type="bibr" target="#b0">[1]</ref>- <ref type="bibr" target="#b3">[4]</ref>, that requires intensive computations, which may be offloaded to surrounding edge nodes or the cloud, and could also interact with the surrounding IoT infrastructure. In essence, functionalities are often realized by elements that are executed on the local node, e.g., an electronic control unit (ECU) of a car, and others that are offloaded elsewhere, either another ECU or to the edge/cloud in a client-server fashion. This gives rise to the need for a compute continuum, where nodes can seamlessly interact in a distributed environment as if executing on the same node.</p><p>To this end, the QNX operating system provides a set of synchronous message-passing primitives (SyncMP) for interprocess communication (IPC) devised to be used to implement such a client-server paradigm <ref type="bibr" target="#b4">[5]</ref>. Unlike most of the other IPC mechanisms, the QNX IPC allows for the seamless integration of components distributed onto multiple nodes by transparently using the same application programming interface (API), via the QNX Transparent Distributed Processing (QNET) component. QNET enables logically merging a set of distributed QNX devices into a single logical computer where all applications can communicate through a unified programming interface. Furthermore, QNX is ISO-26262 certified at the highest level of assurance (ASIL-D), making it widely preferred by many automotive OEMs <ref type="bibr" target="#b5">[6]</ref>.</p><p>Another key aspect for most of these applications is the need to satisfy real-time requirements. From this side, QNX is a promising candidate. Indeed, the QNX OS provides the Adaptive Partitioning Scheduler (APS) <ref type="bibr" target="#b6">[7]</ref>, which implements fixed-priority scheduling and a reservation-based mechanism where threads are grouped into "partitions", i.e., virtual containers with a guaranteed fraction of processing bandwidth. The assigned bandwidth is ensured to be delivered irrespective of what is executed in other partitions, and it allows for providing temporal isolation among partitions. This is very desirable in the target distributed setup, where modules running in different partitions can have different levels of criticality.</p><p>Furthermore, QNX provides priority and partition inheritance mechanisms to improve the predictability of its SyncMP when used with APS. So when a server thread is executing a service on behalf of a client, it can inherit the priority and the partition bandwidth associated with the client. This prevents the priority-inversion phenomenon that would arise if the server executed with a lower priority than the requesting thread and allows for designing servers' partitions more easily.</p><p>However, QNX is closed-source, and how APS and the SyncMP mechanism interact is not extensively documented. Furthermore, only a few works studied QNX from a realtime perspective <ref type="bibr" target="#b5">[6,</ref><ref type="bibr" target="#b7">8]</ref> and to our knowledge, none of them explore the local IPC mechanisms or the aforementioned transparent distributed processing from a timing perspective. This makes it hard to provide a suitable model of the system to allow deriving timing bounds for distributed applications using QNX. Contributions. To fill this gap, this work explores the behavior of the QNX SyncMP mechanism when working in conjunction with APS. To this end, we perform extensive experiments to characterize its behavior from a real-time perspective, and derive a suitable model for analyzing QNX-based client-server applications. Furthermore, we describe the QNX SyncMP and its interactions with APS with a set of rules. The model and the rules are then used for deriving a response-time analysis based on self-suspending task theory <ref type="bibr" target="#b8">[9]</ref>, which sets the foundation for deriving design methodologies and analysis-driven orchestration mechanisms for distributed applications running QNX in future work. Finally, we report the results of an extensive evaluation we performed to: (a) evaluate the communication latency when using SyncMP; (b) compare the proposed WCRT bounds with measurements on the platform; and (c) evaluate the analysis on a realistic autonomous driving application based on the WATERS 2019 Challenge by Bosch <ref type="bibr" target="#b9">[10]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. QNX OS OVERVIEW</head><p>This section introduces the main features of the QNX OS that are considered in this work. The Adaptive Partitioned Scheduler (APS). The APS is a reservation-based scheduler that groups threads into virtual containers called partitions. By budgeting the execution of each partition, QNX APS allows providing each partition with a fraction of the processing capacity. For each partition, its budget determines the amount of processing time in a sliding window, common to all partitions, set to 100 ms by default. When the budget reaches 0, the partition is throttled, and its budget is gradually restored when enough time has passed. The QNX scheduler combines APS with a fixed-priority scheduler, meaning that, at any point in time, the highest-priority thread with a positive budget is selected to run. There are 255 priority levels, with 255 being the highest priority. Partitions are created by subtracting budget from the system partition, a parent partition that initially has 100% of the budget. APS also provides the so-called idle-time mode to improve the performance in the average case through budget reclamation. Threads can be assigned to specific cores using core affinities. Inter-process communication in QNX. QNX offers different IPC mechanisms like synchronous message passing (SyncMP), signals, FIFOs, pipes, message queues, and shared memory communication. Among these, SyncMP and signals are implemented in the microkernel, while the others are offered as external services. In this work, we focus on synchronous message passing that forms the foundational IPC message mechanism provided by the QNX OS. This is based on the three key primitives, MsgSend(), MsgReceive(), and MsgReply(), which form the basis to realize the clientserver paradigm <ref type="bibr" target="#b4">[5]</ref>. Fig. <ref type="figure" target="#fig_0">1</ref> shows the kernel state transitions involved when a client and server interact using the SyncMP primitives mentioned earlier. The client (sender) thread invokes a blocking MsgSend() until it receives a MsgReply() from the server (receiver) thread. The server, on the other hand, listens to incoming messages with a MsgReceive(), processes them, and replies with a corresponding MsgReply(). As opposed to MsgSend(), MsgReply() is non-blocking, implying that a server thread could reply to a client and continue with its normal processing while the underlying networking stack (kernel) could asynchronously transfer the reply data to the client thread. QNX Channels. With channels, QNX offers an abstraction over the regular message passing to be used for client-server communication with the discussed SyncMP primitives. The channel facilitates many-to-one communication, and therefore, multiple threads could connect to a given channel. Every channel records the threads waiting for messages, un-replied  When inheritance is enabled, server threads inherit the priority of the client they are serving and execute it on behalf of the client. QNX also provide the "Server boost" feature, aimed to minimize processing delays for blocked high-priority threads. So, when a high-priority thread becomes SEND_BLOCKED on a server (meaning its requests are queued at the server and the server is not actively handling them), then in an attempt to speed up the processing, the kernel selects candidate server threads that may receive on the given channel (and service the request), and boosts their priorities. Also, when none of the server threads are RECEIVE_BLOCKED on a channel, then the kernel boosts the priority of all server threads that last received on that channel, with the intent that they would finish their current processing and service the incoming requests faster with the boosted priority. While this feature could improve the average-case performance, it could generally harm predictability by raising the priority of multiple threads at the same time.</p><p>Partition Inheritance. When a server executes on behalf of a client, it could be desirable to bill the corresponding execution cost to the client partition. QNX handles this with the concept of partition inheritance. Server processes can be hosted in zero or minimal-budget partitions, and whenever a server executes on behalf of a client, the execution is billed to the partition of the client. Interestingly, we observed that the QNX implementation leads to some non-intuitive (undocumented) behavior that differs depending on whether the client and the server run on the same node or in different nodes. We explore this in more detail in Section III.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. SYSTEM MODEL</head><p>This paper considers a set of m identical cores U = {p 1 , . . . , p m } running the QNX APS scheduler. Cores can be potentially located on different nodes in a distributed system.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Workload Model</head><p>The workload is composed of a set T = {τ 1 , . . . , τ n } of n real-time threads. Each thread is characterized by a priority π i . Threads are scheduled according to partitioned scheduling, i.e., each thread is assigned to only one core. Threads are divided into two categories: clients and servers. Thus, the application behavior is realized by clients that offload particular functionalities to servers. Each client c i is characterized by a worst-case execution time (WCET) e i . Each client thread is released sporadically with minimum inter-arrival time T i . Each client thread instance needs to complete within D i ≤ T i time units from its release (constrained deadline). Each client c i ∈ C ⊆ T communicates with zero or more servers threads in S ⊂ T by requiring zero or more services.</p><p>Each server s h ∈ S provides one or more services Q(s h ) ⊆ Q, where Q is the set of all services. Servers are expected to follow the code structure suggested by the QNX documentation <ref type="bibr" target="#b10">[11]</ref>, shown in Algorithm 1. A server receives all service requests on the same channel, identified by a service type. A service σ x ∈ Q is realized by means of the QNX SyncMP, based on MsgSend()-MsgRcv()-MsgReply(). We assume each service is provided by only one server. This assumption allows making the system more predictable by: (i) reducing the server boost effect, discussed in Section II, to a single server, thus removing any uncertainty to which server priority is boosted, and (ii) allowing to avoid the LIFO scheduling effects that would arise when a service can be handled by multiple servers <ref type="bibr" target="#b4">[5]</ref>. Each service σ x ∈ Q is characterized by a worst-case service time (WCST) ω x,i , bounding the time required to complete service σ x (without interference) when called by a client c i ∈ C. The WCST of a service depends on the client issuing the request because, for example, different clients may use different input data, with potentially large effects on the time required to handle the request.</p><p>Client WCETs and server WCSTs already include the OS overheads to receive and transmit data.</p><p>Furthermore, an interaction between a client c i and a server s j for a service σ x is characterized by a pair of worstcase communication delays (WCCDs) δ x i,j and δ x j,i , bounding the time required to transmit and receive the data through the physical medium, respectively. Whenever such a time is negligible (e.g., if the client and the server is allocated to the same core or node), δ x i,j = δ x j,i = 0. We consider a discretetime model in which all time parameters are integer multiples of a basic time unit = 1 (e.g., a processor cycle).</p><p>For each pair of client c i and service σ x , n S i,x ∈ N is the number of times each instance of c i requires σ x . Given a service σ x , the function Q -1 (σ x ) = s h returns the server providing that service.</p><p>Algorithm 1 Expected structure of a server thread in QNX. . . . Handle a service of type . . . 9:</p><p>MsgReply(rcv_id, response) 10: end while We assume service requests cannot be nested: i.e., a server handling a request cannot perform any service request to any other server (thus acting as a client thread). Although supporting nested requests can be a case of practical relevance, due to space constraints, we prefer to leave it to future work as the QNX manual itself <ref type="bibr" target="#b4">[5]</ref> (page 80) suggests taking special care when supporting nested service requests because they can lead to issues such as deadlocks. Their study would then require extended considerations for the modeling and analysis. The worst-case response time (WCRT) R i of a client c i is the longest time span from the release to the completion of any of its instances. A client c i is said to be schedulable if R i ≤ D i .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Adaptive Partitioning Scheduler Model</head><p>The system includes a set of APS partitions P = {P 1 , . . . , P s }. Each partition P k is characterized by a nominal budget of B k time units. The symbol b k (t) denotes the current budget of P k at time t. The accounting window size is denoted with W <ref type="bibr" target="#b5">[6]</ref>. As in prior work <ref type="bibr" target="#b5">[6]</ref>, we restrict to the more predictable case <ref type="bibr" target="#b11">[12]</ref> in which also partitions follow partitioned scheduling, i.e., each core p j ∈ U can host multiple partitions, referred to as P j , but each partition is managed by one core only. For any arbitrary thread (either a client or a server) τ i , hep cl k (τ i ) and hep sr k (τ i ) denote the sets of all clients and all servers with higher or equal priority than τ i in the same partition P k , respectively, excluding τ i . hep cl (τ i ) and lp cl (τ i ) include all clients from all partitions with higher-or-equal and lower priorities, respectively, independent of the partition. Set S k denotes the set of all the servers in partition P k . We model the supply-time given by an arbitrary partition P k using the supply-bound function abstraction <ref type="bibr" target="#b12">[13]</ref>- <ref type="bibr" target="#b14">[15]</ref>, in which sbf k (Δ) bounds the minimum amount of supply provided by partition P k in any interval of length Δ. A supply-bound function instance for APS has been derived in <ref type="bibr" target="#b5">[6]</ref>. The supplybound function of the system partition for threads allocated on core p k is denoted with sbf sys,pk (Δ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Client-Server Interaction</head><p>Next, we formalize the behavior of the client-server interaction of QNX by a set of rules. The first seven rules (R1-R7) model the baseline behavior of the mechanism without priority and partition inheritance enabled. This scenario is referred to as C-S (i.e., client-server). Rule R8 extends C-S to account for priority inheritance. Rule R9-A extends R1-R8 to account for partition inheritance in the case in which the client and the server are in the same physical node (called LOCAL-I, local with inheritance). Rule R9-B extends R1-R8 to account for partition inheritance in the case in which the client and the server are distributed in two different nodes (called DISTR-I, distributed with inheritance). Basic IPC-SyncMP Rules (Scenario C-S):</p><p>R1: When an instance of each client thread is released, it is in the READY state. R2: When a client requires a service σ s it calls the MsgSend() system call. Then, it suspends moving to the SEND_BLOCKED state. R3: If a client sends a message to a server that is blocked in the RECEIVE_BLOCKED state, the server is awakened and transits to the READY state. R4: When a server calls the MsgReceive() system call, if there is no message to be managed, it transits to the RECEIVE_BLOCKED state. R5: After receiving a message (using MsgReceive()), the server manages the request by executing the corresponding code (see Algorithm 1), and replies to the client using MsgReply(). The client then transits to the READY state. While the server handles a request of a client, the client transitions to the REPLY_BLOCKED state. R6: Once a server starts processing a request, the request is served to completion. R7: When multiple messages are waiting on the same channel, they are consumed in priority order by the server, according to the priority of the client that sent each message. Consequently, services are handled in priority order by servers. Additional rule for the LOCAL-I and DISTR-I Scenario:</p><p>R8: When a service request (i.e., a message) is inserted in the queue of a server, if the priority of the corresponding client is higher than the current server priority, then the server inherits such priority. When a server thread s i finishes serving a service σ x , it remains with the same priority until either: (i) a new, higher-priority service request is enqueued in s i , thus raising its priority, or (ii) the next call to MsgReceive() selects a lower-priority service request, and the priority of s i is downgraded. Additional rule for the LOCAL-I Scenario: R9-A: If a server s i and client c j are in the same node, when s i processes a request from c j , s i inherits the partition of c j to serve the request of c j , i.e., it consumes the budget of the partition of c j . Additional rule for the DISTR-I Scenario:</p><p>R9-B: If a server s i and client c j are in two different nodes, when s i processes a request from c j it uses the budget of the system partition.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Rule Validation</head><p>Most of the content in the rules we presented is based on a detailed inspection of the QNX manuals. However, the QNX OS is closed-source, and manuals do not contain enough details to enable accurate modeling. Therefore, to complement and corroborate our findings with empirical evidence, we designed a specific set of experiments, and we ran them on a real platform.</p><p>All experiments are performed on a Raspberry Pi 4B with 4 cores and 4GB RAM using the QNX 7.1 Software Development Platform (SDP). For each of the evaluated settings, the QNX event tracing facility is used to obtain the execution trace. The kernel instrumented for tracing operates typically 98% as fast as the non-instrumented kernel <ref type="bibr" target="#b4">[5]</ref>. During tracing, events are stored in a buffer inside the kernel, from where they are read by a data capture utility. In our experiments, event filters are set such that only relevant events from our application are recorded. We further extended the tracing facilities to record detailed information on APS partition usage over time. Where applicable, we log the APS partition statistics at a granularity of 1 ms. Furthermore, the data capture utilities are allocated to a core that is not used for the experiments.</p><p>QNX APS does not allow enabling or disabling priority and partition inheritance separately: therefore, in the following, we simply refer to enabling or disabling inheritance to mean both.</p><p>1) Experiments on a single node: This set of experiments consists of two settings: SETTING A, which does not use APS partitions (and hence it cannot leverage partition inheritance but only priority inheritance, if enabled), adopting fixed-priority scheduling without reservation, and SETTING B, which instead uses APS.</p><p>SETTING A executes four client threads and one server thread on the same core. Each client thread executes for 50% of its execution time before a request is sent to the server. All clients request the same service with a WCET of 10 ms and always run for their WCET. A complete description of the setting is provided in the lower part of Fig. <ref type="figure" target="#fig_1">2a</ref>. Client and server parameters in the tuple are described in the following order: period, WCET, offset, nominal priority and required/provided service. As a server does not have its own period or offset we use '-' to indicate this at the respective places. The initial offsets of client threads are selected such that the server s 1 handles the initial request of c 1 before c 2 , c 3 and c 4 can each send a request to the server.</p><p>Listing 1 and 2 show an excerpt of the execution trace of c 2 and s 1 , respectively, for the case in which inheritance is disabled. From the trace of c 2 it can be observed that the client thread transitions to READY at its release at t = 6 ms, confirming R1. After the initial execution phase, c 2 sends a request to s 1 and transitions to the state SEND_BLOCKED, confirming R2. From the server trace, it can be seen that s 1 transitions to RECEIVE_BLOCKED at t = 74.5 ms when no more pending messages exist. The server becomes RUNNING again after c 1 sends its second request (note that the trace does not include an explicit entry for READY as s 1 directly starts to execute). This confirms R3 and R4. The trace of c 2 further shows that the thread's state transitions from SEND_BLOCKED to REPLY_BLOCKED at t = 59.6 ms, which coincides with the respective execution start of s 1 to handle the request. At  Fig. <ref type="figure" target="#fig_1">2a</ref> depicts the same execution trace where inheritance is not enabled. At t = 30 ms s 1 finishes serving the request of c 1 . There are three outstanding requests in the queue of the server that arrived in the sequence c 2 , c 3 , and c 4 . The server first handles the request by c 3 , then the request by c 4 , and finally the request of c 2 . Therefore, R7 is confirmed, and services are handled in priority order by the server. R6 can further be confirmed as the initial request of c 1 is served to completion before other requests are handled in priority order. This is a direct consequence of the server implementation (see Algorithm 1).</p><p>Fig. <ref type="figure" target="#fig_1">2b</ref> depicts the same system, but inheritance is enabled.</p><p>The priority of s 1 is shown in the lower part of Fig. <ref type="figure" target="#fig_1">2b</ref>. s 1 starts to execute at its nominal priority 252. At t = 5 ms s 1 starts to handle the request of c 1 . Consequently, s 1 inherits the priority of c 1 and executes at a priority of 250. At t = 11 ms, c 2 sends a request to the server, followed by a request from c 3 at t = 17 ms. We can observe that the server priority is following accordingly, to 253 at t = 11 ms and to 255 at t = 17 ms. This confirms the first part of R8. A difference between Fig. <ref type="figure" target="#fig_1">2a</ref> and Fig. <ref type="figure" target="#fig_1">2b</ref> can be observed at t = 35 ms. s 1 executes at the highest priority and completes the request of c 1 . The current priority of s 1 is 255, and only one request of c 2 is pending (with priority 253). s 1 continues executing at priority 255 to call MsgReceive() and retrieve the pending request by c 2 , and its priority changes to 253 before the server is preempted by c 4 (confirming the second part of R8). Thus, the order of requests that are handled by the server is different compared to the case without priority inheritance. SETTING B is used to examine how APS partitions are handled in conjunction with the SyncMP mechanism. The system comprises five threads in total. Two threads act as client threads (c 1 and c 2 ), one server thread (s 1 ), and two ordinary threads (τ 1 and τ 2 ). As before, each client executes for half of its nominal execution time before it places a request to the server. Thread parameters are listed next to the execution trace in Fig. <ref type="figure" target="#fig_2">3</ref>. Please note that the tracing tool of QNX does not show the current budget of each partition, but the cumulative time that threads of a respective partition executed within the last scheduling window [t -W, t): the corresponding budget can be read as shown for P 1 in Fig. <ref type="figure" target="#fig_2">3(a)</ref>. τ 1 and c 1 are assigned to partition P 1 and τ 2 , c 2 and s 1 are assigned to partition P 2 . Each APS partition has a nominal budget of 40%. All threads that are mapped to P 1 are allocated to core 1, and all threads that are mapped to P 2 are allocated to core 2. Fig. <ref type="figure" target="#fig_2">3</ref> depicts the recorded execution trace (top), APS trace (middle), and priority trace (bottom) for the case with (a) and without (b) inheritance enabled.</p><p>In the case without inheritance (Fig. <ref type="figure" target="#fig_2">3a</ref>), we can observe that the SyncMP mechanism is not affected by the APS scheduler. Furthermore, each APS partition consumes budget when a respective thread executes. For P 2 this means the server exceeds its nominal budget at t = 40 ms, but since no other thread is assigned to the same core P 2 can consume the idle time. We can also observe that a thread that preempts a server, while the server serves a request using an inherited APS partition, executes in its nominal partition (τ 2 between t = 43 ms and t = 53 ms). From these observations, we can conclude that R9-A holds for the case that client and server are mapped to the same node.</p><p>2) Experiments on a distributed system: This section investigates the SyncMP properties when client and server are allocated on two different nodes. In our experimental setup, both nodes are identical to the one used for the single-node experiments and connected via Ethernet.</p><p>SETTING C executes two client threads c 1 and c 2 and one server thread s 1 on two different nodes connected via QNET. allocated to Node 2 and a partition P 2 . Inheritance is enabled for the communication channel. Thread parameters can be found in Fig. <ref type="figure" target="#fig_3">4</ref>. Fig. <ref type="figure" target="#fig_3">4</ref> shows the recorded trace of Node 1 and Node 2. Note that timestamps are not synchronized and exhibit an about 5 ms offset due to independent trace collection. The key findings from this experiment are:</p><p>(1) Priority inheritance works across node boundaries. This can be seen as π s1 inherits the priority of c 1 and c 2 at t = 200 ms and t = 220 ms respectively.</p><p>(2) Partition inheritance behaves differently across node boundaries. While requests by c 2 are served by consuming budget of P 2 , requests by c 1 are not served by consuming budget of P 2 . In fact, requests of c 1 are neither consuming the budget of P 1 or P 2 but instead consume budget from the (default) system partition. This observation corroborates the validity of R9-B.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Discussion</head><p>In this section, we formalized the behavior of the QNX OS SyncMP mechanism through a set of rules, and we validated them with a series of experiments on a real platform, paving the way for a sound timing analysis. We observe scenarios that make the timing analysis challenging. This is the case when two threads are consuming the budget of an APS partition at the same time. This is shown in Fig. <ref type="figure" target="#fig_2">3b</ref>, between t = 28 and t = 38, where the budget in P 1 is consumed by τ 1 and s 1 .</p><p>Furthermore, experiments with the client and the server distributed over different nodes highlight the importance of performing them, uncovering undocumented behaviors (R9-B) with substantial effects on the timing behavior. One possible explanation for the observed APS inheritance across nodes is the lack of platform information across different nodes (CPU frequency etc.), while the APS mechanism keeps track of budgets in clock ticks <ref type="bibr" target="#b7">[8]</ref>. Exchanging APS information would further likely lead to increased communication bandwidth requirements.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. RESPONSE-TIME ANALYSIS</head><p>The problem we address in this section is the following: how to bound the WCRT of a client thread that uses services provided by a server in a QNX-based system? We start discussing the case in which the priority and partition inheritance mechanism is not active. Before proceeding, we recall the needed background for analyzing self-suspending tasks.  Background on self-suspending tasks client thread c i can be modeled as a self-suspending task <ref type="bibr" target="#b8">[9]</ref>, by noting that every time c i uses MsgSend() to request a service (rule R2), it self-suspends until the service is completed and the corresponding server calls MsgReply() system call (rule R5). This is shown in Fig. <ref type="figure" target="#fig_5">5</ref>.</p><p>To introduce the needed background for bounding the WCRT of a self-suspending task (SS-task), we consider a set Γ SS i = {τ SS 1 , . . . , τ SS n } related to a partition P k . Each SStask is characterized by a minimum inter-arrival time T i , a constrained deadline D i ≤ T i , a WCET e i , and a suspension time bound S i , under fixed-priority partitioned scheduling.</p><p>Furthermore, let hep SS z (τ SS i ) be the set of SS-tasks with a higher or equal priority of τ SS i on the same core p x , excluding τ SS i itself. The WCRT R i of a task τ SS i can be bounded with the least positive solution of the following equation:</p><formula xml:id="formula_0">sbf k (R i ) ≥ e i + S i + τ SS j ∈hep SS z (τ SS i ) R i + R j -e j T j • e j (1)</formula><p>by modeling the self-suspension of the task under analysis as execution time and self suspensions of interfering tasks as jitter <ref type="bibr" target="#b8">[9]</ref>. In Eq. ( <ref type="formula">1</ref>), which computes the response time bound R i , it is assumed to use a pre-existing WCRT bound R j for τ SS j , thus introducing a cyclic dependency. The dependency can be broken by assuming that all jobs are killed after the deadline: this allows initially setting the WCRT bounds R j to the deadline D j . In this way, if threads are schedulable, no jobs are killed, making the assumption not necessary (more details in <ref type="bibr" target="#b15">[16]</ref>). Iterative improvements are possible by running the analysis multiple times for all tasks, each time obtaining new (smaller) bounds for R i leveraging R j (see Eq. ( <ref type="formula">1</ref>)), updating the values of each R i with the newly computed R i , and reiterating the process until no improvement is achieved between two consecutive runs of the analysis <ref type="bibr" target="#b15">[16]</ref>. Finally, note that the equation of Section 4.2.3 in <ref type="bibr" target="#b8">[9]</ref> has been extended in Eq. ( <ref type="formula">1</ref>) to consider a more general supply-bound function sbf k (Δ), while <ref type="bibr" target="#b8">[9]</ref> considered a core supply equal to the total core capacity. The extension is safe as long as the corresponding partition does not deplete the budget when it becomes idle (e.g., as it occurs for a polling reservation <ref type="bibr" target="#b11">[12]</ref>). However, this is not the case for the APS partition reservation algorithm <ref type="bibr" target="#b5">[6]</ref>, which ensures each suspending thread that the remaining budget after being awakened from the suspension will be no less than the one it had before suspending if no interfering workload in the same partition consumed it in the meantime. Our analysis, presented in the following, remains compatible with the case of a fully-dedicated core, which can be modeled with each core having a single partition allocated on it, with a supply-bound function sbf k (Δ) = Δ, ∀p k ∈ U.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Baseline Response-Time Analysis (C-S)</head><p>Deriving a bound on the suspension time. We start focusing on the C-S scenario, which consists in the baseline clientserver mechanism with no inheritance enabled. By rule R2, a client task self-suspends for waiting for its service request to be served. Therefore, to build a response-time analysis framework to guarantee the schedulability of client threads, we first bound the time spent waiting by service requests to servers, i.e., the suspension time, in the SS-task theory jargon. For each service σ x , let R sc x,i be a bound on its worst-case response time when the service request is issued by c i , i.e., the longest time span from when a service request for σ x is received by its server s h = Q -1 (σ x ) to when it completes (i.e., when MsgReply() is used to reply, see R5).</p><p>Therefore, the overall self-suspending time of a client c i is bounded by the sum of the WCRT bounds all the services multiplied by n S i,x , the number of times c i calls σ x , plus the WCCD required for c i to communicate with s h for service σ x :</p><formula xml:id="formula_1">S i ≤ σx∈Q (n S x,i • (R sc x,i + δ x + δ x h,i ))<label>(2)</label></formula><p>Next, we bound the WCRT R sc x,i of an arbitrary service σ x in setting C-S. To this end, let s h = Q -1 (σ x ) be the server that manages σ x .</p><p>To begin, we aim at deriving an analysis that is as flexible as possible, allowing the co-existence of multiple clients and servers in the same partition (which can be helpful in some cases since APS limits the maximum number of partitions on one node to 32 <ref type="bibr" target="#b6">[7]</ref>).</p><p>Hence, given an arbitrary service σ x under analysis handled by a server s h allocated to a partition P k , we classify three different sources of interference:</p><p>• The interference due to other clients allocated to the same APS partition P k , bounded by I cl h (Δ). • The interference caused by any other server than s h in P k , bounded by I oth-sr h (Δ). • The interference due to the processing of other service requests in the same server s h , bounded by I sm-sr h,x (Δ). Based on these sources of interference, Lemma 1 presents a bound on the WCRT of a service σ x issued by a client c i . </p><formula xml:id="formula_2">sbf k (R * ) ≥ + I cl h (R * ) + I oth-sr h (R * ) + I sm-sr h,x (S * ) + ω x,i (4)</formula><p>where then σ x completes at most at + R * and R sc x,i = R * a bound on the response time of σ x issued by c i .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Proof. By definition I cl</head><p>h (S * ), I oth-sr h (S * ), and I sm-sr h,x (S * ) bound the interference due to clients, services running in other servers in the same APS partition, and services handled by the same server in the interval [A, A + S * ). Since S * fulfills Eq. ( <ref type="formula">3</ref>), the supply provided by partition P k exceeds the demand by at least . Therefore, since σ x is released at A, σ x starts being handled by s h at most at A + S * .</p><p>To prove Eq. ( <ref type="formula">4</ref>), note that, internally to server s h , σ x is handled in a non-preemptive fashion. It follows that in [A + S * , A + R * ), σ x cannot suffer interference from other services handled by the same server. Hence, the overall interference due to other service requests in [A, A+R * ), is bounded by I sm-sr h,x (S * ). Conversely, interference due to other client threads and requests handled in other servers can interfere also within [A + S * , A + R * ), and the corresponding interference components are bounded by I cl h (R * ) and I oth-sr h (R * ). Since by assumption R sc</p><p>x,i = R * satisfies Eq. ( <ref type="formula">4</ref>), the supply sbf k (R * ) provided by P k exceeds the demand (which includes the aforementioned interference components and the WCST ω x,i ) by at least . It follows that σ x completes within [A, A + R * ), and R * is a valid response-time bound for σ x .</p><p>Thanks to Lemma 1, we are able to bound the WCRT R sc</p><p>x,i of a service provided that the delay components I cl h (Δ), I oth-sr h (Δ), and I sm-sr h,x (Δ) are know. Next, we provide bounds for such components.</p><p>Similarly to classical jitter-based analysis for selfsuspending tasks (recalled in Section IV-A), the interference due to clients I cl h (Δ) is bounded by the sum of the individual interference contributions by higher-or-equal-priority clients in the same partition P k of the server s h handling σ x . Hence, it holds,</p><formula xml:id="formula_3">I cl h (Δ) cj ∈hep cl k (sh) Δ + R j -e j T j • e j . (<label>5</label></formula><formula xml:id="formula_4">)</formula><p>We omit a formal proof to show Eq. ( <ref type="formula" target="#formula_3">5</ref>) to be sound as it is analogous to standard results for self-suspending tasks <ref type="bibr" target="#b8">[9]</ref>. As discussed in Section IV-A, Eq. ( <ref type="formula" target="#formula_3">5</ref>) requires a preexisting bound on the response time of high-priority clients c j ∈ hep cl k (s h ), which can initially be upper-bounded with its deadline D j , and possibly refined in an iterative fashion as discussed in Section IV-A. This technique, well-known in literature (e.g., see <ref type="bibr" target="#b8">[9,</ref><ref type="bibr" target="#b15">16]</ref>- <ref type="bibr" target="#b18">[19]</ref>), is used multiple times in the following: the corresponding pre-existing WCRT bounds are denoted with the symbol R to distinguish from those are under derivation (denoted by R).</p><p>Next, we define I oth-sr h (Δ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 2. In setting C-S, it holds</head><formula xml:id="formula_5">I oth-sr h (Δ) sa∈hep sr k (sh) σs∈Q(sa) ce∈C\ci Δ + R e T e •n S s,e •ω s,e . (<label>6</label></formula><formula xml:id="formula_6">)</formula><p>Proof. First, note that any other server with a priority higher than or equal to s h can interfere with s h (s h is excluded by definition of I oth-sr h (Δ)). These servers are contained into the set hep sr k (s h ). For each interfering server s a , each service σ s handled by that server (i.e., in set Q(s a )) can interfere with σ x under analysis. Each service request is triggered at most n S e,s times by each instance of each client c e ∈ C \ c i . Note that the client c i issuing the request for σ x under analysis can be excluded from the set of clients issuing interfering requests because the QNX SyncMP is synchronous (rules R2-R5) and hence c i has at most a pending service request at the same time. Knowing that each service σ s can take at most ω s,e time units, it remains to bound the maximum number of service requests issued by each client c e ∈ C \ c i that may contribute to interference in an arbitrary interval <ref type="bibr">[</ref> </p><formula xml:id="formula_7">L = {σ l ∈ Q(s h ) : ∃c b ∈ lp cl (c i ) ∧ n S</formula><p>b,l &gt; 0}. Proof. By rule R7, any service request issued by a client with priority higher than or equal to c i in any partition (set hep cl (c i )) can interfere with σ x in analysis. Analogously to Lemma 2, each of such service instance interfere for up to Δ+Re Te</p><p>• n S e,s • ω s time units. By rule R6, each service runs to completion once started. Therefore, any low-priority service started just before σ x is issued can block σ x itself, for at most the duration of a single service. Low-priority blocking is then bounded by the longest duration of a service request from a low-priority client, i.e., by B sm-sr h,x , proving the bound. Bounding the WCRT of clients. The previous lemmas allow to bound the suspension time. Such a bound is used next in Lemma 4 to bound the WCRT of a client.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 4. Consider an arbitrary instance of c i released at time A. If R i is the least positive solution of the following inequality</head><formula xml:id="formula_8">sbf k (R i ) ≥ + e i + S i + I cl i (R i ) + I oth-sr i (R i ) (<label>8</label></formula><formula xml:id="formula_9">)</formula><p>then c i completes no later than A + R i and R i is a bound on the response time of c i in setting C-S.</p><p>Proof. A client c i can be delayed either by: (i) interference due to clients and servers running the same partition P k , (ii) lack of supply due to P k , and (iii) suspension time due to the synchronous offloading to servers (following the suspension-oblivious approach to model the suspension of the interfered thread <ref type="bibr" target="#b8">[9]</ref>, see Section IV-A). Delays due to (i) are accounted in I cl i (R i ) and I oth-sr i (R i ) delays due to (ii) are accounted in the supply-bound function sbf k (R i ), and (iii) is accounted for in S i , which can be bounded with the results of Section IV-B. Since by assumption R i satisfies Eq. ( <ref type="formula" target="#formula_8">8</ref>), the supply sbf k (R i ) provided by P k exceeds the demand (which includes the interference plus at most e i units to execute c i ) by at least . It follows that σ x completes no later than A+R i , and R i is a valid response-time bound for c i .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>The definitions of I cl</head><p>i (Δ) and I oth-sr i (Δ) are analogous to those presented in Section IV-B (i.e., Eq. ( <ref type="formula" target="#formula_3">5</ref>) and Eq. ( <ref type="formula" target="#formula_5">6</ref>)) but specialized by using the sets hep cl k (c i ) and hep sr k (c i ) in place of hep cl k (s h ) and hep sr k (s h ) to denote the sets of all clients and servers with higher or equal priority than c i , respectively, and without excluding c i from C in the sum of Eq. ( <ref type="formula" target="#formula_5">6</ref>). Analysis and modeling alternatives. In this paper, we adopt the more flexible dynamic self-suspending model <ref type="bibr" target="#b8">[9]</ref>, modeling the suspension of the interfered thread as computation (suspension-oblivious) and the suspension of interfering threads as released jitter. From the modeling side, we deem it more accessible for an application designer to know only the overall WCET of a client and a suspension-oblivious approach. Conversely, adopting the segmented self-suspending model requires knowing the WCET bounds of each code chunk between two consecutive service calls, which can be hard to obtain. Nevertheless, when this information is available, a SPLIT analysis <ref type="bibr" target="#b8">[9]</ref> approach could be adopted, and precision can possibly be improved. However, none of the approaches dominates the other, as SPLIT would incur additional accounting (for each segment) of the supply-bound function blackout time <ref type="bibr" target="#b5">[6]</ref>. In contrast, the suspension-oblivious approach adopted in this paper may be more pessimistic when the client and the server are in the same core, as the same highpriority interference could be counted twice, both in the client and the server interference. The combination of the proposed method with SPLIT and the derivation of ad-hoc methods (e.g., using MILP formulations) to reduce the pessimism will be addressed in future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Response-Time Analysis with Inheritance (LOCAL-I)</head><p>Next, we analyze the LOCAL-I setting, which occurs when inheritance is enabled, and pairs of clients and servers are on the same node. This setting is much harder to analyze in the general case. We identify two main analysis challenges and propose solutions that allow keeping the analysis simple. C1 -Multi-supply over time. A pending service request instance σ x under analysis can be interfered with by highpriority requests from different clients, which can be allocated to different APS partitions with different configurations and hence with a different supply-bound function sbf k (Δ). Thus, a general analysis should derive the worst-possible sequence of interfering requests to σ x and the state of the supply functions of the corresponding (potentially different) client partitions when such service requests produce interference in order to provide the lowest possible combination of supply provided to the server. C2 -Double-rate use of the budget. If the client's partition P k includes multiple threads and another partition P y starts consuming P k 's budget due to the partition inheritance mechanisms, P k and P y can consume the budget of P k in parallel, at a double rate, making it hard to lower-bound the partition supply (see Fig. <ref type="figure" target="#fig_2">3b</ref> between t = 28 and t = 38, where the budget in P 1 is consumed by c 1 and s 1 ).</p><p>Due to its complexity, we leave the general case to future work, and we target a more accessible yet practical case.</p><p>Therefore, we make the following simplifying assumptions: A1. Each server handles requests from only one client. A2. No other thread runs in the same partition of a client. A3. No other thread runs in the same partition of a server.</p><p>This setting is representative of many real cases where it is desirable to free clients and servers from interference due to other workloads, allocating them to dedicated partitions while still allowing to serve multiple clients by splitting the server code into multiple server threads.</p><p>Assumptions A1-A3 are largely beneficial from a predictability perspective. Thanks to A2 and R2-R5, at most one thread can consume the budget of a client's partition P k at a time, thus avoiding the supply to be consumed at a double rate (C1). This allows using the existing bound for sbf k (Δ) that leverages this assumption <ref type="bibr" target="#b5">[6]</ref>. With A1, the server partition inherits the budget of a single partition, i.e., the one of its client, thus avoiding the problem of combining the supply function of the server partition with multiple supply functions of different clients (C2). Finally, with A3, the server partition can be configured with zero budget, thus also avoiding combining its supply function with the one of the corresponding client. Lemma 5 bounds the response time under A1-A3. Lemma 5. Consider an arbitrary instance of c i released at time A. If A1, A2, and A3 hold, and R i is the least positive solution of the following inequality</p><formula xml:id="formula_10">sbf k (R i ) ≥ e i + σx∈Q (n S x,i • (ω x,i + δ x i,j + δ x j,i )) (9)</formula><p>then c i completes no later than A + R i and R i is a bound on the response time of c i in setting LOCAL-I.</p><p>Proof. Due to A1, the server thread s h = Q -1 (σ x ) handles requests only from the client c i under analysis. Due to rules R2-R5, the considered IPC mechanism is synchronous. Due to A3, no other workload run in the partition of the server thread</p><formula xml:id="formula_11">s h = Q -1 (σ x ). Therefore, a service request σ x ∈ Q with n S</formula><p>x,i &gt; 0 is immediately ready to be served in the server when received, if the client's partition has current budget b k (t) &gt; 0. Thanks to A2, no other workload can run in parallel in the client's partition P k , thus making sbf k (Δ) (as defined in <ref type="bibr" target="#b5">[6]</ref>) a valid abstraction for the service supply provided by P k challenge C2 avoided). The lemma then follows by noting that the resulting scheduling behavior is compatible with the one of a self-suspending task with no interference (i.e., executed in isolation), which can be analyzed by accounting for the suspension time as computation <ref type="bibr" target="#b8">[9]</ref>, with S i = σx∈Q (n S</p><p>x,i • (ω x,i + δ x i,j + δ x j,i )).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Response-Time Analysis with Inheritance (DISTR-I)</head><p>Finally, we analyze the setting DISTR-I, which occurs when the client c i and the server s h are in two different nodes, and they communicate through QNET (see Section III-D). DISTR-I results in having the expected inheritance of priorities, but requests are managed using the system's partition budget (rule R9-B). This introduces a third analysis challenge: C3 -Derivation of the residual supply-bound function. In APS, the system partition is the parent partition from which all partitions are subtracted when created. Therefore, to bound the budget that could be used to run the service requests directed to a server, it is necessary to bound the residual supply-bound function <ref type="bibr" target="#b19">[20]</ref> sbf sys,pq (Δ).</p><p>In principle, this is possible by bounding the demand due to all non-system partitions allocated on a specific core and subtracting it from the overall processing time provided by the core. We leave the derivation of the residual supply-bound function under APS to future research while we focus on a simpler yet practical setup. To simplify the analysis, in this case we assume that: A4. Servers are allocated in dedicated cores where all threads are only assigned to the system partition. These cores host no partitions other than the system partition.</p><p>Under this assumption, the residual supply-bound function for a core p q equals the overall processing time provided by the core, i.e., sbf sys,pq (Δ) = Δ. Instead, under DISTR-I, challenges C1 and C2 are not present because they are caused by the inheritance of the budget from the client partition. Also, note that the solution used for the LOCAL-I setup does not work in this case since it exploits the fact that under LOCAL-I the server uses the budget of the client partition. To extend the baseline analysis of Scenario C-S to work in Scenario DISTR-I, note that this affects the suspension time bound of Section IV-B as follows. First, the suspension time bound needs to consider the system partition under assumptions A4, with sbf sys,pq (Δ) = Δ. Second, the suspension bound of Scenario C-S needs to be modified to account for priority inheritance (rule R8). Priority inheritance is an inter-thread phenomenon. Hence, the interference due to other service requests in the same server (term I sm-sr h,x (Δ)) is analogous to Lemma 3. Differently, the interference due to other threads need to be adapted to consider the inheritance due to rule R8.</p><p>To this end, we first specialize the definition of I cl h (Δ) using the set hep cl sys,pq (c i ) in place of hep cl sys,pq (s h ) to denote the sets of all clients with higher or equal priority than c i since due to R8 the set of clients that can interfere with σ x under analysis depends on the priority of c i (and not of s h , as in setting C-S). </p><formula xml:id="formula_12">ω b,l , (<label>11</label></formula><formula xml:id="formula_13">)</formula><formula xml:id="formula_14">with L = {σ l ∈ Q(s a ) : ∃c b ∈ lp cl (c i ) ∧ n S b,l &gt; 0}.</formula><p>Proof. Consider a service request σ x under analysis issued by a client c i and managed by a server s h = Q -1 (σ x ). I oth-sr h (Δ) consists of two components: (i) interference due to service requests from higher-or-equal priority clients c e ∈ hep cl (c i ) and (ii) blocking due to other servers that boost their priority. Consider first (i). By R8, since each server inherits the priority of the client issuing a request, in principle any server s a ∈ S sys,pq \ s h in the system partition of the same core can interfere with s h (s h excluded). For each interfering server s a , due to R8, only services σ s issued by clients c e with higher or equal priority can interfere, irrespective to the partition, i.e., those from hep cl (c i ). Therefore, similar to Lemma 2, (i) is bounded by I hep h (Δ). Consider now (ii). We first show that each server s a ∈ S sys,pq \s h can block at most once σ x . When server s a starts processing a request from a client c b ∈ lp cl (c i ), it may receive a service request from a client c x with priority higher than π i . By the second part of R8, then s a rises its priority π x , thus causing blocking to the service request under analysis. Still due to R8, once s a calls again MsgReceive(), it either (a) lowers its priority, thus being preempted by s h , or (b) starts servicing a higher-priority request than the one under analysis. In both cases, σ x cannot be blocked again. Finally, each server s a ∈ S sys,pq \ s h cannot contribute to blocking for more than the length of the longest service requested by a client c b ∈ lp cl (c i ) that s a manages. Hence, (ii) is bounded by B inh h,x . The lemma then follows. Finally, note that whenever a client is allocated to the same core of one or more servers, the response-time bound of Lemma 4 needs to be updated with a blocking term, similar to Eq. ( <ref type="formula" target="#formula_12">11</ref>).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EVALUATION</head><p>This section presents the results of three evaluation studies. The first one evaluates the communication delay δ x i,j in both the local and distributed setting. The second study targets a synthetic case where we compare the WCRT provided by the analysis with measurements obtained by running the application on an actual platform running QNX. All experiments on the QNX platform use the same setup that is used for the validation experiments in Sec.III-D. Finally, we evaluate the analysis on a realistic-case study based on the WATERS 2019 Challenge by Bosch <ref type="bibr" target="#b9">[10]</ref> for both local and distributed setups. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Evaluation of Communication Latency.</head><p>The experimental setup used is the same as described in Section III for the validation experiments, in which we used one client and one server. The server does not perform any computation and replies directly after receiving the message. In this experiment, we recorded the latency required to perform and return from a call to msg_send(), issued by the client. The measured latency thus includes both the time required to reach the server from the client and to come back from the server to the client. A varying message size (same value for request and response message) is used in the experiment for messages in the range [96 B, 2048 B], and 1000 measurements are performed for each configuration.</p><p>Fig. <ref type="figure" target="#fig_7">6</ref> shows the results for the case where client and server are allocated on the same node (Fig. <ref type="figure" target="#fig_7">6a</ref>) and on different nodes (Fig. <ref type="figure" target="#fig_7">6b</ref>). In the local communication case, for the observed range of message sizes, the communication delay remains almost constant for messages smaller than 256 B and again for messages with a size larger than 256 B. This jump in latency is likely caused by data-size-dependent implementations to copy data within the kernel (e.g., page flipping instead of the usual copy operations), as indicated in the QNX manual <ref type="bibr" target="#b4">[5]</ref>. The observed latencies in the distributed case increase more distinctly with varying message size. In addition to the pure communication delay, QNET protocol overheads are observed.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Comparing Measurement Against Analysis Results.</head><p>Then, in the second evaluation study, we compared the analytical WCRT bound on the response time of a client against the largest observed value within several experiment runs (50 instances per data-point) of 10 s on the QNX platform, with and without inheritance enabled. A client c with T = 200 ms, e = 20 ms is assigned to a partition P 1 on a core A, with 60% of the overall budget and requires a service σ. A server that serves σ is allocated to a separate partition P 2 on a core B with 40% of the overall budget. The interfering workload is allocated to both cores in separate partitions, consuming the remaining budget, which would have otherwise been used by P 1 and P 2 leveraging APS's reclaiming. Priorities are assigned such that the interfering workload on core A has a higher priority than the client; the client has a higher priority than the interfering workload on core B, and the server has the lowest  priority. Measurements are obtained for a varying worst-case service time of σ in the interval <ref type="bibr" target="#b9">[10,</ref><ref type="bibr">100]</ref> ms in steps of 10 ms. Fig. <ref type="figure" target="#fig_9">7</ref> shows that the measurement results for the case with inheritance are very close to the computed bounds, demonstrating the tightness of our approach for this setting.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Automotive Case Study.</head><p>The case study investigates an application based on a next-generation automotive application, originally presented at WATERS'19 <ref type="bibr" target="#b9">[10]</ref>. The application realizes an end-to-end autonomous driving application as shown in Fig. <ref type="figure">8</ref>. For a detailed description of the case study we refer to <ref type="bibr" target="#b18">[19,</ref><ref type="bibr" target="#b20">21]</ref>.</p><p>For the evaluation, the focus is put on the threads Detection and Localization. In the original model, both threads offload parts of their computation to accelerators. We adapted the case study to realize this by the QNX's SyncMP mechanism. Thus, Detection requires the service σ 1 with a WCST ω 2 = 99.8 ms and Localization requires the service σ 2 with a WCST ω 1 = 99.2 ms. For each service, a server thread is added to the system and serves σ 1 and σ 2 , respectively. Each client and server is allocated to an APS partition. If not otherwise stated, the client thread partitions and server partitions have a budget of 50% and 60% of the overall budget of their cores, respectively. Priorities are assigned based on a rate monotonic order, and the servers are assigned a lower priority than the client threads. Communication delays have been set according to the maximum measured latencies in Fig. <ref type="figure" target="#fig_7">6</ref> for a message size of 1 kB. See the lower part of Fig. <ref type="figure">8</ref> for all parameters. All other threads of the case study are allocated to other partitions. Other threads' execution does not affect the presented results thanks to the provided timing isolation between partitions. Effect of worst-case service time. The worst-case service time of σ 2 is varied from 5 to 500 ms in steps of 5 ms. Fig. <ref type="figure">9a</ref> shows the resulting response time bounds under the setting C-S and LOCAL-I for both client threads. The Detection client experiences a constant improvement between the to cases, while the Localization client's improvement is growing with the worst-case service time of σ 2 . This demonstrates the effectiveness of the inheritance mechanism for this setting. Effect of distributed deployment. This experiment targets a comparison between the C-S and the DISTR-I setting. The Detection and Localization server are moved to a separate node and placed inside the system partition with a budget of 100% (to comply with A4), together with an additional interfering thread τ x with T x = 200 ms and e x = 50 ms. The Detection server has been configured with the lowest priority, the Localization server with the second lowest priority, and τ x has a higher priority than both servers. The priorities of both clients are higher than the one of τ x . The results are shown in Fig. <ref type="figure">9b</ref>. In setting C-S, both servers receive interference from τ x . In contrast, in the setting DISTR-I, servers inherit the priority of the client threads, which are higher than τ x 's priority. This allows for reducing the interference suffered by the server threads, leading to considerably smaller suspension-time bounds and hence WCRT bounds for the client threads.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. RELATED WORK</head><p>To the best of our knowledge, only a few works studied the timing predictability of the QNX OS. The only two works are due to Dasari et al. <ref type="bibr" target="#b5">[6,</ref><ref type="bibr" target="#b7">8]</ref>. The first work <ref type="bibr" target="#b7">[8]</ref> compared different configurations of the QNX OS in simulation. In the following paper <ref type="bibr" target="#b5">[6]</ref>, an end-to-end analysis for event chains under the APS scheduler of QNX has been proposed. However, none of these works considered the QNX SyncMP IPC and how it interacts with the APS scheduler.</p><p>Less close to our work, other research lines considered IPC protocols. For example, Brandenburg et al. <ref type="bibr" target="#b21">[22]</ref> proposed an IPC protocol enabling temporal and logical isolation for mixed-criticality systems. Mergendahl et al. <ref type="bibr" target="#b22">[23]</ref> studied the timing-related "Thundering Herd Attack" to synchronous IPC and budget management mechanisms, targeting the seL4μ-kernel. Other works targeted inter-process communication by studying communication mechanisms and paradigms <ref type="bibr" target="#b23">[24]</ref>- <ref type="bibr" target="#b27">[28]</ref>, while other proposals come from the context of hypervisors <ref type="bibr" target="#b28">[29,</ref><ref type="bibr" target="#b29">30]</ref> and separation kernels <ref type="bibr" target="#b30">[31]</ref>- <ref type="bibr" target="#b33">[34]</ref>.</p><p>Priority-and-budget inheritance protocols have been studied for a long time, mainly in the context of accessing lockprotected shared resources <ref type="bibr" target="#b34">[35]</ref>. The seminal work on priority inheritance is due to Sha et al. <ref type="bibr" target="#b35">[36]</ref> in 1990. Later on, many protocols have been proposed to avoid priorityinversion effects, also considering applications protected by reservation servers. Most related to QNX are the approaches based on budget inheritance <ref type="bibr" target="#b36">[37]</ref>- <ref type="bibr" target="#b39">[40]</ref>. Many different other approaches have been proposed over the years <ref type="bibr" target="#b40">[41]</ref>- <ref type="bibr" target="#b48">[49]</ref> but all considering lock-protected shared resources rather than a client-server mechanism as in this paper.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. CONCLUSIONS AND FUTURE WORK</head><p>This paper explored the SyncMP mechanism of QNX to implement the client-server paradigm. We performed an extensive set of experiments to derive a sound model for both local and distributed setups, considering the interaction of SyncMP with the APS reservation-based scheduler of QNX. We explored the behavior of the priority and partition inheritance features of APS, unveiling some un-documented behaviors with crucial implications on predictability. The model allowed us to derive a worst-case response time analysis for threads using the client-server paradigm. We also showed some key analysis challenges that arise on some of the considered setups, proposing guidelines (in the form of practically viable analysis assumptions) that system designers can conveniently use to overcome them and improve predictability. These challenges also highlighted that it would be beneficial for predictability if the QNX OS could provide options to enable priority and partition inheritance separately. The evaluation showed how, thanks to the analysis, it is possible to reason on the suitability of a system configuration (e.g., in terms of priority assignment and budget configuration), at design time, without the need to deploy the system on the actual platform using a profile-based empirical approach. This paper gives rise to a considerable number of research directions for future work. For example, more sophisticated analysis methods can be devised to deal with the challenges highlighted in Section IV-C and Section IV-D. Other research directions include the study of the real-time behavior of nested service requests and other IPC mechanisms of QNX, such as pulses and signals, extend the analysis to segmented or hybrid <ref type="bibr" target="#b49">[50]</ref> self-suspending task models, and derive optimization algorithms to set the system parameters based on the analysis automatically.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Figure 1 :</head><label>1</label><figDesc>Figure 1: Kernel states and transitions the client (a) and server (b) transition during message passing. Other state transitions are indicated in dashed lines.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Figure 2 :</head><label>2</label><figDesc>Figure 2: SETTING A without priority inheritance and without APS (a) and with priority inheritance and without APS (b). Execution trace of the first 80 ms. The thread parameters of SETTING A are shown in the bottom party of (a) and the priority trace of s 1 is shown in the bottom part of (b).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Figure 3 :</head><label>3</label><figDesc>Figure 3: (top) Execution trace of SETTING B in the first 70 ms. (middle) Partition budget usage of P 1 (red), P 2 (blue).(bottom) Priority of server s 1 . The thread parameters are described in (a) in the following order: period, WCET, offset, nominal priority, required/provided service. The assigned partition and core are indicated for the thread groups. Each partition is described by its budget B k , and W =100 ms. The current budget b k (t) is illustrated for P 1 in (a).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Figure 4 :</head><label>4</label><figDesc>Figure 4: Execution trace of SETTING C on Node 1 and Node 2 (note: timestamps on different nodes are not synchronized).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head></head><label></label><figDesc>time</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Figure 5 :</head><label>5</label><figDesc>Figure 5: Client-server interaction as a self-suspension.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Lemma 1 .</head><label>1</label><figDesc>Consider an arbitrary instance σ x of a service σ x released at time A and issued by a client c i . If S * is the least positive solution of the following inequality sbf k (S * ) ≥ + I cl h (S * ) + I oth-sr h (S * ) + I sm-sr h,x (S * ) (3) then σ x starts running at most at A + S * . If R * is the least positive solution of the following inequality</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Figure 6 :</head><label>6</label><figDesc>Figure 6: Round-trip latency of the IPC communication for a varying length of request and reply message on the same (a) and between two nodes (b).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Figure 7 :</head><label>7</label><figDesc>Figure 7: WCRT bounds vs. measurement results.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Figure 8 :Figure 9 :</head><label>89</label><figDesc>Figure 8: Adapted WATERS'19 case study with highlighted client/server allocation. Arrows threads indicate data do enforce precedence constraints.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head></head><label></label><figDesc>messages, and received but not yet replied messages for bookkeeping. When multiple messages are waiting on the same channel, they are consumed in priority order by a server calling MsgReceive(), according to the priority of the client that sent it.</figDesc><table /><note><p>QNX Transparent Distributed Processing (QNET). QNET is the native network manager of QNX. It provides the system developer with a uniform interface to access resources from either local and remote nodes, giving the appearance of a single logical computer to the developer while abstracting the underlying pool of interconnected QNX-based devices. In this work, we explore the behavior of the QNX SyncMP also in distributed setups leveraging QNET. Priority Inheritance and Server Boost. QNX allows to enable inheritance, in the form of priority and partition inheritance.</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head></head><label></label><figDesc>t, t +Δ). Such requests are determined by client's jobs, which are released according to a minimum inter-arrival time T e . By definition of WCRT bound, service requests issued by clients job released before t -R e must have completed at t, and therefore they cannot contribute to the interference in [t, t+Δ). Therefore, only jobs released in [t -R e , t+Δ) may contribute. The lemma follows by noting that at most Δ+Re Lemma 3 bounds the interference due to other services handled by the same server.</figDesc><table><row><cell></cell><cell>Te</cell><cell cols="2">• n S e,s service requests then be</cell></row><row><cell cols="2">issued in [t -R e , t + Δ).</cell><cell></cell><cell></cell></row><row><cell cols="3">Lemma 3. In setting C-S, it holds</cell><cell></cell></row><row><cell>I sm-sr h,x (Δ)</cell><cell>σs∈Q(sh) ce∈hep cl (ci)</cell><cell>Δ + R e T e</cell><cell>•n S s,e •ω s,e +B sm-sr h,x ,</cell></row><row><cell></cell><cell></cell><cell></cell><cell>(7)</cell></row><row><cell cols="2">where B sm-sr h,</cell><cell></cell><cell></cell></row></table><note><p>x = max σl∈L,cb∈lp cl (ci) ω b,l , with</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head></head><label></label><figDesc>Lemma 6 defines I oth-sr h (Δ) for the DISTR-I setting.</figDesc><table><row><cell cols="4">Lemma 6. In setting DISTR-I, under A4, it holds I oth-sr h (Δ) B inh h,x + I hep h (Δ), where</cell></row><row><cell cols="3">I hep h (Δ) = sa∈Ssys,p q \sh σs∈Q(sa) ce∈hep cl (ci)</cell><cell>Δ + R e T e</cell><cell>n S s,e ω s,e ,</cell></row><row><cell></cell><cell></cell><cell></cell><cell>(10)</cell></row><row><cell>and</cell><cell></cell><cell></cell></row><row><cell>B inh h,x =</cell><cell>sa∈Ssys,p q \sh</cell><cell cols="2">max σl∈L,cb∈lp cl (ci)</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 05:11:17 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENT</head><p>We thank the reviewers for their insightful feedback that helped us improve the paper.</p></div>
+			</div>			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Autoware on board: Enabling autonomous vehicles with embedded systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Tokunaga</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Maruyama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Maeda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hirabayashi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Kitsukawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Monrroy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Ando</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Fujii</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 ACM/IEEE 9th International Conference on Cyber-Physical Systems (ICCPS)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="287" to="296" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Building end-to-end IoT applications with QoS guarantees</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Saidi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ginthoer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Wietfeld</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2020 57th ACM/IEEE Design Automation Conference (DAC)</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="1" to="6" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Collaborative autonomous driving: and challenges</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Dong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Shi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Yang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2020 International Conference on Connected and Autonomous Driving (MetroCAD)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="17" to="26" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">A multi-domain software architecture for safe and secure autonomous driving</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Belluardo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Stevanato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Cicero</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE 27th International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="73" to="82" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title level="m" type="main">QNX ® Neutrino ® RTOS -System Architecture</title>
+		<author>
+			<persName><forename type="first">Qnx</forename><surname>Blackberry</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">End-to-end analysis of event chains under the QNX adaptive partitioning scheduler</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dasari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Becker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE 28th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="214" to="227" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<monogr>
+		<author>
+			<persName><forename type="first">Qnx</forename><surname>Blackberry</surname></persName>
+		</author>
+		<title level="m">Adaptive User QNX ® Software Development Platform</title>
+		<imprint>
+			<biblScope unit="page">2021</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Brief industry paper: Dissecting the QNX adaptive partitioning scheduler</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dasari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Broede</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Pressler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE 27th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="477" to="480" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Many suspensions, many problems: a review of self-suspending tasks in realtime systems</title>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W.-H</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Richard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Ridouard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Audsley</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">55</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="144" to="207" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Waters industrial challenge</title>
+	</analytic>
+	<monogr>
+		<title level="m">Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems (WATERS)</title>
+		<imprint>
+			<date type="published" when="2019">2019. 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">QNX ® Neutrino ® RTOS Programmer&apos;s Guide -QNX ® Software Development Platform 7</title>
+		<author>
+			<persName><forename type="first">Qnx</forename><surname>Blackberry</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Global scheduling not required: Simple, near-optimal multiprocessor real-time scheduling with semi-partitioned reservations</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Gül</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="99" to="110" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Resource partition for real-time systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Mok</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Feng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings Seventh IEEE Real-Time Technology and Applications Symposium</title>
+		<meeting>Seventh IEEE Real-Time Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+			<biblScope unit="page" from="75" to="84" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Constant bandwidth servers with constrained deadlines</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Cucinotta</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<idno>ser. RTNS &apos;17</idno>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th International Conference on Real-Time Networks and Systems</title>
+		<meeting>the 25th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Periodic resource model for compositional real-time guarantees</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">24th IEEE Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">The SRP resource sharing protocol for selfsuspending tasks</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="361" to="372" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Shared-resource-centric limited preemptive scheduling: A comprehensive study of suspension-based partitioning approaches</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Dong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bateni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K.-H</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Shi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="164" to="176" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">A framework for multi-core schedulability analysis accounting for resource stress and sensitivity</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Griffin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bate</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="page" from="1" to="53" />
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Optimized partitioning and priority assignment of real-time applications on heterogeneous platforms with hardware acceleration</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Pazzaglia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">Di</forename><surname>Natale</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">124</biblScope>
+			<biblScope unit="page">102416</biblScope>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">A residual service curve of rate-latency server used by sporadic flows computable in quadratic time for network calculus</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Boyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Roux</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Daigmorte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Puechmaille</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">33rd Euromicro Conference on Real-Time Systems (ECRTS 2021)</title>
+		<imprint>
+			<publisher>Schloss Dagstuhl-Leibniz-Zentrum für Informatik</publisher>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Performance modeling of heterogeneous HW platforms</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Rehm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dasari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Pressler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Seitter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Sañudo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Capodieci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Burgio</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="s">Microprocessors and Microsystems</title>
+		<imprint>
+			<biblScope unit="volume">87</biblScope>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">A synchronous IPC protocol for predictable access to shared resources in mixed-criticality systems</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2014 IEEE Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="196" to="206" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">The thundering herd: Amplifying kernel interference to attack response times</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Mergendahl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Jero</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">C</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Furgala</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Parmer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Skowyra</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2022 IEEE 28th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="95" to="107" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Optimizing intercore communications under the LET paradigm using dma engines</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Pazzaglia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">D</forename><surname>Natale</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="page" from="1" to="13" />
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Comparing communication paradigms in cause-effect chains</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ji</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Luo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">72</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="82" to="96" />
+			<date type="published" when="2023">2023</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Timing analysis of asynchronized distributed cause-effect chains</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Günzel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K.-H</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Ueter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">V D</forename><surname>Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Dürr</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE 27th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="40" to="52" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Achieving predictable multicore execution of automotive applications using the LET paradigm</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">Di</forename><surname>Natale</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="240" to="250" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Communication Centric Design in Complex Automotive Embedded Systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dasari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kramer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Pressler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Wurst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">29th Euromicro Conference on Real-Time Systems (ECRTS 2017), ser. Leibniz International Proceedings in Informatics (LIPIcs)</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="page">20</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">A real-time virtio-based framework for predictable inter-VM communication</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Schwäricke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Tabish</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Mancuso</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bastoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Zuepke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="27" to="40" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">An I/O virtualization framework with I/O-related memory contention control for real-time systems</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Borgioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Zini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Cicero</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems</title>
+		<imprint>
+			<biblScope unit="page" from="1" to="1" />
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">A virtualized separation kernel for mixed-criticality systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Missimer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Danish</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Comput. Syst</title>
+		<imprint>
+			<biblScope unit="volume">34</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<date type="published" when="2016-06">jun 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Predictable communication and migration in the Quest-V separation kernel</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Cheng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Missimer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2014 IEEE Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="272" to="283" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Virtual-cpu scheduling in the quest operating system</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Danish</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2011 17th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="169" to="179" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">Mixed-criticality scheduling with I/O</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Missimer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Missimer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 28th Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2016-07">July 2016</date>
+			<biblScope unit="page" from="120" to="130" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">Multiprocessor Real-Time Locking Protocols</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Singapore</title>
+		<meeting><address><addrLine>Singapore</addrLine></address></meeting>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="1" to="99" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">Priority inheritance protocols: an approach to real-time synchronization</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">39</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1175" to="1185" />
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">A bandwidth inheritance algorithm for real-time task synchronization in open systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lamastra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings 22nd IEEE Real-Time Systems Symposium (RTSS 2001)</title>
+		<meeting>22nd IEEE Real-Time Systems Symposium (RTSS 2001)</meeting>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Resource sharing in reservation-based systems</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Saewong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings 22nd IEEE Real-Time Systems Symposium (RTSS 2001)</title>
+		<meeting>22nd IEEE Real-Time Systems Symposium (RTSS 2001)</meeting>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">The multiprocessor bandwidth inheritance protocol</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Cucinotta</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 22nd Euromicro Conference on Real-Time Systems (ECRTS 2010)</title>
+		<meeting>the 22nd Euromicro Conference on Real-Time Systems (ECRTS 2010)<address><addrLine>Brussels, Belgium</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2010">July 6-9, 2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">Analysis and implementation of the multiprocessor bandwidth inheritance protocol</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Cucinotta</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">48</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="789" to="825" />
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<analytic>
+		<title level="a" type="main">Aperiodic servers in a deadline scheduling environment</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">M</forename><surname>Ghazalie</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">9</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="31" to="67" />
+			<date type="published" when="1995">1995</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<analytic>
+		<title level="a" type="main">SIRAP: a synchronization protocol for hierarchical resource sharing in real-time open systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Nolin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 7th ACM &amp; IEEE International Conference on Embedded Software (EMSOFT 2007)</title>
+		<meeting>the 7th ACM &amp; IEEE International Conference on Embedded Software (EMSOFT 2007)</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">Resource sharing in hierarchical fixed priority pre-emptive systems</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 27th IEEE International Real-Time Systems Symposium (RTSS 2006)</title>
+		<meeting>the 27th IEEE International Real-Time Systems Symposium (RTSS 2006)</meeting>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<analytic>
+		<title level="a" type="main">Scheduling of semiindependent real-time components: Overrun methods and resource holding times</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Nolin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2008 IEEE International Conference on Emerging Technologies and Factory Automation (ETFA 2008)</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b44">
+	<analytic>
+		<title level="a" type="main">Overrun methods and resource holding times for hierarchical scheduling of semi-independent real-time systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sjodin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Industrial Informatics</title>
+		<imprint>
+			<biblScope unit="volume">6</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="93" to="104" />
+			<date type="published" when="2010-02">Feb 2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b45">
+	<analytic>
+		<title level="a" type="main">Resource-sharing servers for open</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Fisher</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Industrial Informatics</title>
+		<imprint>
+			<biblScope unit="volume">5</biblScope>
+			<biblScope unit="page" from="202" to="219" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b46">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of hierarchical real-time systems under shared resources</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">65</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="1593" to="1605" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b47">
+	<analytic>
+		<title level="a" type="main">Timing isolation and improved scheduling of deep neural networks for real-time systems</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software: Practice and Experience</title>
+		<imprint>
+			<biblScope unit="volume">50</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1760" to="1777" />
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b48">
+	<analytic>
+		<title level="a" type="main">Overrun-resilient multiprocessor real-time locking</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Tong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ahmed</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">34th Euromicro Conference on Real-Time Systems (ECRTS 2022)</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="page">25</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b49">
+	<analytic>
+		<title level="a" type="main">Hybrid selfsuspension models in real-time embedded systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W.-H</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2017 IEEE 23rd International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="1" to="9" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

@@ -1,0 +1,705 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">BUNDLE: Real-Time Multi-Threaded Scheduling to Reduce Cache Contention</title>
+				<funder ref="#_grZCdgX #_DFnsNe4">
+					<orgName type="full">US National Science Foundation</orgName>
+				</funder>
+				<funder ref="#_wfQrGt5">
+					<orgName type="full">Wayne State University&apos;s Office of Vice President of Research</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Corey</forename><surname>Tessler</surname></persName>
+							<email>corey.tessler@wayne.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Wayne State University</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Nathan</forename><surname>Fisher</surname></persName>
+							<email>fishern@wayne.edu</email>
+							<affiliation key="aff1">
+								<orgName type="institution">Wayne State University</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">BUNDLE: Real-Time Multi-Threaded Scheduling to Reduce Cache Contention</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">CBC6A5BBFCD88C4170ABDD9733F1543C</idno>
+					<idno type="DOI">10.1109/RTSS.2016.11</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-15T23:01+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>Scheduling algorithms</term>
+					<term>Cache Memory</term>
+					<term>Multithreading</term>
+					<term>Static Analysis</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Research on hard real-time systems and their models has predominately focused upon single-threaded tasks. When multi-threaded tasks are introduced to the classical real-time model the individual threads are treated as distinct tasks, one for each thread. These artificial tasks often share the deadline, period, and worst case execution time of their parent task. In the presence of instruction and data caches this view is overly pessimistic, failing to account for the execution time benefit of cache hits when multiple threads of execution share a memory address space. This work takes a new perspective on instruction caches. Treating the cache as a benefit to schedulability for a single task with m threads. To realize the "inter-thread cache benefit" a new scheduling algorithm, BUNDLE, and accompanying method for calculating the worst-case execution time (WCET) including cache overhead (WCET+O) method are proposed. BUNDLE permits threads to execute across conflict free regions, and blocks those threads that would create an unnecessary cache conflict. The WCET bound is determined for the entire set of m threads, rather than treating each thread as a distinct task. Both the scheduler and WCET+O method rely on the calculation of conflict free regions which are found by a static analysis method of the task object. By virtue of this perspective the system's total execution execution time is reduced and is reflected in a tighter WCET+O bound compared to the techniques applied to the classical model. Obtaining this tighter bound requires the integration of three typically independent areas: WCET, schedulability, and cacherelated preemption delay analysis.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>In the classical model of real-time systems, shared resources are often considered detractors to schedulability analysis and exclusively increase worst-case execution times (WCETs). Cache memory is one such shared resource viewed from this exclusively negative perspective. It is a natural perspective, derived from a preempting task invalidating cache lines, thus extending a preempted task's execution time.</p><p>For example in the classical periodic task model <ref type="bibr" target="#b0">[1]</ref>, it is implied that a task is a single thread of execution. These models lack a representation for tasks with multiple threads. To apply WCET and schedulablility techniques developed for the classical models, a task that executes multiple threads is treated as several duplicate tasks with a single thread of execution. Any task that releases a job with m threads will be converted to m tasks each releasing one job. For instance, feasibility analysis for the fork-join model <ref type="bibr" target="#b1">[2]</ref> treats WCET separately, where each thread traversing the longest execution path contributes to demand independently.</p><p>Under such models, tasks are assumed to be in competition for cache space. The inclusion of threads, which are converted to tasks, only amplifies the negative affect. However, threads are not always in competition with other threads, but in fact can mutually benefit from reusing the same resources. A cache miss during the execution of one thread can place values into the cache that produce a cache hit for a second thread. These unexpected cache hits reduce the execution time of the second thread and the system overall. This speed up is called the inter-thread cache benefit. Other researchers have developed techniques for limiting the impact of caches <ref type="bibr" target="#b2">[3]</ref>- <ref type="bibr" target="#b4">[5]</ref>, or scheduling algorithms to maximize cache-reuse between threads <ref type="bibr" target="#b5">[6]</ref>. We are unaware of any existing analysis technique that explicitly quantifies the benefit of caches between threads or tasks.</p><p>Concurrent program analysis techniques <ref type="bibr" target="#b6">[7]</ref>, especially those considering multi-level caches <ref type="bibr" target="#b7">[8]</ref> are well poised to realize the benefit. However, these works also treat cache sharing negatively by working to construct the worst-case interleavings of threads that maximize cache overhead. Calandrino's Ph.D. work <ref type="bibr" target="#b8">[9]</ref> shifts towards the positive perspective, limiting the "spread" of subtasks (threads), resulting in higher cache hit rates. The improvement is empirically assessed but no analytical method for determining the impact is presented. Our work approaches the problem from the positive perspective, developing scheduling techniques that explicitly avoid these worst-case scenarios and quantify the cache benefit.</p><p>The purpose of our paper is to illustrate the potential interthread cache benefit for instruction caches, while arguing for a new task model and schedulability analysis technique. Current approaches to Worst Case Execution Time (WCET), Cache-Related Preemption Delay (CRPD), and schedulability analyis typically produce separate values. Accounting for the interthread cache benefit requires an approach that integrates the disciplines.</p><p>Our long-term research vision is to develop the aforementioned integrated analysis for modern systems comprising several multi-threaded tasks executing upon multi/many-core platforms with potentially multiple levels of cache. However, as far as we know, even the simpler problem of scheduling to formally maximize intra-task cache benefit (and thus reduce a task's execution time) has not yet fully been addressed even for a single multi-threaded task executing on one processor. Thus, in this paper, we take the first step towards our larger vision by solving a necessary first problem: scheduling the threads of a single multi-threaded task upon a core with a single-level of cache to maximize intra-task cache benefit. Introducing preemptions between equal-priority threads allows the benefit to be realized and quantified. We believe the solutions developed herein will be fundamental in subsequent research that completes our long-term vision.</p><p>The main contributions of this paper are: 1) A positive perspective of instruction caches for threaded processes. 2) A new thread-based scheduling algorithm, BUNDLE.</p><p>3) The definition of conflict free regions used as a basis for BUNDLE's scheduling decisions. 4) Techniques for identifying conflict free regions. 5) A method for calculating the WCET+O bound of m threads scheduled by BUNDLE. 6) An evaluation of BUNDLE's improvement for static timing analysis and runtime (cache and context switch) overhead.</p><p>Foremost in this work is the introduction of an integrated and positive perspective of instruction caches when applied to the analytical techniques and execution of multi-threaded tasks. Our new perspective necessarily requires the introduction of a large number of new concepts for this paper. Thus, to facilitate the reader's understanding of these concepts and to fit our paper within the space requirement, we have favored clarity of presentation in the description of our algorithms and theoretical results over efficiency and efficacy. Future research will seek to improve the computational complexity and timing analysis bounds of the initial algorithms presented in this paper. However, we are encouraged that our evaluation shows even for straightforward implementation of our proposed techniques there is still a substantial improvement over the classical analysis approach.</p><p>Presentation of the contributions begins with a description of the classical model, the assumptions placed upon it and the limitations of the existing analytical methods in Section II. The section is anchored by a definition of the inter-thread cache benefit aided by examples showing a pessimistic analytical bound from related work and a sub-optimal schedule. Section III describes the BUNDLE scheduling algorithm and introduces conflict free regions, which are formally defined in Section IV along with methodology for their extraction. Section V discusses the analytical techniques for bounding the execution of a task with m threads. Before drawing conclusions and presenting future work two evaluations are given in Section VI: one to evaluate the performance of the integrated approach in obtaining static timing analysis bounds, and another to evaluate the runtime cache and context switch overhead of BUNDLE.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. MODEL AND INTER-THREAD CACHE BENEFIT</head><p>From the classical model, a task is a collection of instructions that perform a logical function. A job of a task is a request to execute those instructions. Traditionally, the model assumes each task contains a single starting instruction for all jobs, called the entry point. A scheduling algorithm selects the job to run from those available at any given time.</p><p>For example, for periodic <ref type="bibr" target="#b0">[1]</ref> tasks, the classical model accumulates the n tasks in the set τ = {τ 1 , τ 2 , ..., τ n }. A task is characterized by a tuple of minimum inter-arrival time, relative deadline, and worst case execution time: τ i = (p i , d i , c i ). Each c i value is an upper bound on the amount of time one job of τ i will take to complete if the job executes without preemption. The entry point of a task is implied.</p><p>In the classical model, a task contains only one entry point. With the introduction of threads, a task may contain multiple entry points. During the execution of a task, a job may simultaneously release multiple sub-jobs starting from any of the available entry points.</p><p>Customarily, the term "thread" may refer to the execution of a sub-job, or it may refer to the instructions reachable from an entry point. To clarify the distinction, the term ribbon is introduced and refers to the instructions reachable from a single entry point. A thread will refer exclusively to one instance of execution i.e., an instantiation of a ribbon. Analysis of multi-threaded tasks in the classical model relies on each thread being converted to an independent task. Such tasks are referred to as synthetic tasks.</p><p>To more closely represent the execution of threads within jobs, a modification to the classical model is proposed and summarized in Table <ref type="table" target="#tab_1">I</ref>. Tasks are represented by a tuple of minimum inter-arrival time, relative deadline, and initial ribbon:</p><formula xml:id="formula_0">τ i = (p i , d i , ρ i ).</formula><p>A ribbon ρ i is identified by a starting instruction within the executable object of a task; it includes all reachable instructions until an exit point. The set of k ribbons from all tasks is named ρ = {ρ 1 , ρ 2 , ..., ρ k }, where |ρ| ≥ |τ |.</p><p>For a task τ i , a job is released no earlier than p i time units since the previous release. Jobs are indexed by their release starting with τ 1 i . Concurrent with the release of a job an initial thread of the ribbon ρ i is also released. Threads are also indexed by their release starting with ρ 1 i . A thread (initial or otherwise) may release additional threads during its execution. As a shorthand, when referring to an arbitrary thread j of a ribbon ρ i , the notation of the ribbon ρ i will be used. However, when referring to a specific thread the complete notation of ρ j i will be used.</p><p>A scheduling algorithm A schedules threads, selecting which thread is allowed to execute on the processor at any time. For a schedule to be valid, all threads must complete before the deadline of the job they belong to. A scheduler may preempt threads in one of two ways: thread level or job level. A thread level preemption is between threads of the same task, such as ρ i of τ i being suspended when ρ j is released by τ i and selected for execution. A job level preemption occurs when a thread of one task ρ i of τ i replaces an executing thread of another task ρ j of τ j .  </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Assumptions and Processing Model</head><p>In the proposed model, a task contains multiple ribbons, execution of a job begins with an initial thread of the initial ribbon. Initial (and subsequent) threads may release threads from any ribbon of their task. For the sake of limited analysis, tasks and their thread releases are restricted. A job release of a task τ i spawns exactly m threads of an initial ribbon ρ i . Subsequent thread releases are not permitted. Heterogeneous ribbons and variable thread releases requires additional research.</p><p>Jobs are executed on a single processor with an instruction cache of l lines, where each line can store exactly one instruction. Throughout the paper we assume the cache is direct-mapped, assigning exactly one cache line to a memory address. Each instruction completes in the same I time units. If an instruction is absent from the cache before execution its completion will be delayed by the Block Reload Time (BRT): B. Executing an instruction out of the cache (i.e. a hit) takes I time, while caching and executing a miss takes (I + B).</p><p>A single cycle per instruction (CPI) and direct-mapped cache is used to simplify the presentation of the analytical methods and evaluations. These simplifications are also found in other works. A constant CPI is used in PROARTIS <ref type="bibr" target="#b9">[10]</ref> for illustration, when practically applied a lookup table for CPI values would be used. Such a lookup table applies to the analysis proposed in Section V. Similarly, the block reload time B may be shared amongst instructions loaded simultaneously on architectures where cache blocks contain multiple instructions. Direct-mapped caches simplify the overview of CRPD techniques in Altmeyer's <ref type="bibr" target="#b10">[11]</ref> survey. However, each method can be augmented to utilize associative caches when the replacement policy is restricted. In this work, associative caches and their replacement policies require careful consideration and are reserved for a later extension.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Inter-Thread Cache Benefit &amp; Prior Research</head><p>When a job is scheduled to execute on the processor, the object of the job's task is copied into main memory. Additional memory may be reserved or requested by each job. The range of valid memory locations a job may utilize is referred to as the memory address space of the job. In Figure <ref type="figure" target="#fig_0">1</ref>, the address spaces of the fourth job of task one and the second job of task three are shown in main memory. The shaded area is the copy of the executable object, and the sinuous area is the additional reservation made by the job.</p><p>Threads share the address space of their job. A thread ρ j that resides in the memory space of a job of task τ i belongs to the task; written ρ j ∈ τ i . Instructions of a ribbon/thread are referred to by their absolute address a. The cache block that an address a maps to is given by the function M (a).</p><p>When a thread ρ k executes along a fixed path without interruption by preemption, an instruction access that results in a cache miss is called an opportunity instruction, or simply an opportunity. Similarly, during uninterrupted execution, any instruction access that hits the cache is called an expected instruction or an expectation.</p><p>When multiple threads are executed, the execution time of one or more threads may be influenced by cache interactions. When a thread ρ j preempts a thread ρ k , ρ j may evict cache lines of ρ k placed there. If those evicted cache lines correspond to expected instructions, ρ j will increased ρ k 's execution time since ρ k must now pay B for each evicted line. Conversely, a thread ρ j may unexpectedly place opportunity instructions of ρ k in the cache during a preemption of ρ k , reducing ρ k 's execution time.</p><p>Inter-Thread Cache Benefit: Thus, the inter-thread cache benefit for a thread of ρ j is the speed-up of ρ j ∈ τ i due to the conversion of opportunities into expectations by the placement of values in the cache from a thread of Using the model parameters in Table <ref type="table" target="#tab_2">II</ref>, an example ribbon ρ 1 releasing two threads is presented as a control flow graph <ref type="bibr" target="#b11">[12]</ref> (CFG) in Figure <ref type="figure" target="#fig_1">2</ref>. The purpose of this example is to clarify the inter-thread cache benefit and expose the pessimism in the existing WCET, CRPD, and scheduling analysis techniques. The CFG connects serialized sets of instructions, called basic blocks, by their logical control flow through the ribbon. In the figure, below each basic block (in square brackets) is the length of the block as a fraction of the cache size l. The parenthesized value at the bottom of the figure indicates the maximum number of iterations the loop will execute.</p><formula xml:id="formula_1">ρ k ∈ τ i when ρ k is scheduled before ρ j . Tasks Task Ribbons Thread Releases τ = {τ1} τ1 = (p1, d1, ρ1) ρ = {ρ1} m = 2 Cache Size (Number of Lines) Instruction Time BRT l = 200 I = 1 B = 10</formula><p>The ribbon ρ 1 is analyzed by the WCET calculation methods of Arnold <ref type="bibr" target="#b12">[13]</ref> and Mueller <ref type="bibr" target="#b13">[14]</ref>. CRPD costs are determined using Lee et al.'s <ref type="bibr" target="#b14">[15]</ref> useful cache block (UCB) technique. Although simpler and less accurate than modern techniques, these methods were chosen for illustrative purposes and their continued use in subsequent works.</p><p>A necessary step in WCET calculation is the categorization of instructions, such as must-miss and first-miss. A must-miss never hits the cache. A first-miss always hits the cache after its initial miss. To find first-miss instructions the CFG is searched iteratively looking for return paths. Only instructions with return paths are candidates for first-misses. Table VII (found in the appendix) presents the cache mapping and categorizations. <ref type="bibr" target="#b14">[15]</ref> useful cache block (UCB) approach to CRPD calculation borrows the iterative return path approach. From Figure <ref type="figure" target="#fig_1">2</ref>, the only candidates for first-miss and UCB instructions are contained in basic blocks B 2 and B 3 . No other blocks have a return path and would be categorized as must-miss, and not useful.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lee et al.'s</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>1) WCET:</head><p>Using these categorizations and the loop bound, the worst case execution time of ρ 1 is the sum of the execution times of the prologue, the entry executions of B 2 and B 3 , the repetitions of B 2 and B 3 , and the epilogue. Table <ref type="table" target="#tab_2">III</ref> gives the intermediate values; the total execution time taking into consideration reloads is:</p><formula xml:id="formula_2">l(B+I) 4 + 2l(B+I) 4 + 8l(I) 4 + 3l(B+I) 6 = l(5B+13I) 4 = 3150 Section Basic Blocks WCET Prologue B1 l 4 • (B + I) Loop Entry B2 + B3 l 4 • 2 • (B + I) Loop Repetition (B2 + B3) • 4 (repeats) l 4 • 2 • 4 • (I) Epilogue B4 + (B5 or B6) + B7 l 6 • 3 • (B + I) TABLE III: Segment WCET</formula><p>Under the classical model, two synthetic tasks are created for the two threads of ρ 1 . Assigning the WCET of 3150 to both synthetic tasks, the total execution requirement for the one-task system is 6300 every p 1 time units. However, this is overly pessimistic. The worst possible execution scenario and schedule for the two threads is the sequential execution of ρ 1 1 followed by ρ 2 1 , where ρ 1 takes the "high" road executing B 5 and ρ 2  1 takes the low "road" through B 6 . This maximizes the number lines ρ 2 1 will place in the cache. Even so, blocks B 2 , B 3 , B 4 are present in the cache when ρ 2 1 reaches them. Evaluating the worst case schedule, the WCET of</p><formula xml:id="formula_3">ρ 2 1 is: l(B+I) 4 + 5l(I) 4 + l(B+I) 4 + l(I) 4 = 2l(B+4I) 4</formula><p>= 1400. The total task execution requirement is 3150 + 1400 = 4550 cycles, less than the 6300 cycles calculated from the synthetic task analysis and application of the Arnold and Mueller approaches. Figure <ref type="figure" target="#fig_2">3</ref> illustrates the worst possible schedule including a summary of cache contents at t = 3150, compared to the WCET bound calculated from synthetic tasks. 2) CRPD: CRPD is an analytical technique that accounts for the execution time extension of one task due to the cache interference of another. A task executing in isolation may store and reuse values from the cache. When preempted, those stored cache values may be invalidated before they are reused. Upon resumption the preempted task must pay the BRT for each invalidated cache block.</p><p>One method for CRPD calculation is the Lee et. al <ref type="bibr" target="#b14">[15]</ref> useful cache block (UCB) approach. A UCB is "a cache block that contains a memory block that may be referenced before being replaced by another memory block." CRPD for a task is limited by the number of UCBs within it.</p><p>From Figure <ref type="figure" target="#fig_1">2</ref> there are two basic blocks that contribute UCBs to the thread ρ 1 : B 2 and B 3 . Applying Lee's method, the CRPD of a preemption of ρ 1 is 2l(B+I) 4 = 1100 . However, this bound is overly pessimistic. <ref type="table" target="#tab_7">VII</ref>) once the "Loop" instructions are cached they cannot be invalidated. If ρ 1  1 were to be preempted after the first iteration of the loop, the instructions of the loop body (B 2 and B 3 ) would be cached in parts 4-10. No other instructions of ρ 2  1 map to those cache lines, and cannot invalidate them. Furthermore, there is no schedule of ρ 1 1 and ρ 2 1 which incurs any CRPD. Lee's approach to CRPD calculation is known to be an overestimate, there are refinements such as the UCB-ECB <ref type="bibr" target="#b15">[16]</ref>, UCB-Union, and UCB-Union Multiset <ref type="bibr" target="#b10">[11]</ref> approaches. However, the UCB calculation is a component of each of them and the advanced techniques suffer from the same inability to address cache memory as a benefit rather than a detriment. Similarly, the Arnold <ref type="bibr" target="#b12">[13]</ref> and Mueller <ref type="bibr" target="#b13">[14]</ref> approaches play a role in subsequent WCET methods and none incorporate the inter-thread cache benefit.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>By construction (and shown in Table</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. BUNDLE SCHEDULING ALGORITHM</head><p>To allow the inter-thread cache benefit to be realized the BUNDLE scheduling algorithm selects threads to execute (not jobs). A ready thread belongs to a group named a bundle. A bundle is always associated with a conflict free region: a selection of nodes and edges from a ribbon's CFG with a single entry instruction where no two instructions map to the same cache line, guaranteeing no evictions occur between threads of the same bundle. A formal description and method for extracting conflict free regions is described in Section V. Scheduling of threads is straightforward. There is one active bundle at any time, only threads of the active bundle are allowed to execute. Within the active bundle, thread execution order is arbitrary and preemptions are permitted.</p><p>A thread enters a bundle by attempting to execute the entry instruction of the bundle's conflict free region. A thread leaves a bundle by attempting to execute the entry instruction of a different conflict free region. Leaving (or entering) a bundle causes a thread to block. Only when the active bundle is empty does it become inactive, at which time a new bundle is selected and becomes active.</p><p>Pseudocode is given for BUNDLE in Figure <ref type="figure" target="#fig_15">4</ref>. The preconditions for scheduling are 1.) the set of ready threads R is populated 2.) all threads ρ i ∈ R are awaiting to execute the same instruction 3.) the set of entry instructions for all conflict free regions Y have been precomputed.</p><p>Conflict free regions are identified by an entry instruction, it is natural to use the address of that instruction y as the index for the bundle. When a thread ρ k leaves the active bundle A, it is placed in the blocked bundle set B indexed by the address of the entry instruction y, ie. B[y] = {ρ j , ρ k , ...}. A new active bundle is selected when the all threads have been blocked (the number of blocked threads = |R|). Line 8 of Figure <ref type="figure" target="#fig_15">4</ref> presents the unique problem of anticipating execution. No existing hardware platform we are aware of provides a method for determining which instruction will execute next. To be immediately applicable, ribbons while true do 7:</p><formula xml:id="formula_4">ρ i ← a, a ∈ A 8: RUN(ρ i ) until ρ i 's next instruction is y ∈ Y 9: B[y] ← B[y] ∪ ρ i 10: A ← A ρ i 11: if ∪ y∈Y B[y] = |R| then 12: Select z ∈ Y, |B[z]| = 0 13: A ← B[z] 14: B[z] ← ∅ 15:</formula><p>end if</p><formula xml:id="formula_5">16:</formula><p>end while 17: end procedure Fig. <ref type="figure" target="#fig_15">4</ref>: BUNDLE Scheduling Algorithm must be modified to include synchronization calls (similar to taking a semaphore) before every entry instruction y ∈ Y . This modification communicates the thread's intent to enter a new bundle. Manipulating a ribbon's source is not always practical, a hardware mechanism assisting the scheduler would be preferable. However, the discussion and description of such a potential hardware mechanism is beyond the scope of this paper and left for future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. CONFLICT FREE REGIONS</head><p>BUNDLE requires the set of entry instructions for all conflict free regions to schedule threads. Timing analysis in Section V demands those conflict free regions have calculable execution time bounds for m threads. This section details the methods for extracting conflict free regions. Before providing the methods for extraction, the definitions and concepts upon which they rely are introduced.</p><p>Control Flow Graphs of Ribbons: CFGs <ref type="bibr" target="#b11">[12]</ref> are defined as "... a directed graph in which the nodes represent basic blocks and the edges represent control flow paths", where a basic block "is a linear sequence of program instructions having one entry point [...] and one exit point". To simplify the presentation of conflict free regions, single instructions are used as basic blocks. For brevity, the notation G ρ will be used for the control flow graph of a ribbon ρ.</p><p>A control flow graph G ρ = (V, E) is a weakly connected directed graph. The set of vertexes V are instructions, containing the entry instruction s of ρ and all reachable instructions from s. The set of edges E = {(u, v)|u, v ∈ V } are the changes of control, where (u, v) ∈ E if u can immediately precede v during the execution of a thread of ρ.</p><p>Regions of a Control Flow Graph: a region is a selection of the vertexes and edges of a CFG G. When extracting a region from G, the graph's connectivity is preserved. I.e, two vertexes connected in G must also be connected in any region containing both.</p><p>More formally, for a region U = (V , E ) of a control flow graph G = (V, E), where V ⊂ V and E ⊂ E. For all pairs of vertexes (u, v) ∈ V , (u, v) ∈ E ⇐⇒ (u, v) ∈ E . Regions contain an entry instruction s ∈ V that is weakly connected to all other vertexes in V .</p><p>Conflict Free Region:</p><formula xml:id="formula_6">a region of U = (V, E) of G ρ is conflict free if no two instructions of U utilize the same cache block. ∀u, v ∈ V , u = v ⇔ M (u) = M (v)</formula><p>An intra-thread cache conflict is an eviction that may occur during the non-preempted execution of a thread.</p><formula xml:id="formula_7">For G ρ = (V, E), instructions a, b ∈ V , a = b and valid path π = a, ..., b , b is an intra-thread cache conflict if M (a) = M (b).</formula><p>For all paths starting with an instruction s, there may be multiple intra-thread cache conflicts. We define the next intrathread cache conflicts to be the conflicts "closest" to s.</p><p>Next Intra-Thread Cache Conflict: for G ρ = (V, E), and instruction s ∈ V , a next intra-thread cache conflict is an intrathread cache conflict u reachable by a path π = s, ..., t, u containing no cache conflicts between any two vertexes (a, b) ∈ π for π = s, ..., t .</p><p>Next Intra-Thread Cache Conflicts: is the set of all possible u values that are a next intra-thread cache conflict from s. The set is given by p(s).</p><p>Figure <ref type="figure" target="#fig_3">5</ref> illustrates the next intra-thread conflicts for a portion of the CFG of a ribbon from instruction s. Each vertex contains the index of the cache line the instruction maps to, some are named (e.g., w, t). Executing a thread starting with s, u could evict t or v could evict s. Although t could evict w (since w must execute before s), t is not a next conflict starting from s. There are only two conflicts from s, p(s) = {u, v}. An algorithm to calculate p(s) is included in Figure <ref type="figure">6</ref>. It relies on a separate procedure named paths of conflict (poc), that returns a set of paths each starting with instruction s terminating with first conflict on that path. Exploring all possible paths recursively, poc terminates a path search when a conflict is found -pseudocode is presented in Appendix C. It is the set of conflicts, not paths, that p(s) returns: the last element of each path found by poc(s). Next Inter-Thread Cache Conflict: for G ρ = (V, E), and instruction s ∈ V , a next inter-thread cache conflict from s is an instruction t where M (t) = M (u) with valid paths π i = s, ..., t , π j = s, ..., u and no other conflicts exist between elements of either path:</p><formula xml:id="formula_8">∀(x, y ∈ (π i ∪ π j ) -{t, u}) M (x) = M (y).</formula><p>Next Inter-Thread Cache Conflicts: is the set of all possible t values that are a next inter-thread cache conflict from s. The set is given by P (s). By definition, an intra-thread cache conflict is an interthread conflict, since the conflicting instruction u ∈ p(s) conflicts with some instruction t on the path π from s to u : π = s, ..., t, ...u . For two threads ρ 1 and ρ 2 executing from s, ρ 1 may cache t and ρ 2 evict t by executing u. Similarly, ρ 2 may cache u which may be evicted by ρ 1 executing t, making t and u inter-thread cache conflicts.</p><p>Figure <ref type="figure" target="#fig_5">7</ref> illustrates the relationship between intra and interthread cache conflicts, a relationship that is leveraged to extract conflict free regions. The set of intra-thread cache conflicts are marked with an ×. The set of inter-thread cache conflicts are marked {t, u, x, y}. Figure <ref type="figure">8</ref> depicts the largest region of G ρ with no inter-thread cache conflicts that preserves the connectedness of G ρ .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Fig. 8: Region of G ρ Limited by Inter-Thread Cache Conflicts</head><p>An algorithm to find the set of next inter-thread cache conflicts P (s) is given in Figure <ref type="figure">9</ref>. It utilizes the paths of conflict procedure poc(s) to establish a search limit for conflicts between all paths, since poc(s) returns the next intrathread cache conflicts which must also be inter conflicts. When an inter-thread conflict is found across two paths P and Q between instructions u and v, the paths are cut (shortened) at those instructions. Conflicts found by this method are not guaranteed to bound the largest region.</p><p>Given the definition of conflict free regions, it is clear their boundaries are established by the set of next inter-thread cache conflicts. Extracting conflict free regions is an iterative process, starting with the set of next inter conflicts P (ρ i ) from the ribbon's entry point ρ i . The set of next inter conflicts identify the entry instructions for the next conflict free region. To extract a conflict free region U , vertexes and edges are added to U by a depth first search from ρ i to all vertexes y ∈ P (ρ i ). In Figure <ref type="figure" target="#fig_0">10</ref>, the next inter-thread cache conflicts from ρ i are labeled P (ρ i ) = {y 1 , y 2 , y 3 }. The conflict free region U = (V, E) contains none of those conflicts: V ∩ P (ρ i ) = ∅. However, each y value identifies an entry instruction for a subsequent region. Extraction is repeated for each new region until the terminal instruction is reached.</p><p>V. TIMING ANALYSIS WCET+O analysis for a task with one ribbon ρ releasing m threads per job depends on the structure of the program, conflict free regions and BUNDLE's scheduling decisions. The result is a time bound c(m) for all m threads to complete their execution.</p><p>In Figure <ref type="figure" target="#fig_7">11</ref>, the ribbon ρ, that starts with s and ends with t, has been divided into conflict free regions. Attached to each region are two values, the single-thread cost m = 1 and the additional-thread cost: the difference in execution time between m = 2 and m = 1 threads. Each conflict free region is treated as a single node in a new graph that preserves the edges between regions from the original program, for clarity this new graph is referred to as the region graph. For each region y, the WCET+O of m threads (while all other threads are blocked) is given by the function c y (m) (to be defined more formally later). The WCET+O of a path is then c π (m) = y∈π c y (m). To calculate the WCET+O of m threads over the region graph a worst-case selection of paths and number of threads π, n is recorded in the multiset Π S , supported by all distinct paths Π, denoted Π S ⊆ Π.</p><p>The cardinality of Π S is strictly m, ie. m = |Π S |. A path π i occurring exactly n times in Π S is denoted by π i ∈ n Π S . The n threads traversing π i will share bundles for each region y ∈ π i . For a path selection Π S , completion of m threads is bounded by Equation 1 below.</p><p>The number of occurrences k, of a path π i ∈ k Π S is determined by the contribution to the bound to complete all threads c(m). There must not exist a selection Π S of k values that yields a greater bound c(m). Construction of Π S is given by Equation <ref type="formula" target="#formula_9">2</ref>. Alternatively, paths may be added to Π S iteratively, finding the largest cost increase of any path</p><formula xml:id="formula_9">c π ∈ i Π S to c π ∈ i+1 Π S until |Π S | = m. c(m) = πi∈ΠS y∈πi c y ({n | π i ∈ n Π S }) (1) Π S = argmax ΠS ⊆Π πi∈ΠS y∈πi c y ({n | π i ∈ n Π S }) (<label>2</label></formula><formula xml:id="formula_10">)</formula><p>Figure <ref type="figure" target="#fig_8">12</ref> is the region graph of ρ from Figure <ref type="figure" target="#fig_7">11</ref>. The dashed lines are the two possible paths through the ribbon and their assignments as the worst case paths. If m = 4 then c(m) = 156 + 148 + 28 + 28 = 360, π 1 only occurs once in Π S since its subsequent cost is only 26. The bound c(m) is safe by construction, accounting for the worst possible control flow scenario for each thread. This example exposes BUNDLE's sub-optimal behavior. Since the bundle (conflict free region) execution order is unknown, bundles may be scheduled across the same region multiple times without benefiting from cache reuse.</p><p>To formally calculate c y (m) for a conflict free region U with entry instruction y, the following assumptions are made.</p><p>1) The region U = (V, E) has an entry instruction s ∈ V . 2) All m threads are ready and waiting to execute s.</p><p>3) Any thread that attempts to execute an instruction y ∈ P (s) is blocked. 4) Preemptions between threads take no time. 5) Loops have predetermined iteration bounds.</p><p>In addition to these assumptions, a time bound calculation relies upon a single logical structure within the region. Separated into three types: linear, branching, and looping; their descriptions are given in the following subsection. Each region is divided into smaller regions containing one structure maintaining the connectedness of G ρ .</p><p>Taking an iterative approach, structures are extracted from the entry instruction s of a conflict free region U ; the first structure is U i detected along with a set of boundary instructions K i , which serve as entry points for subsequent structures. This process continues until all vertexes of U are assigned to a structure such that U = i U i . Since U is a conflict-free region, all structures U i obtained from U are also conflictfree regions (albeit smaller). The set of entry points for all structures form the set of entry points used by BUNDLE, Y = U ∈Gρ Ki∈U K i . Given the restricted paper length along with established techniques of pathfinding <ref type="bibr" target="#b16">[17]</ref> and loop detection <ref type="bibr" target="#b17">[18]</ref> we describe only the requirements of structures, not the methods for their extraction.</p><p>Linear Structure: a linear structure starting with s is a serial set of instructions with no branches. The out-degree of any vertex in the structure is at most one. It terminates at t, an instruction preceding a branching or looping instruction k. The terminating instruction t is within the struture, while the boundary vertex k is without. Fig. <ref type="figure" target="#fig_14">13</ref>: Linear Structure from s to t Preceding a Loop Branching Structure: a branching structure contains at least one vertex with outdegree greater than one and no cycles.</p><p>A branching structure terminates at a set of instructions T . A vertex t ∈ T is defined as an instruction that precedes a vertex within a cycle, or has outdegree zero. When a vertex t is determined to be in T , all outgoing edges and paths are pruned from t. Immediate successors of t are added to the set of boundary vertexes K = {k | (t, k) ∈ E}. Terminal instructions are included within the structure, while boundary instructions are not. Looping Structure: a looping structure contains a cycle starting with s and all instructions on a path that returns to s. It contains no vertexes outside of the cycle. The inner structure of the loop is restricted, no path from a vertex within the cycle leaves the cycle without passing through s. This restriction is met by precluding GOTO and LONGJMP instructions in tasks. However, within the cycle there may any number of linear, branching, or inner looping structures.</p><p>The following theorems and proofs provide a method for calculating a WCET+O value for a linear structure and an arbitrary number of threads m ∈ N + . The setting is a single All m threads are scheduled by BUNDLE, blocked waiting to execute s, and will block when attempting to execute any y ∈ Y .</p><p>Theorem 1: For m threads that are blocked waiting to execute the entry instruction s of a conflict free region U = (V, E), an instruction v ∈ V cannot be evicted during the execution of any thread across the region, if any thread is blocked before executing an instruction y ∈ Y .</p><p>Proof: By definition of a conflict free region,</p><formula xml:id="formula_11">∀u, v ∈ V M(u) = M (v) if u = v. Consider a cached instruction v, if the execution of u ∈ V evicts v then u = v. Further, M (u) = M (v)</formula><p>contradicting the definition of a conflict free region. Therefore, v cannot be evicted by execution of any u ∈ V .</p><p>Corollary 1.1: During the execution of a conflict free region by BUNDLE, any instruction v ∈ V can be loaded into the cached no more than once for any number of threads.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Time Bound for Linear Structures:</head><p>A conflict free region U = (V, E) containing a single linear structure has a starting instruction s and terminal instruction t. With no branches, there is a single path π = s, ..., t in U . The length of this path is referred to as L = |π|. Branching and Looping Structures: Timing bounds and proofs for branching and looping structures follow the same general structure. Calculating the worst case execution scenario for execution and cache loads separately. The worst case execution scenario occurs when all threads take the longest path. While the worst scenario for cache misses occurs when the threads cover all paths, caching every value. Theorems and their proofs for branching and looping structures are found in Appendix E supported by Appendix D.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. EVALUATION</head><p>Two comparative evaluations were performed. The first investigates the static timing analysis bound for a multi-threaded program from the classical and integrated perspectives. The second presents BUNDLE's run-time overhead against two other thread level schedulers.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Evaluation of Static Analysis:</head><p>The object being compared is a parallel program using the POSIX Thread (pthread) library to estimate the ratio of a circle's circumference and diameter (π). The structure of the program is linear: initializing parameters, releasing threads, and accumulating the results. The full source is listed in Appendix F.</p><p>Initialization and accumulation are handled by a main initial thread. The contribution of the initial thread to execution time and cache contents remains constant, so it is ignored. Analysis is limited to the m threads of the ribbon ρ.</p><p>The ribbon ρ is structured as a prologue, loop body, and epilogue. When compiled, the prologue and epilogue are serialized sets of instructions which correspond to linear structures. The loop body contains branches creating looping and branching structures.</p><p>A representative value is calculated for the WCET of ρ for m threads in terms of I and B. Using Arnold <ref type="bibr" target="#b12">[13]</ref> and Mueller's <ref type="bibr" target="#b13">[14]</ref> approaches, the prologue and epilogue are considered "never cached" instructions. The loop body is categorized as "first miss" with some instructions that "may" and others that "must" be cached. Where the analysis finds "may be cached" instructions in the loop body we treat them as "must be cached" -reducing the number of cache misses in favor of the classical perspective. Treating each thread as a distinct task, the WCET bound for a single release of ρ is referred to as c 1 , the combined WCET is c 1 • m for all threads. A similar representative value for the CRPD is determined by considering the useful cache blocks <ref type="bibr" target="#b14">[15]</ref> of the ribbon. Clearly none of the instructions in the prologue or epilogue are useful. However, all of the instructions within the loop body are useful, they are also evicting. The bound on the CRPD is the product of the number useful cache blocks and the block reload time. Preemption costs follow Luniss <ref type="bibr" target="#b18">[19]</ref>, incrementing the WCET of each job by the CRPD bound.</p><formula xml:id="formula_12">c1 86IB + 35I + (i -1)(100I + 8B) γ1 65B c(m) 13Im + 105B + 100imI + 8iB</formula><p>The number of cache blocks l is selected such that the loop body of ρ cannot be contained in a single conflict free region, ensuring all structure types are present in the integrated analysis, and benefiting the classical perspective. Performing the classical analysis produces the single synthetic task WCET c 1 . From the integrated analysis, c(m) is the WCET+O of m threads scheduled by BUNDLE. Parameterized by the CPI (I = 1), BRT (B = 10) and loop iterations (i), Table <ref type="table" target="#tab_4">IV</ref> and Figure <ref type="figure" target="#fig_12">16</ref> summarize the results. Table V compares the effect of preemptions on the WCET and cache overhead for the classical approch to the WCET+O for BUNDLE. For the integrated approach, preemptions are restricted by BUNDLE and accounted for in the WCET+O; which is why the combined execution time for the integrated approach remains constant. The number of threads is fixed at m = 2, increasing m only exaggerates the difference between approaches.  The comparison of WCET bounds and preemption costs illustrates one benefit of the integrated perspective. Although the setting is restricted to a single ribbon with multiple threads, the implications for broader application are clear. Combining timing analysis with an understanding of the scheduling algorithm and cache behavior produces a substantially lower WCET and cache overhead bound.</p><p>Evaluation of Runtime Overhead: Complementing the evaluation of static analysis is a runtime comparison of BUNDLE against two other thread scheduling algorithms. The first, named seq, assigns each thread the same static priority. One thread is selected to execute and runs until completion, at which point another thread is selected to run, the process is repeated until the supply of threads is exhausted. The random algorithm executes a random number of instructions of a thread before preempting it, choosing an arbitrary thread to run in its place, execution continues until all threads have completed.</p><p>The purpose of this evaluation is to determine the potential runtime benefit of scheduling tasks based upon conflict-free regions (i.e., BUNDLE) versus a non-conflict-aware approach.</p><p>To obtain an evaluation, we implemented a path trace simulator (available at github.com/ctessler/pathsim.git). It takes generated programs as input, tracing the execution of multiple threads using one of the three scheduling algorithms. When a thread reaches a branching instruction, execution continues on a randomly selected path. Similarly, when a looping instruction is reached the number of loops is randomly selected from the provided loop bound. Executed instructions are counted (not timed) and the simulator does not incorporate a pipeline.</p><p>Mälardalen Real-Time Research Center's WCET benchmark suite was used to generate the input to the path simulator. An average number of branching statements, looping directives, program length, and basic block sizes were derived from the suite. These values became input to a generator of 100 programs, which varied the values using a Gaussian distribution. Each program was executed a for a given cache size l = (64, 128, 256, 512), number of threads m = (1, 2, 4, 8, 16) and scheduler: (BUNDLE, seq, random). Average instruction counts, cache misses, and context switches were collected from the 7500 runs and summarized in Figure <ref type="figure" target="#fig_13">17</ref> and Table <ref type="table" target="#tab_7">VI</ref>.</p><p>In terms of runtime cache misses, BUNDLE dominates seq and random in all circumstances. It strictly dominates when the number of threads is greater than one, and the number of cache lines is less than the program length. Scheduling a single thread requires no decisions -each of the algorithms will exhibit the same number of misses; so, the single threaded results are ignored. Similarly, the number of misses will always be zero when the cache size is greater than the program length (as is the case when the cache size is 1024 lines); so, those results are also ignored.</p><p>BUNDLE outperformed the other algorithms most significantly, when the cache size was nearly two thirds the average program length; Figure <ref type="figure" target="#fig_13">17a</ref> presents the comparison. As the number of threads are increased the number of misses remains constant, effectively lowering the cache miss rate.</p><p>An inverse relationship holds as the cache size is increased in Figure <ref type="figure" target="#fig_13">17b</ref>. For a specific number of threads, increasing the number of cache lines benefits each of the algorithms. While BUNDLE maintains its dominance in terms of cache misses and cache miss rate, the relative benefit naturally decreases as the number of cache lines increases.</p><p>The lower miss rate comes at a cost: an increased number of thread-level context switches, shown in Figure <ref type="figure" target="#fig_13">17c</ref>. However, there is a significant difference between thread-level and task-level context switches. Thread-level switches are designed to be less costly.  Across the 100 programs, threads executed an average of 7900 instructions. For the worst-case of two threads and 64 cache lines, a context switch must be 248 instructions before seq outperform BUNDLE; i.e., each single context switch must be equivalent to 3% of the thread's execution. For the best case, each context switch would have to be equivalent to around 30% of the thread execution! In either case, we believe that such high context switch overheads are not realistic; therefore, the cache reduction of BUNDLE is clearly worth the increased thread-level preemptions.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. CONCLUSION AND FUTURE WORK</head><p>Initial experiments on individual tasks demonstrates BUNDLE's immediate benefit. Our future efforts seek to bring BUNDLE to an operating system with a shared address space task model (such as μC [20]). Multiple tasks and a complete (c) Thread vs. Context Switches operating system will allow for broader simulation environments (e.g., GRSIM <ref type="bibr" target="#b19">[21]</ref> or gem5 <ref type="bibr" target="#b20">[22]</ref>) and experimentation.</p><p>For multi-threaded task systems the negative view necessitated by the classical perspective results in pessimistic bounds. The classical model lacks the ability to account for the interthread cache benefit due to the separate treatment of threads of execution. An integrated approach is necessary to provide safe bounds while taking advantage of instruction caches.</p><p>Unfortunately, the completeness of this work is constrained by its length. This affects the inclusion of more modern techniques for WCET and CRPD analysis from the classical perspective for comparison. It also limits the depth and elegance of solutions that can be presented, which results in pessimism and a high degree of computational complexity in several areas.</p><p>Thankfully, these omissions provide opportunities for future work. Motivated by the benefit of BUNDLE shown in the evaluations, future work will seek to improve the bundleselection scheduling rules, increase the size of conflict-free regions (reducing thread-level context switches), and reduce the computational complexity of computing conflict-free regions.</p><p>Towards the greater goal of promoting the integrated perspective, the most pressing extension is the generalization of task sets to include multiple tasks and multiple ribbons per task. We also see promise in bringing BUNDLE's principles to multi-core analysis.</p><p>With multiple paths π = s, ..., t , where t ∈ T . The length of longest path to any t ∈ T from s is referred to as L Theorem 3: For a conflict free region U = (V, E) with a branching structure, and m threads waiting to execute s, an upper bound on the execution time from s to t ∈ T for all threads is: Time Bound For Looping Structures: A conflict free region U = (V, E) with a single looping structure has a cycle starting with instruction s, and bound on the number of iterations i. There may be multiple distinct cycles from s to s, among those cycles the one with the longest path is referred to as L. A Special Case for Looping Structures: Theorem 4 assumes looping structures are contained within a single conflict free region. Looping and branching structures may be divided at boundaries defined by inter-thread conflicts. However, for looping structures, this is not always the case.</p><formula xml:id="formula_13">c s (m) = L • I • m + |V | • B Proof of</formula><p>When a cycle in G ρ contains an inter-thread cache conflict, a separate time bound for the cycle U must be calculated. Cycles have the restricted form of an entry instruction s with two outgoing edges, one that enters the cycle and another exiting through the boundary instruction k.  </p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 :</head><label>1</label><figDesc>Fig. 1: Address Spaces of Jobs for τ 1 and τ 3</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Control Flow Graph for: ρ 1</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: Worst Schedule of τ 1</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: Next Intra-Thread Conflicts From s</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head></head><label></label><figDesc>of next intra-thread conflicts 8: end procedure Fig. 6: Definition of Next Intra-Thread Cache Conflicts p(s) An inter-thread cache conflict is a possible eviction due to the execution of multiple threads of the same ribbon. For G ρ = (V, E), instructions a, b ∈ V , a = b, a and b are interthread conflicts of each other if M (a) = M (b).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 7 :</head><label>7</label><figDesc>Fig. 7: Next Inter-Thread Conflicts From s, P (s) = {t, u, x, y}</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>3 : 9 :Fig. 10 :</head><label>3910</label><figDesc>Fig. 10: Extraction of the First Region U from G ρ</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 11 :</head><label>11</label><figDesc>Fig. 11: Conflict Free Regions and Bounds for ρ Vertexes of the region graph are identified by their initial instruction, either s the entry point of the ribbon or y ∈ Y from the static analysis. A path π through the region graph always begins with s and terminates with the region containing the terminal instruction t: π = s, y 1 , y 2 , ... .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Fig. 12 :</head><label>12</label><figDesc>Fig. 12: Region Graph and Worst Case Paths of ρ</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Fig. 14 :</head><label>14</label><figDesc>Fig. 14: Branching Sub-Graph from s to T = {t 1 , t 2 } with boundary vertexes K = {k 1 , k 2 }</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Fig. 15 :</head><label>15</label><figDesc>Fig. 15: Looping Structure from s with Boundary k</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_11"><head>Theorem 2 :</head><label>2</label><figDesc>For a conflict free region U with linear structure and m threads waiting to execute the starting instruction s, an upper bound on the execution time from s to t for all threads is: c s L(I • m + B) Proof of Theorem 2: Each of the m thread executes L instructions since there are no alternative paths from s to t. By Corollary 1.1, at most one of the m threads will cache each of the L instructions taking L • B time. Execution of L instructions by m threads takes L • I • m time. Combining the time required to cache and execute, yields the bound of c s (m) = L(I • m + B).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_12"><head>Fig. 16 :</head><label>16</label><figDesc>Fig. 16: Comparison of WCET for m, c 1 Tasks and c(m) for m Threads when i = 1000 Preemptions 1 5 10 15 Method Classical 181365 183965 187215 190465 Integrated 101143</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_13"><head>Fig. 17 :</head><label>17</label><figDesc>Fig. 17: Run Time Overhead Results</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_14"><head>Theorem 3 :</head><label>3</label><figDesc>From Corollary 1.1 at most one of the m threads will cache any v ∈ V , the worst possible case is that all |V | instructions are cached taking |V | • B time. For execution, the worst case is for all m threads to execute the longest path of length L taking L • I • m time. Combining the bounds produces c s (m) = L • I • m + |V | • B.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_15"><head>Theorem 4 :</head><label>4</label><figDesc>For a conflict free region U = (V, E) with a looping structure, and m threads waiting to execute s, an upper bound on the execution time for all threads to complete i iterations of the cycle is given byc s (m) = i • m • L • I + |V | • B Proof ofTheorem 4: Consider the execution and caching of instructions separately. Since L is the longest path through the cycle and, one cycle executed by one thread can take no more than L • I time. For m threads and i iterations the upper bound on execution is i • m • L • I. Cache misses are limited by Theorem 1, since U is conflict free, no instruction can be evicted during the execution of U . Only the initial load of any instruction into the cache need be considered. The number of initial loads is bounded by the total number of instructions in the region which takes |V | • B time. Combining the bounds on execution and caching of instructions result in c s (m) = i • m • L • I + |V | • B.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_16"><head></head><label></label><figDesc>The set of bounded inter-thread cache conflicts, calculated by B(s, v), differ from the set of next inter-thread cache conflicts by including all conflicts on all paths π = s, ..., v . The next conflicts, calculated by P (s), are limited to the first conflict on each path and may not reach t. The bounded conflicts B(s, s) are necessary for calculating the bound of m threads over the looping structure U . In this special case, only the entry s and boundary k instruction are added to the entry points Y used by BUNDLE.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_17"><head>Theorem 5 :</head><label>5</label><figDesc>For a looping structure U = (V, E) that contains inter-thread cache conflicts with m threads waiting to execute s, and maximum length of a simple cycle L = |π|, π = s, ..., s , an upper bound on the execution time for all threads to complete i iterations of the cycle is given byc s (m) = B |V -B(s, s)| + i • m L • I + B • |B(s,s)| Proof of Theorem 5: Consider the time to cache all instructions of the loop separately from the time to execute a single iteration. The product of the block reload time and number of instructions |V | • B bounds the time to populate the cache. For a single iteration of a loop by a single thread, the execution time is bounded by L • I, for all m threads m • L • I. In one iteration, a single thread will incur at most |B(s, s)| evictions. For all m threads there are no more than m • |B(s, s)| evictions per iteration. Combining the execution time, block reloads, and iterations produces the time bound i • m L • I + B • B(s, s) of executing i iterations of the loop after all instructions are cached. Before incorporating the time to populate the cache, the double counting of |B(s, s)| reloads are subtracted from |V |. Summing the time to populate the cache and iterate over the loop for m threads yields the bound listed in Theorem 5. APPENDIX F ESTIMATING π Listing 1: ppi.c a Multi-Threaded π Estimator Using PTHREAD 1 #define M 150 2 #define L 10000 3 4 void * part(void * count) { 5 double x, y, d; 6 int i; 7 long * c = (long * ) count; 8 * c = 0; 9 10 for (i = 0; i &lt; L; i++) { 11 x = rand() / (double) RAND_MAX; 12 y = rand() / (double) RAND_MAX; 13 d = sqrt(x * x + y * y); 14 if (d &lt;= 1) { 15 ( * c)++; 16 } 17 } 18 pthread_exit((void * ) c); 19 } 20 21 int main (int argc, char * argv[]) { 22 for (t = 0; t &lt; M; t++) { 23 pthread_create(&amp;threads[t], NULL, part, 24 (void * )&amp;count[t]); 25 } 26 total = 0; 27 for (t = 0; t &lt; M; t++) { 28 pthread_join(threads[t], 29 (void * ) &amp;found); 30 total += * found; 31 } 32 pi = (double) 4 * total / (M * L); 33 34 printf("M:%i L:%i pi =˜%0.05f\n", 35 M, L, pi); 36 return 0; 37 }</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>TABLE I :</head><label>I</label><figDesc>Summary of Model Parameters</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head>TABLE II :</head><label>II</label><figDesc>Example Model Parameters</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head>TABLE IV :</head><label>IV</label><figDesc>Bounds in Terms of Maximum Iterations i</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>TABLE V :</head><label>V</label><figDesc>WCET + Preemption Cost When i = 10000</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_6"><head>Table</head><label></label><figDesc>VI conveys the tension between the cache size, number of threads in the task, and the execution time of a thread-level context switch. Each cell value contains the minimum number of instructions for each context switch before seq will dominate BUNDLE in terms of the overhead. The cell values are computed by taking the difference in cache misses from the two scheduling algorithms and dividing the difference by the block reload time B = 10.</figDesc><table><row><cell>Cache Lines</cell><cell>64</cell><cell>128</cell><cell>256</cell><cell>512</cell><cell>1024</cell></row><row><cell>Threads</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell>1</cell><cell>0</cell><cell>0</cell><cell>0</cell><cell>0</cell><cell>0</cell></row><row><cell>2</cell><cell>248</cell><cell>413</cell><cell>697</cell><cell>1372</cell><cell>0</cell></row><row><cell>4</cell><cell>372</cell><cell>618</cell><cell>1046</cell><cell>2057</cell><cell>0</cell></row><row><cell>8</cell><cell>434</cell><cell>719</cell><cell>1210</cell><cell>2284</cell><cell>0</cell></row><row><cell>16</cell><cell>464</cell><cell>770</cell><cell>1296</cell><cell>2447</cell><cell>0</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_7"><head>TABLE VI :</head><label>VI</label><figDesc>Minimum Context-Switch Cost (in Cycles) for seq to Dominate BUNDLE</figDesc><table /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>978-1-5090-5303-2/16 $31.00 © 2016 IEEE DOI 10.1109/RTSS.2016.11</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_1"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 03:43:34 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><p>ACKNOWLEDGEMENTS This research has been supported in part by the <rs type="funder">US National Science Foundation</rs> (CNS Grant Nos. <rs type="grantNumber">0953585</rs>, <rs type="grantNumber">1205338</rs>, <rs type="grantNumber">&amp; 1618185</rs>) and a grant from <rs type="funder">Wayne State University's Office of Vice President of Research</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_grZCdgX">
+					<idno type="grant-number">0953585</idno>
+				</org>
+				<org type="funding" xml:id="_DFnsNe4">
+					<idno type="grant-number">1205338</idno>
+				</org>
+				<org type="funding" xml:id="_wfQrGt5">
+					<idno type="grant-number">&amp; 1618185</idno>
+				</org>
+			</listOrg>
+			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX A APPENDIX B EXAMPLE ρ 1 INSTRUCTION MAPPING AND CATEGORIES</head><p>The cache assignment guarantees all instructions of a basic block will share their categorization as must-miss, or first-miss. For simplicity the blocks (instead of instructions) are given categories.  The paths of conflict algorithm in Figure <ref type="figure">18</ref> is recursive, exploring all paths from s. Each path of the returned set P begins with the starting instruction s in poc(s), the paths terminate at a next intra-conflict from s.</p><p>It uses a global cache state C, which is treated as an array, indexed by cache block a where a = M (u) and u is an absolute memory address. It stores at a the address of the instruction u. Before each recursive call at Line 17, the cache state is copied for use by the next recursive call, and restored from the copy afterward.</p><p>For every iteration of the while loop on Line 7, at least one path is explored until a conflict is reached. Recursive calls are made within the loop, searching at least one more path to a next conflict. Maintaining focus on the while loop, there are two notable cache states with respect to u and a. At Line 11, u has been cached indicating a cycle in the graph has been traversed. At Line 12, u conflicts with a cached instruction.</p><p>It is possible that paths return by a recursive call have undetected conflicts based on the current recursive depth. The double for loop at Line 24 removes paths that would violate the definition of a next conflict by containing a conflict before its final vertex.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX D BOUNDED CONFLICTS</head><p>Loops with inter-thread cache conflicts rely on a different type of inter-thread cache conflict. The definitions of bounded conflicts are necessarily provided before the theorems and proofs.</p><p>A bounded intra-thread cache conflict from a given instruction s up to and including instruction v is an intra-thread cache conflict on any path π = s, ..., v . a ← M (u)  Bounded Intra-Thread Cache Conflicts: is the set of all possible u values that are bounded intra-thread cache conflicts from s to v. The set is given by b(s, v).</p><p>No algorithm for b(s, v) is given, it is seen as a straightforward modification to p(s) and poc(s) that terminates when reaching v instead of a conflict. This set may include more conflicts than the next intra-thread conflicts p(s).</p><p>A bounded inter-thread cache conflict from a given instruction s up to and including v is an inter-thread cache conflict on a path from π = s, ..., v .</p><p>Bounded Inter-Thread Cache Conflicts: Are the set of all possible u values that are a bounded inter-thread cache conflict from s to v. The set is given by B(s, v).</p><p>The algorithm for B(s, v) is omitted, since it would require no changes to P (s) assuming poc(s) was modified to accept a bound v, as suggested for bounded intra-thread cache conflicts. This set may include more conflicts than the next inter-thread conflicts P (s).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX E TIMING THEOREMS AND PROOFS FOR ADDITIONAL STRUCTURES</head><p>Time Bound For Branching Structures: A conflict free region U = (V, E) with a single branching structure has a starting instruction s and a set of terminal instructions T .</p></div>			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973-01">Jan. 1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Feasibility of fork-join real-time task graph models: Hardness and algorithms</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Deng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Zeng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Embed. Comput. Syst</title>
+		<imprint>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="1" to="14" />
+			<date type="published" when="2016-02">Feb. 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">A predictable execution model for cots-based embedded systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Betti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Yao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Criswell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Kegley</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time and Embedded Technology and Applications Symposium (RTAS), 2011 17th IEEE</title>
+		<imprint>
+			<date type="published" when="2011-04">April 2011</date>
+			<biblScope unit="page" from="269" to="279" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Time-predictable execution of multithreaded applications on multicore systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Alhammad</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Design, Automation and Test in Europe Conference and Exhibition (DATE)</title>
+		<imprint>
+			<date type="published" when="2014-03">March 2014</date>
+			<biblScope unit="page" from="1" to="6" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Towards time-predictable data caches for chip-multiprocessors</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Schoeberl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Puffitsch</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Huber</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 7th IFIP WG 10.2 International Workshop on Software Technologies for Embedded and Ubiquitous Systems, ser. SEUS &apos;09</title>
+		<meeting>the 7th IFIP WG 10.2 International Workshop on Software Technologies for Embedded and Ubiquitous Systems, ser. SEUS &apos;09<address><addrLine>Berlin, Heidelberg</addrLine></address></meeting>
+		<imprint>
+			<publisher>Springer-Verlag</publisher>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="180" to="191" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Cache-aware real-time scheduling on multicore platforms: Heuristics and a case study</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2008 Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2008-07">July 2008</date>
+			<biblScope unit="page" from="299" to="308" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Timing Analysis of Concurrent Programs</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Mittermayr</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Blieberger</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">12th International Workshop on Worst-Case Execution Time Analysis, ser. OpenAccess Series in Informatics (OASIcs)</title>
+		<meeting><address><addrLine>Germany</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="volume">23</biblScope>
+			<biblScope unit="page" from="59" to="68" />
+		</imprint>
+		<respStmt>
+			<orgName>Schloss Dagstuhl-Leibniz-Zentrum fuer Informatik</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Timing analysis of concurrent programs running on shared cache multi-cores</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Suhendra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Liang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Mitra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Roychoudhury</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2009-12">2009. Dec 2009</date>
+			<biblScope unit="page" from="57" to="67" />
+		</imprint>
+	</monogr>
+	<note>RTSS 2009. 30th IEEE</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title level="m" type="main">On the design and implementation of a cache-aware soft real-time scheduler for multicore platforms</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Calandrino</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<pubPlace>Chapel Hill, NC, USA</pubPlace>
+		</imprint>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Proartis: Probabilistically analyzable real-time systems</title>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">J</forename><surname>Cazorla</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Quiñones</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Vardanega</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Triquet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Bernat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Berger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Abella</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Wartel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Houston</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Santinelli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Kosmidis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Maxim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Embed. Comput. Syst</title>
+		<imprint>
+			<biblScope unit="volume">12</biblScope>
+			<biblScope unit="issue">2s</biblScope>
+			<date type="published" when="2013-05">May 2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Cache-related preemption delay via useful cache blocks: Survey and redefinition</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Altmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">Maiza</forename><surname>Burguière</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">57</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<biblScope unit="page" from="707" to="719" />
+			<date type="published" when="2011-08">Aug. 2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Control flow analysis</title>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">E</forename><surname>Allen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIGPLAN Not</title>
+		<imprint>
+			<biblScope unit="volume">5</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<biblScope unit="page" from="1" to="19" />
+			<date type="published" when="1970-07">Jul. 1970</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Bounding worstcase instruction cache performance</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Arnold</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Mueller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Whalley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Harmon</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="1994-12">1994. Dec 1994</date>
+			<biblScope unit="page" from="172" to="181" />
+		</imprint>
+	</monogr>
+	<note>Proceedings.</note>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Static cache simulation and its applications</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Mueller</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1995">1995</date>
+		</imprint>
+		<respStmt>
+			<orgName>Florida State University</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Analysis of cache-related preemption delay in fixed-priority preemptive scheduling</title>
+		<author>
+			<persName><forename type="first">C.-G</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Hahn</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y.-M</forename><surname>Seo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">L</forename><surname>Min</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Hong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">Y</forename><surname>Park</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">S</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">47</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="700" to="713" />
+			<date type="published" when="1998-06">Jun. 1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Accurate estimation of cache-related preemption delay</title>
+		<author>
+			<persName><forename type="first">H</forename><forename type="middle">S</forename><surname>Negi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Mitra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Roychoudhury</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 1st IEEE/ACM/I-FIP International Conference on Hardware/Software Codesign and System Synthesis, ser. CODES+ISSS &apos;03</title>
+		<meeting>the 1st IEEE/ACM/I-FIP International Conference on Hardware/Software Codesign and System Synthesis, ser. CODES+ISSS &apos;03<address><addrLine>New York, NY, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2003">2003</date>
+			<biblScope unit="page" from="201" to="206" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">A survey on shortest path routing algorithms for public transport travel</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">M</forename><surname>Kumari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Geethanjali</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Global Journal of Computer Science and Technology</title>
+		<imprint>
+			<biblScope unit="volume">9</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="73" to="75" />
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">On algorithms for enumerating all circuits of a graph</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Mateti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Deo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIAM Journal on Computing</title>
+		<imprint>
+			<biblScope unit="volume">5</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="90" to="99" />
+			<date type="published" when="1976">1976</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Integrating cache related pre-emption delay analysis into edf scheduling</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Lunniss</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Altmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Maiza</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2013-04">2013. April 2013</date>
+			<biblScope unit="page" from="75" to="84" />
+		</imprint>
+	</monogr>
+	<note>IEEE 19th</note>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">G</forename><surname>Ab</surname></persName>
+		</author>
+		<title level="m">GRSIM Users Manual. Cobham Gaisler AB</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">The gem5 simulator</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Binkert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Beckmann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Black</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">K</forename><surname>Reinhardt</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saidi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Basu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Hestness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">R</forename><surname>Hower</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Krishna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Sardashti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Sen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Sewell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Shoaib</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Vaish</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">D</forename><surname>Hill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">A</forename><surname>Wood</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="s">SIGARCH Comput. Archit. News</title>
+		<imprint>
+			<biblScope unit="volume">39</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="1" to="7" />
+			<date type="published" when="2011-08">Aug. 2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

@@ -1,0 +1,527 @@
+{
+  "paper_name": "A Scheduling Algorithm to Reduce the Static Energy Consumption of Multiprocessor Real-Time Systems",
+  "paper_description": "This paper proposes an offline, linear programming-based scheduling algorithm (LPDPM) for multiprocessor real-time systems to minimize static energy consumption. It models idle time as an additional task and uses MILP to generate an energy-optimal schedule. The online scheduler then extends idle periods based on actual task execution times. The approach aims for optimality in terms of processor utilization and provides a novel way to manage low-power states by considering transition delays and break-even times.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Definition 1",
+      "formal_description": {
+        "statement": "A task set \\Gamma = {\\tau_1, ..., \\tau_n} consists of n independent, synchronous, preemptible, and periodic tasks. Each task \\tau_i has a Worst Case Execution Time (WCET) C_i and a period T_i. Tasks have implicit deadlines, meaning D_i = T_i.",
+        "variables": {
+          "Gamma": "set of tasks",
+          "tau_i": "task i",
+          "n": "number of tasks",
+          "C_i": "Worst Case Execution Time of task i",
+          "T_i": "period of task i",
+          "D_i": "deadline of task i"
+        },
+        "assumptions": [
+          "independent tasks",
+          "synchronous release",
+          "preemptible tasks",
+          "periodic tasks",
+          "implicit deadlines (D_i = T_i)"
+        ],
+        "conclusion": "Defines the characteristics of the task model used in the paper."
+      },
+      "informal_sketch": {
+        "intuition": "This defines the basic building blocks of the real-time system: tasks. Each task has a maximum time it needs to run (WCET) and a regular interval at which it becomes ready to run (period). Deadlines are assumed to be the same as periods.",
+        "steps": [
+          "Consider a collection of n tasks, denoted by \\Gamma.",
+          "Each task \\tau_i is independent of others.",
+          "All instances (jobs) of a task \\tau_i are released at the same time initially (synchronous).",
+          "A task \\tau_i can be interrupted and resumed later (preemptible).",
+          "Each task \\tau_i repeats its execution at regular intervals (periodic).",
+          "The deadline for each task \\tau_i is equal to its period T_i."
+        ],
+        "pseudocode": "class Task:\n    def __init__(self, id, C, T):\n        self.id = id\n        self.C = C  # Worst Case Execution Time\n        self.T = T  # Period\n        self.D = T  # Deadline (implicit)\n\n# Example task set:\ntask_set = [\n    Task(1, C_1, T_1),\n    Task(2, C_2, T_2),\n    # ...\n    Task(n, C_n, T_n)\n]",
+        "key_insights": [
+          "Standard model for real-time task analysis.",
+          "Implicit deadlines simplify analysis."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 2",
+      "formal_description": {
+        "statement": "The utilization of task \\tau_i is U_i = C_i / T_i. The global utilization of the task set \\Gamma is U = sum(U_i) for all \\tau_i in \\Gamma.",
+        "variables": {
+          "U_i": "utilization of task i",
+          "C_i": "Worst Case Execution Time of task i",
+          "T_i": "period of task i",
+          "U": "global utilization of the task set",
+          "Gamma": "set of tasks"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the processor utilization for individual tasks and the entire task set."
+      },
+      "informal_sketch": {
+        "intuition": "Utilization represents the fraction of processor time a task (or set of tasks) requires on average. A utilization of 1 means the task set demands 100% of a single processor's capacity.",
+        "steps": [
+          "For each task \\tau_i, calculate its utilization U_i by dividing its WCET (C_i) by its period (T_i).",
+          "Sum up the individual utilizations (U_i) of all tasks in the set \\Gamma to get the global utilization (U)."
+        ],
+        "pseudocode": "def compute_task_utilization(task):\n    return task.C / task.T\n\ndef compute_global_utilization(task_set):\n    U = 0\n    for task in task_set:\n        U += compute_task_utilization(task)\n    return U",
+        "key_insights": [
+          "Fundamental metric for schedulability analysis.",
+          "Global utilization must be less than or equal to the number of processors for a system to be schedulable."
+        ]
+      },
+      "dependencies": [
+        "Definition 1"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 3",
+      "formal_description": {
+        "statement": "The hyper-period H is the least common multiple (LCM) of all task periods T_i in \\Gamma.",
+        "variables": {
+          "H": "hyper-period",
+          "T_i": "period of task i",
+          "Gamma": "set of tasks"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the time interval over which the task set's behavior repeats."
+      },
+      "informal_sketch": {
+        "intuition": "The hyper-period is the smallest time duration after which the pattern of task releases repeats exactly. All task instances within this period will have completed their execution by the end of it.",
+        "steps": [
+          "List all the periods (T_i) of the tasks in the set \\Gamma.",
+          "Calculate the Least Common Multiple (LCM) of these periods. This LCM is the hyper-period H."
+        ],
+        "pseudocode": "import math\n\ndef gcd(a, b):\n    while b:\n        a, b = b, a % b\n    return a\n\ndef lcm(a, b):\n    return (a * b) // gcd(a, b)\n\ndef compute_hyper_period(task_set):\n    if not task_set:\n        return 1\n    periods = [task.T for task in task_set]\n    result_lcm = periods[0]\n    for i in range(1, len(periods)):\n        result_lcm = lcm(result_lcm, periods[i])\n    return result_lcm",
+        "key_insights": [
+          "Schedulability analysis is often performed over the hyper-period.",
+          "The number of jobs within a hyper-period can be large."
+        ]
+      },
+      "dependencies": [
+        "Definition 1"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 4",
+      "formal_description": {
+        "statement": "A system has m identical processors. Each processor has ns low-power states, indexed from 0 to ns. State s has consumption C_s and transition penalty P_ens. State ns is a fake state with C_ns = 1 and P_enns = 0. For s < ns, C_0 < C_1 < ... < C_{ns-1} and P_en0 > P_en1 > ... > P_{en(ns-1)}.",
+        "variables": {
+          "m": "number of identical processors",
+          "ns": "number of low-power states",
+          "s": "index of a low-power state",
+          "C_s": "consumption of low-power state s",
+          "P_ens": "transition penalty to come back from low-power state s",
+          "BET_s": "Break-Even Time for state s"
+        },
+        "assumptions": [
+          "identical processors",
+          "independent activation of low-power states per processor",
+          "fake idle state ns with zero penalty and unit consumption"
+        ],
+        "conclusion": "Defines the characteristics of the multiprocessor system's low-power states."
+      },
+      "informal_sketch": {
+        "intuition": "This describes the hardware capabilities for power saving. Processors can enter different low-power states, each offering a different level of energy saving (lower C_s) but requiring a longer time and energy penalty (higher P_ens) to wake up. State 0 is the most energy-efficient but has the highest wake-up cost.",
+        "steps": [
+          "The system has 'm' identical processors.",
+          "Each processor can enter 'ns' different low-power states.",
+          "States are numbered from 0 to ns.",
+          "State 's' has an energy consumption 'C_s' when active in that state.",
+          "Returning from state 's' to the active state incurs a penalty 'P_ens'.",
+          "State 'ns' is a special 'fake' state representing no low-power mode, with C_ns=1 and P_enns=0.",
+          "Deeper low-power states (lower 's') consume less energy (C_s decreases) but have higher wake-up penalties (P_ens increases)."
+        ],
+        "pseudocode": "class ProcessorSystem:\n    def __init__(self, m, low_power_states):\n        self.m = m  # Number of processors\n        self.low_power_states = low_power_states # List of (C_s, P_ens, BET_s) tuples\n        # State ns is implicitly handled as the active state with P_enns=0, C_ns=1\n\n# Example low-power states for a processor:\n# State 0: Deepest sleep (low C, high P_en, high BET)\n# State 1: Lighter sleep (medium C, medium P_en, medium BET)\n# State 2: Minimal sleep (high C, low P_en, low BET)\n# State 3 (ns): Active state (C=1, P_en=0, BET=0)\n",
+        "key_insights": [
+          "Trade-off between energy saving and wake-up cost.",
+          "The 'fake' state simplifies boundary conditions."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 5",
+      "formal_description": {
+        "statement": "The Break-Even Time (BET) for a low-power state s, denoted BET_s, is the minimum idle period duration required for activating state s to save more energy than letting the processor idle without entering a low-power state.",
+        "variables": {
+          "BET_s": "Break-Even Time for low-power state s",
+          "s": "index of a low-power state",
+          "C_s": "consumption of low-power state s",
+          "P_ens": "transition penalty to come back from low-power state s"
+        },
+        "assumptions": [
+          "energy consumption in active state is 1 unit per time unit",
+          "energy consumption in low-power state s is C_s per time unit"
+        ],
+        "conclusion": "Defines the minimum duration an idle period must have to justify entering a specific low-power state."
+      },
+      "informal_sketch": {
+        "intuition": "To decide if it's worth putting a processor to sleep, we need to know how long it will be idle. If the idle period is too short, the energy spent waking up (P_ens) will outweigh the energy saved by sleeping. BET_s is the minimum idle time needed to make sleeping in state 's' beneficial.",
+        "steps": [
+          "Consider an idle period of duration 'idle_duration'.",
+          "If the processor stays active, energy consumed = idle_duration * 1.",
+          "If the processor enters state 's', energy consumed = P_ens + (idle_duration - P_ens) * C_s (assuming idle_duration >= P_ens).",
+          "The Break-Even Time (BET_s) is the 'idle_duration' where these two consumptions are equal.",
+          "BET_s is the minimum idle duration for state 's' to be beneficial."
+        ],
+        "pseudocode": "def compute_break_even_time(state_s, active_consumption_rate=1):\n    # Energy saved by sleeping for duration D in state s:\n    # (D * active_consumption_rate) - (P_ens + (D - P_ens) * C_s)\n    # We want this to be > 0 for saving energy.\n    # Setting it to 0 to find the break-even point:\n    # D * active_consumption_rate = P_ens + (D - P_ens) * C_s\n    # D * active_consumption_rate = P_ens + D * C_s - P_ens * C_s\n    # D * (active_consumption_rate - C_s) = P_ens * (1 - C_s)\n    # D = P_ens * (1 - C_s) / (active_consumption_rate - C_s)\n    # Assuming active_consumption_rate = 1:\n    BET_s = state_s.P_en * (1 - state_s.C) / (1 - state_s.C)\n    # This simplifies to BET_s = state_s.P_en if C_s < 1\n    # However, the paper implies BET_s is a property of the state, not derived from C_s and P_en directly.\n    # The paper states BET_ns = 0.\n    # For other states, BET_s is given.\n    return state_s.BET\n\n# Example usage:\n# BET_s = compute_break_even_time(low_power_states[s])",
+        "key_insights": [
+          "Quantifies the minimum idle time needed to justify entering a low-power state.",
+          "Crucial for deciding which low-power state to use."
+        ]
+      },
+      "dependencies": [
+        "Definition 4"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 6",
+      "formal_description": {
+        "statement": "The hyper-period H is divided into intervals I. Each interval I_k has a duration |I_k|. J_k is the subset of jobs active in interval k. w_{j,k} is the weight of job j on interval k, representing the fraction of processor time required for job j in interval k. E_j is the set of intervals on which job j can run.",
+        "variables": {
+          "H": "hyper-period",
+          "I": "set of intervals",
+          "I_k": "k-th interval",
+          "|I_k|": "duration of interval k",
+          "J_k": "set of jobs active in interval k",
+          "w_{j,k}": "weight of job j on interval k",
+          "E_j": "set of intervals where job j can run"
+        },
+        "assumptions": [
+          "intervals are delimited by task releases",
+          "jobs can span multiple intervals"
+        ],
+        "conclusion": "Defines the temporal partitioning of the hyper-period and job execution within these intervals."
+      },
+      "informal_sketch": {
+        "intuition": "The hyper-period is broken down into smaller segments (intervals) based on when tasks are released. Within each interval, we track how much processing time each active job needs (its weight). A job can only be scheduled during specific intervals it's active in.",
+        "steps": [
+          "Divide the entire hyper-period H into a sequence of intervals I_1, I_2, ..., I_N.",
+          "These intervals are typically defined by task release times.",
+          "For each interval I_k, determine the set of jobs J_k that are active during this interval.",
+          "For each active job j in interval k, define its 'weight' w_{j,k}. This is the fraction of a processor's time job j needs within interval I_k.",
+          "For each job j, define E_j as the set of intervals where it is allowed to execute."
+        ],
+        "pseudocode": "class Interval:\n    def __init__(self, start_time, end_time):\n        self.start_time = start_time\n        self.end_time = end_time\n        self.duration = end_time - start_time\n\nclass Job:\n    def __init__(self, task_id, job_instance_id, execution_time, release_time, deadline):\n        self.task_id = task_id\n        self.job_instance_id = job_instance_id\n        self.execution_time = execution_time # Actual or WCET\n        self.release_time = release_time\n        self.deadline = deadline\n        self.intervals_allowed = [] # List of Interval objects\n\n# Example:\n# interval_k = Interval(t_k, t_{k+1})\n# job_j = Job(...)\n# w_j_k = fraction_of_processor_time_needed_by_job_j_in_interval_k\n# job_j.intervals_allowed.append(interval_k)",
+        "key_insights": [
+          "Interval-based scheduling simplifies analysis.",
+          "Weights (w_j,k) are key variables in the LP formulation."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 3"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 7",
+      "formal_description": {
+        "statement": "An additional periodic task \\tau is introduced with period H and utilization U_tau = m - U, where U is the global utilization of the original task set. This task \\tau accounts for the expected idle time.",
+        "variables": {
+          "tau": "additional idle task",
+          "H": "hyper-period",
+          "m": "number of processors",
+          "U": "global utilization of original task set",
+          "U_tau": "utilization of task \\tau"
+        },
+        "assumptions": [
+          "m-1 < U < m (ensures U_tau < 1)",
+          "task \\tau has period H"
+        ],
+        "conclusion": "Defines an artificial task to model and manage idle time within the scheduling framework."
+      },
+      "informal_sketch": {
+        "intuition": "To systematically create and manage idle periods for power saving, we introduce a 'fake' task that represents the time processors are expected to be idle. This task has a utilization that fills up the remaining processor capacity, ensuring that the total utilization of all tasks (including the idle task) equals the number of processors.",
+        "steps": [
+          "Assume the total utilization of the original tasks (U) is less than the number of processors (m) but greater than m-1.",
+          "Create a new, artificial task called \\tau.",
+          "Set the period of \\tau to be the hyper-period H.",
+          "Calculate the utilization of \\tau (U_tau) as m - U. This ensures that the total utilization of original tasks plus \\tau equals m.",
+          "This task \\tau represents the 'guaranteed' idle time in the worst case."
+        ],
+        "pseudocode": "class IdleTask:\n    def __init__(self, H, m, original_utilization):\n        self.T = H\n        self.U = m - original_utilization\n        self.C = self.U * self.T # WCET of idle task\n\n# Example:\n# m = 2 processors\n# U = 1.63 (original task set utilization)\n# idle_task = IdleTask(H, m, U)\n# idle_task.U = 2 - 1.63 = 0.37",
+        "key_insights": [
+          "Models idle time as a schedulable entity.",
+          "Ensures total utilization equals processor count, simplifying LP constraints.",
+          "Allows offline scheduling of idle periods."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 2",
+        "Definition 3"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 8",
+      "formal_description": {
+        "statement": "The idle task \\tau is split into two subtasks: \\tau_b (beginning) and \\tau_e (end), with weights b_k and e_k respectively in interval k. The total weight of \\tau in interval k is b_k + e_k. \\tau_b is scheduled at the beginning of the interval, and \\tau_e at the end. These subtasks cannot be preempted.",
+        "variables": {
+          "tau": "idle task",
+          "tau_b": "beginning subtask of \\tau",
+          "tau_e": "end subtask of \\tau",
+          "b_k": "weight of \\tau_b in interval k",
+          "e_k": "weight of \\tau_e in interval k",
+          "k": "interval index"
+        },
+        "assumptions": [
+          "0 <= b_k <= 1",
+          "0 <= e_k <= 1",
+          "\\tau_b and \\tau_e are not preemptible"
+        ],
+        "conclusion": "Defines a mechanism to schedule the idle time at the boundaries of intervals, facilitating merging of idle periods."
+      },
+      "informal_sketch": {
+        "intuition": "To maximize the chance of merging idle periods, the artificial idle task \\tau is split. One part (\\tau_b) is scheduled at the very start of an interval, and another part (\\tau_e) is scheduled at the very end. This ensures that any idle time created by \\tau is always at the boundaries, making it easier to connect with idle time from adjacent intervals.",
+        "steps": [
+          "Divide the idle task \\tau into two parts: \\tau_b and \\tau_e.",
+          "In each interval k, \\tau_b is assigned a weight b_k and \\tau_e is assigned a weight e_k.",
+          "The total time allocated to idle in interval k is b_k + e_k.",
+          "When scheduling, \\tau_b is always executed at the beginning of interval k.",
+          "When scheduling, \\tau_e is always executed at the end of interval k.",
+          "Neither \\tau_b nor \\tau_e can be interrupted once they start."
+        ],
+        "pseudocode": "class IdleSubtaskB:\n    def __init__(self, interval_k, weight_b_k):\n        self.interval = interval_k\n        self.weight = weight_b_k\n        self.is_preemptible = False\n\nclass IdleSubtaskE:\n    def __init__(self, interval_k, weight_e_k):\n        self.interval = interval_k\n        self.weight = weight_e_k\n        self.is_preemptible = False\n\n# In interval k:\n# b_k = weight of tau_b\n# e_k = weight of tau_e\n# total_idle_weight_k = b_k + e_k\n# Schedule tau_b at start, then other tasks, then tau_e at end.",
+        "key_insights": [
+          "Enables offline optimization of idle period placement.",
+          "Facilitates merging of idle periods across interval boundaries."
+        ]
+      },
+      "dependencies": [
+        "Definition 7"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 9",
+      "formal_description": {
+        "statement": "The length of the idle period starting at the end of interval k, denoted p_k, is defined as: p_k = e_k * |I_k| + b_{k+1} * |I_{k+1}| + p_{k+1} if b_{k+1} + e_{k+1} = 1, and p_k = e_k * |I_k| + b_{k+1} * |I_{k+1}| otherwise. The real length of each idle period, q_k, is p_k if b_k + e_k = 1, and 0 otherwise.",
+        "variables": {
+          "p_k": "length of idle period starting at end of interval k",
+          "q_k": "real length of idle period in interval k",
+          "e_k": "weight of \\tau_e in interval k",
+          "b_{k+1}": "weight of \\tau_b in interval k+1",
+          "|I_k|": "duration of interval k",
+          "p_{k+1}": "length of idle period starting at end of interval k+1",
+          "b_k": "weight of \\tau_b in interval k"
+        },
+        "assumptions": [
+          "idle periods are merged when consecutive intervals are fully idle (b_k + e_k = 1)",
+          "p_k includes potential carry-over from p_{k+1}"
+        ],
+        "conclusion": "Defines how to calculate the actual, merged idle period lengths, considering the placement of \\tau_b and \\tau_e and consecutive full idle intervals."
+      },
+      "informal_sketch": {
+        "intuition": "This defines how to calculate the actual duration of an idle period. An idle period starting at the end of interval k can extend into interval k+1 if interval k+1 is also fully idle. The variable p_k calculates this potential merged length, while q_k filters out idle periods that are already accounted for by a preceding, longer merged idle period.",
+        "steps": [
+          "Define p_k as the potential length of the idle period starting at the end of interval k.",
+          "p_k includes the idle time from \\tau_e in interval k (e_k * |I_k|) and the idle time from \\tau_b in interval k+1 (b_{k+1} * |I_{k+1}|).",
+          "If interval k+1 is entirely idle (b_{k+1} + e_{k+1} = 1), then the idle period starting at k+1 (p_{k+1}) is also included in p_k.",
+          "Define q_k as the 'real' idle period length for interval k.",
+          "If interval k is entirely idle (b_k + e_k = 1), then q_k is equal to p_k.",
+          "If interval k is not entirely idle (b_k + e_k < 1), then q_k is 0, because any idle time within this interval is not a distinct, start-of-interval idle period that can be merged."
+        ],
+        "pseudocode": "def calculate_idle_period_lengths(intervals, tau_b_weights, tau_e_weights):\n    num_intervals = len(intervals)\n    p = [0] * num_intervals\n    q = [0] * num_intervals\n\n    # Calculate p_k (potential merged idle period length)\n    # Iterate backwards to use p_{k+1}\n    for k in range(num_intervals - 1, -1, -1):\n        current_interval_duration = intervals[k].duration\n        next_interval_duration = intervals[k+1].duration if k + 1 < num_intervals else 0\n        next_b_k_plus_1 = tau_b_weights[k+1] if k + 1 < num_intervals else 0\n        next_e_k_plus_1 = tau_e_weights[k+1] if k + 1 < num_intervals else 0\n        current_e_k = tau_e_weights[k]\n        current_b_k = tau_b_weights[k]\n\n        potential_idle_from_current_interval = current_e_k * current_interval_duration\n        potential_idle_from_next_interval_start = next_b_k_plus_1 * next_interval_duration\n\n        p_k_val = potential_idle_from_current_interval + potential_idle_from_next_interval_start\n\n        # Check if next interval is fully idle\n        if k + 1 < num_intervals and (tau_b_weights[k+1] + tau_e_weights[k+1] == 1):\n            p_k_val += p[k+1] # Add carry-over from next interval\n        \n        p[k] = p_k_val\n\n    # Calculate q_k (real idle period length)\n    for k in range(num_intervals):\n        current_b_k = tau_b_weights[k]\n        current_e_k = tau_e_weights[k]\n        if (current_b_k + current_e_k == 1):\n            q[k] = p[k]\n        else:\n            q[k] = 0\n\n    return p, q",
+        "key_insights": [
+          "Handles merging of idle periods across interval boundaries.",
+          "Distinguishes between potential idle time and actual, usable idle periods."
+        ]
+      },
+      "dependencies": [
+        "Definition 6",
+        "Definition 8"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 10",
+      "formal_description": {
+        "statement": "Let LP_{s,k} be a binary variable, LP_{s,k} = 1 if low-power state s is activated during the idle period starting in interval k, and 0 otherwise. For each interval k, exactly one low-power state must be activated if q_k > 0: sum(LP_{s,k} for s=0 to ns-1) = 1 if q_k > 0. If q_k = 0, then LP_{s,k} = 0 for all s.",
+        "variables": {
+          "LP_{s,k}": "binary variable indicating state s in interval k",
+          "s": "index of low-power state",
+          "k": "interval index",
+          "q_k": "real length of idle period in interval k",
+          "ns": "number of low-power states"
+        },
+        "assumptions": [
+          "each idle period (q_k > 0) must activate exactly one low-power state",
+          "no low-power state is activated if there is no idle time (q_k = 0)"
+        ],
+        "conclusion": "Defines how to select a low-power state for each identified idle period."
+      },
+      "informal_sketch": {
+        "intuition": "For every actual idle period of significant length (q_k > 0), we must choose exactly one low-power state to enter. This constraint ensures that we don't try to activate multiple states simultaneously or activate a state when there's no idle time.",
+        "steps": [
+          "Introduce a binary variable LP_{s,k} for each low-power state 's' and each interval 'k'.",
+          "LP_{s,k} is 1 if state 's' is chosen for the idle period in interval 'k', and 0 otherwise.",
+          "If there is a real idle period in interval k (q_k > 0), then exactly one low-power state must be chosen. This means the sum of LP_{s,k} over all possible states 's' must equal 1.",
+          "If there is no idle period in interval k (q_k = 0), then no low-power state is activated, so all LP_{s,k} for that interval must be 0."
+        ],
+        "pseudocode": "def add_state_selection_constraints(milp_model, num_intervals, num_low_power_states, q_k_values):\n    for k in range(num_intervals):\n        if q_k_values[k] > 0:\n            # Constraint: Exactly one low-power state must be chosen\n            milp_model.add_constraint(sum(LP_s_k[s][k] for s in range(num_low_power_states)) == 1)\n        else:\n            # Constraint: No low-power state chosen if no idle time\n            for s in range(num_low_power_states):\n                milp_model.add_constraint(LP_s_k[s][k] == 0)\n\n# LP_s_k is a 2D array/matrix representing the binary variables.",
+        "key_insights": [
+          "Ensures a valid low-power state is selected for each idle period.",
+          "Forms part of the MILP formulation."
+        ]
+      },
+      "dependencies": [
+        "Definition 9"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 11",
+      "formal_description": {
+        "statement": "A low-power state s cannot be activated if the idle period q_k is smaller than its Break-Even Time (BET_s). Thus, for all k and s, LP_{s,k} = 0 if q_k <= BET_s.",
+        "variables": {
+          "LP_{s,k}": "binary variable indicating state s in interval k",
+          "q_k": "real length of idle period in interval k",
+          "BET_s": "Break-Even Time for low-power state s",
+          "s": "index of low-power state",
+          "k": "interval index"
+        },
+        "assumptions": [
+          "BET_s is known for each state s"
+        ],
+        "conclusion": "Adds a constraint to prevent activating low-power states when the idle period is too short to be beneficial."
+      },
+      "informal_sketch": {
+        "intuition": "We cannot just pick any low-power state for an idle period. If the idle period is shorter than the minimum time required to save energy for a particular state (its BET_s), then that state cannot be used. This constraint enforces that rule.",
+        "steps": [
+          "For every interval k and every low-power state s:",
+          "Check if the real idle period length (q_k) is less than or equal to the Break-Even Time for state s (BET_s).",
+          "If it is, then state s cannot be activated for this idle period. Set LP_{s,k} to 0."
+        ],
+        "pseudocode": "def add_bet_constraints(milp_model, num_intervals, num_low_power_states, q_k_values, BET_values):\n    for k in range(num_intervals):\n        for s in range(num_low_power_states):\n            # If idle period is too short for state s, then state s cannot be chosen\n            if q_k_values[k] <= BET_values[s]:\n                milp_model.add_constraint(LP_s_k[s][k] == 0)\n\n# LP_s_k is the binary variable matrix.",
+        "key_insights": [
+          "Ensures energy saving is actually achieved by respecting BET.",
+          "Prunes infeasible low-power state selections."
+        ]
+      },
+      "dependencies": [
+        "Definition 9",
+        "Definition 5"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 12",
+      "formal_description": {
+        "statement": "The consumption P_k of the idle period starting at the end of interval k is P_k = sum(LP_{s,k} * (C_s * q_k + P_ens)) for s=0 to ns-1.",
+        "variables": {
+          "P_k": "consumption of idle period in interval k",
+          "LP_{s,k}": "binary variable indicating state s in interval k",
+          "C_s": "consumption of low-power state s",
+          "q_k": "real length of idle period in interval k",
+          "P_ens": "transition penalty to come back from low-power state s",
+          "ns": "number of low-power states"
+        },
+        "assumptions": [
+          "LP_{s,k} is 1 for exactly one s if q_k > 0",
+          "LP_{s,k} is 0 for all s if q_k = 0"
+        ],
+        "conclusion": "Defines the energy cost associated with an idle period, considering the chosen low-power state and its transition penalty."
+      },
+      "informal_sketch": {
+        "intuition": "This formula calculates the total energy cost for a specific idle period. It considers the energy consumed while in the chosen low-power state (C_s * q_k) plus the energy penalty to wake up (P_ens). Since only one state is chosen (LP_{s,k} is 1 for one 's'), this sum effectively picks the cost of that single chosen state.",
+        "steps": [
+          "For each interval k, calculate the energy consumption P_k of its idle period.",
+          "This calculation involves summing over all possible low-power states 's'.",
+          "For each state 's', if it's chosen for interval k (LP_{s,k} = 1), its contribution is (C_s * q_k + P_ens).",
+          "If a state 's' is not chosen (LP_{s,k} = 0), its contribution is 0.",
+          "The sum effectively selects the cost of the single activated low-power state."
+        ],
+        "pseudocode": "def add_idle_consumption_objective(milp_model, num_intervals, num_low_power_states, q_k_values, LP_s_k, C_values, P_en_values):\n    total_idle_consumption = 0\n    for k in range(num_intervals):\n        idle_consumption_k = 0\n        for s in range(num_low_power_states):\n            # If state s is chosen for interval k (LP_s_k[s][k] == 1)\n            # its cost is C_s * q_k + P_ens\n            # Note: q_k might be 0, in which case C_s*q_k is 0.\n            # If q_k > 0, and state s is chosen, P_ens is incurred.\n            idle_consumption_k += LP_s_k[s][k] * (C_values[s] * q_k_values[k] + P_en_values[s])\n        total_idle_consumption += idle_consumption_k\n    milp_model.set_objective('minimize', total_idle_consumption)\n\n# This function would typically be used to define the objective function of the MILP.",
+        "key_insights": [
+          "Quantifies the energy cost of idle periods.",
+          "Forms the core of the optimization objective."
+        ]
+      },
+      "dependencies": [
+        "Definition 9",
+        "Definition 10",
+        "Definition 4",
+        "Definition 5"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 1",
+      "formal_description": {
+        "statement": "FPZL is optimal for implicit-deadline tasks sharing a common period.",
+        "variables": {
+          "FPZL": "Fixed Priority until Zero Laxity scheduling algorithm",
+          "implicit-deadline tasks": "tasks where D_i = T_i",
+          "common period": "all tasks have the same period"
+        },
+        "assumptions": [
+          "tasks have implicit deadlines",
+          "tasks share a common period",
+          "multiprocessor system"
+        ],
+        "conclusion": "Guarantees that FPZL will find a feasible schedule if one exists for this specific task model."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem states that if you have a set of tasks that all have the same deadline (equal to their period) and you use the FPZL scheduling algorithm, then FPZL is guaranteed to find a way to schedule them all successfully if it's even possible. This is because FPZL prioritizes tasks that are closest to missing their deadline.",
+        "steps": [
+          "Consider a set of tasks where all deadlines are equal to their periods (implicit deadlines).",
+          "Assume all these tasks also share the same period.",
+          "Apply the FPZL scheduling algorithm.",
+          "The theorem states that if any scheduling algorithm can schedule these tasks on a multiprocessor system, FPZL will also be able to schedule them.",
+          "This means FPZL is optimal for this specific scenario."
+        ],
+        "pseudocode": "def is_fpzl_optimal_for_common_period(task_set):\n    # Check if all tasks have implicit deadlines (D_i == T_i)\n    all_implicit_deadlines = all(task.D == task.T for task in task_set)\n    if not all_implicit_deadlines:\n        return False\n\n    # Check if all tasks share a common period\n    if not task_set:\n        return True\n    common_period = task_set[0].T\n    all_common_period = all(task.T == common_period for task in task_set)\n    if not all_common_period:\n        return False\n\n    # According to Theorem 1, FPZL is optimal in this case.\n    return True\n\n# The proof relies on the fact that if a deadline is missed, it implies a contradiction\n# with the total utilization being <= m, or that all processors are busy with zero-laxity tasks.",
+        "key_insights": [
+          "FPZL's optimality is proven for a specific, but important, task model.",
+          "Laxity-based scheduling is effective when deadlines are tight and shared."
+        ]
+      },
+      "dependencies": [
+        "Definition 1"
+      ]
+    },
+    {
+      "type": "corollary",
+      "identifier": "Corollary 1",
+      "formal_description": {
+        "statement": "The linear program made of equations (1), (2), and (3) gives a valid schedule.",
+        "variables": {
+          "1": "∀k, j∈Jk w_{j,k} ≤ m",
+          "2": "∀k, ∀j, 0 ≤ w_{j,k} ≤ 1",
+          "3": "∀j, k∈Ej w_{j,k} × |I_k| = j.c"
+        },
+        "assumptions": [
+          "equations (1), (2), (3) are correctly formulated",
+          "a feasible solution exists for the LP"
+        ],
+        "conclusion": "The set of constraints ensures that the resulting schedule is feasible, meaning all tasks can be executed within their deadlines."
+      },
+      "informal_sketch": {
+        "intuition": "This is a direct consequence of the LP formulation. The constraints (1), (2), and (3) are specifically designed to model the real-time requirements: (1) ensures total processor demand in any interval doesn't exceed available processors, (2) ensures a job's demand in an interval is a valid fraction, and (3) ensures each job gets its total required execution time. If the LP has a solution, it means these conditions are met.",
+        "steps": [
+          "Consider the linear program defined by the three equations:",
+          "Equation (1): The total workload (sum of weights w_{j,k}) in any interval k across all active jobs j cannot exceed the number of processors m.",
+          "Equation (2): The weight of any job j in any interval k (w_{j,k}) must be between 0 and 1, representing a valid fraction of processor time.",
+          "Equation (3): For each job j, the sum of its execution time across all intervals k where it can run (w_{j,k} * |I_k|) must equal its total required execution time (j.c).",
+          "If this linear program has a feasible solution (i.e., values for w_{j,k} exist that satisfy all constraints), then this solution represents a valid schedule where no deadlines are missed."
+        ],
+        "pseudocode": "def check_schedule_validity_from_lp_solution(lp_solution, intervals, jobs, m):\n    # lp_solution is a dictionary/matrix of w_j_k values\n    num_intervals = len(intervals)\n    \n    # Check constraint (1): ∀k, j∈Jk w_{j,k} ≤ m\n    for k in range(num_intervals):\n        interval_workload = 0\n        for job_j in jobs_active_in_interval(k):\n            interval_workload += lp_solution[job_j.id][k]\n        if interval_workload > m:\n            return False # Invalid schedule\n\n    # Check constraint (2): ∀k, ∀j, 0 ≤ w_{j,k} ≤ 1\n    for k in range(num_intervals):\n        for job_j in all_jobs():\n            w_j_k = lp_solution[job_j.id][k] if job_j.id in lp_solution and k in lp_solution[job_j.id] else 0\n            if not (0 <= w_j_k <= 1):\n                return False # Invalid schedule\n\n    # Check constraint (3): ∀j, k∈Ej w_{j,k} × |I_k| = j.c\n    for job_j in all_jobs():\n        total_executed_time = 0\n        for k in job_j.intervals_allowed:\n            w_j_k = lp_solution[job_j.id][k] if job_j.id in lp_solution and k in lp_solution[job_j.id] else 0\n            total_executed_time += w_j_k * intervals[k].duration\n        if abs(total_executed_time - job_j.execution_time) > epsilon: # Use epsilon for float comparison\n            return False # Invalid schedule\n\n    return True # Schedule is valid",
+        "key_insights": [
+          "The LP constraints directly model schedulability requirements.",
+          "A feasible solution to the LP guarantees a schedulable task assignment."
+        ]
+      },
+      "dependencies": [
+        "Definition 6"
+      ]
+    }
+  ],
+  "extracted_at": "2025-11-12T02:30:07.425010",
+  "xml_path": "papers\\xml\\A Scheduling Algorithm to Reduce the Static Energy.xml"
+}

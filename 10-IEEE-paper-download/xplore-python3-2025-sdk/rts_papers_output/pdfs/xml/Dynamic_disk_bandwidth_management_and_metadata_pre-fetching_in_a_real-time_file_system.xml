@@ -1,0 +1,554 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Dynamic Disk Bandwidth Management and Metadata Pre-fetching in a Real-Time Filesystem</title>
+				<funder ref="#_zUbKV4D #_zvXJer7">
+					<orgName type="full">National R&amp;D Program of Spain</orgName>
+				</funder>
+				<funder ref="#_ZgjkBe4 #_vjT3PNC">
+					<orgName type="full">Defense Advanced Research Projects Agency</orgName>
+				</funder>
+				<funder>
+					<orgName type="full">Community of Madrid</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Anastasio</forename><surname>Molano</surname></persName>
+							<email>amolano@cs.cmu.edu</email>
+						</author>
+						<author>
+							<persName><forename type="first">Ragunathan</forename><surname>Rajkumar</surname></persName>
+						</author>
+						<author>
+							<persName><forename type="first">Kanaka</forename><surname>Juvva</surname></persName>
+							<email>kjuvva@cs.cmu.edu</email>
+						</author>
+						<author>
+							<affiliation key="aff0">
+								<orgName type="laboratory">Real-Time and Multimedia Laboratory</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<affiliation key="aff1">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">Carnegie Mellon University Pittsburgh</orgName>
+								<address>
+									<postCode>15146</postCode>
+									<region>PA</region>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Dynamic Disk Bandwidth Management and Metadata Pre-fetching in a Real-Time Filesystem</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">56E329EFE7D4DAE62975D30218E6C335</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-18T15:04+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>In this paper we focus on two practical considerations that arise in the design of a real-time filesystem. Firstly, disk bandwidth management should be dynamic, which in turn would allow a QoS manager to dynamically reallocate disk bandwidth to running applications based on their changing needs. Secondly, real-time access to file system data structures should be deterministic, in order to avoid unexpected latencies when accessing files from disk. These issues have implications to the design of the filesystem and to its schedulability analysis. We address both these problems and present an implementation in RTFS (Real-Time Filesystem Server), a real-time filesystem supporting disk bandwidth reservation running on top of the Real-Time Mach microkernel. Finally, quantitative comparisons of actual achieved filesystem bandwidth and response times are used to validate our approach.</p><p>• scheduling policies to guarantee deadline satisfaction,</p><p>• monitoring and enforcement that offers temporal protection, 1.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.">Introduction</head><p>Real-time operating system design has been mainly focused on providing support for the management of traditional system resources such as CPU or memory, avoiding filesystem design issues. The primary reason behind this trend in real-time operating system design was perhaps the lack of real-time disk access needs in conventional real-time applications. In those applications the volume of data to be managed was relatively small, so that all the key information could be kept in memory, avoiding real-time access to secondary storage devices.</p><p>Following this trend, real-time operating systems vendors usually include in their products only generalpurpose filesystems that permit real-time applications to store persistent data with no timing guarantees. As an example, VxWorks supports a DOS filesystem and the RT-11 filesystem, both of them being non-realtime filesystems <ref type="bibr" target="#b19">[20]</ref>. Another example is Lynx OS which only supports the conventional Unix filesystem <ref type="bibr" target="#b8">[9]</ref>.</p><p>Current and emerging real-time applications include command and control systems such as SCADA systems (commonly used in power utilities like electrical utilities), military C 3 I systems, real-time CIM databases, real-time data acquisition and storage systems (e.g. systems for the inspection of nuclear power plants), multimedia systems and on-demand servers. These real-time applications are increasingly complex, and the volume of data managed is being notably increased to the extent it is not possible or cost-effective to keep all the data in memory. Real-time disk access therefore is an issue that needs to be addressed. As a result, these practically important applications have fostered research into real-time filesystem design, extending the support in real-time operating systems to allow disk accessing under timing constraints <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b2">3,</ref><ref type="bibr" target="#b9">10,</ref><ref type="bibr" target="#b10">11,</ref><ref type="bibr" target="#b18">19]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.1.">Real-Time Filesystems</head><p>We define a real-time filesystem as one that provides:</p><p>• a predictable response time for filesystem operations,</p><p>• guaranteed disk bandwidth, and</p><p>• temporal protection between applications accessing the filesystem simultaneously. That is, one misbehaving application should not prevent another real-time application from obtaining its guaranteed bandwidth. The goals of a real-time filesystem are therefore to support</p><p>• dynamic changes in offered guarantees, and</p><p>• an interface that allows final users or intermediate users such as QoS managers, to specify their own QoS requirements. In this paper, we focus on two important issues that affect the design of a real-time filesystem namely dynamic disk bandwidth management and metadata prefetching.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.1.1">Dynamic Disk Bandwidth Management</head><p>Disk bandwidth management is intended to serve the increasing demand on real-time disk accesses, especially for applications requiring very heterogeneous disk access patterns, such as databases found in modern C 3 I systems, combining both periodic (e.g. multimedia streams playback supported in USAF 1994) and aperiodic tasks (e.g queries to the real-time database). In these applications, the system workload can be very dynamic. In a tracking application, new objects may appear leading to new task creation or additional work for existing tasks. In a video-on-demand service, the arrival of more customers is welcome but imposes additional demand on the servers. In other words, the disk workload can dynamically change, and the filesystem should permit a dynamic allocation of disk bandwidth to cope with these changes.</p><p>Additionally, a external QoS manager might require a dynamic adjustment of the reservation parameters to preserve QoS specification for some tasks while accommodating new requests <ref type="bibr" target="#b12">[13]</ref>. The QoS manager may upgrade or downgrade "on the fly" the resource requirement of some tasks to accommodate new requests (i.e. increasing or decreasing their required disk bandwidth). Such changes may occur (say) when new applications arrive, terminate or to cope with peaks of disk traffic. For example, an external event such as the presence of an enemy aircraft may trigger the retrieval of a multimedia property file from a disk-resident database.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.1.2">Filesystem Meta-Data Management</head><p>Another issue relevant to predictable filesystem service is how to cope with filesystem metadata information. Metadata information includes, apart from general file information such as the owner of the file, permissions, etc., information about the location of data blocks on the disk, the so-called block maps or indirect blocks. These block maps have to be retrieved from disk at run-time while accessing data disk blocks, introducing unpredictable latencies in-between data block accesses.</p><p>A real-time filesystem should avoid such unexpected latencies to satisfy the goal of providing predictable response time for filesystem operations. We propose a metadata prefetching scheme that prefetches metadata information for those files accessed under real-time constraints and thereby yields deterministic response times.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.2.">Disk Bandwidth Reservation Management on Real-Time Mach</head><p>Our work builds on the design of the real-time filesystem running in the Real-Time Mach environment. The filesystem runs in the context of RTFS (Real-Time Filesystem Server), a real-time server running on top of the Real-Time Mach microkernel. The filesystem is currently based on the Berkeley Fast File System <ref type="bibr" target="#b6">[7]</ref>, with extensions to support realtime disk scheduling and disk bandwidth reservation.</p><p>An application can create and use a disk bandwidth reservation that provides a share of the disk filesystem bandwidth during every successive periodic interval. If granted by an admission control mechanism, the filesystem guarantees this share of the disk bandwidth, even in the presence of competing real-time and/or non-realtime applications. The model behind the disk bandwidth reservation scheme employed in our reserved real-time filesystem, is part of a more general reservation framework, including any kind of system resources such as processor, memory, disk bandwidth and network bandwidth, supported by the Real-Time Mach's resource-kernel approach <ref type="bibr" target="#b13">[14]</ref>. A resource kernel is defined to be one which provides timely, uniform and protected access to system resources.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.2.1">Disk Bandwidth Resource Specification</head><p>The filesystem disk bandwidth specification for a given reserve employs the parameters given by , where is the processing time of the reserve to be obtained in every interval time units, before a deadline of time units from the beginning of the period, starting at time . The processing time is specified as the number of bytes to be accessed each period (as a portable specification).</p><p>The filesystem guarantees that the application granted the reserve will be able to access the specified number of bytes each period, and before the corresponding deadline.</p><p>The specification given by is an explicit specification. The filesystem internally derives, tracks and enforces the implicit parameter , which represents the maximum (desirable bound) time a reservation instance must wait for a lower priority reservation while executing.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.2.2">Enforcement &amp; Scheduling</head><p>The filesystem keeps track of all the disk usage for every active reservation, so as to enforce that applications owning a disk bandwidth reserve will be granted the specified share of the disk bandwidth.</p><p>The disk bandwidth reservation model is similar to the aperiodic server model <ref type="bibr" target="#b17">[18]</ref>. The application can receive control over the disk driver while its budget (the number of bytes to be accessed from disk each interval) is still available for use (in this situation the reserve is in active state). Active reserves are scheduled according to a realtime scheduling policy, that in our system is a variation of EDF called JIT (Just-In-Time).</p><p>Once the application has consumed the specified share</p><formula xml:id="formula_0">τ i C i T i D i , , S i { , } C i T i D i S i C i L i τ i C i T i D i , , S i { , } B i</formula><p>of the disk bandwidth in the current period, the filesystem changes its state to depleted, and from then, it will be treated as a non-realtime request in terms of scheduling till the end of the period. Depleted reserved requests are scheduled, along with other non-realtime (unreserved) requests, by the SCAN algorithm. When a new period is started, the available disk bandwidth is replenished to its initial value, and the state of the reserve is changed again to active, and scheduled as a real-time request after that. The filesystem enforces the disk usage for applications owning a disk bandwidth reserve. Enforcement protects each application from potential interferences coming from other reserved and/or unreserved requests, as no real-time request is allowed to consume more than the specified bandwidth if other reserved requests are eligible to execute.</p><p>The Just-In-Time algorithm is a hybrid policy between EDF and SCAN. This algorithm gives preference to the request with the earliest deadline, but if there is enough available slack time at the scheduling decision instance, and other requests are in the path towards the earliest deadline request, these requests are handled first, before the earliest deadline one, as long as there is enough slack time for that. Slack time is computed dynamically, after completing each disk access on the way to the earliest deadline request. When the slack time is consumed, the request having the earliest deadline is finally serviced.</p><p>The reserve with the highest priority according to the Just-In-Time algorithm is given control and is granted access to the disk drive, and it can be preempted if another higher priority reserve is demanding service. Priority is given by EDF if no slack is available, or by proximity to disk head in the direction to the EDF request if slack permits. Preemption occurs with a granularity of a single filesystem block access.</p><p>In <ref type="bibr" target="#b10">[11]</ref> we showed that this algorithm can guarantee that requests with real-time constraints meet their deadlines while obtaining a reasonable level of disk throughput. We reported throughput losses ranging from 3-30% depending upon the layout of files on the disk.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.2.3">Architecture of the Reserved Filesystem</head><p>The implementation of the reserved filesystem has been done in RTFS (Real-Time Filesystem Server), a real-time server running on top of the RT-Mach microkernel. Figure <ref type="figure" target="#fig_0">1</ref> shows the software architecture of the reserved filesystem.  RTFS is comprised of multiple worker threads, which receive and process filesystem access requests from realtime clients. RT-IPC, a realtime interprocess communication mechanism <ref type="bibr" target="#b5">[6]</ref>, is used to avoid priority inversion at the server side. A replenishment handler executes periodically, and it is charged of managing and updating all the filesystem reserves associated data structures.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.2.4">Admission Control Test</head><p>The filesystem executes the following admission control test before granting a disk bandwidth reserve to a given application. If the test succeeds the reserved is permitted, otherwise, it will be rejected.</p><p>Let a set of n filesystem reservations be denoted as , ,..., . Each filesystem reserve has as parameters the ones specified by the tuple , with the same meaning given above. The number of bytes to be accessed each period is denoted by . This set of n filesystem reserves will meet their deadlines under the EDF/Just-In-Time disk scheduling algorithm if the following test is satisfied 1 :</p><p>, where (EQ 1)</p><p>• is the utilization of reserve , given by being the overhead for RT-IPC messages, and worst-case seek and rotational latencies respectively, and the time to read (or write) the requested amount of bytes each period computed as where FSB is the filesystem block size and the time to access a filesystem block including overheads given by where fs_overhead is the filesystem reserve mechanism execution overhead, is the overhead for IPC messages to the kernel, imposed by the microkernel design itself, and BW the total disk bandwidth.</p><p>• and is the maximum priority inversion given by where .</p><p>This algorithm has a complexity of O(n), n being the 1. We include here a more precise characterization that the one reported in <ref type="bibr" target="#b10">[11]</ref>, distinguishing between IPCs to the server (RT-IPCs) for each filesystem operation, and IPCs to the microkernel for each disk access. <ref type="figure">------------------------------------t</ref>  <ref type="figure">------------------------------------T</ref> </p><formula xml:id="formula_1">τ 1 τ 2 τ n C i T i D i , , S i { , } L i U i i 1 = n ∑ BU MAX + 1 ≤ U i τ i U i t RTIPC in - t L i ( ) 2 Seek MAX ⋅ 2 T latency ⋅ t RTIPC out - + + + + T i ------------------------------------------------------------------------------------------------------------------------------------------------------------- = t RTIPC Seek MAX T latency t L i ( ) L i t L i ( ) L i FSB Bytes ( ) ----------------------------t FSB × = i ∀ t FSB t FSB fs_overhead t IPC in - FSB Bytes ( ) BW Bytes/sec ( )</formula><formula xml:id="formula_2">IPC out - + + + = t IPC BU MAX BU MAX max B 1 T 1 ------… B n 1 - T n 1 - -------------- , [ , ] = B i FSB Bytes ( ) BW Bytes/sec ( )</formula><formula xml:id="formula_3">i D i - + =</formula><p>number of disk bandwidth reserves in the workload under study.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.2.5">The JIT Replenishment Algorithm</head><p>Let , ,..., , be a set of n disk bandwidth reservations having the parameters given by the tuple . Reserves are ordered by priority order, being the reserve with the highest priority (the one with the smallest deadline). The slack time for the reserve , in time units can be computed as:</p><p>where the parameters have the same meaning as described in the previous subsection. The slack time can be translated into number of disk accesses using the following expression:</p><formula xml:id="formula_4">(EQ 2)</formula><p>In the worst case, the utilization factor will be computed for all the tasks in the set, when computing the slack of the lower priority request. The complexity of this algorithm is again therefore O(n), n being the number of disk bandwidth reserves in the workload under study. The maximum value of the available slack time for reserve is computed at admission time by using EQ2. At run-time, the filesystem maintains the current slack time for each reserve . Each replenishment period , the current slack value is initialized to its maximum value . Let be the set of active reserves at any given time. Let be the set of indexes of active reserves in .</p><p>Slack stealing by unreserved and depleted activities. An unreserved or depleted activity can steal slack from a reservation if . When such stealing is allowed to occur the current slack factors are updated as .</p><p>Slack stealing by an undepleted reservation. An active reserved request , can steal available slack from a higher priority reserved request to access a disk block if . The slack is updated such as .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1.3.">Organization of the paper</head><p>The rest of this paper is organized as follows. Section 2 highlights the dynamic disk bandwidth management feature, focussing on the schedulability conditions to allow a dynamic adjustment of the reserve parameters, some implementation issues, and an experimental evaluation. Section 3 presents a solution to cope with filesystem metadada, namely metadata pre-fetching, for files accessed under real-time semantics. We explain the implementation and show some experimental results. Finally, we present</p><formula xml:id="formula_5">τ 1 τ 2 τ n C i T i D i , , S i { , } τ 1 τ i K i t.u. (<label>)</label></formula><formula xml:id="formula_6">K i t.u. ( ) D i T i U j j 1 = i ∑ - = K i K i t.u. ( ) t FSB ----------------- = i ∀ K i τ i k i τ i T i k i K i τ active_reserves { } J { } τ active_reserves { } j ∀ j J { } ∈ k j 0 &gt; , , j ∀ j J { } ∈ k j k j 1 -     ← , , τ i j ∀ j J { } ∈ j i 1 - ( ) ≤ k j , 0 &gt; , , j ∀ j J { } ∈ j i 1 - ( ) ≤ k j k j 1 -     ← , , ,</formula><p>conclusions in section 4.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.">Dynamic Management of Disk Bandwidth</head><p>Reserved disk workload may change over time as new applications that require disk bandwidth reservation may have started, others may have finished, or some of them may need to modify their current reserve parameters (e.g. to cope with peaks of disk traffic).</p><p>An external QoS manager might require a dynamic adjustment of the reservation parameters to preserve QoS specification for some tasks while accommodating new requests.</p><p>Reserved disk workload can change in two opposite directions, leading to either an increase, or otherwise, decrease of the reserved utilization factor:</p><p>• Operations that decrease the reserved utilization factor: some application having a disk bandwidth reservation has finished its execution, the disk bandwidth reserve parameter (in bytes) of some application has been decreased, or its reserve period has been increased.</p><p>• Operations that increase the reserved utilization factor: some application requiring a disk bandwidth reservation has started its execution, the disk bandwidth reserve parameter (in bytes) of some application has been increased, or its reserve period has been decreased.</p><p>An arbitrary change in the reserve parameters of some task may lead to other reserved applications missing their deadlines. The filesystem must take into account the schedulability conditions of the task set before executing a change in the reserve parameters of any task. In the next subsection we study such schedulability conditions.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.1.">Schedulability Conditions</head><p>From a schedulability viewpoint, the problem of dynamically changing disk bandwidth reserve parameters of a task set is a mode change. <ref type="bibr" target="#b14">[15]</ref> showed the conditions under which a task set, synchronized through the priority ceiling protocol (PCP), could perform a mode change without missing their deadlines, before, during and after the mode change. They explained how the priority ceiling of the semaphores involved in the mode change had to be modified to avoid any deadline misses.</p><p>In the processor case, tasks may suffer from priority inversion in the form of indirect blocking while accessing shared resources. When a high priority task is blocked in a semaphore waiting for a lower priority task to exit a critical region protected by the same semaphore, the lower priority task can be preempted in-between by other intermediate priority task, leading to indirect blocking (maybe unbound) for the highest priority task. PCP was used to synchronize</p><formula xml:id="formula_7">τ i L i T i τ i L i T i</formula><p>all the tasks accessing common resources avoiding the undesired indirect blocking problem.</p><p>In RTFS, the worker thread chosen by the scheduling policy gains control over the disk drive and can send disk requests to the disk controller whereas no other highest priority request is eligible to execute. The filesystem executes a disk request of a filesystem block size, waits till such a request is finished, and then checks whether a higher priority request has arrived in-between. In this case, the current worker thread would be preempted, and subsequently the worker thread handling the highest priority disk request would gain control over the disk drive.</p><p>However, once a disk request is sent to the disk drive, it cannot be preempted, so it is not possible to have indirect blocking at the disk scheduling side, as no intermediate priority disk request can be executed in-between. There is a non-preemptable window within which no preemption can take place. This implies that a higher priority disk request must wait for the completion of the non-preemptable window before preempting the lower priority request, and gaining access to the disk drive.</p><p>The problem is similar to the case, in processor scheduling, where critical sections of code are not preemptable. So, in this sense, our reserved filesystem is free of indirect blocking. Only priority inversion in the form of direct blocking may happen, and during a timespan equal to the size of the non-preemptable window (time to access a filesystem block), that has to be conveniently included in the schedulability test as we showed in a previous section.</p><p>Under these circumstances, upon a mode change, no special precaution is needed concerning the synchronization primitives in the disk scheduling case, differently to what it happened in the processor case where tasks were scheduled using PCP (priority ceilings had to be modified conveniently). Therefore, in our reserved filesystem, a dynamic change of disk bandwidth reserve parameters can be performed if the resulting workload still satisfy the admission control test.</p><p>However, the potential available disk bandwidth after performing a change in the reserve parameters of a given reserve , will be only available after the completion of the maximum of the old and the new reserve periods, i.e.</p><p>. The first term is needed since the reserve may have consumed the disk capacity for the current period. The second term is needed because of a deferred execution penalty that can result <ref type="bibr" target="#b14">[15]</ref>. Consequently, the allocated disk bandwidth cannot be reclaimed by other applications requesting it until the maximum of these two periods , has elapsed. As the reserved workload changes, the available slack time changes as well. In order to maintain the premises of the JIT replenishment algorithm explained in the previous section, a new computation of the slack time is needed after performing a mode change.</p><p>If reserve changes its parameters, the maximum value</p><formula xml:id="formula_8">τ i max T i old T i new , ( ) τ i T i old T i new τ i</formula><p>of its available slack time will have to be recomputed again, and this follows for every reserve of lower priority than , as they will be affected by the mode change, as it can be deduced from EQ2. Summarizing these results:</p><p>• Let , ,..., , be a set of n disk bandwidth reservations satisfying the admission control test given by EQ1, with having the reserve parameters given by the tuple , a mode change in the reserve parameters of to the new reserve parameters given by can be performed without any deadline loss, if the admission control test given by EQ1 is still verified under the new reserve parameter set, and the mode change will be effective only after the completion of the maximum of the old and the new period .</p><p>• Upon a mode change in the reserve parameters of , the maximum slack time has to be recomputed using EQ2, for the new reserve parameter set .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.2.">Implementation and Application Programming Interface</head><p>The filesystem exports to the user an interface to allow a change in the parameters of the disk bandwidth reserve for a given task, whether its reserve budget , its period , or both. The filesystem executes the mode change using the rules described in the previous section, so if the admission control test given by EQ1 is satisfied for the new reserve parameters set the filesystem will perform the mode change.</p><p>In order to effectively apply the mode change, the filesystem waits till the maximum of the old and the new period of the reserve which parameters have been modified has finished. At that time, within the replenishment handler execution, it will perform the following operations:</p><p>• updates reserve budget for as:</p><p>• updates reserve period as:</p><p>• updates maximum slack available times for , : where is computed by EQ2.</p><p>The application programming interface is highlighted in Table <ref type="table" target="#tab_1">1</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.3.">Experimental Evaluation</head><p>The implementation has been carried out in RTFS, a real-time filesystem server running under the Real-Time Mach operating system (version RK97a). We run the experiments in a Pentium 133 MHz platform, using a 1.2 GByte IDE disk Mastor 71084A, with a maximum seek</p><formula xml:id="formula_9">K i τ i τ 1 τ 2 τ n τ i C i T i D i , , S i { , } τ i C′ i T′ i D′ i , , S′ i { , } T i T i ′ τ i K j j ∀ j i ≥ , τ i L i T i τ i L i L i ′ ← T i T i ′ ← τ j j ∀ j i ≥ , K j K j ′ ← K i ′</formula><p>time of 24 ms, and a maximum rotational latency of 14 ms (4480 r.p.m.), as most relevant features.</p><p>Terminology: We call a reserve balanced if the reserved budget is equal to the demand placed on the reserve. For example, a real-time thread is said to use a balanced disk bandwidth reserve if the reserve offers (say) 20KB every 500 ms and the disk demand pattern of the thread does not exceed those values.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.3.1">Downgrading/Upgrading DBW Reserves</head><p>In this experiment, one periodic thread reads from the disk using a balanced disk bandwidth reserve.</p><p>The thread invokes a read operation of 48 KB with a period of 250 ms. The disk bandwidth reserve is adjusted to be equal to 48 KB, with a period of 250 ms and a deadline of 250 ms (balanced reserve).</p><p>As competition, five periodic threads (with no disk bandwidth reserves) having periods of 400 ms, 340 ms, 450 ms, 630 ms, 420 ms, attempt to read 200 KB, 60 KB, 120 KB, 150 KB and 100 KB respectively, during each of their periodic instances. The experiment is run during 100 seconds measuring the disk usage for the reserved thread each period. After 100 execution periods of the reserved thread, its disk bandwidth reserve is downgraded to 16 KB, and at period #300, it is again restored to 48 KB. Figure <ref type="figure">2</ref> shows actual measurements taken for the thread having a disk bandwidth reserve in the platform described above (no simulation).</p><p>We can see that the disk consumption equals the requested disk I/O operation (48 KB) while the reserve is still balanced. After downgrading the disk bandwidth reserve, the disk consumption varies arbitrarily depending on the workload each period, but it is always kept above the reserved disk bandwidth (16 KB). After restoring the disk bandwidth reserve to its initial value the consumption is increased till a minimum of the reserve budget (48 KB). In some instances the disk usage is higher because the system is trying to keep pace with the still unattended workload requested in previous periods.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.3.2">Upgrading/Downgrading DBW reserves</head><p>The configuration of this experiment is the same than the previous one, both for the thread under study and for the competition.</p><p>However, in this case, the disk bandwidth is updated in a different way. Initially the disk bandwidth reserve is adjusted to a value of 24 KB each period (i.e. unbalanced under-reserved request). After 100 execution periods of the reserved thread, its disk bandwidth reserve is upgraded to 48 KB (i.e. balancing the reserve). At period #300, the reserve is downgraded to 16 KB. Figure <ref type="figure">3</ref> shows the disk usage pattern for the thread using the disk bandwidth reserve (again actual data, no simulation results).</p><p>In this experiment, the disk consumption rate is above the reserved bandwidth (24 KB) during the first 100 periods, however this reservation is not enough to guarantee that the thread will succeed reading its requested amount (48 KB) each period. Consequently during some  periods, the disk usage is less than the requested amount.</p><p>After upgrading the disk bandwidth reserve to 48 KB, we can see that the thread is able to handle its workload and its disk usage is maintained above 48 KB every period. Once the reserve is downgraded at period #300, its consumption rate is again highly variable but always kept above the new reserved disk bandwidth (16 KB).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2.3.3">Dynamic Disk Bandwidth Management Overheads</head><p>We have shown in Section 1 that schedulability tests have a complexity of O(n), n being the number of disk bandwidth reserves in the set under study, both for the admission control test and for the slack computation algorithm.</p><p>In a real implementation, where disk bandwidth reserves can be created/modified "on the fly", the time to compute the admission control test and the slack computation really matters, as there will be a delay of this timespan till the reserve is ready for use. We have measured this time in our platform for some representative task sets. The results are shown in Table <ref type="table" target="#tab_3">2</ref>.</p><p>Measurements for the admission control test effectively showed the O(n) grade of complexity (=10+3*n, approx.). For the slack computation we measured the time to update slack for all the tasks in the task set (i.e. worst case, when updating reserve parameters for the highest priority reserve), so the slack computation was performed n times, leading to a complexity of O(n 2 ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.">Management of Filesystem Metadata</head><p>An aspect relevant to predictable filesystem service is how to cope with filesystem metadata information. Metadata information includes, apart from general file information such as the owner of the file, its size, access permissions, etc., information about the location of data blocks on the disk, the so-called block maps or indirect blocks. These block maps have to be retrieved from disk at run-time while accessing data disk blocks, introducing unpredictable latencies in-between data block accesses.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.1.">Metadata Information</head><p>Most of the modern filesystems, specially those derived from the Unix filesystem, make use of index-based allocation schemes to allocate blocks on disk <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b16">17]</ref>. Index blocks or block maps contain pointers to the data blocks comprising the file. In these systems, indexing is done at three levels (see Figure <ref type="figure" target="#fig_2">4</ref>). The first level contains 12 direct pointers to data blocks, and three pointers to indirect blocks 1 . All the information at the first level is stored at the inode data structure (and it is kept into memory when opening the file within the in-core inode). Files which size is less than 12 data blocks can be addressed directly using the metadata information within the inode. For a filesystem block size of 4 KB, then up to 48 KB of data can be accessed directly.</p><p>The first indirect block pointer is the address of a single indirect block. The single indirect block is an index block, containing no data, but rather the addresses of blocks that do contain data. The second pointer to indirect blocks in the inode data structure is a double indirect block, which contains the address of a block that contains the addresses of blocks that contain pointers to the actual data blocks. The last pointer would contain the address of a triple indirect block (not in use in current installations). Under this allocation scheme, accessing a file at a given offset would typically involve translating the offset into the logical block number within the file, then locating the block map (indirect block) containing the address of the data block at the given offset through the inode data structure, and finally accessing the data block from disk. If the block map is not in memory at that time, a previous disk access would be required to fetch the indirect block from disk. These additional disk head movements to access block maps introduce additional latencies that have to be accounted for, and if possible, avoided in a real-time filesystem.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.2.">Metadata Prefetching in RTFS</head><p>To avoid such an unexpected latencies when accessing metadata information, we propose to pre-fetch all the metadata information (block maps) in advance for those files being accessed under timing constraints. Caching metadata information has been proposed since early work on filesystems <ref type="bibr" target="#b16">[17]</ref>, but due to the memory penalty suffered when caching metadata information for all files within the filesystem, it was not put into practice. We propose to prefetch metadata information when opening the file (meanwhile the file is open), and only for those files accessed with timing requirements. This leads to a much less memory penalty as the former approach discussed in <ref type="bibr" target="#b16">[17]</ref>.</p><p>In order to implement that, we have included some system calls to access files with real-time semantics. To access these files special filesystem calls will be therefore used: rtfs_fopen(), rtfs_fclose(). Block maps are prefetched when opening the file. They will be kept in memory till the file is closed. rtfs_fopen() prefetchs the block maps into memory, and rtfs_fclose() releases the memory once the file is closed. Table <ref type="table" target="#tab_4">3</ref> shows the API for accessing files under real-time semantics.</p><p>It is important to notice that in conventional Unix filesystems, block maps are usually stored in the buffer cache once the block maps are fetched from disk. They will be kept there while the number of free blocks in the buffer cache is maintained above a given threshold. So in this sense, the buffer cache is also used as a block map cache. However, using the buffer cache as a block map cache is not enough in terms of predictability, as there are no guarantees that at any time the block maps are stored in memory.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.3.">Memory Costs</head><p>In terms of memory cost, the block map prefetching mechanism has an average memory consumption of 1 KB per MB of file data, for a filesystem block size of 4 KB.</p><p>One filesystem block of 4096 bytes can contain up to 1024 pointers (of 4 bytes each) to 1024 filesystem blocks. Therefore, with 4 KB we can address 4 MB of file data (1024 filesystem blocks * 4 KB), following the 1 KB/ 1MB consumption rate. We would require 1 MB of memory for allowing predictable access to 1 GB of file data, that we claim it is not a severe memory penalty for medium size platforms. In general, only these platforms will indeed require real-time disk accessing.</p><p>As metadata information will be prefetched only for files being accessed under real-time semantics, the memory cost will be kept relatively low. Other files using the conventional filesystem interface (non-realtime) will not suffer this memory consumption penalty.</p><p>Also, as we have explained above, the buffer cache is traditionally used to cache block maps into memory, so in terms of memory consumption, the penalty of block map pre-fetching is exactly the same as the former approach when all the block maps are kept into the buffer cache (although there is no guarantee for that, on the other hand, in the other case).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.4.">Experimental Evaluation</head><p>We now conduct experiments to demonstrate the need for using our proposed block map prefetching mechanism and quantify the resulting predictability obtained for accessing files on disk.</p><p>We first evaluate the impact of the unavailability of block map data for file accesses. We therefore disabled the block map cache so that block maps will be fetched for each instance of a periodic access pattern. A file was then read periodically in random fashion, using 5 different offsets uniformly distributed across the file. Before invoking the read operation each period, the new location was randomly chosen among the 5 different positions and setup using rtfs_fseek(). We measured completion times of the read operation each period. The results are shown in Figure <ref type="figure" target="#fig_4">5</ref>(a) for the conventional interface and Figure <ref type="figure" target="#fig_4">5(b)</ref> for the real-time interface.</p><p>We can see from the results that the differences are significant. The completion times for each period of the periodic read operation nearly doubles without the buffer cache.</p><p>The baseline experiment above clearly demonstrates the need to optimize access to block maps in the filesystem. Such accesses to block map data can be optimized using either caching or pre-fetching. However, a caching scheme helps only when fullbacks are being accessed repetitively so that the block maps of recently accessed fullbacks already exist in the cache. Two strong arguments weigh against such dependency on caching mechanisms in realtime filesystems:</p><p>• The study of processor caches <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b4">5]</ref> indicates that caches of such real-time data can yield high cache-hit rates but with poor predictability that real-time deadlines can be compromised. This study concludes that the static allocation of useful cache entries (with no danger of being replaced) offer hit-rates that are lower on the average but are much better for guaranteed worst-case usage.</p><p>• Real-time filesystems may store large files such as audio/video data which are normally accessed in sequential fashion for sequential processing or display. In other words, such files may completely lack locality of access that caches are meant to exploit. We now compare the performance of our proposed scheme with the buffer cache scheme when a file is sequentially accessed. One periodic real-time thread reads sequentially a file using both the conventional (nonrealtime) filesystem interface (fopen(), fclose()), and the real-time interface incorporating block map prefetching (rtfs_fopen(), rtfs_fclose()). The experiment was run in the presence of three competing threads accessing the disk. The disk bandwidth reserve mechanism was employed in both cases for the real-time thread to reserve its needed disk bandwidth for the reserved thread. The accessed files were chosen large enough to require both single and indirect block maps. We measured the completion times for each of these configurations for each periodic instance of the real-time thread. The results of this experiment are shown in Figure <ref type="figure" target="#fig_5">6</ref>.</p><p>We can see from the results that when using the conventional interface, some unexpected latencies can occur when accessing block maps from disk. This is the reason of the two peaks at period #87 and period #172 of Figure <ref type="figure" target="#fig_5">6 (a)</ref>.</p><p>By using the block map prefetching mechanism we avoid such unexpected latencies, obtaining a more predictable behavior, as the results from Figure <ref type="figure" target="#fig_5">6</ref>(b) show.</p><p>To summarize, the use of the block map prefetching mechanism when accessing real-time files yields</p><p>• Better response times as per the experiment of Figure <ref type="figure" target="#fig_4">5</ref>, and • Predictable/guaranteed response times as per the experiment of Figure <ref type="figure" target="#fig_5">6</ref>. The price that we pay is in terms of added memory usage to hold the prefetched block maps. In Section 3.3, we have already argued that this is a very acceptable practical compromise for real-time systems.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.">Conclusions</head><p>Real-time filesystems using secondary storage devices    such as disks are necessary to satisfy the growing needs of applications like multimedia systems, on-demand systems, heterogeneous CIM database systems, and C 3 I systems. In this paper, we have showed how to deal with two practical issues affecting the design of a real-time filesystem:</p><p>• dynamic disk bandwidth management, and</p><p>• undesired and unpredictable latencies when accessing meta-data information in the filesystem. Dynamic disk bandwidth management is obtained by providing a flexible interface to RTFS, a real-time filesystem server using disk bandwidth reservations and running on top of the Real-Time Mach microkernel. Basically, disk reservation parameters in use by an application can be modified dynamically if an admission control test succeeds. We have investigated complexity of employed schedulability tests has been investigated, and an experimental measurement of the actual computation time has been carried out. The results show that the computation overheads are relatively low so it is possible to apply the tests dynamically in real-time.</p><p>To avoid undesired latencies when accessing metadata information, we propose prefetching block maps from disk when opening files under real-time semantics. The block maps will remain in memory until the file is closed. An experimental evaluation demonstrates that the use of the block map prefeching mechanism allows the response times when accessing files from disk to be predictable and satisfy the timing guarantees.</p><p>Future work on this topic needs to address more intelligent management of meta-data pre-fetching, layout management for files on disk, and a detailed investigation of applications which need processing and disk bandwidths simultaneously.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Figure 1 :</head><label>1</label><figDesc>Figure 1: RTFS Software Architecture.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Figure 2 : 1 Figure 3 :</head><label>213</label><figDesc>Figure 2: An "on the fly" downgrade and upgrade sequence for a disk bandwidth reserve.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Figure 4 :</head><label>4</label><figDesc>Figure 4: Block Maps in the Berkeley Fast File System.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>1 .</head><label>1</label><figDesc>BSD Unix filesystem has 12 direct pointers and Unix SV (releases 3 or earlier ones) has 10 direct pointers.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Figure 5 .</head><label>5</label><figDesc>Figure 5. Completion Times for Random file access (a) No buffer (blockmap) caching and no blockmap prefetching. (b) With block map prefetching. No competing threads are used.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Figure 6 :</head><label>6</label><figDesc>Figure 6: Completion Times for Sequential file access (a) No blockmap prefetching, buffer caching in used (b) With block map prefetching. Three competing non-real-time disk accesses in progress.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>TABLE 1 .</head><label>1</label><figDesc></figDesc><table><row><cell>disk_bw_reserve_set_attribute(fs_reserve_t</cell></row><row><cell>fs_reserve, int flavor, fs_reserve_attr_t</cell></row><row><cell>new_attr, unsigned int new_attr_count);</cell></row><row><cell>where,</cell></row><row><cell>fs_reserve: disk bandwidth reserve</cell></row><row><cell>flavor: FS_RESERVE_UPDATE_BUDGET</cell></row><row><cell>FS_RESERVE_UPDATE_PERIOD</cell></row><row><cell>new_attr: new value for the budget or period</cell></row><row><cell>new_attr_count:parameter size</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head>TABLE 2 .</head><label>2</label><figDesc></figDesc><table><row><cell></cell><cell>Overhead</cell></row><row><cell>Description</cell><cell>(µs)</cell></row><row><cell>Admission Control 1 disk band. res.</cell><cell>12</cell></row><row><cell>Admission Control 5 disk band. res.</cell><cell>25</cell></row><row><cell>Admission Control 10 disk band. res.</cell><cell>40</cell></row><row><cell>Admission Control 20 disk band. res.</cell><cell>69</cell></row><row><cell>Slack computation 1 disk band. res.</cell><cell>11</cell></row><row><cell>Slack computation 5 disk band. res.</cell><cell>26</cell></row><row><cell>Slack computation 10 disk band. res.</cell><cell>62</cell></row><row><cell>Slack computation 20 disk band. res.</cell><cell>168</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head>TABLE 3 .</head><label>3</label><figDesc></figDesc><table><row><cell>mach_port_t rtfs_fopen(char *name);</cell></row><row><cell>int rtfs_fclose(mach_port_t file_port);</cell></row><row><cell>name: file path</cell></row><row><cell>file_port: port for accessing the file under</cell></row><row><cell>real-time semantics</cell></row></table></figure>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>Acknowledgments</head><p>We would like to thank the anonymous reviewers for their many valuable comments.</p></div>
+			</div>
+			<div type="funding">
+<div><p>This research was supported by the <rs type="funder">Defense Advanced Research Projects Agency</rs> in part under contract number <rs type="grantNumber">E30602-97-2-0287</rs> and in part under contract number <rs type="grantNumber">F30602-96-1-0160</rs>. <rs type="person">Mr. Molano</rs> was funded by a research grant from the <rs type="funder">Community of Madrid</rs> and by the <rs type="funder">National R&amp;D Program of Spain</rs> under contracts <rs type="grantNumber">TIC96-0982</rs> and <rs type="grantNumber">TIC97-0438</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_ZgjkBe4">
+					<idno type="grant-number">E30602-97-2-0287</idno>
+				</org>
+				<org type="funding" xml:id="_vjT3PNC">
+					<idno type="grant-number">F30602-96-1-0160</idno>
+				</org>
+				<org type="funding" xml:id="_zUbKV4D">
+					<idno type="grant-number">TIC96-0982</idno>
+				</org>
+				<org type="funding" xml:id="_zvXJer7">
+					<idno type="grant-number">TIC97-0438</idno>
+				</org>
+			</listOrg>
+
+			<div type="availability">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Data</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Data</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Data</head><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 13,2026 at 00:24:56 UTC from IEEE Xplore. Restrictions apply.</p></div>
+			</div>
+
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Scheduling I/O Requests with Deadlines: Performance Evaluation</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Abott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Garcia-Molina</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of Real-Time Systems Symposium</title>
+		<meeting>Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="1990">1990</date>
+			<biblScope unit="page" from="113" to="124" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Stack-Based Scheduling of Real-Time Processes</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="67" to="99" />
+			<date type="published" when="1991-03">March 1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Performance Evaluation of Two New Disk Scheduling Algorithms for Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">A</forename><surname>Stankovic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">F</forename><surname>Kurose</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Towsley</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real Time Systems Journal</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<date type="published" when="1991-09">Sept. 1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">SMART (Strategic Memory Allocation for Real-Time) Cache Design</title>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">B</forename><surname>Kirk</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the IEEE Real-Time Systems Symposium</title>
+		<meeting>the IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="1989-12">December 1989</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">SMART (Strategic Memory Allocation for Real-Time) Cache Design</title>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">B</forename><surname>Kirk</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the IEEE Real-Time Systems Symposium</title>
+		<meeting>the IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="1990-12">December 1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">RT-IPC: An IPC extension for Real-Time Mach</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Kitayama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nakajima</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Tokuda</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the USENIX Symposium on Microkernels and Other Kernel Architectures</title>
+		<meeting>the USENIX Symposium on Microkernels and Other Kernel Architectures</meeting>
+		<imprint>
+			<date type="published" when="1993-09">September 1993</date>
+			<biblScope unit="page" from="91" to="104" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<monogr>
+		<title level="m" type="main">The Design and Implementation of the 4.3 BSD UNIX Operating System</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Leffler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Mckusick</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Karels</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Quaterman</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1989">1989</date>
+			<publisher>Addison Wesley</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Scheduling Algorithms for Multiprogramming in a Hard Real Time Environment</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="page" from="47" to="61" />
+			<date type="published" when="1973">1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title/>
+	</analytic>
+	<monogr>
+		<title level="j">Lynx Systems Inc. LynxOS User&apos;s Manual</title>
+		<imprint>
+			<biblScope unit="volume">1</biblScope>
+			<date type="published" when="1993-08">August 1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">A Preemptive Priority-based Disk I/O Subsystem for the Management of Hard Real-Time Disk Traffic</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Molano</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Rodríguez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Viña</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 9th IEEE Euromicro Workshop on Real-Time Systems</title>
+		<meeting>the 9th IEEE Euromicro Workshop on Real-Time Systems<address><addrLine>Toledo (Spain)</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1997-06">June 1997</date>
+			<biblScope unit="page" from="110" to="119" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Real-Time Filesystems: Guaranteeing Timing Constraints for Disk Accesses in RT-Mach</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Molano</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Juvva</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 18th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 18th IEEE Real-Time Systems Symposium<address><addrLine>San Francisco</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1997-12">December 1997</date>
+			<biblScope unit="page" from="155" to="165" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<monogr>
+		<title level="m" type="main">Synchronization in Real-Time Systems: A Priority Inheritance Approach</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1991">1991</date>
+			<publisher>Kluwer Academic Publishers</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">A QoS-based Resource Allocation Model</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">P</forename><surname>Siewiorek</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the IEEE Real-Time Systems Symposium</title>
+		<meeting>the IEEE Real-Time Systems Symposium<address><addrLine>San Francisco</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1997-12">December 1997</date>
+			<biblScope unit="page" from="298" to="307" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Resource Kernels: A Resource-Centric Approach to Real-Time and Multimedia Systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Juvva</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Molano</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Oikawa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the SPIE/ACM Multimedia Computing and Networking Conference (MMCN&apos;98)</title>
+		<meeting>the SPIE/ACM Multimedia Computing and Networking Conference (MMCN&apos;98)<address><addrLine>San Jose, California</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1998-01">January 1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Mode Change Protocols for Priority-Driven Preemptive Scheduling</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Ramamitham</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="page" from="243" to="264" />
+			<date type="published" when="1989">1989</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Priority Inheritance Protocols: An Approach to Real-Time Synchronization</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">39</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1175" to="1185" />
+			<date type="published" when="1990-09">Sept. 1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<title level="m" type="main">Operating System Concepts</title>
+		<author>
+			<persName><forename type="first">Abraham</forename><surname>Silberschatz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Peter</forename><forename type="middle">B</forename><surname>Galvin</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1994">1994</date>
+			<publisher>Addison Wesley Publishing Company</publisher>
+		</imprint>
+	</monogr>
+	<note>Fourth Edition</note>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Aperiodic Task Scheduling on Hard Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">H</forename><forename type="middle">M B</forename><surname>Sprunt</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="page" from="27" to="60" />
+			<date type="published" when="1989-06">June 1989</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Fixed Priority Scheduling of Hard Real-Time Multi-Media Disk Traffic</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">The Computer Journal</title>
+		<imprint>
+			<biblScope unit="volume">37</biblScope>
+			<biblScope unit="issue">8</biblScope>
+			<biblScope unit="page" from="691" to="697" />
+			<date type="published" when="1994">1994</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">Wind River Systems Inc. VxWorks Programmers&apos;Guide 5.2</title>
+		<imprint>
+			<date type="published" when="1995-03">March 1995</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

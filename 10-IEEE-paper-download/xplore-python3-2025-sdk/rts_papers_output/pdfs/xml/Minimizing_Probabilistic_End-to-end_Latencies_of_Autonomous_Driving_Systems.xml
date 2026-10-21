@@ -1,0 +1,796 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Minimizing Probabilistic End-to-end Latencies of Autonomous Driving Systems</title>
+				<funder>
+					<orgName type="full">National Research Foundation of Korea</orgName>
+					<orgName type="abbreviated">NRF</orgName>
+				</funder>
+				<funder ref="#_7ejtzG4 #_NPSjHN6">
+					<orgName type="full">Korea government (MSIT)</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Taeho</forename><surname>Han</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Dept. of Intelligent Systems Soongsil University</orgName>
+								<address>
+									<settlement>Seoul</settlement>
+									<country key="KR">Korea</country>
+								</address>
+							</affiliation>
+						</author>
+						<author role="corresp">
+							<persName><forename type="first">Kanghee</forename><surname>Kim</surname></persName>
+							<email>khkim@ssu.ac.kr</email>
+							<affiliation key="aff1">
+								<orgName type="department">Schl. of Artificial Intelligence Convergence Soongsil University</orgName>
+								<address>
+									<settlement>Seoul</settlement>
+									<country key="KR">Korea</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Minimizing Probabilistic End-to-end Latencies of Autonomous Driving Systems</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">0D4A565FBEA678AB435775330D6D91B1</idno>
+					<idno type="DOI">10.1109/RTAS58335.2023.00010</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T05:07+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>Autonomous vehicles</term>
+					<term>end-to-end latency</term>
+					<term>probabilistic guarantee</term>
+					<term>schedule synthesis</term>
+					<term>Autoware</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>The responsiveness of autonomous driving (AD) systems is highly important for safety and performance of the vehicles. It is defined as end-to-end latency from sensing the surrounding environment to executing control signals, which determines how quickly the vehicle changes the driving behavior in response to an external event. The AD software stacks are modeled as a directed acyclic graph (DAG) of multi-rate tasks with variable execution times, where the probabilistic end-toend latencies (PEELs) of multiple task sequences need to be minimized on a multi-core processor. This paper proposes a novel schedule synthesis that reduces the PEELs of task sequences of interest under multi-core partitioned EDF scheduling. In the first stage, we generate a baseline schedule to avoid non-usable idle intervals as much as possible by estimating a lower bound on the total non-usable idle time. A non-usable idle interval is an idle interval that cannot be utilized by tasks preceding the interval, thus worsening the graph schedulability. In the second stage, we formulate the problem of reducing the PEELs of multiple task sequences under the baseline schedule into a multi-objective optimization of task phases and search for an optimal phase combination. Through experiments with a real AD stack called Autoware as well as synthetic task graphs, we show that our synthesis significantly improves the graph schedulability and the resulting end-to-end tail latencies.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>The responsiveness of autonomous driving (AD) systems is highly important for safety and performance of the vehicles. It is defined as end-to-end latency from sensing the surrounding environment to executing control signals, which determines how quickly the vehicle changes the driving behavior in response to an external event. For example, if the end-to-end latency is 200 ms between sensing a pedestrian in front and executing an emergency stop signal, a vehicle driving at 108 km/h (= 30 m/s) will run towards the pedestrian by six meters without any proper control. Thus, for the AD software stack, it is necessary to minimize the latencies in generating a processor schedule.</p><p>Recently, in the real-time research community, there has been much progress in analyzing the end-to-end latency of cyber-physical systems. The relevant works can be categorized into deterministic and probabilistic analyses with a graph of tasks. Deterministic analyses <ref type="bibr" target="#b0">[1]</ref>- <ref type="bibr" target="#b7">[8]</ref> compute the worst-case response times (WCRT) of tasks or the worst-case end-toend latency over a sequence of tasks, given the worst-case execution times (WCET) of the tasks. Probabilistic analyses <ref type="bibr" target="#b8">[9]</ref>- <ref type="bibr" target="#b12">[13]</ref> give probabilistic versions of WCET, WCRT, and end-to-end latencies, given the variable task execution times. In the cost-competitive automotive industry, however, the probabilistic ones are much preferred because they do not over-provision the processor resources against the worst-case demands of tasks, thus leading to a lower cost of system implementation. Recently, for AD systems, a probabilistic analysis called PEELA <ref type="bibr" target="#b12">[13]</ref> has been proposed to compute the probabilistic end-to-end latencies (PEELs) of all possible task sequences found in the graph. The analysis provides a probabilistic guarantee that the analyzed distribution of the end-to-end latency L(S) for each sequence S upperbounds the observed one from a real vehicle for S, in that Prob(L(S) observed ≤ t) ≥ Prob(L(S) analyzed ≤ t) for any t ≥ 0. From this guarantee, it gives a safe tail latency of any percentile, e.g., 99.9th, for each task sequence.</p><p>In the paper, we propose a novel schedule synthesis to reduce the PEELs of task sequences of interest under multi-core partitioned EDF scheduling while modeling the AD software stack as a directed acyclic graph (DAG) of multi-rate tasks with variable execution times. The proposed synthesis consists of two stages: (1) baseline schedule generation and (2) task phases optimization. In the first stage, a scheduling heuristic creates a baseline schedule on a multi-core processor which defines a task-to-core mapping with per-core task priority orders for each subgraph of tasks with the same period. The resulting schedule is called a baseline because the task priority order on each core will not be changed in the second stage. In the baseline scheduling, we deal with a problem called non-usable idle intervals, which may occur within a subgraph and worsen the schedulability of the entire graph. A non-usable idle interval is an idle interval that cannot be utilized by tasks preceding the interval no matter how long they execute, thus has an effect of increasing the average utilization of the underlying core. An increase in the average core utilization may lead to an increase in the end-to-end latency of each task sequence visiting the core, thus possibly degrades the schedulability of the given DAG <ref type="bibr" target="#b12">[13]</ref>. Thus, in order to generate a baseline schedule with as little non-usable idle intervals as possible, we present a systematic method to compute a lower bound on the total average non-usable idle time for each core. Combined with this method, traditional heuristics <ref type="bibr" target="#b14">[15]</ref> used for DAG scheduling in the deterministic domain can be adopted with little modification while reducing occurrences of the intervals. Moreover, we also propose a new DAG scheduler that always guarantees no occurrences of nonusable idle intervals.</p><p>In the second stage, with the baseline schedule generated, a multi-objective optimizer coordinates all task phases in the entire graph so that the PEELs of interest can be reduced. In the task phases optimization, we formulate the problem of reducing end-to-end tail latencies of multiple task sequences into multi-objective optimization and find a Pareto-optimal combination of task phases by applying an evolutionary algorithm. In our case, a Pareto-optimal combination means that, under the baseline schedule, a change of a task phase in the combination leading to an improvement of the tail latency of one task sequence necessarily results in a degradation of another. To evaluate the proposed synthesis, we perform experiments on a task graph used in a real AD stack called Autoware <ref type="bibr" target="#b13">[14]</ref> and a set of synthetic task graphs. For validation purposes, we instrument Autoware to realize the schedules generated by the proposed synthesis. The experiments show that our proposed baseline schedulers effectively suppress the increase in the average core utilizations, and that the task phases optimization further reduces the end-to-end tail latency by up to 13.0% for synthetic task graphs.</p><p>The contributions of the paper can be summarized as follows:</p><p>• To the best of our knowledge, it is the first attempt to generate a holistic multi-core schedule for a real AD stack that provides a probabilistic guarantee on the end-to-end latencies.</p><p>• The proposed synthesis provides a systematic method to compute a lower bound on the total average nonusable idle time, which allows to apply any of traditional list-based DAG scheduling algorithms with deterministic execution times to the probabilistic domain. • The Autoware stack is extended to incorporate the assumptions of the proposed synthesis, which makes it possible for the Autoware to provide a probabilistic guarantee on the end-to-end latencies. The organization of the paper is as follows. In Section II, we describe the system model and summarize the PEELA, and in Section III, we explain the proposed synthesis in detail. In Section IV, the experimental results are given, and in Section V, the related work is reviewed. Finally, in Section VI, we conclude the paper with future research directions.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. PRELIMINARIES A. System model and problem formulation</head><p>The system model we assume is the same as the one in the PEELA. That is, the system consists of a multi-core processor and executes an AD stack, which is modeled as a DAG of tasks communicating with messages. If a task τ i directly sends a message to τ j , τ i is an immediate predecessor of τ j , and τ j is an immediate successor of τ i , denoted by τ i → τ j . If a task τ j is reachable from τ i through a direct path in the graph, τ i is a predecessor of τ j , and τ j is a successor of τ i . The entire graph Γ consists of a set of K disjoint subgraphs, Γ = {Γ 1 , • • • , Γ K }, each of which is composed of tasks periodically released with the same period as the subgraph period T k . Each subgraph Γ k is formally defined as (T k , ϕ k , V k , E k ) where T k is the period of Γ k , ϕ k is the graph phase, which is a relative offset of the release time of (the first released task within) the subgraph Γ k to a reference time origin (0 ≤ ϕ k &lt; T k ), V k is the set of tasks defined as the vertices in Γ k , i.e., {τ k 1 , • • • , τ k nk }, and E k is the set of directed edges between the tasks. Each task</p><formula xml:id="formula_0">τ k i in Γ k is defined as (φ k i , a k i , C k i )</formula><p>. φ k i is the task phase, which is the relative offset φ i of the release time of τ i to that of the first released task in the same subgraph, thus the jth instance τ k i,j</p><formula xml:id="formula_1">releases at λ k i,j = ϕ k + φ k i + (j -1) × T k . The completion time of τ k i,j is denoted by η k i,j</formula><p>. a k i is the ID of a CPU core statically assigned to τ k i . C k i is a random variable describing the varying execution time of τ k i on the assigned core. For the above notations, the superscript k may be omitted whenever it is clear from the context.</p><p>For the task graph, the following assumptions are made in the PEELA.</p><p>A1. Each task reads messages as soon as it starts execution, not in the middle, and sends a message to the successors right before it finishes execution. A2. For a task to become runnable, it should receive a message from every immediate predecessor in the same subgraph (i.e., blocking I/O mode) while it does not have to do from any task in a different subgraph (i.e., nonblocking I/O mode). Every source task becomes runnable as soon as it releases. A3. For any directed sequence of subgraphs along which messages flow, i.e., Γ 1 → Γ 2 → • • • → Γ L found in the entire graph, the involved subgraphs have a nonincreasing order of periods, i.e.,</p><formula xml:id="formula_2">T 1 ≥ T 2 ≥ • • • ≥ T L . A4.</formula><p>No input message is dropped in a task to generate the corresponding output message. A5. Each subgraph is assigned a dedicated set of CPU cores while every task in the subgraph is statically pinned to a certain core in the set. Two or more subgraphs cannot share the same CPU core. A6. Every core is scheduled by EDF independently of the other cores.</p><p>Assumption A1 is safe in that it makes the analysis safe even for task graphs that do not satisfy it. The assumptions of the blocking intra-graph communication (A2) and the increasingly shortened periods of subgraph sequences (A3) make at most one input message outstanding for every communication channel in each task. Assumption A4 makes it possible to maintain one-to-one correspondence from a sensor message to a control message, thus the end-to-end latency can be defined for every sensor message. The assumptions of the non-blocking intergraph communication (A2) and the multi-core partitioned scheduling (A5) build an isolated execution environment for every subgraph. That is, the timing behavior of a subgraph is not affected by others. According to assumptions A5 and A6, all the tasks assigned to the same core are likely to be scheduled in FCFS (First Come First Served) by EDF. However, there is the possibility that preemptions may occur according to the task dependencies. For details, refer to Figure <ref type="figure">3</ref> in <ref type="bibr" target="#b12">[13]</ref>. Note that we do not deal with how to distribute a fixed number of cores to the subgraphs in the paper.</p><p>Under the above assumptions, it is proved in <ref type="bibr" target="#b12">[13]</ref> that the PEELA gives a safe end-to-end latency distribution for every task sequence in Γ. For the jth instance S j of task sequence S, the end-to-end latency L(S j ) is defined as the difference between the release of the jth instance τ f,j of the first task τ f in S and the completion of an instance τ l,k of the last task τ l in S, that reacts to the message generated by τ f,j . Then, the end-to-end latency L(S) of S is defined as a random variable describing the latency values of all possible instances of S. Note that L(S) is not merely the sum of the execution times of all the tasks involved in the sequence, but may include an idle interval caused by a task's waiting on some of the input channels in the blocking mode. The analyzed latency distribution by the PEELA is said to be safe because it upperbounds the observed distribution from a real vehicle in that Prob(L(S) observed ≤ t) ≥ Prob(L(S) analyzed ≤ t) for any t ≥ 0 under the assumption of independent task execution times. Even for the cases where the maximum utilization U max exceeds 1.0 for some core(s), the PEELA can give a limiting distribution of L(S &lt;h&gt; j ) by approaching the hyperperiod index h → ∞, as long as the average core utilization U is less than 1.0 for every core in general. A hyperperiod is a duration whose length is equal to the least common multiple of all subgraph periods, i.e., T 1 , T 2 , • • • , and T K .</p><p>In the paper, our goal is to find a multi-core schedule such that the c-percentile tail latency T L c (S) of each task sequence S of interest can be less than a threshold T L * (S) associated with S. A graph is said to be schedulable with a multi-core schedule if T L(S) ≤ T L * (S) for every S of interest. The schedule is defined as the task-to-core assignment a's, the graph phases ϕ's, and the task phases φ's. For the sake of simplicity, we define the absolute phase</p><formula xml:id="formula_3">Φ k i of τ k i as Φ k i = ϕ k +φ k i .</formula><p>Then, our synthesis problem is to find a solution vector ((a 1  1</p><formula xml:id="formula_4">, • • • , a 1 n1 , Φ 1 1 , • • • , Φ 1 n1 ,) (a 2 1 , • • • , a 2 n2 , Φ 2 1 , • • • , Φ 2 n2 ,) • • • , (a K 1 , • • • , a K nK , Φ K 1 , • • • , Φ K nK )</formula><p>). Note that, under the partitioned EDF scheduling, the relative deadline of every task in a subgraph is equal to the subgraph period.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Probabilistic end-to-end latency analysis</head><p>In this subsection, we explain how the PEELA analyzes a DAG of tasks with execution time distributions (ETDs). The analysis consists of two steps: intra-graph analysis and intergraph analysis. The intra-graph analysis analyzes the timing behavior of every subgraph independently of the others, thus producing the response time distribution (RTD) of each task in the subgraph. The response time R k i,j of τ k i,j is defined as η k i,jλ k i,j . The inter-graph analysis analyzes all possible interactions between the subgraphs in terms of the timing behavior, thus producing the end-to-end latency distribution LD(S) of each task sequence S across the subgraphs. In the following, we will explain how to compute LD(S) with an example. Figure <ref type="figure">1(a)</ref> shows the example of a graph of two subgraphs, introduced in <ref type="bibr" target="#b12">[13]</ref>, and Table <ref type="table">I</ref> summarizes the task parameters. Here, we denote the probability distribution of random variable X, i.e., P D(X), as an ordered list of probability values, i.e., P D(X) = [Prob(X = 0), Prob(X = 1), • • • , Prob(X = X max )]. Thus, in the example, tasks τ A to τ D have the same ETD as [0,   <ref type="figure">1</ref> for 2 units of time, τ B,1 does for 3 units, and so on. In this example, if we consider τ A,1 → τ B,1 → τ F,3 , the end-to-end latency is 8, which equals η F,3λ A,1 . However, our interest is LD(τ A → τ B → τ F ), not a particular latency value of τ A,1 → τ B,1 → τ F,3 . It can only be obtained by considering an infinite number of the hyperperiod of the two subgraphs Γ 1 and Γ 2 , which have different periods, 6 and 3.</p><formula xml:id="formula_5">1 /3, 1 /3, 1 /3], which means [Prob(C = 0) = 0, Prob(C = 1) = 1 /3, Prob(C = 2) = 1 /3, Prob(C = 3) = 1 /3]. Following this distribution,</formula><formula xml:id="formula_6">subgraph Γ k Γ 1 Γ 2 period T k 6 3 task τ τ A τ B τ C τ D τ E τ F absolute phase Φτ 0 1 1 3 0 1 relative deadline Dτ 6 6 6 6 3 3 ET Dτ [ 0, 1 /3, 1 /3, 1 /3] [0, 1] [ 0, 1 /2, 1 /2 ] TABLE I TASK PARAMETERS OF THE EXAMPLE GRAPH OF FIGURE</formula><p>To compute LD(S), the PEELA requires the following operators on probability distributions: shrinking , convolution ⊗, maximum , and coalescion ⊕. With the shrinking operator, P D(X) d means the distribution of the backlog observed at time d when X is a random variable defined in the time coordinate. For example, [0,</p><formula xml:id="formula_7">1 /3, 1 /3, 1 /3] 2 = [ 2 /3, 1 /3].</formula><p>With the maximum operator, P D(X) P D(Y ) means the distribution of a random variable defined as max(X, Y ). For example, [0,</p><formula xml:id="formula_8">1 /2, 1 /2] [0, 1 /2, 1 /2] = [0, 1 /4, 3 /4].</formula><p>With the convolution operator, P D(X)⊗P D(Y ) means the distribution of a random variable defined as X +Y . For example, [0,</p><formula xml:id="formula_9">1 /2, 1 /2]⊗ [0, 1 /2, 1 /2] = [0, 0, 1 /4, 2 /4, 1 /4].</formula><p>With the coalescion operator, P D(X)⊕P D(Y ) means the distribution obtained by elementwise addition between P D(X) and P D(Y ). For example, [0,</p><formula xml:id="formula_10">1 /8, 1 /8, 1 /8] ⊕ [0, 2 /8, 3 /8] = [0, 3 /8, 4 /8, 1 /8].</formula><p>Computation of RTD: For each task, the waiting time is defined as the difference between the execution start time and the release time. Thus, in each Γ k , the waiting time distribution (WTD) of each τ k j is computed by considering ipred(τ k j ), which denotes the immediate predecessor tasks of τ k j in Γ k , including the immediate preceding task on the same core. For each task τ k i in ipred(τ k j ), the WTD of τ k j solely caused by τ k i is denoted by W T D i→j and computed as RT D i (λ jλ i ).</p><p>Then, the aggregate WTD of τ k j due to all</p><formula xml:id="formula_11">τ k i in ipred(τ k j ) is computed as W T D j = W T D 1→j • • • W T D i→j • • • W T D npred→j .</formula><p>Then, the RTD of τ k j is computed as RT D j = W T D j ⊗ ET D j . In Figure <ref type="figure">1</ref>(b), assuming the dummy task τ α with zero execution time, the RTDs of τ A,1 and τ B,1 in Γ 1 are computed as follows:</p><formula xml:id="formula_12">RT D A,1 = W T D α→A,1 ⊗ ET D A = [1] ⊗ [0, 1 /3, 1 /3, 1 /3] = [0, 1 /3, 1 /3, 1 /3] RT D B,1 = W T D A,1→B,1 ⊗ ET D B = (RT D A,1 1) ⊗ ET D B = [ 1 /3, 1 /3, 1 /3] ⊗ [0, 1 /3, 1 /3, 1 /3] = [0, 1 /9, 2 /9, 3 /9, 2 /9, 1 /9] In this example, RT D A,1 of instance τ A,1 immediately represents RT D A of task τ A because RT D A,1 = • • • = RT D A,∞</formula><p>due to no backlog at the beginning of every period of Γ 1 . If any backlog may be found with non-zero probability at the beginning of the second period, W T D B,1→A,2 needs to be calculated as</p><formula xml:id="formula_13">RT D B,1 (λ A,2 -λ B,1 ). Likewise, RT D B,1 of instance τ B,1 immediately represents RT D B of task τ B .</formula><p>For the details on how to compute RT D C,1 and RT D D,1 , refer to <ref type="bibr" target="#b12">[13]</ref>. Similarly, the RT D E and RT D F in Γ 2 are computed as follows:</p><formula xml:id="formula_14">RT D E,1 = W T D α→E,1 ⊗ ET D E = [0, 1] RT D F,1 = W T D E,1→F,1 ⊗ ET D F = (RT D E,1 1) ⊗ ET D F = [0, 1 /2, 1 /2]</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Computation of LD(S):</head><p>The sequence S = τ A → τ B → τ F can be rewritten as S = S 1 → S 2 where S 1 = τ A → τ B and S 2 = τ F . Then, LD(S) depends on which instance of S 2 receives the output message generated by S 1 . In Figure <ref type="figure">1(b)</ref>, there are two possibilities to consider in computing LD(S), depending on the completion time of the first instance S 1 1 of S 1 (= τ A,1 → τ B,1 ), which equals η B,1 . The first possibility is that the message from S 1  1 may be received by S 2 2 (= τ F,2 ), which is similar to case 1 in Figure <ref type="figure">1</ref>(b), and the second is that it may be received by</p><formula xml:id="formula_15">S 2 3 (= τ F,3 ), which is case 2. Recall that LD(S 2 ) = RT D F = [0, 1 /2, 1 /2]. LD(S 1 1 → S 2 2 ) = Pr(S 1 1 → S 2 2 ) × (LD(S 2 ) -(T 2 + Φ F )) = Pr(R B,1 ≤ λ F,2 -λ B,1 ) × (LD(S 2 ) -(T 2 + Φ F )) = 6 /9 × ([0, 1 /2, 1 /2] -4) = [0, 0, 0, 0, 0, 6 /18, 6 /18]. LD(S 1 1 → S 2 3 ) = Pr(S 1 1 → S 2 3 ) × (LD(S 2 ) -(2T 2 + Φ F )) = Pr(λ F,2 -λ B,1 &lt; R B,1 ≤ λ F,3 -λ B,1 ) ×(LD(S 2 ) -(2T 2 + Φ F )) = 3 /9 × ([0, 1 /2, 1 /2] -7)</formula><p>= [0, 0, 0, 0, 0, 0, 0, 0, 3 /18, 3 /18]. Thus, LD(S) can be computed by coalescing the above two conditional LDs as follows.</p><formula xml:id="formula_16">LD(S 1 → S 2 ) = LD(S 1 1 → S 2 2 ) ⊕ LD(S 1 1 → S 2 3 ) = [0, 0, 0, 0, 0, 6 /18, 6 /18, 0, 3 /18, 3 /18].</formula><p>Finally, the c-percentile T L c (S) is computed from LD(S) as follows:</p><formula xml:id="formula_17">T L c (S) = min t Prob(L(S) ≤ t) ≥ c 100 .</formula><p>In the notation, the superscript c may be omitted whenever it is clear from the context. Thus, for S = τ A → τ B → τ F , T L 99.9 (S) = 9.</p><p>In the above example, there are two things to note. The first one is that the latency of each task sequence can be changed according to the task phase combination. In the above computation, LD(S 1 → S 2 ) has a maximum latency of 9 under Φ = (0, 1, 1, 3, 0, 1). If we change it to (1, 2, 2, 4, 0, 1), the resulting maximum latency is 8. The second one is that the analysis does not extend to the second period of Γ 1 and Γ 2 because there is no backlog left on each core at the end of the first period. However, if any backlog may be found with non-zero probability on some core, the analysis should extend to an infinite sequence of the periods until the limiting backlog distribution can be found. Then the latency distribution will be computed in the steady-state hyperperiod, defined with the hyperperiod index h → ∞.</p><p>According to our regression analysis with a worst-case subgraph maximizing the number of probability distribution operations, shown in Figure <ref type="figure" target="#fig_2">2</ref>, the complexity of the intragraph analysis is O(m 2 n 2 d 2 ) where m is the number of cores, n is the number of task instances on each core that are found under the number of periods required to converge towards the limiting distributions, and d is the maximum length of the execution time distributions of the instances. On the other hand, the complexity of the inter-graph analysis for a task sequence S, almost identical to the interference analysis of the single-core stochastic analysis <ref type="bibr" target="#b15">[16]</ref></p><formula xml:id="formula_18">, is O(k 2 d 2 )</formula><p>where k is the total number of all distinct task instances found in possible instances of S.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. PROPOSED SYNTHESIS</head><p>The goal of the proposed synthesis is to generate a multicore schedule such that the tail latency T L(S) of each S of interest in Γ can be less than or equal to a given threshold T L * (S). To this end, the proposed synthesis performs two stages: (1) baseline schedule generation and (2) task phases optimization. In the following, we first investigate into the problem of non-usable idle intervals in generating a baseline schedule.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Non-usable idle intervals</head><p>For baseline schedule generation, we consider traditional list-based DAG scheduling used in the deterministic domain <ref type="bibr" target="#b14">[15]</ref>. However, a naive application of the traditional scheduling may cause a problem called non-usable idle intervals, which have an effect of increasing the average utilization U core of the associated core. According to <ref type="bibr" target="#b12">[13]</ref>, as U core of each core approaches to 1.0, the end-to-end tail latencies of task sequences on a multi-core system get longer and longer, thus the graph schedulability may be degraded. In the following, U core only denotes the nominal average core utilization, which equals the sum of the average utilizations of tasks assigned to the core, and U core denotes the effective average core utilization that adds the effect of the intervals to U core . To help understand why the intervals matter, let us apply a traditional scheduler to Γ 1 in Figure <ref type="figure">1</ref> with the new task parameters shown in Table <ref type="table">II</ref>.</p><p>A list-based DAG scheduling performs as follows. It first computes a priority for every task in the DAG, which is used in task assignment, not task execution, and makes a ready list of the tasks in a descending order of the priorities. Then, it assigns the first task in the list to a core that allows the earliest execution by appending the task to a list of the assigned tasks to the core. This assignment will be repeated until the ready list becomes empty. One such scheduler is HLFET (Highest bottom Level First with Estimated execution Times). For HLFET, the priority of each task is the bottom level of the task, which is defined as the length of the longest path from the task to the sink task of the graph. That is, the bottom level equals the sum of the estimated execution times of all the tasks on the path. In the deterministic domain, as the estimated execution time, the worst-case execution time is used in most cases. However, in our domain, we choose the average execution time C as the estimated one because we want to distribute the tasks to the cores in terms of the average load. Thus, for Γ 1 , the bottom levels are computed as follows:</p><formula xml:id="formula_19">btmlevel(τ D ) = C D = 1.5, btmlevel(τ C ) = C C + C D = 3.5 + 1.5 = 5, btmlevel(τ B ) = C B + C D = 1.5 + 1.5 = 3, and btmlevel(τ A ) = C A + C C + C D = 1.5 + 3.5 + 1.5 = 6.5.</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Thus, the resulting ready list is</head><formula xml:id="formula_20">[τ A , τ C , τ B , τ D ].</formula><p>Next, task assignment is performed as follows. For each task in the ready list, a core allowing the earliest execution time will be selected, and if two or more cores allow the same earliest execution time, a core with a lower U core will be selected. This tie breaking rule aims to balance the load across the cores so that they can exploit task-level parallelism. Thus, it assigns τ A to core 1</p><formula xml:id="formula_21">((U core1 , U core2 ) = ( 1.5 /6, 0)), τ C to core 2 ((U core1 , U core2 ) = ( 1.5 /6, 3.5 /6)), τ B to core 1 ((U core1 , U core2 ) = ( 3 /6, 3.5 /6</formula><p>)), and τ D to core 1 ((U core1 , U core2 ) = ( 4.5 /6, 3.5 /6)). Figure <ref type="figure">3(a)</ref> shows the resulting schedule of HLFET.</p><p>However, the above schedule turns out to be unschedulable as follows. On core 1, in the second period, the execution of τ A,2 may be delayed by the backlog left by τ D,1 , which results from the serialized execution of τ A,1 → τ C,1 → τ D,1 . For the same reason, in the third period, the execution of τ A,3 may be further delayed by the backlog left by τ D,2 , and so on. This im- <ref type="figure">1</ref> (a) A schedule with non-usable idle intervals (b) A schedule with usable idle intervals Fig. <ref type="figure">3</ref>. Non-usable vs. usable idle intervals plies that</p><formula xml:id="formula_22">task τ τ A τ B τ D τ C absolute phase Φτ 0 0 0 0 ET Dτ [ 0, 1 /2, 1 /2 ] [ 0, 0, 0, 1 /2, 1 /2 ] Cτ 1.5 3.5 TABLE II NEW TASK PARAMETERS FOR Γ 1 IN FIGURE</formula><formula xml:id="formula_23">U core1 = U A +U C +U D = (1.5+3.5+1.5) /6 = 6.5 /6 &gt; 1.0, even if U core1 = U A + U B + U D = (1.</formula><p>5+1.5+1.5) /6 = 4.5 /6 &lt; 1.0. The reason why U core1 &gt; U core1 is that τ C creates a non-usable idle interval I 1 on core 1 from the viewpoint of τ A . That is, I 1 cannot be reduced no matter how long τ A or the tasks preceding τ A execute. I 1 can only be reduced (or consumed) by τ B , which executes in parallel with τ C . Thus, we define U core as U core + 1 T k NT k where NT k is the average time of a non-usable idle interval occurring on the core. Note that, in the deterministic domain, the task execution times C and the interval lengths NT are all deterministic, thus there is no need to consider the possibility that some preceding tasks may utilize the intervals with other execution time values than the deterministic ones as long as the deterministic schedulability is met. However, in the probabilistic domain, C and NT are random variables, thus we have to consider possible combinations of values of the variables that may affect the schedulability of the underlying schedule. In the above example, the problem is that the task dependencies in</p><formula xml:id="formula_24">τ A → τ C → τ D make the combination of C A + C C + C D behave like a single virtual task, leading to U core1 &gt; 1.0.</formula><p>To avoid such intervals, we take the approach to modifying the tie breaking rule of the list-based schedulers. That is, in task assignment, a core with a lower U core , not U core , will be selected if two or more cores allow the same earliest execution time. According to this rule, it assigns τ A to core 1</p><formula xml:id="formula_25">(( U core1 , U core2 ) = ( 1.5 /6, 0)), τ C to core 2 (( U core1 , U core2 ) = ( 1.5 /6, 3.5 /6)), τ B to core 1 (( U core1 , U core2 ) = ( 3 /6, 3.5 /6)),</formula><p>and τ D to core 2 (( U core1 , U core2 ) = ( 3 /6, 5 /6)). Figure <ref type="figure">3(b)</ref> shows the resulting modified schedule. In this schedule, the non-usable intervals in Figure <ref type="figure">3</ref>(a) turns into usable ones, thus U core = U core for every task assignment. After all the tasks are assigned, since U core &lt; 1.0 for both cores, the graph with the resulting schedule may be schedulable. In the following subsection, we will describe how to estimate U core for any schedule being constructed with task assignment.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Computation of Effective Core Utilization U core</head><p>To generate a baseline schedule with better schedulability, we need to check if the intermediate schedule being constructed may cause a non-usable idle interval for each task assignment. In this subsection, we will describe how to identify such intervals in an arbitrary DAG schedule and estimate a lower bound NT lb core on the total average NT for each core. The reason why we compute NT lb core is that a graph schedule may be too complex to analyze the exact average NT due to multiple non-usable intervals possibly overlapping each other and due to an infinite number of combinations of the variable task execution times. Each time a task is assigned to a core, our baseline scheduler will assign the task to a core giving a lowest U lb core with the task. U lb core is defined as</p><formula xml:id="formula_26">U core + 1 T NT lb core .</formula><p>Even if the exact average NT may not be computed, our experiments will show that the baseline scheduler using U lb core generates better schedules than with U core in most cases.</p><p>To help understand how to compute NT lb core , revisit the naive schedule in Figure <ref type="figure">3</ref>(a). As soon as τ D is assigned to core 1, we can see that the non-usable I 1 occurs because τ A and τ D are assigned to the same core. Between τ A and τ D , τ B and τ C execute in parallel, thus NT = max(0, C C -C B ) = max(0, 3.5 -1.5) = 2. We generalize this idea for a task sequence S = τ f → • • • → τ l starting and terminating at the same core with an intermediate task assigned to a different core. For such an S, we define the on-core path of S, denoted by S, as the task sequence consisting of τ f , τ l , and all the tasks released on the core between the release times of τ f and τ l , thus always executing between τ f and τ l . Then, we can rewrite the average NT due to S, denoted by NT (S), as max(0, C(S) -C( S)) where C(S) is the sum of the average execution times of all tasks in S. In the above example,</p><formula xml:id="formula_27">S = τ A → τ C → τ D , S = τ A → τ B → τ D ,</formula><p>and thus, NT (S) = max(0, C(S) -C( S)) = max(0, 6.5 -4.5) = 2. In this example, however, all the tasks are assumed to be released at the same time as the beginning of the period. The following lemma extends to task sequences with arbitrary task release times.</p><formula xml:id="formula_28">Lemma 1. For S = τ f → τ S(2) → • • • → τ S(n-1) → τ l that</formula><p>starts, terminates, and creates NTs at the same core, the average non-usable idle time NT (S) due to S is max(0, C(S) -C( S)) for any arbitrary combination of the release times of the tasks in S and S, assuming that there are no other sequences between τ f and τ l that starts, terminates, and creates NTs at the same core.</p><p>Proof. To prove this lemma, first consider a case where all tasks in S and S are ready to execute at the same time as λ f . Then it is straightforward that NT (S) = max(0, C(S) -C( S)) because there are no idle times between any two consecutive tasks, except for the last two in either S or S, which is similar to the simple case of Figure <ref type="figure">3(a)</ref>. Next, consider a schedule with arbitrary release times, as shown in Figure <ref type="figure">4(a)</ref>. In this schedule, it is assumed that every task in S and S has a deterministic execution time, and that the tasks in S have an increasing order of the release times, that is,</p><formula xml:id="formula_29">λ f ≤ λ S(2) ≤ • • • λ S(n-1) ≤ λ l .</formula><p>Even if there may be a schedule with a non-increasing order of the release times, we do not need to consider such a schedule because it behaves in the same way as the one in Figure <ref type="figure">4</ref>(a) due to the serialized execution of the tasks according to task dependencies. In the schedule, there may exist some idle intervals I k between the tasks in S and also between the tasks in S. For those intervals, in order to extract true non-usable idle times by τ f , suppose that the completion of τ f is delayed due to some backlog from tasks preceding τ f and/or an overrun of τ f , for example, until interval I 2 disappears, which is shown in Figure <ref type="figure">4(b)</ref>. Then, it turns out that I 1 and I 2 are usable by τ f and/or tasks preceding τ f , thus a non-usable idle interval I * appears as max(0, (C S(2) +C S(3) )-(C S(2) +C S(3) )). Following this idea, let us consider the case where the completion of τ f is delayed until all idle intervals, i.e., I 1 to I n-1 , between the tasks in S, or all idle intervals between the tasks in S disappear. In this case, the total amount of non-usable intervals by τ f also equals NT (S) = max(0, C(S) -C( S)). Since this holds for any combination of deterministic task execution times, the above lemma holds.</p><p>Next, let us consider a complex case where there are multiple NT-creating task sequences on the same core. For ease of explanation, for two tasks τ i and τ j assigned to the same core, If τ i always precedes τ j in the scheduling order due to the task dependency or the priorities, we denote it by τ i ⇒ τ j . Also, we interchangeably use the terms, task sequences and task paths. Then, any two paths starting, terminating, and creating NTs at the same core,</p><formula xml:id="formula_30">S A = τ A(1) → • • • → τ A(n) and S B = τ B(1) → • • • → τ B(m) , are said to not overlap each other if τ A(n) ⇒ τ B(1) or τ A(n) = τ B(1)</formula><p>. This is denoted by S A // S B . On the contrary, if τ B(1) ⇒ τ A(n) and Proof. This lemma is obvious since NT (S A ) and NT (S B ) are two independent random variables.</p><p>From now on, the total average NT due to S A and S B is denoted by NT (S A S B ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 3. For two overlapping paths, S A and S B , that start, terminate, and create NTs at the same core, a lower bound on NT (S A S B ) is max(NT (S A ), NT (S B )) whether or not one path is nested in the other.</head><p>Proof. To prove this lemma, first consider a non-nested case, as shown in Figure <ref type="figure">5</ref>(a). For ease of explanation, I S is defined as the interval between the completion time of the starting task of S and the execution start time of the terminating task of S. I S1∪S2 is defined as the interval between the minimum of the completion times of the starting tasks of Therefore, the above lemma holds.</p><p>Figure <ref type="figure">6</ref>(a) depicts a complex schedule example with multiple overlapping paths. In this example, let us focus on computing the total average NT on core 1. There are six tasks assigned and four task paths creating NTs at core 1, assuming that τ D ⇒ τ E , and <ref type="figure">6</ref>(b) shows a tree of the paths, which expresses all the overlapping relations observed. That is, a parent-child relationship represents that the child path is nested in the parent path. A child group represents a chain of paths in which any two consecutive paths overlap each other. A path in a child group never overlaps with any Then, NT lb core1 is computed as follows. First, according to Lemma 1, NT (S1) = max(0, (</p><formula xml:id="formula_31">τ G ⇒ τ H : S1 = τ A → τ B → τ D , S2 = τ E → τ F → τ H , S3 = τ G → τ I → τ J , and S4 = τ A → τ C → τ J . Figure</formula><formula xml:id="formula_32">C A + C B + C D ) -(C A + C D )) = 1, NT (S2) = max(0, (C E + C F + C H ) -(C E + C G + C H )) = 1, NT (S3) = max(0, (C G + C I + C J ) - (C G + C H + C J )) = 1, and NT (S4) = max(0, (C A + C C + C J ) -(C A + C D + C E + C G + C H + C J )) = 1.</formula><p>Second, according to Lemma 2 and 3, NT</p><formula xml:id="formula_33">lb (S1 S2 S3) = NT (S1 // (S2 // S3)) = NT (S1) + NT (S2 // S3) = 1 + 1 = 2.</formula><p>Finally, in order to compute NT lb (S4 (S1 S2 S3)), </p><formula xml:id="formula_34">the</formula><formula xml:id="formula_35">• • • S child(n) ) is max(NT (S parent ), NT (S child(1) • • • S child(n) )).</formula><p>Proof. This lemma is straightforward from Lemma 3 because</p><formula xml:id="formula_36">S parent // (S child(1) • • • S child(n) ).</formula><p>To generalize the above idea of computing a lower bound on the total average NT, we should compose a tree of all paths creating NTs for each core within a single period of the associated subgraph. For the cases where no single path exists that covers all the others, we create a dummy root to complete the tree. Then, a lower bound NT lb core(k) on core k can be computed by calling the procedure shown in Table <ref type="table">III</ref> with the root node of the tree constructed on core k as the argument. This procedure is recursively called in post-order traversal with the argument child node (line 12). Each node consists of path, on-core path path, and an ordered list of child groups. For each child group consisting</p><formula xml:id="formula_37">{ NT lb } = TotalAverageNonusableIdleTime(node) 1. { 2.</formula><p>node.path.NT = max(0, (C(node.path) -C(node. path))) // Lemma 1 3.</p><p>if (len(node.child groups)) == 0) { 4.</p><p>node.tree.NT = node.path.NT 5.</p><p>return node.tree.NT // for the topmost caller 6. } 7.</p><p>node.child groups.NT = 0 8.</p><p>for (j = 0; j &lt; len(node.child groups); j++) { 9.</p><p>child group = node.child groups[j] 10.</p><p>for (t = 0, i = 0; i &lt; len(child group); i++) { 11.</p><p>child node = child group[i] 12.</p><p>TotalAverageNonusableIdleTime(child node) // The above call fills child node.tree.NT . of child node i 's, the procedure takes max i NT (child node i ) as NT (child group) (lines 10 -15). Then, it takes j NT (child group j ) as NT (child groups) (line 16). Finally, for the node-rooted tree, the overall NT (node) is computed as max(NT (node.path), NT (node.child groups)) (line 18). <ref type="table">III</ref> gives a lower bound NT lb core(k) if the root node of the tree of NT-creating paths constructed from core k is given as the argument node.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Theorem 1. The procedure in Table</head><p>Proof. This theorem can be proved by mathematical induction. For the root node, apply Lemma 4 to the node. For child groups of the root, apply Lemma 2 to the groups. Within a child group, apply Lemma 3 to all the nodes in the group. These steps are recursively performed for each child node. For any node given as the argument by the recursive calls, apply Lemma 1. Then, the above theorem holds.</p><p>According to Theorem 1, for the tree example of Figure <ref type="figure">6</ref></p><formula xml:id="formula_38">(b), NT lb (S4 (S1 S2 S3)) = max(NT (S4), NT (S1 S2 S3)) = max(1, 2) = 2. Thus, U lb core1 is computed as U core1 + NT lb core1</formula><p>T = 6 /10 + 2 /10 = 0.8 where T = 10.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Baseline Schedule Generation</head><p>To reduce the end-to-end tail latencies, we need to generate a good baseline schedule for a given task graph. To this aim, we generate a baseline schedule for each of the subgraphs and simply merge the resulting subgraph schedules into one as the baseline schedule for the entire graph. This is possible because the subgraph schedules do not share any core due to the assumption of partitioned scheduling. As baseline schedulers, we propose two DAG schedulers: HLFETNT and BLFLT. HLFETNT (Highest bottom Level First with Estimated execution Times and Non-usable idle Times) is our variant of Our experiments will show that HLFETNT is better for graphs leading to low average core utilizations while BLFLT is better for graphs leading to high average core utilizations.</p><p>The two proposed baseline schedulers take different approaches to balancing the loads of cores. HLFETNT distributes tasks across the given set of cores while BLFLT clusters tasks on a one-core-by-one-core basis. To compare HLFETNT and BLFLT, let us consider a subgraph example in Figure <ref type="figure" target="#fig_7">7</ref>. In this example, there is a graph of five tasks with the same C = 1, and the bottom levels of the tasks are as follows: btmlevel(τ A ) = btmlevel(τ B ) = 3, btmlevel(τ C ) = btmlevel(τ D ) = 2, and btmlevel(τ E ) = 1. In this case, the BFS level of each task, bf slevel, assuming to take the dummy Ω as the source task, happens to be equal to the btmlevel.</p><p>Then, as described earlier, HLFETNT distributes the tasks on the given cores by assigning a task with the highest btmlevel to a core with the lowest U in every task assignment. The resulting schedule is shown in the left box in Figure <ref type="figure" target="#fig_7">7</ref>. In this simple example, no NT happens to occur (even if we use HLFET). Thus, the resulting average makespan of the schedule is 3. On the contrary, BLFLT clusters the tasks on a one-core-by-one-core basis by assigning a task with the highest bf slevel to the current core as long as the resulting U core does not exceed a certain threshold U T H . This threshold</p><formula xml:id="formula_39">U T H is determined to be 1 T × max( i Ci m , max i C i ), where i Ci m</formula><p>is the ideal average load for each of the given m cores, and the ceiling is taken because the probability distributions are defined in integer domain. The reason why we consider max i C i is that we have to allow at least one core to contain the task with the largest C, possibly greater than the ideal average load. Thus, the load threshold computed for the above example, not divided by T , is max( <ref type="formula">5</ref>2 , 1) = 3. The resulting schedule is shown in the right box in Figure <ref type="figure" target="#fig_7">7</ref>, which gives the average makespan of 4.</p><p>From the above example, we observe that HLFETNT performs better than BLFLT in terms of the average makespan. This is because HLFETNT tends to better exploit task-level parallelism while BLFLT tends to exploit pipeline parallelism, not task-level parallelism. Nonetheless, for the cases where HLFETNT suffers from a high U due to non-avoidable NTs, BLFLT may perform better.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 5. The BLFLT scheduler guarantees that</head><formula xml:id="formula_40">U = U in { Schedule } = ScheduleByBLFLT(Γ, n cpus) 1. { 2.</formula><p>task list = TaskListInBfsLevelOrder(Γ)</p><formula xml:id="formula_41">3. U T H = 1 T × max( i C i n cpus , max i C i ) 4. done = false 5.</formula><p>while (done == false) { 6. k = 0 7.</p><p>P erCoreT askLists[0:</p><formula xml:id="formula_42">n cpus] = [ [], [], • • • , [] ] 8.</formula><p>for (each τ of task list) { 9.</p><p>if Proof. An NT may occur only for such a path S = τ 1 → • • • → τ n that τ 1 and τ n are mapped to the same core k while at least an intermediate task τ i in S is mapped to a different core. However, the BLFLT clusters tasks with the same level l, and then tasks with level l -1, and then tasks with level l -2, and so on for the core considered as long as U T H is not exceeded. This means that BLFLT allows no intermediate task to be mapped to another core for any sequence S, thus creates no non-usable idle times. Therefore, the above lemma holds.</p><formula xml:id="formula_43">(U core(m) + U τ &gt; U T H ) 10. k = k + 1 11. if (k == n cpus) 12. break 13. aτ = k //</formula><p>Table <ref type="table">IV</ref> gives the procedure of BLFLT schedule generation. The while loop in line 5 -20 tries to assign all the tasks of Γ under the required number of cores, n cpus, but if the number of cores used exceeds n cpus (line 11), it increases U T H by U Δ (line 17) in order to create a schedule with the given number of cores, n cpus.</p><p>Regarding the time complexity, HLFETNT is O(n 3 ) + O(n × m × d 2 ) for a DAG with n tasks and a set of m cores, which creates a maximum possible number d of paths creating NTs under HLFETNT, and BLFLT is O(n 2 + l × n) with l iterations of the schedule generation loop. The proofs are omitted here due to the page limit.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Task Phases Optimization</head><p>Once the baseline schedule of the entire graph is constructed, we conduct task phases optimization in terms of the absolute task phases Φ to further reduce the end-toend latency of each task sequence. However, since there are multiple task paths of interest that share the same task(s), a task phase combination may be advantageous to one sequence, but disadvantageous to others at the same time. For example, let us consider two paths, S 1 = τ A → τ B → τ C and S 2 = τ A → τ C within a subgraph, assuming that τ A , τ B , and τ C have a constant execution time of 1 and a period of 3, and that τ A and τ B are assigned to core 1 while τ C is assigned to core 2. In this example, it is clear that, to achieve a minimum value of 3 for T L(S 1 ), it is required that Φ A = 0, Φ B = 1, and Φ C = 2, which leads to T L(S 2 ) = 3. On the contrary, to achieve a minimum value of 2 for T L(S 2 ), if we set Φ A = 0 and Φ B = Φ C = 1, it leads to T L(S 1 ) = 5 because every instance of S 1 starts from τ A,j in the jthe period and ends at τ C,j+1 in the (j + 1)th period. This trade-off relation may happen even across subgraphs. An argument vector, e.g., Φ, that leads to an improvement of one objective function, e.g., T L(S 1 ) or T L(S 2 ), but necessarily requires a degradation of another is said to be a Pareto-optimal solution. In this case, we need to search for a solution space called a Pareto frontier by formulating the problem into multi-objective optimization. That is, T L(S p ) of each S p of interest is treated as an objective function</p><formula xml:id="formula_44">T L Sp of (Φ 1 , • • • , Φ N ) where p = 1, • • • , P (P = the number of paths). argmin (Φ1,••• ,ΦN ) T L Sp (Φ 1 , • • • , Φ N ) p = 1, • • • , P subject to Φ 1 = 0 0 ≤ Φ i ≤ T i -1 i = 2, • • • , N Φ k i ≤ Φ k j for any τ k i ⇒ τ k j</formula><p>In the above formulation, Φ 1 = 0 because we use τ 1 as an anchor task, and vary the phases of the other tasks. The constraint that 0 ≤ Φ i ≤ T i -1 is added since every task is periodic. The constraint that Φ k i ≤ Φ k j represents the precedence relation between any two tasks in the same subgraph, i.e., τ k i → τ k j or τ k i ⇒ τ k j . Then, to search for Pareto-optimal solutions, we use an evoluationary algorithm called NSGA-II (Non-dominated Sorting Genetic Algorithm-II) <ref type="bibr" target="#b16">[17]</ref>. This algorithm starts with an initial population of M argument vectors, creates their offspring, consisting of M children, thus leading to a combined population of M parents and M children. Then, it evaluates each of the 2M argument vectors in terms of P objective functions and sorts them considering the dominating relations among the vectors according to the evaluation result. Finally, it takes only the first M best vectors from the sorted ones as new parents while dropping the remaining vectors, and goes back to creating their offspring in order to repeat the entire process. This process should be repeated in order to achieve a good spread of Pareto-optimal solutions. Once the solutions are obtained, we may select a particular solution of interest by comparing a weighted sum of the resulting values of the objective functions. In our experiments, we will set all the weights to one, which means that all the task paths of interest are equally important.</p><p>The time complexity of a single iteration of NSGA-II is O(P M 2 + AM ) where O(P M 2 ) is the sorting complexity <ref type="bibr" target="#b16">[17]</ref> and O(AM ) is the analysis complexity with M different argument vectors and the PEELA's analysis time of A. If the required number of iterations is G, the resulting synthesis complexity is O(GP M 2 + GAM ). According to <ref type="bibr" target="#b12">[13]</ref>, the analysis time is dominated by the maximum of U core 's in the given schedule. In our experiments, with the computer described in Section IV-B, the task phases optimization with NSGA-II requires 166 seconds for a synthetic graph of 30 </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. EXPERIMENTAL RESULTS</head><p>To evaluate the proposed synthesis, we have written two programs in Python: (1) schedule synthesizer and (2) PEELAnalyzer. Given a task graph, the schedule synthesizer generates a multi-core schedule using a baseline scheduler with or without the task phases optimization, which is implemented with the NSGA-II solver in pymoo <ref type="bibr" target="#b17">[18]</ref>. Then, the PEELAnalyzer takes both the graph and the generated schedule to compute the T L(S) for every S of interest. Following <ref type="bibr" target="#b12">[13]</ref>, the analyzer implements the whole probabilistic end-to-end latency analysis, which covers both harmonic and non-harmonic subgraphs.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Evaluation with synthetic task graphs</head><p>For the experiments, we randomly generate 100 task graphs, each consisting of 30 tasks. The 30 tasks are randomly distributed to four subgraphs, Γ100, Γ40, Γ25, and Γ10 with T = 100, 40, 25, and 10, respectively, according to Stafford's randfixedsum algorithm <ref type="bibr" target="#b19">[20]</ref>. Every subgraph Γ k in Γ has the same average utilization U Γ , a portion of which is also randomly distributed to the constituent tasks according to the randfixedsum. In the experiments, U Γ is varied from 0.8 to 1.2, which has the effect of varying U core when a fixed number of cores is dedicated to each subgraph. Each task τ k i has a uniform execution time distribution with an average equal to</p><formula xml:id="formula_45">C k i = U k i × T k that ranges from 1 to 2 × C k i -1.</formula><p>To determine the shape of a subgraph, we use the shape parameter α introduced in <ref type="bibr" target="#b18">[19]</ref>. It defines the height and width of the subgraph, where the height denotes the number of levels and the width denotes the number of tasks at each level in the subgraph. A small value of α 1.0 produces a thin graph with a low degree of task parallelism while a large value of α 1.0 produces a fat graph with a high degree of parallelism. α is varied from 0.5 to 2.0. Each task has 1.5 edges on average to the successor tasks.</p><p>For each graph Γ, we first generate baseline schedules for three schedulers, HLFET, HLFETNT, and BLFLT, and then apply the in-phase condition to the schedules, which means that every task has the same zero phase. In the baseline schedule generation, the same number of cores, which is four, are assumed to be dedicated to each subgraph in every graph. To evaluate the schedulability of the resulting baseline schedules, we measure the effective average subgraph utilization U (Γ) of each subgraph, defined as the sum of U core 's of the dedicated cores to the subgraph, and take U (Γ) = max( U (Γ100), U (Γ40), U (Γ25), U (Γ10)) as the effective average graph utilization of the entire graph Γ in order to see the influences of the NTs.</p><p>Figure <ref type="figure">8</ref>(a) shows the number of task graphs determined to be analyzable among the 100 synthetic graphs. We determine a graph to be analyzable (TBA) if every core in the resulting schedule has U core ≤ 0.7. The case of U core &gt; 0.7 means that U max core &gt; 1.4, which may significantly degrade the response times of the tasks mapped on the core, and in turn, the endto-end tail latencies of task paths visiting the core. Even if the ideal U core is just 0.25 with four cores in the case of U Γ = 1.0, such cases may happen since no baseline scheduler can always achieve the ideal balancing due to the non-uniform average task execution times. From the figure, in the case of HLFET, as U Γ is varied from 0.8 to 1.2, the number of the TBA task graphs with α = 0.5 largely decreases from 85 (U Γ =0.8) to 18 (U Γ =1.2). However, this tendency is significantly mitigated in HLFETNT, thus the number of TBA graphs with α = 0.5 starts from 100 (U Γ =0.8) and decreases to 61 (U Γ =1.2), which is much better than HLFET. Nonetheless, note that HLFETNT does not completely remove NTs. Only BLFLT produces NT-free schedules for all the 100 synthetic graphs regardless of α. <ref type="bibr">Figure 8(b)</ref> shows U (Γ) for the same 100 synthetic graphs. From the figure, it is obvious that a small α and/or a high U Γ lead to high U (Γ)'s for HLFET. When α = 0.5 and U Γ = 1.2, the average U (Γ) of the 100 graphs amounts to 2.18 for HLFET, but 1.31 for HLFETNT, and 1.2 for BLFLT.</p><p>For only TBA graph Γ's obtained in Figure <ref type="figure">8</ref>(a), we apply the PEELA to get the average of the AT L's of all the TBA graphs with or without the task phases optimization for HLFET, HLFETNT, and BLFLT. The AT L is the average of the end-to-end tail latencies of 99.9999th percentile for all task paths of interest, which are analyzed by the PEELA. In Γ, there are many end-to-end task paths, but our interest is the ones starting from Γ100 and terminating at Γ10: that is, Γ100 → Γ40 → Γ25 → Γ10, Γ100 → Γ40 → Γ10, Γ100 → Γ25 → Γ10, and Γ100 → Γ10. At this point, note that any deterministic worst-case timing analysis cannot deal with our task graphs because the graphs may have some Fig. <ref type="figure">9</ref>. The average tail latencies of the synthetic task graphs core(s) with U max core &gt; 1.0. Figure <ref type="figure">9</ref> shows the average AT L's. From the figure, we can see that, for various α and U Γ , the average AT L of the in-phase HLFETNT schedules is very close to that of HLFET in most cases. However, in the case where α = 0.5 and U Γ = 1.2, the average AT L for HLFET is 289, which is worse than that of HLFETNT, 268.39. The former covers only 18 TBA graphs while the latter covers 61 TBA graphs. As mentioned above, for HLFET, 82 out of the 100 graphs are determined not to be analyzable because U core in the resulting schedule is greater than 0.7 for some core(s). This confirms that the increased U core degrades the schedulability of the given graphs. On the contrary, the average AT L of the in-phase BLFLT schedules (or phase optimized BLFLT) is never better than that of HLFETNT (or phase optimized HLFETNT). This is because HLFETNT better exploits tasklevel parallelism than BLFLT as explained earlier. However, as shown in Figure <ref type="figure">8</ref>(a), recall that BLFLT may generate analyzable schedules for the graphs determined not to be analyzable with HLFETNT. Finally, note that the task phases optimization gives 13% improvement in the average AT L with α = 2.0 and U Γ = 1.2, between the in-phase HLFETNT (AT L=213.44) and the phase optimized HLFETNT (AT L=185.38).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Case study with Autoware</head><p>In this subsection, we perform a case study with Autoware. Since Autoware is a real AD stack, we run it with a vehicle simulator called SVL <ref type="bibr" target="#b20">[21]</ref> with two virtual Lidars (one for the front and the other for the rear) and one front camera. From a 5 minute-long simulation run, we obtain a sensor recording file which captures the surrounding environment in a virtual street in the simulator and then run Autoware while replaying the file in real-time. The computing system is equipped with an Intel i7 processor with 6 cores (12 virtual cores) operating at 2.6 GHz, main memory of 32 GB, and a GPU of RTX 2070. It runs Ubuntu Linux 20.04, ROS2 Galactic version, and Autoware.auto v1.0.0. Figure <ref type="figure">10</ref> shows the task graph of the Autoware, which consists of three subgraphs: control subgraph with T = 10, vision subgraph with T = 50, and Lidar subgraph with T = 100ms. The Autoware stack is instrumented to collect timing information such as task Fig. <ref type="figure">10</ref>. The task graph of Autoware execution times and end-to-end latencies in the same way as in <ref type="bibr" target="#b12">[13]</ref>. The task execution times are collected while executing the Autoware graph five times with the same recording file. With the collected task ETDs, we use the proposed synthesis to generate HLFET, HLFETNT and BLFLT schedules with four cores: one for the control subgraph, two for the Lidar subgraph, and one for the vision subgraph. Table <ref type="table">V</ref> gives the task assignment results of the three schedulers. From the table, we can see that, for the Autoware graph, HLFET happens to generate the same result as HLFETNT, and that BLFLT does not well balance the load between core 1 and 2 due to the greedy assignment to fill the load threshold for core 1, which could be improved with more combinatorial search. Then, to collect the end-to-end latencies of task paths, we execute the Autoware graph five times under the in-phase combination and also under the optimized phase combination by the proposed multi-objective optimization. The paths of interest are {F |R}LD → EU C → MOT → BHP → P P S, two Lidar-based detection-to-control paths, and {F |R}LD → NDT → EKF → P P S, two Lidar-based localization-tocontrol paths. The five latency histograms obtained for each path are averaged into one distribution, from which the tail latency of 99.9999th percentile is extracted.</p><p>Table <ref type="table">VI</ref> gives the TLs obtained for each task path under the three schedules. Each column of the table gives two numbers: one without parentheses and the other with parentheses. The former is the one directly measured with the instrumented Autoware being executed while the latter is the one analyzed with the PEELA. From the table, it is clear that the optimized phase combination gives better latencies. Moreover, it confirms that the measured TL ≤ the analyzed TL for each path, which is a probabilistic guarantee provided by the PEELA. The TL of F LD → MOT → P P S is decreased under HLFETNT from 101 to 76ms (25% improvement), while that is decreased under BLFLT from 104 to 93ms (10.6% improvement).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. RELATED WORK</head><p>In real-time domain, there are several studies that analyze the timing behavior of graph-structured software. They can be classified in the task model they use. One group of the studies <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b11">[12]</ref> deals with a graph of single-rate subtasks. For example, the schedulability analysis proposed in <ref type="bibr" target="#b11">[12]</ref> deals with a single graph of subtasks with variable execution times and the same period under EDF scheduling on a uniprocessor system. This analysis is a probabilistic extension of the deterministic schedulability analysis, presented in <ref type="bibr" target="#b24">[25]</ref>, and provides a safe schedulability test by transforming both task release times and deadlines into probability distributions. As another example, the parallel DAG scheduling is presented in <ref type="bibr" target="#b6">[7]</ref> to exploit the nested parallelism in the OpenMP task and to derive the response time bound under a hierarchical scheduling. Also, the WCRT analysis <ref type="bibr" target="#b7">[8]</ref> deals with OpenMP programs with loop structures, which create a directed cyclic graph.</p><p>Another group of the studies [3]- <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b10">[11]</ref> addresses multiple independent tasks possibly with different periods, each task modeled as a graph of subtasks with the same period. For example, the probabilistic schedulability analysis (PSA) proposed in <ref type="bibr" target="#b10">[11]</ref> analyzes a set of multiple DAGs found in a drone system under fixed-priority scheduling on a multi-core system. In each DAG, an end-to-end latency is probabilistically computed between a source and a sink subtask within a task, assuming that all the subtasks within the DAG release at the same time. Based on the PSA, a synthesis method that determines subtask-level priorities is also presented in <ref type="bibr" target="#b10">[11]</ref>. For a set of multiple DAGs with the worst-case subtask execution times, a multi-core partitioning heuristic exploiting the subtask-level parallelism is also proposed in <ref type="bibr" target="#b25">[26]</ref>.</p><p>However, the above two task models are not general enough to cover the AD stacks, which consist of a graph of multirate tasks (or subgraphs). This task model is addressed by the other group <ref type="bibr" target="#b0">[1]</ref>, <ref type="bibr" target="#b12">[13]</ref>. The PEELA <ref type="bibr" target="#b12">[13]</ref> uses this model to analyze the end-to-end latency distributions of task paths across the subgraphs. The deterministic analysis proposed in <ref type="bibr" target="#b0">[1]</ref> also analyzes the worst-case end-to-end latency across the subgraphs for a ROS2-based robotic system. However, since the analysis is deterministic, it cannot deal with the task graphs used in the paper, which allow U core to exceed 1.0 for some core(s).</p><p>In the vehicle domain, there are several studies to analyze, evaluate and improve the timing behavior of the AD stacks. The probabilistic analysis presented in <ref type="bibr" target="#b8">[9]</ref> derives a safe probabilistic WCET (pWCET) for each of the tasks composing the Apollo stack <ref type="bibr" target="#b21">[22]</ref> using a theory called Extreme Value Theory. In <ref type="bibr" target="#b13">[14]</ref>, the Autoware stack is evaluated in terms of average end-to-end latencies on an automotive embedded board called NVIDIA Drive PX2. In <ref type="bibr" target="#b22">[23]</ref>, an extended version of laxity-based scheduling on a multi-core system is proposed to improve the worst-case latency of task sequences. In <ref type="bibr" target="#b23">[24]</ref>, a resource management method is presented to smooth peak memory demands of software pipelines found in Autoware in order to reduce the worst-case delays.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. CONCLUSION</head><p>In the paper, we have proposed a novel schedule synthesis for task graphs from autonomous driving systems. The proposed synthesis deals with the problem of non-usable idle intervals, which arises in the probabilistic domain. It consists of baseline schedule generation and task phases optimization. In the baseline schedule generation, the two proposed schedulers called HLFETNT and BLFLT successfully suppress the occurrences of non-usable idle times, thus significantly improve the schedulability of given task graphs. In the task phases optimization, an optimal combination of task phases is found that reduces end-to-end tail latencies of task paths of interest. The experiments have shown that the two schedulers significantly improve the graph schedulability, and that the task phases optimization further improves the end-to-end tail latency by up to 13% for synthetic task graphs in comparison with the in-phase schedules.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head></head><label></label><figDesc>Figure 1(b) gives a possible schedule of the example where an instance τ A,1 of τ A happens to execute</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head></head><label></label><figDesc>(a) A task graph (b) A possible schedule Fig.1. An example of the task graph from<ref type="bibr" target="#b12">[13]</ref> </figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 2 .</head><label>2</label><figDesc>Fig. 2. A worst-case subgraph maximizing the number of probability distribution operations</figDesc><graphic coords="4,322.27,72.90,216.71,77.74" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head></head><label></label><figDesc>(a) A schedule with arbitrary task releases (b) The above schedule with τ f delayed Fig. 4. A schedule with usable and non-usable idle intervals mixed</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Lemma 2 .</head><label>2</label><figDesc>(a) S A is not nested in S B (b) S A is nested in S B Fig. 5. Examples of two overlapping paths τ A(n) = τ B(1) , S A and S B are said to overlap each other. In addition to this overlapping relation, if τ B(1) ⇒ τ A(1) or τ B(1) = τ A(1) , S A is said to be nested in S B . For two overlapping paths, S A and S B , it is denoted by S A // S B whether or not one is nested in the other. For two non-overlapping paths, S A and S B , that start, terminate, and create NTs at the same core, the total average NT due to S A and S B is equal to NT (S A )+NT (S B ).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head></head><label></label><figDesc>S 1 and S 2 and the maximum of the execution start times of the terminating tasks of S 1 and S 2 . Let NT (I S ) be the total nonusable idle time occurring during I S . Then, it is obvious that NT (I A ) ≤ NT (I A ∪ I B ), and that NT (I B ) ≤ NT (I A ∪ I B ), because I A ⊂ I A∪B and I B ⊂ I A∪B . Next, consider a nested case, as shown in Figure 5(b). In this case, the same statement as in the non-nested case applies. That is, NT (I A ) ≤ NT (I A ∪ I B ), and NT (I B ) ≤ NT (I A ∪ I B ), because I A ⊂ I A∪B and I B ⊂ I A∪B . It does not matter whether S A is nested in S B , or vice versa. In summary, NT (I A ∪ I B ) ≥ max(NT (I A ), NT (I B )), which can be rewritten as NT lb (S A S B ) = max(NT (S A ), NT (S B )).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head></head><label></label><figDesc>(a) A multi-core schedule (b) The resulting path tree Fig. 6. An example of multiple overlapping paths path in another group. Thus, S1, S2, and S3 are child nodes of S4, and S1 solely composes child group 1 while S2 and S3 together compose child group 2.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 7 .</head><label>7</label><figDesc>Fig. 7. Load distributing vs. load clustering</figDesc><graphic coords="8,335.55,73.00,189.64,100.19" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head></head><label></label><figDesc>(a) The number of task graphs determined to be analyzable (b) The effective average graph utilizations Fig. 8. The schedulability of the synthetic task graphs tasks with M = 10, G = 40, and U Γ = 1.0. This synthesis time includes 800 PEELA analyses with 800 different argument vectors.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head></head><label></label><figDesc>TAIL LATENCIES WITH HLFET, HLFETNT AND BLFLT (IN MS)</figDesc><table><row><cell>CPU</cell><cell>HLFET, HLFETNT assigned tasks</cell><cell>U</cell><cell>U max</cell><cell></cell><cell cols="2">BLFLT assigned tasks</cell><cell>U</cell><cell>U max</cell></row><row><cell>core1</cell><cell>F LD, F P T, P CF, V GF, NDT</cell><cell>0.59</cell><cell>1.40</cell><cell cols="4">F LD, F P T, P CF, V GF, NDT, RLD, RP T, RGF</cell><cell>0.69</cell><cell>1.59</cell></row><row><cell>core2</cell><cell>RLD, RP T, RGF, EU C</cell><cell>0.48</cell><cell>0.89</cell><cell></cell><cell>EU C</cell><cell></cell><cell>0.39</cell><cell>0.69</cell></row><row><cell>core3</cell><cell>CAM, T RY, V OC, MOT</cell><cell>0.83</cell><cell>1.30</cell><cell cols="3">CAM, T RY, V OC, MOT</cell><cell>0.83</cell><cell>1.30</cell></row><row><cell>core4</cell><cell>ODM, EKF, BHP, P P S</cell><cell>0.87</cell><cell>1.80</cell><cell cols="3">ODM, EKF, BHP, P P S</cell><cell>0.87</cell><cell>1.80</cell></row><row><cell></cell><cell></cell><cell></cell><cell cols="2">TABLE V</cell><cell></cell><cell></cell></row><row><cell></cell><cell cols="6">AUTOWARE TASK ASSIGNMENT RESULTS WITH HLFET, HLFETNT AND BLFLT</cell></row><row><cell></cell><cell>path</cell><cell></cell><cell></cell><cell cols="2">HLFET, HLFETNT in-phase optimized</cell><cell cols="2">BLFLT in-phase optimized</cell></row><row><cell></cell><cell cols="3">F LD → EU C → MOT → BHP → P P S</cell><cell>101 (103)</cell><cell>76 (76)</cell><cell>104 (105)</cell><cell>93 (94)</cell></row><row><cell></cell><cell cols="3">F LD → NDT → EKF → P P S</cell><cell>85 (101)</cell><cell>79 (98)</cell><cell>91 (96)</cell><cell>83 (93)</cell></row><row><cell></cell><cell cols="3">RLD → EU C → MOT → BHP → P P S</cell><cell>101 (103)</cell><cell>76 (76)</cell><cell>103 (105)</cell><cell>92 (94)</cell></row><row><cell></cell><cell cols="3">RLD → NDT → EKF → P P S</cell><cell>85 (101)</cell><cell>78 (98)</cell><cell>91 (95)</cell><cell>82 (93)</cell></row><row><cell></cell><cell></cell><cell></cell><cell cols="2">TABLE VI</cell><cell></cell><cell></cell></row><row><cell></cell><cell>AUTOWARE'S</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 02:14:37 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="funding">
+<div><p>* This work was supported by the <rs type="funder">National Research Foundation of Korea (NRF)</rs> grant funded by the <rs type="funder">Korea government (MSIT)</rs> (No. <rs type="grantNumber">NRF-2021R1A2C2012837</rs> and <rs type="grantNumber">NRF-2021R1A4A1032252</rs>). The corresponding author is Kanghee Kim.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_7ejtzG4">
+					<idno type="grant-number">NRF-2021R1A2C2012837</idno>
+				</org>
+				<org type="funding" xml:id="_NPSjHN6">
+					<idno type="grant-number">NRF-2021R1A4A1032252</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Response-Time Analysis of ROS 2 Processing Chains Under Reservation-Based Scheduling</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lütkebohle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 31st Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<meeting>31st Euromicro Conference on Real-Time Systems (ECRTS)</meeting>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Delay Composition Algebra: A Reduction-Based Schedulability Algebra for Distributed Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Jayachandran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Abdelzaher</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. IEEE Real-Time Systems Symposium</title>
+		<meeting>IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2008-12">Dec. 2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Worst-case response time analysis for partitioned fixed-priority DAG tasks on identical processors</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ben-Amor</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Maxim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 24th IEEE International Conference on Emerging Technologies and Factory Automation (ETFA)</title>
+		<meeting>24th IEEE International Conference on Emerging Technologies and Factory Automation (ETFA)</meeting>
+		<imprint>
+			<date type="published" when="2019-09">Sep. 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Parallel Real-Time Scheduling of DAGs</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ferry</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">D</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="issue">12</biblScope>
+			<biblScope unit="page" from="3242" to="3252" />
+			<date type="published" when="2014-01">Jan. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Improved Response Time Analysis of Sporadic DAG Tasks for Global FP Scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Fonseca</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Nélis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 25th International Conference on Real-Time Networks and Systems (RTNS)</title>
+		<meeting>25th International Conference on Real-Time Networks and Systems (RTNS)</meeting>
+		<imprint>
+			<date type="published" when="2017-10">Oct. 2017</date>
+			<biblScope unit="page" from="28" to="37" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Response-Time Analysis of Limited-Preemptive Parallel DAG Tasks Under Global Scheduling</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Nasri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 31st Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<meeting>31st Euromicro Conference on Real-Time Systems (ECRTS)</meeting>
+		<imprint>
+			<date type="published" when="2019-07">Jul. 2019</date>
+			<biblScope unit="volume">21</biblScope>
+			<biblScope unit="page" from="1" to="21" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Real-Time Scheduling and Analysis of OpenMP DAG Tasks Supporting Nested Parallelism</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Gao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Shi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">69</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1335" to="1348" />
+			<date type="published" when="2020-09">Sep. 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Calculating Worst-Case Response Time Bounds for OpenMP Programs with Loop Structures</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Guo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xue</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Tan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. IEEE Real-Time Systems Symposium</title>
+		<meeting>IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2021-12">Dec. 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Timing of Autonomous Driving Software: Problem Analysis and Prospects for Future Solutions</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Alcon</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Tabani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Kosmidis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Mezzetti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Abella</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">J</forename><surname>Cazorla</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 2020 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<meeting>2020 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</meeting>
+		<imprint>
+			<date type="published" when="2020-04">Apr. 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<monogr>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Gogonel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Maxim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Lesage</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Griffin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Vardanega</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Mezzetti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Abella</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Cazorla</surname></persName>
+		</author>
+		<ptr target="https://cordis.europa.eu/docs/projects/cnect/5/611085/080/deliverables/001-D38.pdf" />
+		<title level="m">D3.8 Final Report on Probabilistic Analysis for Mixed Criticality on Multicore Version 1.0, PROXIMA Consortium</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+	<note>Online</note>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Probabilistic Schedulability Analysis for Precedence Constrained Tasks on Partitioned Multi-core</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ben-Amor</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Mezouak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Sorel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 25th IEEE International Conference on Emerging Technologies and Factory Automation (ETFA)</title>
+		<meeting>25th IEEE International Conference on Emerging Technologies and Factory Automation (ETFA)</meeting>
+		<imprint>
+			<date type="published" when="2020-09">Sep. 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Schedulability Analysis of Dependent Probabilistic Real-Time Tasks</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ben-Amor</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Maxim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 24th International Conference on Real-Time Networks and Systems (RTNS)</title>
+		<meeting>24th International Conference on Real-Time Networks and Systems (RTNS)</meeting>
+		<imprint>
+			<date type="published" when="2016-10">Oct. 2016</date>
+			<biblScope unit="page" from="99" to="107" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Probabilistically Guaranteeing End-to-end Latencies in Autonomous Vehicle Computing Systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Han</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">71</biblScope>
+			<biblScope unit="issue">12</biblScope>
+			<biblScope unit="page" from="3361" to="3374" />
+			<date type="published" when="2022-12">Dec. 2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Autoware on Board: Enabling Autonomous Vehicles with Embedded Systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Tokunaga</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Maruyama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Maeda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hirabayashi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Kitsukawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Monrroy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Ando</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Fujii</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. ACM/IEEE 9th International Conference on Cyber-Physical Systems (ICCPS)</title>
+		<meeting>ACM/IEEE 9th International Conference on Cyber-Physical Systems (ICCPS)</meeting>
+		<imprint>
+			<date type="published" when="2018-04">Apr. 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Static Scheduling Algorithms for Allocating Directed Task Graphs to Multiprocessors</title>
+		<author>
+			<persName><forename type="first">Y.-K</forename><surname>Kwok</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Ahmad</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Computing Surveys</title>
+		<imprint>
+			<biblScope unit="volume">31</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<date type="published" when="1999-12">Dec. 1999</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">An Exact Stochastic Analysis of Priority-Driven Periodic Real-Time Systems and Its Approximations</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">L</forename><surname>Díaz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">L</forename><surname>Bello</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>López</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C.-G</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">L</forename><surname>Min</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">54</biblScope>
+			<biblScope unit="issue">11</biblScope>
+			<biblScope unit="page" from="1460" to="1466" />
+			<date type="published" when="2005-11">Nov. 2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">A Fast and Elitist Multiobjective Genetic Algorithm: NSGA-II</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Deb</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Pratap</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Agarwal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Meyarivan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Evolutionary Computation</title>
+		<imprint>
+			<biblScope unit="volume">6</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="182" to="197" />
+			<date type="published" when="2002-04">Apr. 2002</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">pymoo: Multi-Objective Optimization in Python</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Blank</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Deb</surname></persName>
+		</author>
+		<idno type="DOI">10.1109/AC-CESS.2020.2990567</idno>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Access</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="page" from="89497" to="89509" />
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">HMDS: A Makespan Minimizing DAG Scheduler for Heterogeneous Distributed Systems</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Senapati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Sarkar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Karfa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Embedded Computing Systems</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<date type="published" when="2021-09">Sep. 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Techniques for the Synthesis of Multiprocessor Tasksets</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Emberson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Stafford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 1st International Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems (WATERS)</title>
+		<meeting>1st International Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems (WATERS)</meeting>
+		<imprint>
+			<date type="published" when="2010-07">July 2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title/>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">G</forename><surname>Svl</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Electronics</surname></persName>
+		</author>
+		<ptr target="https://www.svlsimulator.com/" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<monogr>
+		<title level="m" type="main">Autonomous Driving Solution</title>
+		<author>
+			<persName><forename type="first">Apollo</forename></persName>
+		</author>
+		<ptr target="https://apollo.auto" />
+		<imprint>
+			<publisher>Baidu Inc</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">ROSCH: Real-Time Scheduling Framework for ROS</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Saito</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Sato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Nishio</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. IEEE 24th International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<meeting>IEEE 24th International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</meeting>
+		<imprint>
+			<date type="published" when="2018-08">Aug. 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Predictable Data-driven Resource Management: an Implementation using Autoware on Autonomous Platforms</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bateni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 2019 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<meeting>2019 IEEE Real-Time Systems Symposium (RTSS)</meeting>
+		<imprint>
+			<date type="published" when="2019-12">Dec. 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Dynamic Scheduling of Realtime Tasks under Precedence Constraints</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Chetto</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Silly</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Bouchentouf</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">2</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="181" to="194" />
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Graph Reductions and Partitioning Heuristics for Multicore DAG Scheduling</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ben-Amor</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of System Architecture</title>
+		<imprint>
+			<biblScope unit="volume">124</biblScope>
+			<date type="published" when="2022-12">Dec., 2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

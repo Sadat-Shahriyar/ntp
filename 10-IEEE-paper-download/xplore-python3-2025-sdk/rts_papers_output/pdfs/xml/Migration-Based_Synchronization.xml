@@ -1,0 +1,879 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Migration-Based Synchronization</title>
+				<funder ref="#_vZmVxun">
+					<orgName type="full">Deutsche Forschungsgemeinschaft (DFG)</orgName>
+				</funder>
+				<funder ref="#_BVx6qaG">
+					<orgName type="full">Bundesministerium fur Bildung und Forschung (BMBF)</orgName>
+				</funder>
+				<funder ref="#_hmkVJ2p #_48XwCyd">
+					<orgName type="full">unknown</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Stefan</forename><surname>Reif</surname></persName>
+							<email>reif@cs.fau.de</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Friedrich-Alexander-Universität Erlangen-Nürnberg</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Phillip</forename><surname>Raffeck</surname></persName>
+							<email>raffeck@cs.fau.de</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Friedrich-Alexander-Universität Erlangen-Nürnberg</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Luis</forename><surname>Gerhorst</surname></persName>
+							<email>gerhorst@cs.fau.de</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Friedrich-Alexander-Universität Erlangen-Nürnberg</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Wolfgang</forename><surname>Schröder-Preikschat</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">Friedrich-Alexander-Universität Erlangen-Nürnberg</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Timo</forename><surname>Hönig</surname></persName>
+							<email>timo.hoenig@rub.de</email>
+							<affiliation key="aff1">
+								<orgName type="institution">Ruhr University Bochum</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Migration-Based Synchronization</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">24EE7D850788BEC3ECE13DCADD853C2D</idno>
+					<idno type="DOI">10.1109/SBESC53686.2021.9628358</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-18T02:27+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>multi-core systems</term>
+					<term>data locality</term>
+					<term>thread synchronization</term>
+					<term>control-flow migration</term>
+					<term>real-time systems</term>
+					<term>timing analysis</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>A fundamental challenge in multi-and many-core systems is the correct execution of concurrent access to shared data. A common drawback from existing synchronization mechanisms is the loss of data locality as the shared data is transferred between the accessing cores. In real-time systems, this is especially important as knowledge about data access times is crucial to establish bounds on execution times and guarantee the meeting of deadlines.</p><p>We propose in this paper a refinement of our previously sketched approach of Migration-Based Synchronization (MBS) as well as its first practical implementation. The core concept of MBS is the replacement of data migration with controlflow migration to achieve synchronized memory accesses with guaranteed data locality. This leads to both shorter and more predictable execution times for critical sections. As MBS can be used as a substitute for classical locks, it can be employed in legacy applications without code alterations.</p><p>We further examine how the gained data locality improves the results of worst-case timing analyses and results in tighter bounds on execution and response time. We reason about the similarity of MBS to existing synchronization approaches and how it enables us to reuse existing analysis techniques.</p><p>Finally, we evaluate our prototype implementation, showing that MBS can exploit data locality with similar overheads as traditional locking mechanisms.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>With ongoing improvements in chip production, it is only a matter of time until the many-core age also begins in the embedded domain. Some existing platforms already head in this direction (6 core TriCore <ref type="bibr" target="#b0">[1]</ref>, 8 core RISCV GAPuino <ref type="bibr" target="#b1">[2]</ref>, 36 core ARM <ref type="bibr">Marvell OCTEON [3]</ref>) and the usage of such platforms in systems, which are subject to timeliness constraints, is also only a question of time. This development will lead to scenarios where also in embedded systems cores are available in abundance, meaning that not all cores are required to guarantee timely and efficient system execution. We propose that this allows us to rethink common design concepts, in the case of this paper, thread synchronization.</p><p>The additional computing power that comes with additional cores is, however, not for free, but rather comes with the price of increasing architectural complexity. Modern platforms come with a variety of memory hierarchies, leading to different access times from different cores. This hierarchy ranges from fast core-local memories to equally accessible global memory regions. Access to global memory is, however, often sped up via core-local caches with various coherency guarantees.</p><p>In general, it is difficult (up to impossible) to predict cache behavior, and more complex cache and memory hierarchies only aggravate the problem. From a timing analysis perspective, this leads to overly pessimistic results, which negatively impact schedulability and system design. Measurement-based analysis techniques mitigate the problem partly but only yield reliable results if the scenarios covered in the measurements are representative and complete. Complex interferences between processors due to, for example, memory coherency, complicate such assessments of measurement quality.</p><p>In systems with completely independent threads or only a few inter-thread dependencies, these difficulties related to the memory hierarchy can potentially be avoided by partitioning the system into multiple, independent single-core systems. With rising complexity of the applications, however, this approach becomes infeasible, inevitably leading to the sharing of data across multiple cores.</p><p>A variety of, both general-purpose and specialized, protocols exists to enable synchronization between different accesses to shared data and guarantee correct system behavior. The employed techniques range from the use of locks over message passing to the wait-free design of algorithms. Their usage further hinders the predictability of the system behavior, as analyses now also need to consider possible access patterns to shared resources and provide bounds for interferences.</p><p>Except for the special case of non-cached global memory accesses, sharing data between cores always entails migration of at least part of the shared data between cores. This data migration is the source of the aforementioned interference cost, which is hard to predict because of the uncertainty which part of the data is already cached locally and which has to be migrated. In contrast to the migration of application data, control-flow migration is highly predictable when the exact point of execution is known beforehand <ref type="bibr" target="#b3">[4]</ref>, as the currently used thread-local data is not used by other threads and is determinable by static analysis. For lock acquisition, those points are easily identifiable in the code.</p><p>When designing security-relevant or real-time systems, typical optimization goals are throughput and predictability. Oftentimes, these goals are in conflict with each other. A simple example for such a conflict is the use of caches for shared data: Temporarily storing shared data in core-local caches reduces access times and leads to a speed-up in execution time compared to storing it in non-cached global memory. On the other hand, caching data shared between different cores complicates the prediction of access times (Will the access result in a hit or miss in the core-local cache?) and thus timing analyses, leading to results far more pessimistic than the actual executions.</p><p>In this paper, we sharpen our previously proposed concept of Migration-Based Synchronization (MBS) <ref type="bibr" target="#b4">[5]</ref> to increase the predictability of the system behavior. As a side-effect, MBS can also lead to an increase in throughput, by ensuring and exploiting data locality wherever possible.</p><p>The first step towards this goal is to exploit the abundance of cores to use some cores exclusively as central servers (i.e., "synchronization cores") for the operation with a single shared resource. With such a strict separation, all threads sharing a resource benefit from data locality while accessing the shared resource, facilitating the analysis of such critical sections, as knowledge about the state of the core-local memory of the synchronization cores can be utilized. Thus, in this paper, we propose to replace the migration of shared resources with the migration of control flow to obtain a more easily predictable system. We strive to design MBS in such a way that it is transparently replaceable with traditional locks. In this sense, MBS is the natural adaption of existing lock-based multi-core synchronization protocols to an abundance of cores in modern platforms. On top, depending on the nature of the overall application and the usage pattern of shared resources, MBS is even able to outperform existing approaches.</p><p>In short, we provide the following contributions:</p><p>• We present a refinement of our previously proposed, control-flow-based synchronization technique MBS. • We provide the first implementation of that technique in the real-time operating system Zephyr. • We evaluate the functionality and effectiveness of our prototype on real hardware. • We discuss the influence of MBS on timing analysis supported by timing analysis experiments. The rest of the paper is structured as follows. Section II presents an overview of the necessary background and related work. The general concept of MBS and its effect on timing analysis as well as a prototype implementation are introduced in Section III. Section IV presents experimental results evaluating the overheads of MBS and the potential improvements in timing analysis. Section V concludes the paper.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND AND RELATED WORK</head><p>Synchronizing concurring threads through means of shared memory or message passing is a long researched topic <ref type="bibr" target="#b5">[6]</ref>. As the interaction of threads over shared resources greatly influences their timing behavior, synchronization mechanisms are also a highly researched topic in the real-time community (an overview can be found in <ref type="bibr" target="#b6">[7]</ref>). In particular, shared resources can lead to priority inversion, meaning ready-to-run higher priority threads cannot execute because of blocked resources held by lower priority threads <ref type="bibr" target="#b7">[8]</ref>. In other words, priority inversions are any deviation from the expected schedule in contrast to normally expected interference by higher priority threads <ref type="bibr" target="#b8">[9]</ref>.</p><p>Very similar to our proposed approach are the seminal multicore versions of the priority-ceiling protocol by Rajkumar et al., which exist in a shared-memory <ref type="bibr" target="#b9">[10]</ref> and a messagepassing <ref type="bibr" target="#b10">[11]</ref> version, also referred to as MPCP and DPCP, respectively <ref type="bibr" target="#b6">[7]</ref>. MPCP tries to benefit from data locality by distinguishing between local resources only used on one core and global resources. Consequently, local resources reside in core-local memory, while global resources are placed in global memory. DPCP takes a different approach to exploiting data locality by utilizing special synchronization processors, on which global resources are executed. While a thread is executing on a synchronization processor, its host processor is free to use for other treads. In its most basic version, all global critical sections are assigned to a single synchronization processor and the synchronization processor only executes critical sections. In the generalized version of the protocol, multiple synchronization processors are allowed. Additionally, non-critical sections may be executed on synchronization processors (but will be preempted by critical sections).</p><p>We argue that contemporary and future processors call for a solution somewhere between MPCP and DPCP. MBS can therefore be understood as the natural extension under the assumption of the availability of many cores. The abundance of cores facilitates the exploitation of data locality in three ways (see Section III). First, it allows the usage of many synchronization cores, ideally one per shared resource. Second, synchronization cores can also be exclusively used for critical sections. As a third consequence, there are no corelocal resources, all resources are made global.</p><p>Oyama et al. <ref type="bibr" target="#b11">[12]</ref> propose a similar form of control-flow migration where concurrent accesses to a resource are executed on a single core, the owner or lock holder. The owner can, however, change over the course of execution, yielding no guaranteed cache locality.</p><p>A similar form of synchronization mechanism closely related to control-flow migration is delegation-based synchronization, where some form of centralized server is responsible for the execution of the critical section. As the execution of the critical section is handed over, these approaches can be viewed as a form of partial control-flow migration. Examples include remote-core locking <ref type="bibr">[13]</ref> and ffwd <ref type="bibr" target="#b13">[14]</ref>, as well as approaches centered on data structures like Flat combining <ref type="bibr" target="#b14">[15]</ref> and Actors <ref type="bibr" target="#b15">[16]</ref>.</p><p>The concept of data locality is utilized in a similar fashion by a scheduling algorithm proposed by Boyd-Wickizer et al. <ref type="bibr" target="#b16">[17]</ref>, which revolves around bringing threads to the data they need to operate on. The respective data objects are identified via source-code annotations. MBS, on the other hand, is transparent for the application as it simply replaces existing locks. Additionally, their approach does not consider timeliness constraints.</p><p>If timeliness is important, response-time analysis is the usual tool to guarantee timely execution of all threads. In the presence of shared resources, response time is a combination of the thread's execution time, preemption by higher priority threads, and blocking time spent waiting for shared resources to be available (that is, blocking time due to priority inversion). An example of such a formula can be found in <ref type="bibr" target="#b7">[8]</ref>, in this case for partitioned, fixed-priority scheduling:</p><formula xml:id="formula_0">r i = e i + b l i + b r i + P (T h )=P (Ti)∧h&lt;i r i + b r h p h • e h<label>(1)</label></formula><p>It consists of the following elements:</p><p>• r i : response time of task i • e i : worst-case execution time of task i • p i : period of task i • b l i : priority-inversion blocking time caused by a task on the same core • b r i : priority-inversion blocking time caused by a task on a remote core • P (T i ): current processor of T i The blocking-time parts of the formula (b l i , b r i ) are highly dependent on the maximum number of times a thread can have to wait and can be derived by blocking-bound analysis <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b17">[18]</ref>, which yields upper bounds on the maximum a thread can be blocked due to waiting for a resource. The complexity of such analyses depends both on the used synchronization protocol and the resource access structure of the application. If critical sections are nested, the problem is NP-hard <ref type="bibr" target="#b18">[19]</ref>.</p><p>Detrimental to all those timing analyses are the effects of memory-related interferences, mostly through caches, as the timing difference between a cache miss and a cache hit has a significant impact on the timing behavior of a program. The ability to predict such accesses correctly thus determines the accuracy of timing analyses. Especially data caches are, however, highly unpredictable <ref type="bibr" target="#b19">[20]</ref>, which gave rise to a wide field of research <ref type="bibr" target="#b20">[21]</ref> still actively worked on today <ref type="bibr" target="#b21">[22]</ref>. The problem is aggravated through inter-core interferences in multi-core shared-memory environments <ref type="bibr" target="#b22">[23]</ref>. More complex hardware features in modern processors further hamper predictability <ref type="bibr" target="#b23">[24]</ref>. Hybrid measurement-based approaches can overcome this problem, the quality of results is, however, highly dependent on the measurement data <ref type="bibr" target="#b23">[24]</ref>. The guaranteed data locality of critical sections in MBS, therefore, facilitates timing analyses and helps to derive tight bounds on worst-case execution time (WCET) and worst-case response time (WCRT).</p><p>A different kind of memory-related overheads in the context of migration are the direct costs associated with the transfer of data. The magnitude of these migration costs depends on the specific hardware platform and memory hierarchy and may or may not be significantly large <ref type="bibr" target="#b24">[25]</ref>, <ref type="bibr" target="#b25">[26]</ref>. In any case, these costs can be mitigated, for example, through hardware-based mechanisms <ref type="bibr" target="#b26">[27]</ref>. Such approaches can be combined with MBS to increase data locality and predictability with regard to thread-related data.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. DESIGN AND IMPLEMENTATION</head><p>This section discusses the design and implementation of MBS. MBS operates under several assumptions that target real-time systems. First, the set of locks is statically known, which is needed for static analysis, and also for the selection of synchronization cores. Second, the system uses coarse-grained locking to protect its data structures from concurrent accesses.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Synchronization by Migration</head><p>Central to the concept of MBS is to consider a processor core as a resource that is shared between threads, but the scheduler assigns this resource to at most one thread at any moment in time. MBS exploits this exclusive assignment for thread synchronization, and considers a processor core a synchronization object (i.e., a "synchronization core"). A synchronization core is a resource that is granted sequentially to threads that request this resource, and there is no forced withdrawal of this resource. The acquisition of this resource is the migration of the current control flow to this core, and to release it, the control flow migrates back. This migration can be implemented at library or operating system level and hidden behind a traditional lock()/unlock() interface.</p><p>In addition to the provision of mutual exclusion, MBS affects the shared data protected by this synchronization scheme. This data is only accessed from critical sections, which are always executed on the synchronization core. In consequence, this data can be placed in the core-local memory (i.e., first-level caches or scratchpads) of the synchronization core, and the data can permanently remain there since no other core accesses it-and only control flows that access this data migrate to this core. Thus, control flow is moved to data, rather than vice versa. In consequence, data accesses in critical sections benefit from guaranteed data locality.</p><p>Figure <ref type="figure" target="#fig_0">1</ref> summarizes data locality of locks and MBS when entering or leaving a critical section. When a lock-based system enters a critical section, the wanted shared data is likely not in its local cache. Hence, caches are cold. When leaving the critical section, the shared data is still in the cache, but access is forbidden. Again, the cache contains data that is not used in the near future. With MBS, in contrast, shared data is at a well-known location and only a part of the thread-related data (i.e., thread control block and top of stack) needs to be copied between cores. In consequence, caches are mostly hot.</p><p>The principal concept of MBS is independent of the scheduling policy used for the application cores. Whether using fixed or dynamic priorities, whether using partitioned or global scheduling, the cache locality of shared date on the synchronization cores can always be exploited. Only the degree to which cache-locality on the application core after a critical section can be used in timing analyses depends on the scheduling policy, with partitioned fixed-priority scheduling being the easiest to predict.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Synchronization Cores</head><p>For MBS, a synchronization core is a processor core that constitutes an exclusive resource. Access is granted sequentially by a core-local scheduler which considers the systemwide resource-acquisition policy (e.g., FIFO or priority-based).</p><p>To ensure mutual exclusion, synchronization cores operate without preemption and all critical sections have a run-tocompletion semantics. In particular, the synchronization core may not participate in any other migration scheme, such as load balancing. However, these restrictions only apply to synchronization cores. Other cores (i.e., "application cores") may still support preemption or load balancing.</p><p>While in a critical section, the original core of a thread becomes available. Multiple options exist for this original core. First, the original core may be granted to another ready thread. However, this thread necessarily has a lower priority, which makes this option functionally different to a lockbased system. Second, a thread may leave a priority-based reservation that prevents other threads from running. We call this variant MBS+R. Third, the core may enter a low-power sleep state to save power. In particular in power-constrained systems, this strategy helps to maintain a global power budget. However, this strategy can only be efficient if the caches do not lose their data when sleeping.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Data Pinning</head><p>Several options exist to place shared data in the local memory of synchronization cores, depending on the hardware. First, data can be placed in a cache implicitly by simply accessing it, and the first memory access loads the data into the cache. However, with this implicit scheme, data may be evicted, in particular, if the working-set size of a thread in the critical section exceeds the cache's capacity. Second, some hardware architectures support explicit cache management via cache-line pinning. Then, the data is loaded and pinned during system initialization, and no eviction can occur. Only thread-related data may be evicted, but the shared data remains certainly cached. Third, some hardware primarily targeting hard realtime systems provide core-local scratchpad memory, where the software controls the contents of the local memory, and the hardware does not provide cache coherence. Like explicit cache management, the system can place the shared data in the local scratchpad memory during system initialization. The lack of cache coherence is no problem with MBS since shared data is only accessed from the synchronization core. In addition, implicit eviction can be avoided since the scratchpad is software-controlled.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Overheads</head><p>The overheads of MBS are two-fold. First, there is a dynamic overhead due to thread migration. A similar lock-based system, however, would also have synchronization overheads, in particular when blocking a processor core leads loss of cache state; and the copy operations of shared data as shown in Figure <ref type="figure" target="#fig_0">1</ref>. Second, there is a static overhead of dedicating a processor core for synchronization. This core and its local memory are no longer freely available to the application. However, this overhead is counteracted by improved data locality, which leads to lower and more predictable execution times, whereas lock-based systems suffer from locality-related interferences and overly pessimistic analyses. The detailed influence of MBS on the execution time is discussed in Sections III-E and III-F.</p><p>In summary, MBS trades notoriously difficult to predict cache-related interferences for well-predictable control-flow migration. The trade-off is that the thread, parts of its stack (i.e., thread-local data), and other potentially used global data, has to be migrated to the synchronization core for each critical section. The amount of data that needs to be transferred can be determined exactly via static analysis, as long as the migration points are known <ref type="bibr" target="#b3">[4]</ref>. For MBS, all migration points are calls to lock() and unlock() functions.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Effects on WCET Analysis</head><p>MBS has the potential to affect both WCET and WCRT analysis positively. With MBS, there is no need to model cache interference between cores as all accesses to shared data are isolated to dedicated cores. Bus interference remains but can be handled through other means such as timing arbitration <ref type="bibr" target="#b27">[28]</ref> or hardware support <ref type="bibr" target="#b28">[29]</ref>. For the critical sections of threads, the cache analysis becomes much easier as the shared data already resides in the caches of the synchronization cores <ref type="foot" target="#foot_1">1</ref> . As a result, tighter WCET bounds for the critical sections can be obtained. Whether these theoretically possible benefits can be found in practical WCET analysis, depends on the capabilities of the used tools and techniques.</p><p>In measurement-based timing analysis, the tighter execution times achieved by the use of MBS can be observed directly in the measurements. The simple nature of this technique allows it to be employed in basically every system with its disadvantage of the uncertainty if the worst case was actually captured in the measurements.</p><p>More reliable results can be obtained with the use of hybrid analysis techniques which combine measured timing data with static analysis techniques <ref type="bibr" target="#b23">[24]</ref>. As the timing behavior is determined via measurements, the reduced execution times that come with MBS again directly affect the analysis results yielding tighter WCET bounds.</p><p>For pure static analyses, the effect of MBS visible in the analysis results highly depends on the underlying hardware model the analysis tool provides for the platform. Only if it captures the caching behavior and does not make overly pessimistic assumptions elsewhere (for example, bus arbitration), the positive effects of MBS are reflected in the WCET bounds.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>F. Effects on Response-Time Analysis</head><p>Response-Time analysis benefits in two ways from MBS: indirectly from the tighter WCET bounds, and directly through easier blocking bound analyses. The execution time of critical sections is included many times in response-time calculations, as it contributes directly to thread WCETs (e) and, by that, also to the blocking times (b l , b r ). As MBS enables tighter WCET bounds due to the known cache state, bounds on the response time also become tighter.</p><p>This improvement is only achieved as a trade-off with the newly introduced control-flow migration overhead, as, under MBS, a certain amount of data (necessary stack-local data, thread-control block) has to be transferred to the synchronization cores. Similar effects occur in suspending locks as the thread state has to be stored to and restored from memory before and after the suspension. In MBS, this store and restore simply happens in the memory of another core instead of the own core. With regard to response time, the overhead introduced by migration can be precisely bounded, as the data to be transferred can be statically determined. Response-time Analysis thus improves, as uncertain cache states are traded with known cache states and predictable migration overhead.</p><p>Blocking-bound analyses already exist for various synchronization mechanisms. Schedules produced by the use of MBS are essentially equivalent to lock-based approaches. But as critical sections execute non-preemptively, the behavior of MBS also resembles priority-ceiling approaches <ref type="bibr" target="#b29">[30]</ref>. The main difference is the possibility for other (MBS) or at least higher priority (MBS+R) threads to execute during the execution of a critical section. From this point of view, MBS+R behaves like stack-based priority-ceiling protocols <ref type="bibr" target="#b30">[31]</ref>: During the execution of a critical section, only unrelated higher priority threads are allowed to run. MBS differs as it enables the execution of the critical section and unrelated higher priority threads in parallel. Therefore, MBS will never lead to worse response times than traditional locking mechanisms. Due to these similarities, we hope to be able to reuse known analysis techniques for existing synchronization approaches.</p><p>One of the major problems in bounding the blocking time, unbounded priority inversion, is avoided by design in MBS, as the scheduler on the synchronization cores grant access to resources non-preemptively and in accordance with the priorities of the waiting threads. Additionally, MBS effectively decouples processor assignment and resource assignment. An independent thread with medium priority cannot interfere with the execution of critical sections of a lower priority thread and in turn negatively affect a high priority thread waiting on the resource the lower priority thread currently holds. As a consequence, a thread can be blocked at most one time by either a higher or lower priority thread for each of its critical sections, which can be efficiently bounded by the longest critical-section execution time of all users of a resource.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>G. Lock Nesting</head><p>Nested locks are considered difficult for timing analysis <ref type="bibr" target="#b18">[19]</ref>, primarily due to the effect of transitive blocking, where a thread holding resource R A and waiting for another resource R B potentially delays other threads that want to acquire resource R A . Thus, the contention for resource R B affects all threads working with R A . In addition to timing analysis, lock nesting is prone to deadlocks. However, if a sound worst-case blocking-bound analysis yields a finite duration, deadlocks are not possible. Solutions for lock nesting in real-time systems are either to forbid nesting entirely, to group locks that may nest to a single lock <ref type="bibr" target="#b6">[7]</ref>, or to analyze transitive blocking <ref type="bibr" target="#b17">[18]</ref>.</p><p>Since MBS can result in the same schedule as using locks, existing approaches can be reused. First, systems that disallow lock nesting and systems that replace nested locks with group locks are trivially supported. Second, it is compatible with blocking-bound analysis techniques like <ref type="bibr" target="#b17">[18]</ref>, where locks are granted in FIFO order. Third, priority-based approaches are supported by executing idle threads with elevated priorities.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>H. Integration in Zephyr</head><p>For demonstration, we have integrated MBS in Zephyr <ref type="bibr" target="#b31">[32]</ref>, an embedded operating system for the Internet of Things (IoT) that has recently started to support multi-core processors. We implement MBS in Zephyr on a Raspberry 3B+, a typical platform for IoT systems with soft real-time requirements.</p><p>Our integration of MBS into Zephyr is relatively straightforward. In particular, the scheduler requires some adaptions for synchronization cores (in our case, only one core). If a thread acquires an "MBS mutex" (which can coexist with ordinary mutexes), it is placed in a dedicated waiting queue for the corresponding synchronization core. The scheduler on the synchronization core then dequeues the thread and executes it normally. Migration back is implemented by placing the thread back in the ordinary ready list (i.e., the ready list for application cores). A second implementation variant, MBS+R, leaves a reservation on the core by marking it as "blocked due to a thread that is currently migrated". While this flag is set, the idle thread is scheduled, until the thread completes its critical section and migrates back.</p><p>In Zephyr, the scheduler and its data structures are protected by a global spin-lock with interrupt suppression. This global lock cannot be implemented in MBS because it protects the scheduler which implements MBS. Timing analysis of this global lock can therefore not benefit from MBS. However, a scheduler lock is a common implementation technique for embedded multi-core systems. System-wide timing analyses therefore either have to analyze its blocking time, or alternatively use wait-free techniques that are unaffected by blocking. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. EVALUATION</head><p>This section evaluates our implementation of MBS in the context of a soft and hard real-time systems. We evaluate execution times experimentally and we also apply static and hybrid timing analysis.</p><p>For the first part of the evaluation, we use a Raspberry Pi 3B+ running a modified Zephyr OS that supports MBS. The processor has four cores with 32 KiB of core-local L1 data cache each, and 512 KiB of shared L2 cache. We select one core as a dedicated synchronization core, and three application cores remain. Cache pinning is implicit-data is loaded to the cache on first access and evicted automatically. This strategy allows us to also evaluate scenarios where the shared data exceeds the L1 cache capacity, where eviction is inevitable.</p><p>We use a family of microbenchmarks that allow for precise control of the thread-local working set size and the shared data size. These benchmarks access a local and a shared buffer, where the local buffer has size λ and is not synchronized, and the shared buffer of size σ requires mutual exclusion. Each benchmark cycle iterates over both buffers alternatingly. Elements in each buffer are modified sequentially, modifying each cache line once per benchmark cycle.</p><p>We compare the following synchronization variants. First, a MBS version without original core reservations that uses four application threads. Second, a MBS+R variant with original core reservation uses only three application threads. In addition, standard Zephyr spinlock and mutex implementations serve as a baseline, both with four threads.</p><p>In the second part, we use an Infineon TriCore TC397 as evaluation platform, which features a complex memory hierarchy. It provides one level of core-local 16 KiB caches for access to global memory as well as separate core-local scratchpad memories. We use this as an exemplary prototype to examine the influence of MBS on worst-case analyses. σ so that the buffer is either too small, too large, or roughly fitting the core-local L1 cache. Further data structure sizes are omitted to maintain readability, but the corresponding experiments confirm the results discussed in the following. Each sub-plot in Figure <ref type="figure" target="#fig_1">2</ref> visualizes the latency distribution for a combination of buffer sizes. In total, the performance of MBS, locks, and mutexes is of similar magnitude. However, MBS has benefits over locks and mutexes. First, the MBS variants have a lower latency variation than locks and mutexes. Second, the observed worst-case latency and 99 % tail latency are reduced by MBS, which is relevant for soft real-time systems. Third, when the shared buffer fits the core-local L1 cache, MBS is faster than locks and mutexes. Figure <ref type="figure">3</ref> visualizes the latency of only the critical sections in the same experiment as Figure <ref type="figure" target="#fig_1">2</ref>. It shows clearly that, if the shared data fits the L1 cache, MBS is faster. This result indicates that, as expected, the improved cache locality results in faster critical section execution time. If, however, the shared data is too large for the L1 cache, MBS has little benefit since it cannot exploit the cache optimally.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Measurement-based Performance Evaluation</head><p>Figure <ref type="figure">4</ref> summarises the cache locality of our experiments. It visualizes the number of L2 cache accesses inside critical sections. Since this cache is shared, it is only accessed if the core-local L1 cache does not contain the requested data. The graph shows that MBS significantly reduces the number of L2 accesses-most data accesses are handled by the L1 cache of the synchronization core. Again, this requrires that the shared data fits into the L1 cache. If the shared data is too large, the number of L1 misses is similar for all examined variants.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. WCET Analysis</head><p>As described in Section III-E, MBS influences different timing analysis techniques differently. Therefore, we conduct access-latency experiments to data in global and local memory on the TriCore platform and compare the WCET bounds of multiple analysis tools. The size of the shared data either fits well in the cache, fits exactly in the cache or is too large for the cache. Timing analysis is performed by tracing as an example of measurement-based approaches, TimeWeaver <ref type="bibr" target="#b23">[24]</ref> as a hybrid analysis tool, and aiT <ref type="bibr" target="#b32">[33]</ref> 2 as a purely static WCET tool. We additionally use aiT in a variant, where all accesses are assumed to result in cache hits. While this is not a valid WCET analysis technique, it allows us insight into the improvements possible with the known cache locality of MBS.</p><p>With hardware tracing, we can directly observe the effects of data locality in the measurement results. Figure <ref type="figure" target="#fig_3">5</ref> shows the expected increase in execution time once the shared data does not fit completely into the cache (32 KiB). Using the larger core-local memory, no such increase occurs (see Figure <ref type="figure" target="#fig_3">5</ref>). Additionally, the access times are generally shorter. These results showcase the potential which lies in the optimal utilization of the memory hierarchy for access to shared data. With measurement-based timing analysis, we can benefit from tighter bounds on execution time by employing MBS.</p><p>Similar results arise with the use of the TimeWeaver tool. The WCET bounds follow the trend of the measurement data in Figure <ref type="figure" target="#fig_3">5</ref>, although overestimations exist in the cache scenario. In the case of purely core-local accesses, however, the bounds are much closer to the measured data. Hybrid analysis techniques can, thus, also profit from MBS. To which degree depends on the model of the hardware platform.</p><p>This brings us to the bounds obtained by static analysis based on sophisticated hardware models. In Figure <ref type="figure" target="#fig_3">5</ref>, we can also see the differences between the aiT results with (pessimistic) normal and always-hit cache behavior, affirming the potential improvements by data locality. Unsurprisingly, both variants yield the same results in Figure <ref type="figure" target="#fig_3">5</ref>, as no caches are involved in the data accesses. The results are, however, pessimistic overestimations, which we cannot explain through the memory hierarchy. It is possible that the behavior of the core-local accesses is correctly captured, but the tight access bounds are overshadowed by pessimistic assumptions in other parts of the analysis. These results underline that the accuracy of the hardware model highly influences how strongly the positive effects of MBS are visible. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Discussion</head><p>The experiments show that, performance-wise, the costs of locking and the costs of thread migration are similar. However, soft real-time systems can utilize MBS to achieve a more constant performance. Hard real-time systems, in comparison, rely on static analysis tools that have to support the knowledge on data locality.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. CONCLUSION</head><p>This paper has presented Migration-Based Synchronization (MBS), a sweet spot in multi-core real-time system design that simplifies synchronization, cache analyses, and blockingbound analyses, for both hard and soft real-time systems. In particular, MBS achieves a system design where shared data has statically known locations in the memory hierarchy. Besides analysis simplification, MBS also reduces the execution time (in particular, for the worst case) by improving data locality. Thus, hard real-time systems can benefit from a simplified and improved cache-locality analysis, reduced critical section WCET, and in consequence, reduced blocking bounds. Soft real-time systems also benefit from reduced cache-related interferences and lower latency variation.</p><p>Our evaluation confirms the reduction of (core-local) L1 cache misses, which reduces latency variation. MBS mainly benefits if the shared data fits in the core-local cache of the synchronization core. Both soft and hard real-time systems benefit from known cache hits.</p><p>When considering future many-core real-time systems, the cost of MBS scales better than traditional approaches. The main cost (i.e., a dedicated synchronization core) becomes increasingly acceptable, considering that the benefits are improved analysability and reduced latencies. In comparison, existing approaches have to pessimistically assume increased cache-related interferences and transitive blocking times.</p><p>Future work will further combine MBS with WCET analysis tools for hard real-time systems. We intend to provide tools that map resources to synchronization cores, optimally selecting either locks or MBS. This trade-off is necessary because current-generation hardware still has a relatively small number of cores. In addition, the migration costs, the capacity of core-local caches, and data structure sizes need consideration. Another approach is the run-time transition between MBS and locks, for example, in mixed-criticality systems. In such a scenario, a processor core may be used for arbitrary application-specific workload in the normal case but used as a synchronization core if it is needed. These optimizations are only possible because MBS does not require code-level application changes-instead, migration can be hidden behind a traditional lock()/unlock() interface.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 .</head><label>1</label><figDesc>Fig. 1. Cache effects of locks (top) and MBS (bottom) when entering (left) and leaving (right) a critical section. Locks lead to poor data locality because shared data is not yet in the cache when entering and forbidden to access when leaving a critical section. MBS, in contrast, migrates the control flow to the known data location, keeping caches hot.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 .</head><label>2</label><figDesc>Fig. 2. Latency distributions of critical &amp; non-critical sections combined.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Figure 2 Fig. 3 .Fig. 4 .</head><label>234</label><figDesc>Figure2summarizes the latency of a full benchmark cycle for each microbenchmark version. We vary the sizes λ and</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 5 .</head><label>5</label><figDesc>Fig. 5. WCET estimates for accesses to globally shared data and core-local data with different analysis techniques.</figDesc></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 10,2026 at 21:51:15 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_1"><p>In the extreme case where the shared data is too large to fit in the corelocal memory, there exists at least the potential to improve cache analysis by having more knowledge about the state of the caches.Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded onFebruary 10,2026  </p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_2"><p>at 21:51:15 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENTS</head><p>This work was partially funded by the <rs type="funder">Deutsche Forschungsgemeinschaft (DFG)</rs> project number <rs type="grantNumber">465958100</rs> (<rs type="grantNumber">HO 6277/1-1</rs> and <rs type="grantNumber">SCHR 603/16-1</rs>) and by the <rs type="funder">Bundesministerium fur Bildung und Forschung (BMBF)</rs> project <rs type="projectName">AI-NET-ANTILLAS</rs> (<rs type="grantNumber">16KIS1315</rs>).</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_vZmVxun">
+					<idno type="grant-number">465958100</idno>
+				</org>
+				<org type="funding" xml:id="_hmkVJ2p">
+					<idno type="grant-number">HO 6277/1-1</idno>
+				</org>
+				<org type="funded-project" xml:id="_BVx6qaG">
+					<idno type="grant-number">SCHR 603/16-1</idno>
+					<orgName type="project" subtype="full">AI-NET-ANTILLAS</orgName>
+				</org>
+				<org type="funding" xml:id="_48XwCyd">
+					<idno type="grant-number">16KIS1315</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">Aurix tc39xxx/tc39xxp -product brief</title>
+		<author>
+			<persName><surname>Infineon</surname></persName>
+		</author>
+		<ptr target="https://www.infineon.com/dgdl/Infineon-TC39xXXTC39" />
+		<imprint>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page">3140</biblScope>
+		</imprint>
+	</monogr>
+	<note>xXP PB-PB-v01 00-EN</note>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<title level="m" type="main">Gap8 iot application processor product brief</title>
+		<author>
+			<persName><forename type="first">Greenwaves</forename><surname>Technologies</surname></persName>
+		</author>
+		<ptr target="https://greenwaves-technologies.com/wp-content/uploads/2021/04/Product-Brief-GAP8-V19.pdf" />
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<title level="m" type="main">Marvell octeon tx2 cn92xx, cn96xx and cn98xx -product brief</title>
+		<author>
+			<persName><surname>Marvell</surname></persName>
+		</author>
+		<ptr target="https://www.marvell.com/content/dam/marvell/en/public-collateral/embedded-processors/marvell-infrastructure-processors-octeon-" />
+		<imprint/>
+	</monogr>
+	<note>tx2-cn92xx-cn96xx-cn98xx-product-brief-2020-02. pdf, 2020, marvell OCTEON TX2 PB Revised: 04/20</note>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Boosting Job-Level Migration by Static Analysis (Best Paper Award)</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Klaus</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Ulbrich</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Raffeck</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Frank</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Wernet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">R</forename><surname>Onciul</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Schröder-Preikschat</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 15th International Workshop on Operating Systems Platforms for Embedded Real-Time Applications (OSPERT &apos;19</title>
+		<meeting>the 15th International Workshop on Operating Systems Platforms for Embedded Real-Time Applications (OSPERT &apos;19</meeting>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="33" to="44" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Work-inprogress: Control-flow migration for data-locality optimisation in multicore real-time systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Reif</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Raffeck</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Ulbrich</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Schröder-Preikschat</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 41st IEEE Real-Time Systems Symposium (RTSS &apos;20</title>
+		<meeting>the 41st IEEE Real-Time Systems Symposium (RTSS &apos;20</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="371" to="374" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Concepts and notations for concurrent programming</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">R</forename><surname>Andrews</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">B</forename><surname>Schneider</surname></persName>
+		</author>
+		<idno type="DOI">10.1145/356901.356903</idno>
+		<ptr target="https://doi.org/10.1145/356901.356903" />
+	</analytic>
+	<monogr>
+		<title level="j">ACM Comput. Surv</title>
+		<imprint>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page">343</biblScope>
+			<date type="published" when="1983-03">Mar. 1983</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<monogr>
+		<title level="m" type="main">Multiprocessor real-time locking protocols: A systematic review</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<ptr target="https://arxiv.org/abs/1909.09600" />
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Improved analysis and evaluation of real-time semaphore protocols for p-fp scheduling</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2013 IEEE 19th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="141" to="152" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Global real-time semaphore protocols: A survey, unified analysis, and comparison</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wieder</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 36th Real-Time Systems Symposium</title>
+		<meeting>the 36th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2015">2015. 2015</date>
+			<biblScope unit="page" from="1" to="12" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for shared memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings., 10th International Conference on Distributed Computing Systems</title>
+		<meeting>10th International Conference on Distributed Computing Systems</meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="1990">1990</date>
+			<biblScope unit="page" from="116" to="117" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings. Real-Time Systems Symposium</title>
+		<meeting>Real-Time Systems Symposium</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1988">1988</date>
+			<biblScope unit="page" from="259" to="269" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Executing parallel programs with synchronization bottlenecks efficiently</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Oyama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Taura</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Yonezawa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the International Workshop on Parallel and Distributed Computing for Symbolic and Irregular Applications (PDSIA 1999)</title>
+		<meeting>the International Workshop on Parallel and Distributed Computing for Symbolic and Irregular Applications (PDSIA 1999)</meeting>
+		<imprint>
+			<publisher>World Scientific</publisher>
+			<date type="published" when="1999">1999</date>
+			<biblScope unit="page" from="182" to="204" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Remote core locking: Migrating critical-section execution to improve the performance of multithreaded applications</title>
+		<author>
+			<persName><forename type="first">J.-P</forename><surname>Lozi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>David</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Thomas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lawall</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Muller</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the USENIX Annual Technical Conference</title>
+		<meeting>the USENIX Annual Technical Conference</meeting>
+		<imprint>
+			<publisher>USENIX</publisher>
+			<date type="published" when="2012">2012. 2012</date>
+			<biblScope unit="page" from="65" to="76" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">ffwd: delegation is (much) faster than you think</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Roghanchi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Eriksson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Basu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 26th Symposium on Operating Systems Principles</title>
+		<meeting>the 26th Symposium on Operating Systems Principles</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2017">2017. 2017</date>
+			<biblScope unit="page" from="342" to="358" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Flat combining and the synchronization-parallelism tradeoff</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Hendler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Incze</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Shavit</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Tzafrir</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 22nd Annual Symposium on Parallelism in Algorithms and Architectures (SPAA 2010)</title>
+		<meeting>the 22nd Annual Symposium on Parallelism in Algorithms and Architectures (SPAA 2010)</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="355" to="364" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Concurrent object-oriented programming</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Agha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Communications of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">33</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="125" to="141" />
+			<date type="published" when="1990-09">Sep. 1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Reinventing scheduling for multicore systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Boyd-Wickizer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Morris</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Kaashoek</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 12 th Workshop on Hot Topics in Operating Systems</title>
+		<meeting>the 12 th Workshop on Hot Topics in Operating Systems</meeting>
+		<imprint>
+			<publisher>USENIX</publisher>
+			<date type="published" when="2009">2009. 2009</date>
+			<biblScope unit="page" from="1" to="5" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">A blocking bound for nested FIFO spin locks</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wieder</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 37th Real-Time Systems Symposium</title>
+		<meeting>the 37th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2016">2016. 2016</date>
+			<biblScope unit="page" from="291" to="302" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">On the complexity of worst-case blocking analysis of nested critical sections</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wieder</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 35th Real-Time Systems Symposium (RTSS</title>
+		<meeting>the 35th Real-Time Systems Symposium (RTSS</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2014">2014. 2014</date>
+			<biblScope unit="page" from="106" to="117" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">A method to improve the estimated worst-case performance of data caching</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Lundqvist</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Stenström</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings Sixth International Conference on Real-Time Computing Systems and Applications. RTCSA&apos;99</title>
+		<meeting>Sixth International Conference on Real-Time Computing Systems and Applications. RTCSA&apos;99</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1999">1999</date>
+			<biblScope unit="page" from="255" to="262" />
+		</imprint>
+	</monogr>
+	<note type="report_type">Cat. No. PR00306</note>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">A survey on static cache analysis for real-time systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lv</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Reineke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Wilhelm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+		<idno>05:1-05:48</idno>
+	</analytic>
+	<monogr>
+		<title level="j">Leibniz Transactions on Embedded Systems</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="2016-06">Jun. 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Cache persistence analysis: Finally exact</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Stock</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Hahn</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Reineke</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 40 th Real-Time Systems Symposium (RTSS&apos;19)</title>
+		<meeting>the 40 th Real-Time Systems Symposium (RTSS&apos;19)</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="481" to="494" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Towards multicore WCET analysis</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Wegener</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 17th International Workshop on Worst-Case Execution Time Analysis</title>
+		<meeting>the 17th International Workshop on Worst-Case Execution Time Analysis</meeting>
+		<imprint>
+			<date type="published" when="2017">2017. 2017</date>
+			<biblScope unit="volume">57</biblScope>
+			<biblScope unit="page" from="1" to="12" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">TimeWeaver: A Tool for Hybrid Worst-Case Execution Time Analysis</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Kästner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Pister</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Wegener</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Ferdinand</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">19th International Workshop on Worst-Case Execution Time Analysis (WCET 2019)</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="volume">72</biblScope>
+			<biblScope unit="page">11</biblScope>
+		</imprint>
+	</monogr>
+	<note>Schloss Dagstuhl</note>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Cache-related Preemption and Migration Delays: Empirical Approximation and Impact on Schedulability</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bastoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 6 th International Workshop on Operating Systems Platforms for Embedded Real-Time Applications (OSPERT &apos;10)</title>
+		<meeting>the 6 th International Workshop on Operating Systems Platforms for Embedded Real-Time Applications (OSPERT &apos;10)</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="17" to="22" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">LITMUSˆRT : A Testbed for Empirically Comparing Real-Time Multiprocessor Schedulers</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><forename type="middle">C</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 27th IEEE Real-Time Systems Symposium (RTSS &apos;06)</title>
+		<meeting>the 27th IEEE Real-Time Systems Symposium (RTSS &apos;06)</meeting>
+		<imprint>
+			<date type="published" when="2006-12">Dec. 2006</date>
+			<biblScope unit="page" from="111" to="126" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Push-assisted Migration of Real-time Tasks in Multi-core Processors</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Sarkar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Mueller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Ramaprasad</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Mohan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="s">Sigplan Notes</title>
+		<imprint>
+			<biblScope unit="volume">44</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<biblScope unit="page" from="80" to="89" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Bus-aware multicore wcet analysis through tdma offset bounds</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Kelter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Falk</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Marwedel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chattopadhyay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Roychoudhury</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2011 23rd Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="3" to="12" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Bru: Bandwidth regulation unit for real-time multicore processors</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Farshchi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2020 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="364" to="375" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Priority inheritance protocols: An approach to real-time synchronization</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on computers</title>
+		<imprint>
+			<biblScope unit="volume">39</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1175" to="1185" />
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">A stack-based resource allocation policy for realtime processes</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings 11th Real-Time Systems Symposium</title>
+		<meeting>11th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1990">1990. 1990</date>
+			<biblScope unit="page" from="191" to="200" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title/>
+		<ptr target="https://zephyrproject.org/" />
+	</analytic>
+	<monogr>
+		<title level="j">Zephyr Project Contributors. Zephyr RTOS</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<monogr>
+		<title level="m" type="main">ait-worst case execution time analyzers</title>
+		<author>
+			<persName><surname>Absint</surname></persName>
+		</author>
+		<ptr target="https://www.absint.com/ait/" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

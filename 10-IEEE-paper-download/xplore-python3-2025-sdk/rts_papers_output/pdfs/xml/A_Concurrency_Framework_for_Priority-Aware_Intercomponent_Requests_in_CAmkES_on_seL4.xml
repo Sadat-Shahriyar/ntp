@@ -1,0 +1,844 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">A Concurrency Framework for Priority-Aware Intercomponent Requests in CAmkES on seL4</title>
+				<funder ref="#_c9TwUzS">
+					<orgName type="full">NASA</orgName>
+				</funder>
+				<funder ref="#_urYzSSy">
+					<orgName type="full">unknown</orgName>
+				</funder>
+				<funder ref="#_Q5DGmT6">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Marion</forename><surname>Sudvarg</surname></persName>
+							<email>msudvarg@wustl.edu</email>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science &amp; Engineering</orgName>
+								<orgName type="institution">Washington University in St. Louis</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Chris</forename><surname>Gill</surname></persName>
+							<email>cdgill@wustl.edu</email>
+							<affiliation key="aff1">
+								<orgName type="department">Department of Computer Science &amp; Engineering</orgName>
+								<orgName type="institution">Washington University in St. Louis</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">A Concurrency Framework for Priority-Aware Intercomponent Requests in CAmkES on seL4</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">2120D4DF4D5BA45F4D2E378A896C488F</idno>
+					<idno type="DOI">10.1109/RTCSA55878.2022.00007</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-17T19:29+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Component-based design can encapsulate and isolate state and the operations on it, but timing semantics crosscut these boundaries when a real-time task's control flow spans multiple components. Under priority-based scheduling, intercomponent control flow should be coupled with priority information, so that task execution can be prioritized appropriately end-to-end. However, the CAmkES component architecture for the seL4 microkernel does not adequately support priority propagation across intercomponent requests: component interfaces are bound to threads that execute at fixed priorities provided at compile-time in the component specification. In this paper, we present a new library for CAmkES with a thread model that supports (1) multiple concurrent requests to the same component endpoint; (2) propagation and enforcement of priority metadata, such that those requests are appropriately prioritized; and (3) implementations of Non-Preemptive Critical Sections, the Immediate Priority Ceiling Protocol and the Priority Inheritance Protocol for components encapsulating critical sections of exclusive access to a shared resource. We measure overheads and blocking times for these new features and use existing theory to perform schedulability analysis. Evaluations on both Intel x86 and ARM platforms show that our new library allows CAmkES to provide suitable end-to-end timing for real-time systems.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>As the complexity of software systems has increased, component-based software engineering has emerged as a key approach for providing structure, modularity, and reusability in system design <ref type="bibr" target="#b0">[1]</ref>. Real-time component frameworks encapsulate state, computation, and communication, allowing for separation of functional concerns and isolation of resource utilization within components to ensure that timing and other para-functional properties are enforced both locally and endto-end, based on attributes (e.g. priorities and execution times) and constraints (e.g. deadlines) spanning multiple components.</p><p>In particular, CAmkES <ref type="bibr" target="#b1">[2]</ref>, which targets the seL4 microkernel <ref type="bibr" target="#b2">[3]</ref>, provides a description language for the functional requirements of a component-based embedded system, and for static assignment of para-functional attributes such as priorities to component threads. Such static assignment, however, may be problematic in systems where real-time task execution crosses component boundaries: a single component may execute on behalf of multiple tasks, and by assigning priorities to components rather than to tasks, CAmkES does not fully support priority-driven scheduling of multi-component tasks.</p><p>To address this limitation, we present a new library for priority-aware inter-component requests in CAmkES running atop seL4, with a concurrency framework that allows multiple tasks to execute across shared components, while retaining end-to-end task prioritization. 1 To do so, we provide a system model that supports <ref type="bibr" target="#b0">(1)</ref> multiple concurrent requests to the same component procedural interface endpoint; (2) priority propagation, which couples requests with priority metadata and ensures that each component thread is prioritized according the task for which it executes; and (3) implementations of Non-Preemptive Critical Sections, Immediate Priority Ceiling Protocol, and Priority Inheritance Protocol, for components encapsulating exclusive access to a shared resource. Our concurrency framework includes new extensions to the CAmkES specification language, allowing users to easily specify the desired real-time behavior of a component. The framework is implemented entirely in userspace, so it can take advantage of existing formally verified kernel mechanisms in seL4.</p><p>The mechanisms our library provides are designed to be both fast and predictable in execution time. Our protocols use priority semantics to guarantee consistency over lock acquisition without additional atomic operations. We measure the overhead induced by our protocols, and validate that it is appropriately bounded. We also provide an overview of how to do schedulability analysis for a component-based task system specified with our extensions to CAmkES, taking into account blocking times induced by both library overhead and shared resource access under our supported protocols. We demonstrate, through empirical timing measurements of task sets running on both Intel x86 and ARM hardware platforms, that our implementation, coupled with this analysis, is successful in meeting end-to-end deadlines for cross-component task execution in real-time systems.</p><p>The rest of this paper is organized as follows. Section II surveys background information and related work. Section III presents our task model and associated schedulability analysis techniques. Section IV details the design and implementation of our library. Section V presents overhead measurements and empirical evaluations of synthetic task sets on two different hardware platforms, and schedulability analyses which incorporate the measured overheads across a broader set of synthetic task sets; these demonstrate the suitability of our library for real-time systems. Section VI concludes the paper, and discusses directions for future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND AND RELATED WORK</head><p>CAmkES provides a description language for the functionality of a component-based embedded system. It is designed to incur minimal execution time and memory overhead. CAmkES is implemented atop seL4 <ref type="bibr" target="#b2">[3]</ref>, <ref type="bibr" target="#b3">[4]</ref>, and allows compile-time specification of component thread priorities <ref type="bibr" target="#b4">[5]</ref>. The seL4 microkernel is a widely used <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b6">[7]</ref>, lightweight, formallyverified <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b8">[9]</ref> OS kernel with capability-based access control to broker all user-level functionality. All kernel pathway worstcase execution times have been analyzed and bounded <ref type="bibr" target="#b9">[10]</ref>. This makes seL4 well-suited for real-time systems, and it is a natural target for CAmkES, allowing for separation between components, while providing efficient IPC channels to handle the explicitly-defined connections between them. In this work, we provide a framework that expands CAmkES' support for real-time task sets executing end-to-end across shared components atop the seL4 kernel. We aim to show how real-time tasks can be mapped to a component model and implemented in CAmkES and seL4 without changes to seL4's verified codebase or existing CAmkES based application software, thus allowing easy adoption.</p><p>The Component-Integrated ACE ORB (CIAO) <ref type="bibr" target="#b10">[11]</ref> [12] extends and specializes the CORBA Component Model <ref type="bibr" target="#b12">[13]</ref> with QoS specifications provided as metadata (separate from functional specifications). In both CAmkES and CIAO, RPC invocations are realized as synchronous IPC between threads in separate components, though if components are specified within the same protection domain, both CAmkES and CIAO can resolve RPCs between them into direct function calls.</p><p>The Patina API <ref type="bibr" target="#b13">[14]</ref> provides priority-aware synchronization primitives for shared resource access in seL4. It includes a mutex service that implements the Priority Inheritance Protocol; threads obtaining a lock must invoke the service via an RPC. In contrast, our framework extends the existing CAmkES design to encapsulate all execution over a shared resource in its own component, allowing each component to manage its own priority-based locking protocols. Patina does not support nested locking; because our framework provides multiple protocols, nested locking can be achieved via nested requests among correctly-configured components.</p><p>An alternative to inter-thread RPC is thread migration between protection domains, which some OS kernels enable by decoupling a thread's execution context (e.g. register values, stack, address space, etc.) from its scheduling context (e.g. priority, resource accounting statistics, temporal reservations, etc.). In the Mach 3.0 kernel, RPC is realized by having the requesting thread immediately continue executing in the context of the server; a partial context switch is needed to separate execution contexts, but the scheduling context maintains continuity across the call <ref type="bibr" target="#b14">[15]</ref>. A similar, efficient thread migration mechanism was later realized for inter-component requests in the Composite component-based OS <ref type="bibr" target="#b15">[16]</ref>. These approaches let end-to-end task execution retain scheduling semantics across component boundaries, but do not directly support priority protocols for shared resource access. A migrat-ing scheduling context must also acquire an execution context and related resources (e.g. a stack) from the target component's scope. It is argued <ref type="bibr" target="#b16">[17]</ref> that access to the allocated stacks in a component can induce priority inversion, unless each component allocates a stack for each thread in the system. Because CAmkES explicitly defines all intercomponent request paths, our framework is able to allocate threads (and associated stacks) in a way that avoids such contention.</p><p>Capacity-reserve donation (Credo) <ref type="bibr" target="#b17">[18]</ref>, implemented in the original L4 microkernel <ref type="bibr" target="#b18">[19]</ref>, uses scheduling context migration to propagate priorities with intercomponent requests, while also supporting shared resource access protocols (in particular, the Priority Inheritance Protocol <ref type="bibr" target="#b19">[20]</ref> and the Immediate Priority Ceiling Protocol <ref type="bibr" target="#b20">[21]</ref>, <ref type="bibr" target="#b21">[22]</ref>). A similar approach <ref type="bibr" target="#b22">[23]</ref> was later implemented to support the Priority Inheritance Protocol and bandwidth inheritance <ref type="bibr" target="#b23">[24]</ref> in the NOVA microhypervisor <ref type="bibr" target="#b24">[25]</ref>. These approaches, unlike ours, require the kernel to track the full migration path of the scheduling context. Ours is a userspace framework, and its resource access protocol mechanisms require only a single priority parameter to be passed as part of the request message, eliminating the need for runtime traversal of request chains.</p><p>In contrast to previous work, our implementation enables user-level propagation of priorities between components and user-level mechanisms to implement shared resource access protocols. It does not require kernel-level tracking of complete request chains, with priority meta-data instead passed as a single-word parameter as part of the RPC message. This allows RPC to be realized as synchronous IPC using a thread model that enables immediate request-passing where appropriate, while appropriately blocking on access to locked resources.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. SYSTEM MODEL</head><p>In this work, we target an implicit-deadline, sporadic task system, using fixed-priority, preemptive scheduling on a uniprocessor. Our system is composed of a set Γ of tasks {τ i = (C i , T i , p i )} characterized by a worst-case execution time C i and a minimum interarrival time T i , and assigned a priority p i . We assume, for schedulability considerations, that task execution is nonblocking (except when waiting for a lock held by another task).</p><p>Our target OS platform is the seL4 microkernel <ref type="bibr" target="#b2">[3]</ref>, which supports fixed-priority preemptive scheduling. The seL4 kernel, compiled with default settings, schedules threads of the same priority in round-robin fashion; however, we also consider a version in which the round-robin timeslice is set large enough that threads will always run to completion unless preempted by a strictly higher priority thread. In Sections IV and V respectively, we describe our implementation and evaluation of both versions.</p><p>We define a mapping from our task system Γ to originating components and sets of component procedure interfaces (CPIs), described in CAmkES, as follows. First, for each task τ i ∈ Γ, we define a component c i that we say originates the task. In CAmkES, that component is specified as active, giving it an associated thread with priority p i to run the task. Common functionality or resources, shared among multiple tasks, may be encapsulated behind CPIs within other components. <ref type="foot" target="#foot_0">2</ref> Each such task τ i is thus decomposed into multiple subtasks: an initial subtask executing in its originating component c i , with control flow then passing out of it to zero or more shared CPIs, then returning back through the request chain before finally completing execution in c i , as illustrated in Fig. <ref type="figure">1</ref>. Requests can be nested and request chains need not be linear: an originating component or CPI may make multiple subsequent requests within the control flow of a single job.</p><formula xml:id="formula_0">1 2 3 A B C 1 𝛕𝛕 1,1 A 𝛕𝛕 1,2 B 𝛕𝛕 1,3 A 𝛕𝛕 1,4</formula><p>Components hosting one or more shared CPIs are realized in CAmkES by defining them as passive. Explicit connections -from an originating component or CPI that uses it, to the CPI -must be defined in CAmkES. Connections are backed by an underlying endpoint, an seL4 kernel object that enables RPC calls between threads through synchronous IPC, where the requesting thread blocks until it receives a reply. Endpoints, being synchronous, require a sending and receiving thread to rendezvous. Thus, task execution will be blocked at the transition between subtasks if no threads in the target CPI are waiting on the endpoint.</p><p>CAmkES components, using the built-in connector types, establish CPIs as endpoints with a single listening thread that handles all requests; its priority is specified as an attribute of the CAmkES configuration. This presents fundamental incompatibilities with our task model: multiple tasks executing end-to-end across shared CPIs are not guaranteed to execute subtasks according to the priority of the task, and may be blocked from progress if a procedure on its request path is already executing, even if that execution is for a request from a task of lower priority. The framework we provide addresses these problems, providing appropriate priority propagation across CPIs that encapsulate shared functionality and mechanisms for additional resource access protocols for CPIs encapsulating exclusive access to shared resources.</p><p>To analyze schedulability of our end-to-end task model, we consider several possibilities under the system model we have defined, and describe how the existing theory for ratemonotonic scheduling, including blocking time analysis for shared resource access protocols, applies to our model. Priority Propagation. We say that task τ i originates in active component c i and additionally executes across a set of CPIs (hosted by passive components) ĉi (of size ∥ĉ i ∥). The worstcase overhead for sending a request with a propagated priority to a CPI is denoted C p send , and for replying is C p reply , with worst case total overhead C p = C p send + C p reply (measured in Section V). For a CPI c, we denote the worst-case procedure execution time as C(c). Thus, a task τ i has total WCET:</p><formula xml:id="formula_1">C i = C(c i ) + c∈ĉi C(c) + ∥ĉ i ∥ • C p<label>(1)</label></formula><p>Each CPI c has a minimum priority p min (c) among tasks for which it executes, and a maximum priority p max (c). A CPI's threads wait on its associated endpoint at p max (c); the blocking time B i induced on a task τ i is therefore max(C p send , C p reply ) if there exists a CPI for which p min (c) &lt; p i and p i ≤ p max (c); otherwise, τ i experiences no blocking time. Schedulability analysis of task sets where each task has a unique priority then can be performed using the Hyperbolic Bound with blocking factors <ref type="bibr" target="#b25">[26]</ref>:</p><formula xml:id="formula_2">∀τ i ∈ Γ P h &gt;Pi C h T h + 1 C i + B i T i + 1 ≤ 2 (2)</formula><p>A more pessimistic bound, though one that applies to task sets where multiple tasks may have the same priority, is presented in <ref type="bibr" target="#b19">[20]</ref> (Corollary 17), as a generalization of the rate-monotonic utilization bound in <ref type="bibr" target="#b26">[27]</ref>: τi∈{τ1,...,τn}</p><formula xml:id="formula_3">C i T i + max B i T i ≤ n 2 1/n -1<label>(3)</label></formula><p>Immediate Priority Ceiling Protocol. Our framework allows a CPI to encapsulate execution of a critical section with the Immediate Priority Ceiling Protocol (IPCP). Such CPIs have a worst-case request overhead time C f = C f send + C f reply . We introduce a new term, B(c), for the worst-case blocking time that a CPI c can induce. For a CPI c to which priorities are propagated, B(c) = max(C p send , C p reply ) as before. For a CPI c having a fixed priority, e.g. one using IPCP, blocking time must be computed recursively as the sum of its execution time and protocol overhead (C f + C(c)), plus the execution times and protocol overheads for all CPIs to which it makes requests. Now, the blocking time B i induced on task τ i is the maximum worst-case blocking time induced by any CPI:</p><formula xml:id="formula_4">B i = max ({B(c) | p min (c) &lt; p i ≤ p max (c)})<label>(4)</label></formula><p>IPCP is an improved version of Non-Preemptive Critical Sections (NPCS), which assigns the maximum system priority to execution in all critical sections. Under NPCS, then, the blocking time induced by any CPI becomes:</p><formula xml:id="formula_5">B i = max ({B(c) | p min (c) &lt; p i })<label>(5)</label></formula><p>Task WCETs must account for the different overheads, C p and C f , induced by priority propagation and requests to fixedpriority CPIs, respectively. We say that a task τ i executes across a set of fixed-priority CPIs ĉi,f and a set of CPIs that propagate priority ĉi,p . This results in a new equation for task WCET, slightly modified from Eqn. 1:</p><formula xml:id="formula_6">C i = C(c i ) + c∈ĉi C(c) + ∥ĉ i,p ∥ • C p + ∥ĉ i,f ∥ • C f (6)</formula><p>Schedulability analysis, using Eqns. 2 or 3, can be performed using these new blocking times and WCETs.</p><p>Priority Inheritance Protocol. Our framework also supports CPIs that use the Priority Inheritance Protocol (PIP), as described in Section IV. As we show in Section V, our mechanism induces protocol overhead that depends on the number of tasks that execute on the CPI. For such a CPI c, we denote this C i (c). Because a task can be blocked for the duration of multiple critical sections under PIP, CPIs implementing PIP may induce longer worst-case blocking times than those using IPCP <ref type="bibr" target="#b19">[20]</ref>. However, under PIP, higherpriority tasks may preempt lock-holders in situations where this preemption could not happen under IPCP, which may make PIP attractive for some soft real-time applications.</p><p>Our model restricts the nesting of CPIs such that a CPI implementing PIP can only send requests to CPIs with a fixed priority ceiling, i.e., IPCP or NPCS; we do not currently provide a mechanism for nested priority inheritance. The implementations of the other priority protocols we provide (priority propagation, IPCP, and NPCS) do not change the priorities of threads executing request procedures, and therefore can invoke nested requests to CPIs of any type.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. DESIGN AND IMPLEMENTATION</head><p>The CAmkES framework <ref type="bibr" target="#b4">[5]</ref> provides a specification language to describe a system as a collection of components and connections between them. CAmkES generates the necessary seL4 system calls to create components and IPC described by a user-provided system specification and component source code, then compiles everything into an ELF binary packaged with an seL4 kernel image.</p><p>Our goal in this work is to elaborate on the CAmkES framework without changes to its underlying parser or the seL4 kernel. The design and implementation of our approach provides priority propagation across thread-safe, reentrant components executing similarly to sequential, noncomponentized versions. We also support several prioritybased locking protocols -including the Immediate Priority Ceiling Protocol (IPCP), Non-Preemptive Critical Sections (NPCS), and Priority Inheritance Protocol (PIP) -to provide synchronization over component-encapsulated shared state. Component execution is replicated across subtasks and control flows, with multiple subtasks in a single component, so that functionality itself need not be replicated. Each component provides spatial isolation via its own separate address space, which is shared among its threads' unique stacks.</p><p>Priority Propagation. We first consider CPIs that encapsulate reentrant functionality shared among multiple tasks. So that end-to-end task execution follows the semantics of fixedpriority, preemptive scheduling as described in Section III, we require that task priority propagates with control flow across request paths. Such a CPI, having an interface tagged with the "propagated" priority protocol attribute (as described later in this section), must execute requests at the priority of the requesting thread, and handle concurrent requests in a preemptive fashion, i.e. a CPI may preempt its own procedure's execution if it receives a request from a higher priority task.</p><p>To achieve these goals, we give each CPI a pool of threads, all waiting for requests on the underlying endpoint. To ensure thread availability whenever a request arrives, the size of the pool is set equal to the number of possible concurrent requests, as illustrated in Fig. <ref type="figure" target="#fig_0">2</ref>. Because CAmkES provides a static specification of CPIs and request connections, this value is straightforward to determine.</p><p>Threads wait on the endpoint at the highest priority among all tasks that use the interface, referred to as its priority ceiling (PC). This ensures that if a request preempts existing execution in the CPI on behalf of another request through the interface, the thread handling the new request will be of sufficiently high priority to begin execution. Upon receiving a request, the handling thread immediately sets its priority to that of the requesting thread, per the priority information that is passed to it over the endpoint as part of the request message. It then executes its procedure, running the subtask at the originating task's priority. After execution is complete, it elevates its priority back to its original waiting priority, replies to the requestor, then goes back to waiting on the endpoint. By receiving a request and sending the reply at the priority ceiling of the interface, these transitions between subtasks are equivalent to critical sections with IPCP semantics (under traditional fixed-priority preemptive scheduling) and induce equivalent blocking time as was discussed in Section III.</p><p>Shared Resource Access Protocols. CPIs that encapsulate exclusive access to a shared resource must provide appropriate priority semantics for the associated critical section. We assume that each such CPI encapsulates a complete critical section. Encapsulation of a shared resource for which only a portion of execution must be locked can be realized with one or more CPIs propagating priority for reentrant access to the resource, and other CPIs encapsulating locking semantics for nonreentrant, exclusive access. Fig. <ref type="figure">3</ref> shows how nested locking (acquiring a second lock while already holding a lock) can then be achieved through a chain of requests: a CPI encapsulating one lock can make a request to another CPI encapsulating the second lock.</p><p>It is straightforward to implement NPCS and IPCP. Both are achieved by tagging an interface with the "fixed" priority protocol attribute and providing a single listening thread to its endpoint, assigning the thread a priority equal to the priority ceiling. This wraps the implementation of these protocols that is provided by both the MCS and non-MCS builds of the seL4 kernel <ref type="bibr" target="#b27">[28]</ref>. NPCS is realized under traditional, fixed-priority, preemptive scheduling by assigning a CPI the maximum system priority (255). Once a request is received by the interface, it cannot be preempted. Under round-robin scheduling of threads having equal priorities, NPCS comes with the additional constraint that all tasks (and their originating components' threads) are restricted to priorities less than the maximum. This guarantees that execution in a critical section is not preempted by a new request, which implies that two critical sections cannot execute concurrently: one critical section would necessarily have to begin execution before the other, and for the second critical section to execute, it would have to be in response to a request preempting the first.</p><p>Because NPCS induces blocking time on all tasks in a system, the IPCP is typically preferred as an alternative fixedpriority resource access protocol. As noted in <ref type="bibr" target="#b27">[28]</ref>, the IPCP is straightforward to implement by providing an endpoint with a single thread, assigned a priority equal to the priority ceiling of the CPI. With only a single thread listening on the endpoint, no additional lock variable is necessary. The IPCP is, as defined in <ref type="bibr" target="#b20">[21]</ref>, a deadlock avoidant protocol; however, under seL4's priority-based round-robin scheduler, deadlocks can occur. <ref type="foot" target="#foot_1">3</ref>One solution to this is to assign "fixed" CPIs a priority equal to PC+1. However, deadlock could still occur if two CPIs, each using the IPCP, request the other's interface; this could result in a task attempting to acquire a lock it already holds. To guarantee the absence of deadlock one would have to ensure that no cycles exist in the digraph of connections. For a given system specification, CAmkES can generate a digraph representation in the DOT language <ref type="bibr" target="#b28">[29]</ref>; this may be used to detect cycles, which alert to possible deadlock.</p><p>In this work, we do not implement the original Priority Ceiling Protocol, as described in <ref type="bibr" target="#b19">[20]</ref>. CAmkES specification, these priority ceilings can be computed offline. However, the original Priority Ceiling Protocol requires the tracking of a priority ceiling among all currently acquired locks; this would require online global state even among noninteracting components. Priority Inheritance Protocol. An interface will provide locking with PIP semantics if tagged with the "inherited" priority protocol attribute. For these interfaces, our framework supplies the CPI with three variables: a non-atomic boolean lock, a pointer to the Thread Control Block (TCB) of the lock-holder, and the current inherited priority. These CPIs are again supplied with a pool of threads, the size of which is equal to the number of possible concurrent requests. The threads belong to the same CPI and share an address space, so they all have access to the CPI-scoped variables used by the protocol mechanisms. Under traditional fixed-priority preemptive scheduling, these threads are set to wait on the endpoint at the priority ceiling.</p><p>Our implementation of that protocol is illustrated in Fig. <ref type="figure">4</ref>. When a request arrives, the responding thread (1) checks the lock. If the lock is already held, it proceeds to (2) check the inherited priority variable against its own request priority. If the request priority is higher, it is inherited by the thread currently holding the lock: the responding thread (3) updates the inherited priority variable, then (4) elevates the priority of the locking thread's TCB. At this point, it (5) waits for a signal indicating that the lock has been freed.</p><p>If, however, the lock is unlocked, the thread (8) marks the lock as locked, (9) sets the inherited priority variable to the request priority, <ref type="bibr" target="#b9">(10)</ref> sets the TCB pointer to itself, then <ref type="bibr" target="#b10">(11)</ref> demotes its priority to the request priority, <ref type="bibr" target="#b11">(12)</ref> runs the interface's procedure code to handle the request. Once complete, it <ref type="bibr" target="#b12">(13)</ref> promotes itself back to the priority ceiling, (14) marks the lock as unlocked, (15) signals any threads waiting for the lock, then finally <ref type="bibr" target="#b15">(16)</ref> replies to the requestor and returns to waiting on the endpoint.</p><p>The seL4 kernel provides notification objects, which are simple signaling mechanisms that support blocked waiting. Notification objects are not priority aware if the seL4 kernel is compiled without MCS features: when a signal is received, the kernel wakes the first waiting thread. Thus, a single notification object is insufficient for signalling the threads waiting on a held lock, as the highest priority waiting thread is not guaranteed to be the first to obtain the lock when it becomes available. For the default kernel, we implement a priority-aware signaling mechanism that we call a notification manager. The notification manager contains a priority queue (implemented as a max-heap) of notification objects, sorted by priority, with ties broken by earliest insertion. When initialized, the notification manager creates an array of notification objects, equal to the size of the thread pool, by using the CAmkES seL4 object allocator. The notification manager reveals two public functions, wait and signal, similar to the seL4 system calls of the same names for notification objects. The request priority is passed with the wait call, allowing the notification manager to retrieve a notification object from the free list, then insert it into the heap. The wait function then uses a system call to wait on that notification object. The notification manager signals the notification object at the head of the heap. The awakened thread (6) returns from the seL4 wait system call; its control flow remains in the notification manager's wait function, which <ref type="bibr" target="#b6">(7)</ref> pops its notification object from the head of the priority queue. The thread <ref type="bibr" target="#b7">(8)</ref> then proceeds as if it had found the lock available.</p><p>In the absence of round-robin scheduling of threads at the same priority, all execution of our protocol (steps 1-11 and 14-16 in Fig. <ref type="figure">4</ref>) occurs at the priority ceiling, and so cannot be preempted by new requests. The only time that execution can be preempted by a request is when the thread is executing the CPI procedure <ref type="bibr" target="#b11">(12)</ref><ref type="bibr" target="#b12">(13)</ref>. If preempted here, it will remain preempted while the responding thread executes steps (1-5). Thus, there can only be two threads from the pool active at any given time: either when there is one thread executing (12-13) and one at the priority ceiling in (1-5), or when the thread holding the lock signals the notification manager, waking another thread. In the latter case, the signaled thread will proceed through (6-8), while the signaling thread proceeds to <ref type="bibr" target="#b15">(16)</ref>. As both threads are executing at the priority ceiling, no new requests can arrive, and so the thread just awakened will be guaranteed that when it pops the head of the heap, it will have its own notification object, and the lock will not be acquired by another thread before it proceeds to set the lock. Thus, by priority semantics, our protocol is race-free.</p><p>However, under round-robin scheduling of same-priority threads, a race may occur: a responding thread running the mechanisms of our protocol can be swapped out for a requestor at the priority ceiling, which would wake another thread from the pool. We can solve this problem by setting the thread pool's priority to be PC+1. Now, being a strictly greater priority, the race-free arguments we presented again hold true: execution of our protocol mechanisms occurs at PC+1, and therefore cannot be preempted by new requests. Even with nested locking, a request made by a thread already holding a lock would necessarily be at a priority inherited from a requestor, or from a "fixed" priority CPI thread running at the priority ceiling). Using PC+1 priority, however, can induce undesirable interference with tasks of higher priorities. To avoid this, we adopt a priority-laddering scheme <ref type="bibr" target="#b29">[30]</ref> similar to ones used in other prior work (e.g., LynxOS <ref type="bibr" target="#b30">[31]</ref>), whereby tasks (and their originating components' threads) are restricted to even priority values (from seL4's 0-254 priority range), and so the thread pools assigned to interfaces specified with "inherited" priority are thereby restricted to the odd values (from 1 to 255). While this reduces the number of effective priority levels from 256 to 128, this still leaves more priorities available than are provided by Linux's fixed-priority scheduling classes <ref type="bibr" target="#b31">[32]</ref>, which should be sufficient for most realistic task systems.</p><p>Implementation and Usability Enhancements. Our userspace implementation targets closed embedded realtime systems running atop the seL4 kernel on unicore or fully-partitioned multicore hardware. We implemented our framework with the goal of staying as true to the CAmkES language and design philosophy as possible, leveraging existing techniques used by the CAmkES framework to provide support for several protocols in only 388 lines of code, as summarized in Table <ref type="table" target="#tab_3">I</ref>. It minimizes (to the extent possible) changes needed for existing CAmkES application systems to incorporate its functionality. We now describe how we met this goal and summarize how a developer would use our framework.</p><p>CAmkES allows components to be declared with a set of attributes which are compiled into symbols in the component binary, and the user-provided source code for the component can use them as variables. It provides several built-in attributes; e.g., priority sets the priority of an active component's execution thread. If a user manually declares this attribute in a component's definition, its priority becomes available as a variable in the source code. This is necessary for priority introspection without modification to underlying CAmkES or seL4 code because seL4 does not provide a system call for threads to read their current priority level. We define additional attributes which control the number of threads waiting on the endpoint and the CPI's priority protocol; a provided function macro generates all required attributes for a given interface.</p><p>CAmkES provides a library of standard connectors to component interfaces, using the Jinja template engine <ref type="bibr" target="#b32">[33]</ref> to generate much of the underlying code (including syscalls) that brokers communication over a given connector type. We define a new class of connectors that inherits much of its functionality from the built-in templates for synchronous IPC. Each connector of this class defines the number of threads bound to the underlying endpoint of the target CPI; a provided function macro creates a connection with the appropriate connector type when given an object macro specifying the number of threads.</p><p>Our template code additionally inserts hooks into the appropriate functions in our library: initialization, and function calls before and after the interface procedure runs. This ensures that users of our framework do not have to remember to manually insert the necessary hooks into the provided component source code. For initialization, we leverage the existing init function that CAmkES declares for each procedure interface. Normally, a user would provide an appropriate function definition; our template defines it instead, ensuring that it is called at component initialization. To allow additional user-defined initialization, we provide an init function declaration (note the single, rather than double, underscore) that is called at the end of our template's initialization.</p><p>Thus the framework, in its current form, requires the user to make few changes to their component source code; changes are minimal and largely necessary to avoid modifying the underlying CAmkES parser and seL4 kernel. Our framework also contains appropriate checks such that incorrectly-specified attributes will cause the application to fail to compile (with appropriate error messages). Its ease of use and its compilation checks to avoid misconfiguration make our framework suitable for developing closed real-time systems.</p><p>It is worth noting that the digraph representation generated by the CAmkES parser describes connections from components to CPIs; this lacks the information needed to determine the transitive closure of a request chain, as a component with multiple CPIs might make nested requests as part of the procedure of only one of those; this would not be evident from the digraph. This means, without changes to the CAmkES parser, that the presence of a cycle does not necessarily imply a call chain loop with deadlock potential, and that our compilation checks cannot detect the presence of a nested request from a CPI implementing PIP to another that does not implement a "fixed" priority protocol. Thus, even if the exported DOT representation of the digraph reveals a cycle, or a possibly invalid nested request from a CPI implementing PIP, we leave it up to the user to decide if the configuration is, indeed, problematic. We defer a modification of the CAmkES parser to provide transitive closure to future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EVALUATION</head><p>We evaluated our library using the CAmkES 3.10.0 framework, targeting version 12.1.0 of the seL4 kernel, testing synthetic task sets on both Intel x86-64 and ARMv8 AARCH32 ISA hardware platforms. We ran each task set using two configurations of the seL4 kernel: the default configuration, which provides round-robin scheduling for threads of equal priority; and a configuration that schedules threads according to traditional, fixed-priority preemptive semantics, which was achieved by setting the round-robin timeslice to a sufficiently large value. So that we could evaluate the efficacy and overhead of our notification manager, we did not enable the kernel's MCS features. For the Intel platform, we used a system with two Intel Xeon Gold 6130 Skylake processors running at 2.1 GHz (Hyperthreading, Speedstep, and Turboboost disabled) and 32GB of memory. For the ARM platform, we used a Raspberry Pi Model 3 B+, which has a 4-core ARMv8 Cortex-A53 and 1GB of RAM. We disabled the L2 cache, and clocked it to 700 MHz. <ref type="foot" target="#foot_2">4</ref> Despite the 64-bit CPU, seL4 only supports a 32-bit ISA on the Raspberry Pi. <ref type="foot" target="#foot_3">5</ref> We enabled kernel printing and userspace access to the ARM PMU to allow our system to measure and print elapsed cycles.</p><p>Protocol Overheads. We begin by measuring the overheads induced by our protocol. To support fine-grained microbenchmarking, we measure elapsed cycles (using rdtsc on Intel, and reading directly from the cycle count register on the ARM PMU) for all measurements. Because reading from the cycle counter incurs its own overhead, we first benchmark these reads by measuring the elapsed cycles between two successive cycle counts. Results are summarized in Table <ref type="table" target="#tab_5">II</ref>.</p><p>Dividing the maximum cycles measured between two backto-back cycle counter reads, by the clock speed of each platform, gives a bound on the temporal resolution of our measurements of a little under 25 ns on the Intel Xeon, and 13 ns on the Raspberry Pi. We individually measure the overheads for both sending requests over an endpoint (Call) and replying to the request (Reply), separately measuring the overheads of our PIP implementation for requests to a CPI with an already-acquired lock (locked) versus those with an available lock (unlocked). We compare these overheads for our various protocols (propagated, inherited for PIP, and fixed for IPCP and NPCS) to the overhead of a request over the CAmkES built-in seL4RPCCall connector; while our protocols do induce additional overhead, the maximum values we measured equates to slightly less than 6 µs on Intel and less than 16 µs on ARM, which is suitably low for task sets running with periods as small as 5 ms. Further, the mean overheads induced by our protocol are within an order of magnitude of benchmarked raw IPC invocation values in the seL4 kernel. <ref type="foot" target="#foot_4">6</ref>We additionally measure the overhead induced by priority queues realized by different heap sizes within our notification   manager. For a given heap size n, we initialize the heap to hold n-1 notification objects with random priorities, then measure the elapsed cycles to push one more notification object into the heap, then pop the notification object with the greatest priority (and, among those of equal priority, the lowest insertion order). Times are plotted in Fig. <ref type="figure" target="#fig_1">5</ref>, with error bars indicating one standard deviation about the mean. Even the maximum values observed are upper-bounded by 1132 cycles (less than three fifths of a microsecond) on Intel and 476 cycles (less than three fourths of a microsecond) on ARM. This demonstrates suitably low overhead of our notification object heap itself even as the number of elements it holds grows to 100 (a larger value than many realistic scenarios would experience) and suggests that the overheads for our priority inheritance protocol are dominated by the costs of the system calls it uses.</p><p>Empirical Evaluation. To facilitate checking the schedulability of actual task sets running in CAmkES atop seL4 on our selected hardware platforms, we generate synthetic task sets over a representative topology of interacting components (the one illustrated in Fig. <ref type="figure" target="#fig_0">2</ref>), all running on a single core. We use the following 3 configurations: (1) The CPIs of components A and B both propagate priorities, (2) the CPIs of A and B both encapsulate exclusive access to shared resources using the IPCP, and (3) A's CPI propagates priorities, while B's CPI (which contains the terminal endpoint in its request chain) encapsulates a lock using PIP. For each configuration, we generate task sets with utilizations ranging from 0.1 to 1.0. For each utilization value, we generate 10 task sets: we (1) assign task utilizations according to the UUniSort algorithm <ref type="bibr" target="#b34">[35]</ref>,</p><p>(2) randomly select task periods from a set of harmonic values from 5 ms to 1 second (allowing trials with repeated hyperperiods to be performed efficiently), then (3) assign task workloads and priorities appropriately, and (4) sort tasks by increasing workload. Each task is then decomposed into subtasks according to the component CPIs it traverses: we generate the workloads of each subtask (and therefore CPI) according to UUniSort (with the sum of the subtask workloads equal to the task workload minus the measured overheads induced by our protocol for requests between components). For each task where a CPI's workload has already been determined (if it's shared with another task, for which it executes subtasks), we use the previously assigned value, and then generate remaining subtask workloads with UUniSort.</p><p>Each task set was run for 10 hyperperiods, with each task releasing up to 2000 jobs. We implemented periodic tasks by defining a component, the Dispatcher, which registers a periodic timeout with the CAmkES library's TimeServer component. The TimeServer is included among the reusable components released with CAmkES, though it does not natively support the Raspberry Pi; we developed a platformspecific header for the Raspberry Pi Model 3's BCM2837 firmware, realized in only 40 lines of code by hooking into existing drivers for the board's timer hardware.</p><p>An instance of the Dispatcher is created for each task, jobs of which it dispatches via an seL4RPCCall. Dispatchers are assigned a priority higher than the three tasks, which ensures that all Dispatcher initialization occurs before any task can execute, and that any task can be preempted by job release, such that the exact time of release can be recorded. Each Dispatcher sets a periodic timer according to its task's period. When the timer expires, the Dispatcher (1) issues an instruction to read from the cycle counter, (2) sends an RPC request to its associated task component, then, when it receives a reply, (3) reads again from the cycle counter. The worst-case overhead incurred by the Dispatcher to wait on the timer's notification object, as well as the time it takes to determine job completion (aggregated as the last line of Table <ref type="table" target="#tab_5">II</ref>) are subtracted from the elapsed time. If the resulting value does not exceed the task's period, the job met its deadline.</p><p>Task workloads were synthesized by looping on subsequent floating point multiplication and addition operations. We measured the execution time, in cycles, for 10 6 iterations on the Intel Xeon, and 10 5 iterations on the slower Raspberry Pi. On the Xeon, the maximum execution time was 9.61 × 10 5 cycles with a standard deviation of only 2478 cycles (under 1.2 µs). For the Raspberry Pi, the maximum was 8.46 × 10 5 cycles, with a standard deviation of just 40 cycles (under 60 ns). The worst-case overhead of the Dispatcher's communication over the endpoint with its task component, as well as its two reads from the cycle counter (shown in the first 3 rows of Table <ref type="table" target="#tab_5">II</ref>) are subtracted from the execution times assigned to each task, before workload iterations are assigned to individual subtasks.</p><p>Perhaps unsurprisingly given the harmonic periods of the tasks and the predictable and well-bounded synthetic workload and library overhead times when running on both hardware platforms, no deadlines were missed for any of our tested task sets, even those having a utilization of 1.0.</p><p>Schedulability Analysis. To gauge the broader theoretical schedulability beyond the task set configurations evaluated above, we generated synthetic task sets according to same methodology, but with task periods from 5 ms to 1 second selected from the log-uniform distribution described in <ref type="bibr" target="#b35">[36]</ref> (Eqn 4), assigning unique rate-monotonic priorities to each task. We also considered NPCS, for which the CPIs of A and B are both assigned the highest system priority. For each configuration, we generated task sets with utilizations ranging from 0.01 to 1.0, with 1000 task sets for each utilization value. We plotted the percentage of task sets that are guaranteed to be schedulable at each total utilization according to the hyperbolic bound without blocking, the hyperbolic bound with blocking (Eqn. 2), and the Liu and Layland bound with blocking (Eqn. 3). Note that for systems of 3 tasks, the Liu and Layland utilization bound without blocking is 0.780. Blocking times are calculated according to the discussion in Section III using the empirical overhead measurements presented in Table <ref type="table" target="#tab_5">II</ref>. The schedulability results were similar for the different hardware platforms, and so in this section we only plot results for the Intel Xeon platform, and report any differences seen on the Raspberry Pi in the text.</p><p>In Fig. <ref type="figure">6</ref>, we show the proportion of schedulable tasks according to each bound when both CPIs propagate priority. The overhead and blocking times induced by the underlying protocol are low enough to make the hyperbolic and Liu  and Layland schedulability tests with blocking times virtually indistinguishable from equivalent task sets without blocking. Fig. <ref type="figure">7</ref> shows the proportions of schedulable tasks when both CPIs are assigned fixed priorities according to IPCP. We observed similar schedulability when component A's CPI simply propagates priorities and component B's CPI inherits priorities according to PIP: for both configurations, the gap between the hyperbolic bounds with and without blocking is narrow; this shows that for both implementations, many task sets that would be schedulable under this sufficiency condition without mutually exclusive critical sections are still schedulable even with the blocking times they induce.</p><p>From the results plotted in Fig. <ref type="figure" target="#fig_2">8</ref>, we see that when both CPIs are assigned the maximum system priority, such that they implement NPCS, the proportion of schedulable tasks decreases significantly compared to IPCP. This demonstrates the clear disadvantages of the protocol: we begin to see task sets with total utilizations as low as 0.04 that are not guaranteed schedulable under NPCS; under IPCP all generated task sets with total utilization above 0.55 on the Intel Xeon (and above 0.6 on the Raspberry Pi), were guaranteed to be schedulable under the hyperbolic bound with blocking. This justifies our decision to exclude NPCS from evaluation on the target hardware platforms, as its schedulability guarantees are significantly limited.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. CONCLUSIONS AND FUTURE WORK</head><p>The results of our evaluations demonstrate that our extensions to the CAmkES component framework can prioritize cross-component control flows effectively. Reentrant CPIs execute at the priorities of the requesting tasks, while CPIs encapsulating critical sections use priority-based locking protocols without the need for additional atomic operations. This allows CAmkES to provide suitable end-to-end timing guarantees for real-time systems. As future work, we intend to extend our concurrency framework in several ways: the addition of threads and notification mechanisms to CPI endpoints that use Priority Inheritance Protocol, so that PIP can be extended across multiple CPIs; expansion of our framework to support end-to-end timing guarantees across asynchronous event notifications; modification of the CAmkES parser to allow the user-supplied initialization function to remain the default __init; a mechanism supporting transitive closure over request chains, allowing more robust deadlock detection and alerting to invalid component request configurations; and support for request cancellation, as in <ref type="bibr" target="#b22">[23]</ref>. We additionally plan to evaluate in comparison with the Patina API <ref type="bibr" target="#b13">[14]</ref>, and we are considering formal verification of our mechanisms.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Passive component A is used by active components 1 and 2 so a pool of 2 threads waits on the underlying endpoint. Component B is used by component 3, and indirectly by 1 and 2 through A, so it has 3 threads.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: Measured Priority Queue Overheads (in cycles)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: Schedulability with both CPIs using NPCS</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head></head><label></label><figDesc>Active components 1 and 2 send requests to a CPI for Reentrant Execution that is provided by a passive Resource Component, which also provides and uses CPIs for exclusive execution protected by Lock A, and nested locking by Lock B. Lock acquisition ordering is enforced by the defined connections; an acyclic connection digraph is deadlock free.</figDesc><table><row><cell></cell><cell></cell><cell></cell><cell cols="3">Resource Component</cell></row><row><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell>Lock B</cell></row><row><cell>2 1</cell><cell>Provides</cell><cell>Endpoint</cell><cell>Reentrant</cell><cell>Execution</cell><cell>Lock A Endpoint Endpoint</cell></row><row><cell>Fig. 3:</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head>TABLE I :</head><label>I</label><figDesc>Implementation Lines of Code</figDesc><table><row><cell>Implementation</cell><cell>Lines of Code</cell></row><row><cell>Base Framework C Code</cell><cell>68</cell></row><row><cell>Priority Inheritance Protocol C Code</cell><cell>60</cell></row><row><cell>Notification Manager C Code</cell><cell>123</cell></row><row><cell>CAmkES Macros</cell><cell>7</cell></row><row><cell>CAmkES Connector Declarations</cell><cell>100</cell></row><row><cell>CAmkES Connector Jinja Templates</cell><cell>30</cell></row><row><cell>Total</cell><cell>388</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>TABLE II :</head><label>II</label><figDesc>Overheads (in cycles) for Protocol Mechanisms</figDesc><table /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_0"><p>Our system model does not allow an originating component to specify any CPIs since it is by definition the root of all request chains emanating from it.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_1"><p>Consider a task, τ 1 , that needs to acquire locks A then B in a nested fashion. Another task, τ 2 , needs to acquire lock B then A. If τ 1 and τ 2 have priorities equal to the priority ceiling, τ 1 could be switched out for τ 2 while holding A. τ 2 could then acquire B and proceed to wait on lock A. At this point, when τ 1 attempts to obtain lock B, deadlock occurs.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_2"><p>The processor supports a CPU clock speed of 1.4 GHz. However, as noted in<ref type="bibr" target="#b33">[34]</ref>, this frequency cannot be sustained continuously, and may lead to throttling and instability. To maintain predictability, we boot the Raspberry Pi with a constant 700 MHz CPU clock speed, set the GPU to 250 MHz, and disable throttling. Details can be found at https://www.raspberrypi.com/ documentation/computers/config txt.html</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_3"><p>https://docs.sel4.systems/Hardware/Rpi3.html</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="6" xml:id="foot_4"><p>Benchmarked performance numbers listed at https://sel4.systems/About/ Performance/ report an average overhead of 382 and 387 cycles, respectively for IPC call and reply between threads in the seL4 kernel without the CAmkES framework. For the ARMv8 platform (in 64-bit mode) the reported values are 395 and 402. Even using PIP, our mean overheads are only about 6.5× this on Intel, and 4.8× this on ARM.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_5"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 05:27:02 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="funding">
+<div><p>The research presented in this paper was supported in part by <rs type="funder">NSF</rs> grants <rs type="grantNumber">CSR-1814739</rs> and <rs type="grantNumber">CNS-17653503</rs> and <rs type="funder">NASA</rs> grant <rs type="grantNumber">80NSSC21K1741</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_Q5DGmT6">
+					<idno type="grant-number">CSR-1814739</idno>
+				</org>
+				<org type="funding" xml:id="_c9TwUzS">
+					<idno type="grant-number">CNS-17653503</idno>
+				</org>
+				<org type="funding" xml:id="_urYzSSy">
+					<idno type="grant-number">80NSSC21K1741</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">Software Engineering: Report of a conference sponsored by the NATO Science Committee</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">D</forename><surname>Mcilroy</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1968-10-11">7-11 Oct 1968. Jan 1969</date>
+			<biblScope unit="page" from="79" to="85" />
+			<pubPlace>Garmisch, Germany</pubPlace>
+		</imprint>
+	</monogr>
+	<note>Mass-produced software components</note>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Camkes: A component model for secure microkernel-based embedded systems</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Kuz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Gorton</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Heiser</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems and Software</title>
+		<imprint>
+			<biblScope unit="volume">80</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="687" to="699" />
+			<date type="published" when="2007-05">May 2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<title level="m" type="main">The sel4 microkernel</title>
+		<ptr target="https://docs.sel4.systems/projects/sel4/,seL4Foundation" />
+		<imprint>
+			<date type="published" when="2022-01-23">23 Jan, 2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">From l3 to sel4 what have we learnt in 20 years of l4 microkernels</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Elphinstone</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Heiser</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the Twenty-Fourth ACM Symposium on Operating Systems Principles, ser. SOSP &apos;13</title>
+		<meeting>the Twenty-Fourth ACM Symposium on Operating Systems Principles, ser. SOSP &apos;13<address><addrLine>New York, NY, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>Association for Computing Machinery</publisher>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="133" to="150" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title level="m" type="main">Camkes manual</title>
+		<ptr target="https://docs.sel4.systems/projects/camkes/manual.html" />
+		<imprint>
+			<date type="published" when="2022-01-23">23 Jan, 2022</date>
+		</imprint>
+	</monogr>
+	<note>seL4 Foundation</note>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Formally verified software in the real world</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Andronick</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Fernandez</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Commun. ACM</title>
+		<imprint>
+			<biblScope unit="volume">61</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="68" to="77" />
+			<date type="published" when="2018-09">sep 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Sel4 in australia: From research to real-world trustworthy systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Heiser</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Andronick</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Commun. ACM</title>
+		<imprint>
+			<biblScope unit="volume">63</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="72" to="75" />
+			<date type="published" when="2020-03">Mar 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Sel4: Formal verification of an os kernel</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Elphinstone</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Heiser</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the ACM SIGOPS 22nd Symposium on Operating Systems Principles, ser. SOSP &apos;09</title>
+		<meeting>the ACM SIGOPS 22nd Symposium on Operating Systems Principles, ser. SOSP &apos;09<address><addrLine>New York, NY, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>Association for Computing Machinery</publisher>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="207" to="220" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Comprehensive formal verification of an os microkernel</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Andronick</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Elphinstone</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Comput. Syst</title>
+		<imprint>
+			<biblScope unit="volume">32</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="2014-02">Feb 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Timing analysis of a protected operating system kernel</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Blackham</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Shi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chattopadhyay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Roychoudhury</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Heiser</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2011 IEEE 32nd Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="339" to="348" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Towards composable distributed real-time and embedded software</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Balasubramanian</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Schmidt</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Workshop on Object-Oriented Real-Time Dependable Systems (WORDS)</title>
+		<imprint>
+			<date type="published" when="2003-01">Jan 2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">The design and performance of configurable component middleware for distributed realtime and embedded systems</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Subramonian</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L.-J</forename><surname>Shen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2004-12">Dec 2004</date>
+			<biblScope unit="page" from="252" to="261" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<idno>oMG Document formal/02-06- 65</idno>
+		<ptr target="https://www.omg.org/spec/CCM/3.0" />
+		<title level="m">Corba component model (version 3.0)</title>
+		<imprint>
+			<date type="published" when="2001-05-24">24 May, 2001</date>
+		</imprint>
+		<respStmt>
+			<orgName>Object Management Group</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Practical principle of least privilege for secure embedded systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Jero</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Furgala</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE 27th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="1" to="13" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Evolving mach 3.0 to a migrating thread model</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lepreau</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">USENIX Winter 1994 Technical Conference (USENIX Winter 1994 Technical Conference)</title>
+		<meeting><address><addrLine>San Francisco, CA</addrLine></address></meeting>
+		<imprint>
+			<publisher>USENIX Association</publisher>
+			<date type="published" when="1994-01">Jan 1994</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">The case for thread migration: Predictable ipc in a customizable and reliable os</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Parmer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the Workshop on Operating Systems Platforms for Embedded Real-Time applications (OSPERT)</title>
+		<meeting>the Workshop on Operating Systems Platforms for Embedded Real-Time applications (OSPERT)</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="91" to="100" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Execution stack management for hard real-time computation in a component-based os</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Song</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Parmer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2011 IEEE 32nd Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="78" to="89" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Fast component interaction for real-time systems</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Steinberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wolter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Hartig</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">17th Euromicro Conference on Real-Time Systems (ECRTS&apos;05)</title>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+			<biblScope unit="page" from="89" to="97" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Improving ipc by kernel design</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Liedtke</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIGOPS Oper. Syst. Rev</title>
+		<imprint>
+			<biblScope unit="volume">27</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="175" to="188" />
+			<date type="published" when="1993-12">Dec. 1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Priority inheritance protocols: an approach to real-time synchronization</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">39</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1175" to="1185" />
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title level="m" type="main">Hard Real-Time Computing Systems</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<publisher>Springer</publisher>
+			<biblScope unit="volume">3</biblScope>
+			<pubPlace>New York</pubPlace>
+		</imprint>
+	</monogr>
+	<note>rd ed</note>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Stack-based scheduling for realtime processes</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Syst</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="67" to="99" />
+			<date type="published" when="1991-04">Apr 1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Timeslice donation in component-based systems</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Steinberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Böttcher</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Kauer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the Workshop on Operating Systems Platforms for Embedded Real-Time applications (OSPERT)</title>
+		<meeting>the Workshop on Operating Systems Platforms for Embedded Real-Time applications (OSPERT)</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="16" to="23" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Task synchronization in reservation-based real-time systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lamastra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">53</biblScope>
+			<biblScope unit="issue">12</biblScope>
+			<biblScope unit="page" from="1591" to="1601" />
+			<date type="published" when="2004">2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Nova: A microhypervisor-based secure virtualization architecture</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Steinberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Kauer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 5th European Conference on Computer Systems, ser. EuroSys &apos;10</title>
+		<meeting>the 5th European Conference on Computer Systems, ser. EuroSys &apos;10<address><addrLine>New York, NY, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>Association for Computing Machinery</publisher>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="209" to="222" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Rate monotonic analysis: the hyperbolic bound</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">52</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<biblScope unit="page" from="933" to="942" />
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973-01">Jan. 1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Scheduling-context capabilities: a principled, light-weight operating-system mechanism for managing time</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Lyons</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Mcleod</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Almatary</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Heiser</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM EuroSys Conference</title>
+		<imprint>
+			<date type="published" when="2018-04">Apr 2018</date>
+			<biblScope unit="page" from="1" to="16" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">An open graph visualization system and its applications to software engineering</title>
+		<author>
+			<persName><forename type="first">E</forename><forename type="middle">R</forename><surname>Gansner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">C</forename><surname>North</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">SOFTWARE -PRACTICE AND EXPERIENCE</title>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="page" from="1203" to="1233" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<monogr>
+		<title level="m" type="main">The use of posix in real-time systems, assessing its effectiveness and performance</title>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">M</forename><surname>Obenland</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+			<publisher>The MITRE Corporation</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Lynxos -posix real time operating system</title>
+		<ptr target="https://www.lynx.com/products/lynxos-posix-real-time-operating-system-rtos" />
+	</analytic>
+	<monogr>
+		<title level="j">Lynx Software Technologies</title>
+		<imprint>
+			<date type="published" when="2022-01-23">23 Jan, 2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">The linux kernel documentation -cfs scheduler</title>
+		<ptr target="https://www.kernel.org/doc/html/latest/scheduler/sched-design-CFS.html" />
+	</analytic>
+	<monogr>
+		<title level="j">The Linux Kernel Organization</title>
+		<imprint>
+			<date type="published" when="2022-01-23">23 Jan, 2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Jinja</title>
+		<ptr target="https://jinja.palletsprojects.com/" />
+	</analytic>
+	<monogr>
+		<title level="s">The Pallets Projects</title>
+		<imprint>
+			<date type="published" when="2022-01-23">23 Jan, 2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">Automatic latency management for ros 2: Benefits, challenges, and open problems</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blass</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Lange</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE 27th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="264" to="277" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">Measuring the performance of schedulability tests</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Syst</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="issue">1-2</biblScope>
+			<biblScope unit="page" from="129" to="154" />
+			<date type="published" when="2005-05">May 2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">Techniques for the synthesis of multiprocessor tasksets</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Emberson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Stafford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">WATERS workshop at the Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2010-07">Jul. 2010</date>
+			<biblScope unit="page" from="6" to="11" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

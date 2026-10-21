@@ -1,0 +1,1480 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">End-to-End Analysis of Event Chains under the QNX Adaptive Partitioning Scheduler</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Dakshina</forename><surname>Dasari</surname></persName>
+						</author>
+						<author>
+							<persName><forename type="first">Matthias</forename><surname>Becker</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">KTH Royal Institute of Technology</orgName>
+								<address>
+									<settlement>Stockholm</settlement>
+									<country key="SE">Sweden</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Daniel</forename><surname>Casini</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="department">Department of Excellence in Robotics &amp; AI</orgName>
+								<orgName type="institution" key="instit1">TeCIP Institute</orgName>
+								<orgName type="institution" key="instit2">Scuola Superiore Sant&apos;Anna</orgName>
+								<address>
+									<settlement>Pisa</settlement>
+									<country key="IT">Italy</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Tobias</forename><surname>Blaß</surname></persName>
+							<affiliation key="aff2">
+								<orgName type="laboratory">Saarland Informatics Campus (SIC)</orgName>
+								<orgName type="institution">Robert Bosch GmbH and Saarland University</orgName>
+								<address>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Robert</forename><forename type="middle">Bosch</forename><surname>Gmbh</surname></persName>
+						</author>
+						<author>
+							<persName><surname>Germany</surname></persName>
+						</author>
+						<title level="a" type="main">End-to-End Analysis of Event Chains under the QNX Adaptive Partitioning Scheduler</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">132ECD63665258A0F8E2BD8D0095099D</idno>
+					<idno type="DOI">10.1109/RTAS54340.2022.00025</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T02:54+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Modern autonomous cars run classic AUTOSAR applications alongside advanced driving assistance systems on a single-vehicle computer. Ensuring safety and predictability in such a complex system is challenging and requires temporal isolation between the various components. A promising solution is the POSIX-compliant QNX operating system: it meets the automotive standards for functional safety at the highest level (ISO 26262 ASIL-D) and provides temporal isolation through the Adaptive Partitioning Scheduler (APS), a resource reservation algorithm that guarantees processor bandwidth to groups of threads. These guarantees make it an ideal platform for composing diverse and complex applications on centralized vehicle computers. However, so far, there is no precise description or analysis of the APS reservation mechanism in real-time literature. In this paper, we provide the first description of the behavior of the APS from a real-time point of view and validate the results by running experiments on a real QNX platform. Based on the derived scheduler rules, we develop a response-time analysis to bound the end-to-end latency of event chains under APS. Finally, we evaluate different design strategies on a case study based on a real autonomous construction vehicle.</p><p>214 2022 IEEE 28th Real-Time and Embedded Technology and Applications Symposium (RTAS)    </p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Automotive E/E architecture is witnessing a major disruption on multiple fronts, driven by the requirements of emerging automated driving applications and the aim to realize a truly software-defined vehicle. On the hardware front, there is a shift towards centralized architectures, marked by the integration of previously distributed functions onto powerful microprocessor platforms; on the software front, there is a shift towards commodity POSIX-based operating systems (OS). Classical AUTOSAR-based OS'es, which are designed for static workloads with fixed interactions, are poorly suited to the dynamically arriving, data-driven workloads of emerging autonomous applications and do not cope well with newer use-cases such as modular updates over the product lifetime. As a consequence, POSIX-based operating systems like QNX and Linux have emerged as promising alternatives. QNX, in particular, is widely preferred as the base operating system by many automotive OEMs, as it is ISO-26262 certified at the highest level of assurance (ASIL-D).</p><p>The move towards a centralized architecture requires system designers to integrate multiple independent applications with different timing requirements on the same centralized platform. They need to ensure temporal isolation among the exe-cuting applications while still utilizing the system efficiently. An effective approach to realize this are OS mechanisms that provide guarantees on the provision of system resources like CPU-time <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b1">2]</ref> or memory bandwidth <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b3">4]</ref>. This way, designers can ensure that each executing application receives enough resources to meet its timing requirements.</p><p>To this end, the Adaptive Partitioning Scheduler (APS) offered by the QNX OS <ref type="bibr" target="#b4">[5]</ref> is a promising candidate, and the subject of this work. APS is a resource reservation mechanism, where threads are grouped into virtual containers called partitions. Each partition is guaranteed a certain amount of processing bandwidth in a given interval of time, irrespective of what is executed on other partitions, which ensures temporal isolation among co-running applications. In addition, QNX APS optionally redistributes spare computation time if partitions do not use their entire budgets, thereby avoiding the problems associated with static allocations and enabling efficient system utilization. Compared to the reservationbased scheduler in Linux, the SCHED_DEADLINE scheduling class <ref type="bibr" target="#b5">[6]</ref>, it supports more flexible deployments in that it allows multiple threads to share the same reservation budget. This flexibility is important in various practical applications, as recently noted in the context of ROS 2 and DDS <ref type="bibr" target="#b6">[7]</ref>.</p><p>Despite the benefits provided by the QNX APS, its adoption in practical systems is limited. A likely reason is that neither a formal description of its behavior, nor a responsetime analysis, nor prior case studies regarding the practical implementation issues on an actual platform are available. One challenge towards such a description and analysis is that although APS builds on well-established real-time system concepts, the exact reservation mechanism is different from every other reservation-based scheduler studied in the past. First, unlike reservation servers <ref type="bibr" target="#b7">[8]</ref>, APS partitions are not associated with a single priority but only act as a "container" for the underlying threads, each of which has its own priority. Second, they do not periodically recharge their current budget to the nominal value but rely on a sliding accounting window instead, which gradually replenishes the budget over time. Third, it implements QNX-specific budget reclamation policies and mechanisms to handle budget overruns.</p><p>In this work, we study the APS scheduler from a timing perspective and consider the problem of bounding the end-to-end latency of automotive applications. An automotive application is typically realized as an event-chain consisting of a coordinated chain of functions, which exchange information to realize a given behavior (analogous to a graph, where the nodes represent the functions and the edges represent the messages passed between them). In these applications, event chains are associated with an end-to-end deadline specifying the latest acceptable time by which an input at the first task of the chain leads to an output at the last task in the chain.</p><p>To guarantee such end-to-end deadlines, the resource reservation mechanism implemented by APS can provide essential benefits. Event chains can be decomposed and deployed to APS partitions, which provide a guaranteed supply time irrespective of the workload running in other partitions. This is a key mechanism to abstract from the interference that may arise in a complex system and enables compositional analysis <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b8">9]</ref>. However, such deployment does not come for free. The system designer needs to answer several non-trivial questions to guarantee that each application event chain meets its end-toend deadlines: how much processing time does each partition need? How to set priorities for threads? And how to map threads to cores in a multi-core platform? Contributions. Answering these questions needs an understanding of the real-time behavior of event chains running on APS. This calls for an analysis-driven solution, which can be derived only after careful modeling of the APS. In this paper, we make the following contributions. We formalize the APS through a set of rules. Each rule has been validated with a corresponding experiment on a Raspberry Pi running QNX 7.1. By building on the proposed model, we propose a response-time analysis for event chains running on the QNX APS. Furthermore, we validate our analysis on a real platform with a case study based on an autonomous construction vehicle, which we use as a testbed to evaluate different design strategies. Finally, we uncover some practical issues when using APS for hosting event chains: we discuss quantization effects in the time accounting of QNX and discuss the most suitable interprocess mechanism with APS to realize chains.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. OVERVIEW OF THE QNX APS</head><p>The Adaptive Partitioning Scheduler provided by QNX allows implementing resource reservation for groups of threads or processes, which are grouped within virtual containers called partitions. Each partition can be configured with a percentage of the overall processing capacity. This is specified by configuring a per-partition budget, which determines the amount of processing time that can be used by a partition in a time window. APS throttles the CPU usage of each partition by measuring its CPU usage in a configurable sliding window, which is set to 100 ms by default, and it is common to all partitions in the system. The APS prevents a thread that exceeded its budget in the time window from executing whenever there are other ready-to-run threads in other partitions with available budget. The partition's budget is gradually restored when enough time has elapsed.</p><p>APS performs time accounting for the budgets whenever a scheduling event occur: examples of scheduling events are the timer tick, a thread termination, or a message arrival. Every time it executes, APS selects the highest-priority thread whose partition has available budget <ref type="bibr" target="#b9">[10]</ref>. It thereby combines the principles of fixed-priority preemptive scheduling and budget enforcements. APS allows the configuration of up to 32 partitions.</p><p>APS also provides the possibility to setup a critical budget, which specifies the amount of time a partition is allowed to use when its regular budget is depleted. The critical budget may be configured to provide additional time to threads, but it is supposed to be used rarely and only to serve highly latencysensitive applications. Furthermore, it provides a budget reclamation mechanism (called the idle-time mode) to improve the average-case performance whenever there are no other partitions with ready threads that can execute on the cores. The idle-time mode allows partitions that are out of budget to execute their ready threads, using two different policies to select which ready thread to run: the first is by its static priority (i.e., select the partition having the highest priority thread), and the second one is by using a metric that considers the ratio of the partitions' budgets. APS also allows specifying a maximum budget that limits the amount of time a partition can overrun its normal budget: this allows to the application designer to disable the idle-time mode. QNX also implements other scheduling policies: in this work, we assume them to be disabled.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. MODELING AND VALIDATION</head><p>The purpose of this section is twofold. First, we introduce the system model considered in this paper, both in terms of workloads and for the QNX APS behavior. Then, we corroborate our assumptions by reporting the results of some validation experiments we performed on a real embedded system running QNX.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. System Model</head><p>The system considered in this paper is composed of a set C = {c 1 , . . . , c m } of homogeneous processor cores running the APS scheduler of QNX. Workload Model. The processing platform executes a set of applications composed of multiple sequential computational activities characterized by cause-effect dependencies and that need to respond within end-to-end deadlines. Computational activities are modeled by a set T = {τ 1 , . . . , τ n } of threads, each of which releases a potentially infinite sequence of instances. Each thread τ i ∈ T is characterized by a worst-case execution time (WCET) e i , a globally unique priority π i , and a core affinity. We assume that threads are independent and do not share resources. In principle, QNX allows arbitrary core affinities; this paper focuses on partitioned scheduling, i.e., each thread has an affinity to only one core, as this setting is particularly suitable to foster predictability <ref type="bibr" target="#b10">[11,</ref><ref type="bibr" target="#b11">12]</ref>. A thread is said to be ready when it is eligible to be executed, and it is said to be pending from its release to when it completes.</p><p>The various threads are co-related by cause-effect dependencies, modeled by means of a direct acyclic graph (DAG) D = (T , E), where threads represent vertices in the graph and the set E ⊆ T × T of edges encodes communication relations among them. Each edge (τ p , τ c ) ∈ E represents a producerconsumer relation where τ c consumes the data produced by τ p and characterizes a precedence constraint between τ p and τ c . This means that an instance of τ c is allowed to be run only when the corresponding instance of τ p is completed.</p><p>Threads may communicate either via shared memory or via the network (e.g., using the QNX Neutrino native networking <ref type="bibr">[13]</ref>). The model thus also supports networks of distributed threads, where each computing node runs APS. Each edge (τ p , τ c ) ∈ E is therefore characterized by a message-dependent communication delay λ p,c , which bounds the amount of time required for data produced by τ p to be available for τ c . We assume the communication delay to be negligible, i.e., λ p,c = 0, when the two threads belong to the same APS partition. We consider a discrete model of time, where each time unit is an integer multiple of some basic units (e.g., a processor cycle). Event Chains. Some of the threads in the graph D have no incoming or outgoing edges: these threads are said to be source and sink threads, respectively. Each of source thread gives rise to an event chain γ x , i.e., a path in the graph.</p><p>The set of all event chains is denoted as Γ = {γ 1 , . . . , γ a }. Each thread is characterized by an event arrival curve η i (∆), which bounds the number of release events in any time window of length ∆. Arrival curves are externally provided for source threads; otherwise, they need to be derived whenever needed for other threads, as extensively discussed later in Section IV. Each chain γ x is characterized by an end-to-end deadline D x . Modeling the APS Scheduler. We consider an APS scheduler composed of a set of partitions P = {P 1 . . . P s }. In APS, all partitions share a common accounting window with length W (typically set to 100 ms <ref type="bibr" target="#b4">[5]</ref>). While APS is a flexible scheduler that gives a lot of freedom to applications developers, we restrict our analysis to a specific configuration that we deem particularly suitable to foster predictability. Like threads, each partition is logically assigned to only one core (i.e., all threads that are assigned to the partition are assigned to the same core). Each core c j ∈ C can host multiple partitions, which are denoted with the set P j .</p><p>Each partition P k is associated with a nominal budget of B k time units. At any point in time t, P k is also characterized by a current budget b k (t). A partition P k is ready when at least one of its thread is ready, and it is running when one of its thread is running. The set of all threads assigned to P k is referred to as T k . We assume the critical budget of each partition to be set to 0. An event chain γ i ∈ Γ may span multiple partitions.</p><p>The APS scheduler keeps track of any scheduling event that may cause a thread to start or stop running (e.g., a message send or receive). Furthermore, it keeps track of the last absolute time t l at which the timer interrupt executed or a thread started or stopped running. If none of these events Fig. <ref type="figure">1</ref>: Budget increment over a sliding window.</p><p>previously occurred, t l = 0. We consider two possible settings for the idle-time mode (i.e., budget reclamation): budget reclamation is either disabled or distributes idle time in priority order. The former is configured by setting the idle-time policy to SCHED_APS_SCHEDPOL_LIMIT_CPU_USAGE and setting the maximum budget max_budget_percent equal to the nominal budget B k . The latter is configured by setting the idle-time policy to SCHED_APS_SCHEDPOL_DEFAULT.</p><p>In the following, we describe the behavior of the APS scheduler with a set of rules, considering an arbitrary core (partitioned scheduling) and a partition P k . The rules are listed in the second column of Table <ref type="table" target="#tab_1">I</ref>.</p><p>The described behavior has been derived by studying and interpreting the QNX documentation. Manuals are written in natural language: hence, they are sometimes ambiguous. Furthermore, since the QNX source code is not publicly available (closed source), the provided descriptions cannot be cross-verified by inspecting the source code. We therefore performed a set of validation experiments -described in the third column of Table <ref type="table" target="#tab_1">I</ref> -to corroborate our findings with empirical evidence. In addition to the rules reported in the Table <ref type="table" target="#tab_1">I</ref>, we also assume for the analysis we present next: R8 When the budget of a partition is depleted, the partition (i.e., the thread it is running) is immediately descheduled. Whether this assumption is fulfilled by a QNX system depends on the timer resolution, which may produce small fluctuations depending on the fact that the budget accounting is done both periodically, i.e., in correspondence of the system tick interrupt-service routine (ISR, with period T ISR &lt; W ) and sporadically, i.e., in correspondence of system calls. This practical aspect is extensively discussed in Section III-C.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. APS Scheduler Validation</head><p>We validated the APS scheduler rules through a set of experiments on a Raspberry Pi 4B with 4 CPUs and 4GB RAM using the QNX 7.1 Software Development Platform (SDP).</p><p>Four different settings are executed on the platform to validate the APS scheduler rules. For each of the settings, the execution trace is obtained using the QNX event tracing facility. The APS partition statistics are logged with a granularity of 1 ms. The tracing tool provided by QNX reports the cumulative time that tasks of a respective partition executed within the last scheduling window [t -W, t). In the rest of the section, we therefore use the term runtime to refer to this quantity. In the following charts and tables, the budget </p><formula xml:id="formula_0">(0) = B k . That is, the current budget of each partition P k at t = 0, is initialized to B k .</formula><p>Consider the APS traces in Fig. <ref type="figure">2</ref>. The runtime in the last window is 0 at the beginning of the execution and therefore the maximum budget is available to the partitions. R2 When a timer interrupt or a scheduling event occurs at time t, and</p><formula xml:id="formula_1">P k is running at t, then, b k (t) is decremented by t -t l ≤ T ISR &lt; W .</formula><p>In the trace of Setting A (Fig. <ref type="figure">2a</ref>), as threads execute, the corresponding runtime increases (and hence the budget decreases) linearly over time. R3 When a timer interrupt or a scheduling event occurs at time t and t l ≥ W , then the accounting window advances by t -t l units (Figure <ref type="figure">1</ref>). The budget at time t is then given by b</p><formula xml:id="formula_2">k (t) = max(B k , b k (t l ) + x)</formula><p>, where x is the amount of time any thread of</p><formula xml:id="formula_3">P k executed in [t l -W, t-W ).</formula><p>Otherwise, if t l &lt; W , there is no budget increase. This rule is applied after R2.</p><p>In the trace of Setting A (Fig. <ref type="figure">2a</ref>), τ 2 has an overall execution time of 150 ms. As it executes in <ref type="bibr" target="#b17">[20,</ref><ref type="bibr">100]</ref>, the runtime of P 2 increases by x = 80 (overall) and by time t = 100, P 2 has consumed its entire budget of 80 ms. Then the budget starts recharging at t = 120, but τ 2 also starts executing and consuming the budget (due to R2), and therefore the overall runtime (and budget) remains constant. At time t = 190, τ 2 has executed for 150 ms and terminates. So at time t = 190, we observe that the runtime starts decreasing, i.e., the budget starts increasing since thread τ 2 has terminated and is no more consuming the budget. R4 When a timer interrupt occurs at time t = kT ISR with k &gt; 0, and for each scheduling event, if after applying R2 and R3, the partition depletes its budget, i.e., b k (t) ≤ 0, and there exist at least one other partition demanding processor time, the currently running thread is descheduled.</p><p>In Setting C (Fig. <ref type="figure">2c</ref>), budget reclaiming is enabled and τ 3 is added to partition P 2 . Because of this, τ 1 in P 1 cannot consume more than its allowed budget during idle times as it was possible in Setting A without the additional task.</p><p>R5 If budget reclaiming is disabled and b k (t) ≤ 0, the partition is descheduled, irrespective of the presence of other ready partitions.</p><p>In Setting B (Fig. <ref type="figure">2b</ref>) budget reclaiming is disabled. A ready thread therefore cannot run if its partition is out of budget, even if idle time is available. This is the case at t =190 ms where τ 2 finishes executing its first job. Partition 1 is out of budget (20 ms of execution every 100 ms) but has a ready task. The CPU stays idle. R6 If budget reclaiming is enabled, let P ⊆ P j the set of partitions such that for all P k ∈ P =⇒ b k (t) ≤ 0, for each core c j ∈ C. If P is not empty and there are no other partitions on the same core with ready threads and positive budget, the highest-priority thread in P k ∈ P runs.</p><p>In Setting D (Fig. <ref type="figure">2d</ref>), the budget of partition P 2 was reduced compared to Setting C. At t =40 ms, both partitions are out of their nominal budget and the threads are scheduled in priority order.</p><p>R7 If a scheduling event occurs at time t, then the scheduler runs the highest-priority thread that is ready and whose corresponding partition</p><formula xml:id="formula_4">P k has budget b k (t) &gt; 0 (if any).</formula><p>Based on the performed experiments, a preemptive priority-based scheduling has been observed.</p><p>is reported per core if not otherwise stated. This means, a partition on a single core can have at most a budget of 100%. Internally, QNX keeps track of the budget on a global level, where 100% budget refers to the budget allocated to all cores. Hence, on a 4 core platform the maximum budget allocated to a core would be 25%. Regarding priorities, higher numerical value corresponds to a higher priority. The top part of Figure <ref type="figure">2</ref> reports the execution trace of the executing tasks and the partition runtime in the four settings. The bottom part of the figure shows the runtime for two APS partitions, P 1 (in blue) and P 2 (in red).</p><p>The first setting, referred to as Setting A in the following, executes two tasks (see Table <ref type="table" target="#tab_2">II</ref>) on the same core and assigns them to two different partitions P 1 and P 2 . The configuration of the two partitions is shown in Table <ref type="table" target="#tab_3">III</ref>. Both tasks are mapped to the same core and there are no other tasks assigned to the two partitions. P 1 has a budget of 20% and P 2 has a budget of 80%. Note that τ 1 is thus not schedulable with the nominal partition budget alone. Idle time is redistributed in priority order.</p><p>Setting B is identical to the previous one but disables budget reclamation. Setting C extends on Setting A by adding an additional task τ 3 to partition P 2 on core 3. Idle time is again redistributed in priority order. The task τ 3 consumes the remaining budget of partition P 2 after each job of τ 2 completes. The higher priority task τ 1 in P 1 is not allowed to execute in this case as idle time is no longer available.</p><p>Setting D utilizes two partitions with 20% budget each (Table <ref type="table" target="#tab_6">VI</ref>). Three tasks are mapped to the two partitions, all on the same core. Idle time is redistributed in priority order. In this setting, neither partition has enough budget to complete its workload and thus all tasks have to rely on idle-time which is distributed based on the thread's priority.     It may appear that in Figure <ref type="figure">2a</ref>, τ 2 executes for a very small amount of time (apparently as the same time as τ 1 ) shortly after 200ms. The observed effect is caused by the way periodic threads have been implemented. In Figure <ref type="figure">2a</ref>, this happens between the completion of the first and start of the second job of τ 1 . The thread performs a system call to suspend τ 1 until the release of τ 1 's second job. This duration is very short, in this case, 60 us. Due to plotting effects and minimum line width, this looks larger in the resulting plot.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Quantization Errors in Budget Accounting</head><p>In QNX, time management is performed based on ticks <ref type="bibr" target="#b12">[14]</ref>. The tick size is assigned depending on the CPU clock frequency, and it is usually set to T ISR =1 ms in most platforms. This value has been also used for the validation in Table <ref type="table" target="#tab_1">I</ref>. The tick size is the basis of all time-related functions of the OS and therefore defines the granularity of task parameters that the OS can realize.</p><p>As discussed in Section III-A, APS performs the budget accounting upon each timer interrupt or scheduling event.</p><p>A side-effect of this budget accounting method is shown in Figure <ref type="figure">3</ref>. In the considered setting, thread τ 1 is created at time t = 1.5 ms, in a partition with a full budget of 4 ms. The system tick ISR runs every millisecond, i.e., at t = 0, 1, 2, . . . ms. Then τ 1 starts running, and since no other system call is triggered, it is descheduled only at time t = 6 ms by the tick ISR. As a result, the corresponding partition exceeded its budget by 0.5 ms, consuming processor time that is reserved for other partitions. Budget quantization issues occur in other well-established operating systems like the Linux SCHED_DEADLINE scheduler <ref type="bibr" target="#b5">[6]</ref>. Although SCHED_DEADLINE provides the HRTICK_DL feature to overcome budget quantization overruns (i.e., by using a oneshot timer), it has this feature disabled by default as it may introduce additional overhead <ref type="bibr">[15]</ref>. Indeed, these effects are commonly interpreted as operating systems overhead and pragmatically accounted for by inflating the timing parameters as for other overheads and variances from the theoretical model.</p><p>Different from Linux, in QNX the budget accounting always happens in the timer interrupt handler, even in the so-called tickless mode <ref type="bibr" target="#b12">[14]</ref>, which is only intended for power-saving purposes. Therefore, to the best of our knowledge, no mechanism is currently implemented to guarantee a fine-grained budget accounting.</p><p>For the rare cases where this can matter, it is possible to mitigate the problem by decreasing the period of the timer interrupts (T ISR ) through the ClockPeriod() system call. To this end, we performed the same experiment with a higher tick resolution, i.e., with T ISR ∈ {250, 500} µs (recall that previous experiments used the standard tick resolution of 1 ms). In both cases, the problem has been solved, and the budget has been correctly accounted for without overruns, as shown in Figure <ref type="figure">4</ref>. It is worth noting that the size of the APS window W is expressed in ticks. Therefore, the window size W needs to be adjusted after any change to the tick resolution T ISR .</p><p>However, decreasing the timer period comes at the cost of increased overheads. The application designer should therefore set T ISR to the largest possible period that still provides sufficiently accurate budget accounting for the given application.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Implementing Event Chains in QNX</head><p>QNX provides several communication methods that can potentially be used to implement the event-chain model: channels, pulses, and traditional synchronization primitives like semaphores.</p><p>QNX channels are designed for the client/server paradigm. They therefore implement synchronous communication, where the client thread is blocked until the server thread sends a reply <ref type="bibr" target="#b13">[16]</ref>. They are therefore a poor fit for the precedence constraints in the timing model, which require non-blocking communication. As a more light-weight communication method, QNX provides so-called pulses as a way to transmit small messages of up to 40 bits in a non-blocking way. However, pulses are treated in a special way under APS scheduling: all pulse message handlers of a process run in the same partition, the socalled pulse processing partition <ref type="bibr" target="#b4">[5]</ref>. This makes it impossible to isolate threads of the same process from each other.</p><p>We therefore decided to avoid QNX communication channels and implement event-chains through traditional semaphores, with one semaphore for each link of an event-chain. Semaphores are lightweight, and do not affect the APS scheduler. Data between threads is exchanged via shared memory and semaphores are used to notify consumer threads about new data items.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. ANALYZING END-TO-END CHAINS UNDER APS</head><p>This section discusses the analysis framework adopted in this paper, which is inspired by Compositional Performance Analysis (CPA) <ref type="bibr" target="#b8">[9]</ref>. In particular, we consider the problem of bounding the worst-case response times of the event chains (corresponding to the end-to-end latencies) of each application in the system under APS scheduling. The worst-case responsetime (WCRT) of an arbitrary chain γ x = (τ a , . . . , τ z ) ∈ Γ is the longest possible time span elapsed from when an instance of its first thread τ a is released, to when the corresponding instance of its last thread τ z completes. Note that each thread triggers at most one instance of each of its successor threads. Moreover, a chain could also consist of a single thread with |γ x | = 1. We denote with the symbol R x a bound on the WCRT of γ x .</p><p>To bound the WCRT, we consider each application chain to be composed of a connected sequence of subchains, where each subchain γ k,h = (τ x , . . . , τ y ) is a sequence of connected threads, all of which are allocated to the same partition P k . For such subchains, a WCRT bound is obtained with the results reported next in Section IV-A. However, a complete processing chain may span multiple partitions, and may therefore be composed of multiple subchains. The WCRT of the whole chain is thus computed by leveraging the arrival-curve propagation provided by CPA: arrival curves for non-source subchains are derived from the arrival curves of previous subchains and their response-time jitter. Figure <ref type="figure">5</ref> provides an example of the considered setting, where a chain γ x is divided into five subchains γ x,1 = (τ 1 , τ 2 ), γ x,2 = (τ 3 ), γ x,3 = (τ 4 , τ 5 ), γ x,5 = (τ 7 ), each one consisting of a connected sequence of threads allocated into the same partition P k in a multicore platform with 2 cores.</p><p>The arrival curve of a subchain corresponds to the arrival curve of the first thread in the subchain. Recall that λ p,c refers to the communication delay between the producer τ p and consumer, τ c . The arrival curve for the source subchain, i.e., γ x,1 , η 1 (∆) is provided externally, while for successor subchains is computed as in <ref type="bibr" target="#b8">[9,</ref><ref type="bibr" target="#b14">17]</ref>:</p><formula xml:id="formula_5">η 3 (∆) = η 1 (∆ + R x,1 + λ 2,3 ), η 4 (∆) = η 3 (∆ + R x,2 + λ 3,4 ), η 6 (∆) = η 4 (∆ + R x,3 + λ 5,6</formula><p>), and η 7 (∆) = η 6 (∆ + R x,4 + λ 6,7 ). Given the individual response-time bounds for each subchain, the overall end-toend delay of γ x is bounded with the sum of response times and communication delays, i.e., R x = R x,1 + λ 2,3 + R x,2 + λ 3,4 + R x,3 + λ 5,6 + R x,4 + λ 6,7 + R x,5 .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Response-Time Analysis</head><p>Next, we discuss how to compute the response time for an individual subchain under the assumption that a supply-bound function sbf k (∆), which lower-bounds the minimum service provided by a partition P k , is known. Then, we show later in Section IV-B how to derive such a function by leveraging our formalization of the APS scheduler.</p><p>We define the set of higher priority threads relative to the considered subchain γ x,h as</p><formula xml:id="formula_6">T hep k (γ x,h ) = {τ j ∈ T k |π j ≥ π x,h }, where π x,h = min{π i | τ i ∈ γ x,h }. Therefore, the set T hep k (γ x,h</formula><p>) includes all the threads in P k with priority higher than or equal to at least one of the threads in the chain.</p><p>A thread instance is said to be carried in at time t if it is pending both at time t and at time t -1. Similarly, a time instant t is a quiet time for a partition P k and a subchain γ x,h if no thread instances of threads τ h ∈ T hep k (γ x ) allocated to P k are carried in. An interval [t 1 , t 2 ) is a busy window for a subchain instance of γ x,h if both t 1 and t 2 are quiet times for P k , no quiet time occurs in (t 1 , t 2 ), and the subchain instance is released in [t 1 , t 2 ). A subchain instance is released when an instance of its first thread is released.  We further define the request-bound function of a thread τ i as rbf i (∆) η i (∆) • e i . Given a set of threads T , its cumulative request-bound function is defined as RBF (T , ∆)</p><formula xml:id="formula_7">τ h ∈T rbf h (∆). Lemma 1.</formula><p>Assume A ≥ 0 is the time, relative to the beginning of an arbitrary busy window under analysis, in which an instance of a subchain γ x,h = {τ s , . . . , τ e } is released, i.e., an instance of its first thread τ s is released. If R x,h (A) be the least positive value satisfying</p><formula xml:id="formula_8">sbf k (A + R x,h (A)) ≥ rbf e (A + 1)+ RBF (T hep k (γ x,h ) \ {τ e }, A + R x,h (A) + 1),<label>(1)</label></formula><p>then</p><formula xml:id="formula_9">R x,h = max{R x,h (A) | A ≥ 0} is a response-time bound for γ x,h .</formula><p>Proof. Consider an arbitrary subchain instance under analysis, released at time A. It can be delayed by: (i) previously released instances of the same subchain, (ii) other subchains running in the same partition, (iii) due to lack of supply due to APS. The time interval in which interfering instances can be released are graphically shown in Figure <ref type="figure" target="#fig_1">6</ref>. Those due to (i) can be decomposed in two mutually-exclusive contributions, due to: (a) the last thread τ e in the subchain, and (b) to other threads in the chain, respectively. Interference due to the last thread in the chain is bounded by rbf e (A + 1) since instances of the same thread are processed in order of arrival. Therefore, subsequent instances of the last thread τ e become ready only when the one under analysis completes, thus excluding self-interference due to instances released after A in the arbitrary busy window under analysis.</p><p>Interference due to (ii) and (b) can instead be due to instances released in the whole interval [0, A+R x,h (A)]. Each thread with higher or equal priority than the lowest priority of a thread in γ x,h (and different from τ e considered before) can delay at least one of the threads in γ x,h .</p><p>These threads are contained in the set ∈ T hep k (γ x,h ) \ {τ e }, which also includes the self-interference due to threads of the same chain γ x,h \{τ e } (again, and different from τ e considered before).</p><p>Since each interfering thread τ h ∈ γ x,h \ {τ e } interferes up to rbf h (A + R x,h (A) + 1) time units, the interference due (ii) and (b) is bounded by RBF (T hep k (γ x,h )\{τ e }, A+R x,h (A)+ 1). Delays due to (iii) are considered in the supply-bound function, which lower-bounds the minimum service provided in [0, A + R x,h (A)). The lemma follows.</p><p>In essence, Lemma 1 converges when the guaranteed minimum service matches the maximum total demand of the subchain under analysis and the interfering threads. Lemma 1 bounds the response time of a subchain instance released at a given point in time A, and it requires to check the condition in an impractical continuum (i.e., all times A ≥ 0). Therefore, practical applying the condition requires both a bound and a discretization on the analysis interval.</p><p>To this end, we assume the busy window to be bounded; if that is not the case, e.g., when the processor is overloaded, no response-time analysis is possible. This assumption is analogous to assuming an overall utilization that does not exceed 100% of the partition capacity <ref type="bibr" target="#b15">[18]</ref>.</p><p>Similar to <ref type="bibr" target="#b14">[17]</ref>- <ref type="bibr" target="#b16">[19]</ref>, the search interval can be bounded with the smallest positive value satisfying the following inequality:</p><formula xml:id="formula_10">sbf k (A * ) ≥ RBF (T hep k (γ x,h ), A * ),<label>(2)</label></formula><p>where RBF (T hep k (γ x,h ), A * ) upper bounds the total workload released in [0, A * ], and sbf k (A * ) lower bounds the service provided by the partition P k in the same interval. Intuitively, Equation ( <ref type="formula" target="#formula_10">2</ref>) follows because, if busy windows are bounded, no thread (and thus no subchain) can have a relative release time longer than A * , since there is no busy window longer than A * <ref type="bibr" target="#b15">[18]</ref>.</p><p>By observing that, as in <ref type="bibr" target="#b14">[17]</ref>, in Equation ( <ref type="formula" target="#formula_8">1</ref>) only term rbf e (A + 1) depends only on A (while RBF (T hep k (γ x,h ) \ {τ e }, A + R x,h (A) + 1) and sbf k (A + R x,h (A)) depends on the whole interval), we can define a discrete search space for activation offsets of γ x,h = {τ s , . . . , τ e } analogously as in prior works <ref type="bibr" target="#b14">[17]</ref>, i.e.,</p><formula xml:id="formula_11">A x,y {A | 0 ≤ A ≤ A * ∧ rbf e (A + 1) = rbf e (A)} ∪ {0}.<label>(3)</label></formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Deriving a Supply-bound Function for APS</head><p>Recall that the APS scheduler is composed of a set of partitions P = {P 1 . . . P s }, where all partitions share a common accounting window with length W . Each thread τ i ∈ T in the system, belongs to one unique partition. In the following, we seek to find a lower bound on the processor time available to partition P k in time interval ∆. We proceed as follows. First, we discuss the conditions required to ensure that each partition can correctly deliver the promised budget to assigned threads, i.e., ensuring the so-called global schedulability of partitions (similar to the context of reservation servers <ref type="bibr" target="#b0">[1]</ref>). Second, we target the real-time guarantees internal to each partition. To this end, we define and prove the definition of a supply-bound function for a system without budget reclaiming enabled (Sec. IV-B2). Third, we show that the same definition is safe also when enabling budget reclaiming (Sec. IV-B3).</p><p>1) Guaranteeing the budget provisioning: We start posing a fundamental building block for our analysis: the condition required to ensure that none of the cores are overloaded as a result of a wrong budget configuration. This is required by the local schedulability analysis, which needs that the promised budget supply is actually delivered to the partition, which may not happen if the overall partitions' demand is higher than the time available to the core. Lemma 2 shows that this can be ensured as long as the sum of the budgets of partitions allocated to a core is less than the window size <ref type="bibr" target="#b9">[10]</ref>.</p><p>Lemma 2. Let P j denote the set of partitions allocated to core c j . Then, a core c j is not overloaded if:</p><formula xml:id="formula_12">P k ∈Pj B k ≤ W. (<label>4</label></formula><formula xml:id="formula_13">)</formula><p>In this case, each partition P k ∈ P j can correctly deliver B k units of supply to pending workloads every W time units.</p><p>Proof: By contradiction, assume that Equation ( <ref type="formula" target="#formula_12">4</ref>) is satisfied, but there exists a partition P k ∈ P j that delivers less than B k units of supply every W time units to pending workloads. In this case, it means that either: (i) the budget did not increase as the accounting window advanced, or (ii) there are other partitions in P j that exceeded its assigned budget in the accounting windows, or (iii) APS was not able to deliver B k units of supply to each P k ∈ P j with pending workloads in the accounting window. Case (i): is impossible due to rule R3. Case (ii): is impossible because: (a) by rules R2, R8, and R4 and R5, the budget is correctly decremented (R2) and the running partition is immediately descheduled when it depletes its current budget (R8) if there is other pending workload (R4 and R5). Case (iii): APS is not able to deliver the assigned budget if the sum of the budgets B k due to partitions P k ∈ P j allocated on c j is greater than the accounting window size. Since each accounting window has length W , this is impossible because Equation ( <ref type="formula" target="#formula_12">4</ref>) is satisfied by assumption. The lemma follows.</p><p>2) Analysis without considering budget reclaiming: We start defining sbf k (∆), which is graphically shown in Figure <ref type="figure" target="#fig_2">7</ref>.</p><p>Definition 1. The supply-bound function of an arbitrary partition P k ∈ P is defined as:</p><formula xml:id="formula_14">sbf k (∆) ∆ W B k + max(0, (∆ mod W ) -(W -B k )).</formula><p>Next, we leverage two simple properties of an APS partition.</p><p>Property 1. [APS Service] An APS partition provides at most time units of service in an interval of length , i.e., ∀∆ ≥ 0, ≥ 0, sbf k (∆ + ) ≤ sbf k (∆) + .</p><p>Furthermore, we note that a supply-bound function for an APS partition is super-additive <ref type="bibr" target="#b17">[20]</ref>.</p><p>Property 2. [Super-additivity] The supply-bound function is super-additive, i.e., ∀∆ ≥ 0, ≥ 0,</p><formula xml:id="formula_15">sbf k (∆ + ) ≥ sbf k (∆) + sbf k ( ).</formula><p>Finally, Property 3 establishes the minimum supply provided in an interval of time with length equal to the window size W . Property 3. [Service in a budgeting window] If ∆ = W and the system is not overloaded, it holds sbf k (W ) = B k .</p><p>Proof: The property follows trivially as a corollary of Lemma 2.</p><p>Leveraging Properties 1, 2 and 3, Lemma 3 shows that sbf k (∆) as defined in Definition 1 indeed lower bounds the service time provided by an APS partition for the case in which budget reclaiming is disabled. Lemma 3. Let P k be an arbitrary APS partition. If budget reclaiming is disabled then the minimum amount of service provided by a APS partition is lower-bounded by sbf k (∆) as defined in Definition 1.</p><p>Proof: We first show that for any ∆ ≤ W , sbf k (∆) = max(0, B k -W +∆). Recall from Property 1 that an APS partition provides no more than one time unit of supply per time unit. Therefore, it holds that ∀d ≥ 0, n ≥ 0,</p><formula xml:id="formula_16">sbf k (d + n) ≤ sbf k (d) + n. With W ≥ d and n = W -d this implies sbf k (W ) ≤ sbf k (d) + W -d, which is equivalent to sbf k (d) ≥ B k -W + d since sbf k (W ) = B k (Property 3</formula><p>). The supply is also trivially lower-bounded by zero. Therefore, sbf k (∆) = max(0, B k -W + ∆) lower-bounds supply for any ∆ ≤ W .</p><p>For ∆ &gt; W we exploit super-additivity (Property 2). Since Thus Lemma 3 captures the supply available to partition P k in an interval of length ∆. The first portion of the equation refers to the integral units of budget received in each of the budgeting windows, while the second portion captures the partial budget received. It can be noticed that the partial budget computation assumes that we receive the budget at the far end of the interval to compute the minimum supply. If the fractional portion of the interval (∆ mod W ) &lt; W -B k , then the partition receives no budget in that fractional part.</p><formula xml:id="formula_17">∆ W W + (∆ mod W ) = ∆, it holds that sbf k (∆) ≥ ∆ W sbf k (W ) + sbf k (∆ mod W ) = ∆ W B k + max(0, B k -W + (∆ mod W ))</formula><p>An alternative representation is shown in Figure <ref type="figure" target="#fig_2">7</ref> where ∆ 1 = (∆/W ) • W refers to the region where integral units of budget are received and ∆ 2 refers to the region where a fractional budget is received.</p><p>As an example, let us consider partition P k with B k = 3, ∆ = 28, and a window size of W = 10. Then the partition receives two full budget allocations of worth 6 in the first 20 time units. Later in the tail end of 8 time units, it receives no budget in the first (10 -3) = 7 time units and another unit later. In other words the partition receives 3 -(10 -8) time units in the tail end of the interval. Finally the total budget is 7 units.</p><p>It must be pointed that in the supply bound formulation, the silent period of (W -B k ) can be a source of pessimism, but given the nature of compositional analysis <ref type="bibr" target="#b1">[2]</ref>, which relies on only information regarding the current partition, such an overhead is difficult to avoid, and is normally amortized over longer window periods.</p><p>3) Analysis considering budget reclamation: We now consider the case in which each partition P k can consume, in addition to its normal budget B k , a maximum of I k &lt; (W -B k ) idle time units, when there are no ready threads in other partitions. This case occurs when the system is under-loaded and therefore partition P k consumes an extra idle time budget of I k in its previous window and must pay it back in the interval under analysis.</p><p>To start, Lemma 4 proves that the maximum length of the silent period is still bounded by W -B k as in Lemma 3. In case (i), the silent period has length 0. Consider now case (ii). Let t s ∈ (t -W, t] (shown in Figure <ref type="figure">8</ref>) be the first time in which a thread of P k executes in the previous accounting window. Also let t r ∈ (t s , t -B k ) be the time instant in which a thread of P k starts executing the last B k units of time in the last accounting window. That means that the idle time consumed, in effect is I k = t r -t s . Since, by assumption, P k used additional idle-time budget in (t -W, t] it is not descheduled when its current budget reached 0 (rule R6), and therefore its current budget became smaller than zero (rule R2). The first budget replenishment starts then at t s + W (rule R3), but the current budget is negative (and equal to -(t r -t s )) and remains smaller than or equal to zero up to when all the idle time has been paid back, i.e., up to time t r + W . At time</p><formula xml:id="formula_18">t r + W , b k (t r + W ) &gt; 0.</formula><p>The length of the silent period of P k is given by the difference from time t r + W and the time t d ∈ (t r , t] in which P k depletes the budget, i.e., t r + W -t d . To maximize the length of the silent period experienced at the beginning of (t, t+∆] we need to maximize the amount of time the intervals (t d , t r +W ] and (t, t+∆] overlaps. This happens when t d = t. Then we need to chose t r so that to maximize t r +W -t d . By construction t r ∈ (t s , t -B k ], and hence we set t r = t -B k , and we obtain t r + W -</p><formula xml:id="formula_19">t d = t -B k + W -t = W -B k , proving the lemma.</formula><p>With Lemma 4 in place, Property 1 still holds when budget reclaiming is enabled, and therefore the same arguments of Lemma 3 can be applied to show that Definition 1 still holds even when considering budget reclamation.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Handling quantization errors in budget accounting</head><p>As discussed in Section III-C, budget accounting is performed only in correspondence of the periodic tick ISR and when a system call triggering a scheduling event is called. As a result, budget overruns with a time granularity up to the period T ISR (set to 1 ms by default) of the tick ISR are possible. To keep the analysis simple, we excluded this possibility by means of rule R8, which assumes partitions to be immediately descheduled in correspondence of budget exhaustion. Furthermore, mitigation strategies based on reducing T ISR are discussed in Section III-C. Other pragmatic countermeasures are possible, e.g., based on accounting for a "safety margin" when ensuring Equation <ref type="formula" target="#formula_12">4</ref>, (e.g., P k ∈Pc B k ≤ α • W , with α = 0.95) to account for this and other overheads and variances to the theoretical model (e.g., in the WCETs' accuracy that are often hard to estimate in multicore platforms). Similar precautions are taken in other schedulers, e.g, SCHED_DEADLINE in Linux. Alternatively, the derivation of the supply-bound function can be extended to pessimistically account that every time a high-priority thread running in a partition starts executing, it can execute T ISR units of time more than expected due to budget quantization. However, both this and the derivation of a fine-grained bound that is aware of the budget quantization phenomenon is left as future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EVALUATION</head><p>This section presents the results of two evaluation studies we performed to evaluate the proposed analysis. We start the discussion by considering a relatively simple synthetic application; then, we report the results of an evaluation we performed on an autonomous construction vehicle case study. To this end, we implemented a prototype of our analysis on top of the pyCPA framework <ref type="bibr" target="#b18">[21]</ref>. Furthermore, we also run the same event chains considered by the analysis on a real platform consisting of a Raspberry Pi 4B with 4 CPUs and 4GB RAM and the QNX 7.1 Software development Platform.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Evaluation on a Synthetic Application</head><p>To evaluate our approach, we first study a relatively simple example case before we apply it to a larger industrial case study. In the first set of experiments we study a simple system consisting of three threads, τ 1 , τ 2 , and τ 3 (see Table <ref type="table" target="#tab_9">VII</ref>). All threads are allocated to the same core. Two chains are specified, γ 1 = (τ 1 , τ 2 ) and γ 2 = (τ 3 ). γ 1 is allocated to a partition P 1 and γ 2 to a partition P 2 . Analysis-driven design of the budgets. Different budget assignments are evaluated first by running the analysis. For this, the budget of P 1 is gradually increased while the remaining budget is assigned to P 2 . As visible in Fig. <ref type="figure">9</ref>, solutions are found for budget values of P 1 in the range from 32% to 58%.</p><p>As expected, an increasing budget for P 1 has a significant effect on the latency of γ 1 while the latency of γ 2 increases only marginally. This is because γ 2 consist of only a single thread. This highlights the benefits of our analysis, which allows finding non-trivial trade-offs in the design of real-time applications running on QNX, without requiring to actually deploy the system with different budget values and observe the results, and providing analytical guarantees for the application timing constraints that would not be possible to ensure by just running the application. Fig. <ref type="figure">9</ref>: End-to-End bound of γ 1 and γ 2 with varying budget.</p><p>Comparing measurement against analysis results. In this experiment, we compare the analytical bound on the latency of γ 1 against the largest observed values within experiment runs of 20 s on the QNX platform in the standard configuration with budget reclaiming enabled. γ 1 is deployed on a core of the platform within its partition P 1 . A second partition is added to the same core that consumes the remaining capacity. This partition includes another interference inducing load thread with a period of 10 ms that is used to consume all the idle time that would otherwise be available to γ 1 . In different experiment runs, the execution time of the higher priority load thread is increased from 1 ms to 10 ms and the largest observed latency of γ 1 is recorded. Fig. <ref type="figure" target="#fig_5">10</ref> presents the results. When the interference by the other thread is low, the measured latency of γ 1 is lower than the one predicted by the analysis. Indeed, thanks to idle time reclamation, γ 1 is allowed to use more budget than the assigned one. As the load thread demands more time, the observed latency values increases, and it converges to the analytical bound once the load increases to 60%, demonstrating the tightness of our approach for this application.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Autonomous Construction Vehicle Case Study</head><p>The case study investigates a tactical decision-making system of an autonomous construction vehicle <ref type="bibr" target="#b19">[22]</ref>. The system implements a behavior generation and trajectory planning algorithm for operation in dynamic environments such as construction sites. It identifies traffic participants, considers their likely future behavior, and selects a suitable response out of a set of possible actions.</p><p>The application consists of 11 threads, as described in Table <ref type="table" target="#tab_10">VIII</ref>. The source thread is triggered periodically with a period of 300 ms. The original application is designed for a single-core platform and executes all threads sequentially. However, the application can be parallelized to allow deployment on multiple cores of a multi-core platform without altering its functionality, as shown in Fig. <ref type="figure" target="#fig_6">11</ref>. The main timing requirement is specified for the chain γ 1 that spans from e in to e out and has a end-to-end deadline of 600 ms.</p><p>The application is divided into five sub-chains γ 1,1 to γ 1,5 . Each sub-chain is assigned to a dedicated APS partition. The APS scheduler is configured with a window size of 100 ms, and each APS partition is configured with its budget according to Table <ref type="table" target="#tab_11">IX</ref>. By running our analysis, the application designer is then able to determine whether this configuration (i.e., priorities, threads-to-core and threads-to-partition allocation, and budgets) allows meeting the timing constraint of 600 ms, by computing a bound on the end-to-end latency of 421.8 ms.  Analysis-driven design of the budgets. This experiment evaluates the end-to-end latency of subchain γ 1 when the allocated budget is varied. Each curve in Fig. <ref type="figure">12</ref> is recorded by varying the budget allocated to the specific partition from 5% to 100% in steps of 5%, while all other partitions have a budget of 100% and the APS window size is set to 100 ms. Fig. <ref type="figure">12</ref>: Impact of varying budget for each subchain on the end-to-end latency, for the case-study.</p><p>The results are reported in Fig. <ref type="figure">12</ref>. A large effect on the resulting latency can be seen for γ 1,2 and γ 1,3 as these subchains contain threads with high execution times. γ 1,1 and γ 1,5 show nearly identical results. These subchains contain only very light threads, and the main effect on the latency, therefore, comes from the silent period W -B k Running the case study on a real platform. In the last experiment, the case study is deployed on the real platform, configuring the APS scheduler with and without budget reclaiming, and the end-to-end latency is recorded for consecutive instances of γ 1 in a timespan of 20 s. Fig. <ref type="figure" target="#fig_8">13</ref> presents the measurement results. If budget reclamation is not enabled, the observed latency is 228 ms. If budget reclamation is enabled, chain γ 1 can use the idle time to execute, completing earlier and allowing to reduce the end-toend latency to 184 ms. There is a small spike at t = 40, where the latency goes up. This is attributed to the overhead imposed by logging functionalities and other OS-related activities that cause additional contention on the cores.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. RELATED WORK</head><p>To the best of our knowledge, no previous work provided a response-time analysis and design principles for real-time applications running on QNX. The only work closely related work is due to Dasari et al. <ref type="bibr" target="#b9">[10]</ref>, who experimentally compared different configurations of QNX in simulation, and showed that some of them may lead to unpredictable response times.</p><p>In the last years, a lot of attention has been given to the problem of studying the end-to-end response time of event chains, which are also studied in this work. Most closely to us, Casini et al. <ref type="bibr" target="#b14">[17]</ref> provided a response-time analysis for chains running on ROS 2 using resource reservations. Blass et al. <ref type="bibr" target="#b6">[7]</ref> proposed an automated method for using the ROS 2 analysis to select the parameters required by the resource reservation mechanism implemented by the SCHED_DEADLINE scheduling class <ref type="bibr" target="#b5">[6]</ref> of Linux. Both of them used supply-bound functions to model the minimum amount of service provided by the system: we believe that the results of this paper may also be used as a building block for deriving an analysis for ROS 2 applications running on QNX. Other works proposed analyses or scheduling mechanisms for ROS 2 <ref type="bibr" target="#b16">[19,</ref><ref type="bibr" target="#b20">23,</ref><ref type="bibr" target="#b21">24]</ref> and other middlewares affecting scheduling <ref type="bibr" target="#b22">[25]</ref>- <ref type="bibr" target="#b25">[28]</ref>.</p><p>Concerning the analysis of event chains, multiple research directions have been followed in the past. This paper builds upon the CPA <ref type="bibr" target="#b8">[9,</ref><ref type="bibr" target="#b26">29]</ref> techniques, for which multiple extensions have been proposed over the years <ref type="bibr" target="#b27">[30,</ref><ref type="bibr" target="#b28">31]</ref>. Thiele et al. <ref type="bibr" target="#b29">[32]</ref> proposed the real-time calculus, an analysis approach based on network calculus <ref type="bibr" target="#b17">[20]</ref> sharing some aspects of CPA. Tindel et al. <ref type="bibr" target="#b30">[33,</ref><ref type="bibr" target="#b31">34]</ref> proposed a holistic response time analysis that considers transactions (sequential task chains) that can spread over multiple processing nodes, connected by a network. The methods has been later extended to account for dynamic offsets <ref type="bibr" target="#b32">[35]</ref>, precedence constraints <ref type="bibr" target="#b33">[36]</ref>, to improve the analysis accuracy <ref type="bibr" target="#b34">[37]</ref> and to support hierarchical time partitioned scheduling <ref type="bibr" target="#b35">[38]</ref>. Becker et al. <ref type="bibr" target="#b36">[39]</ref> proposed methods to bound the maximum data age of cause-effect chains in automotive systems, also considering the Logical Execution Time (LET) paradigm <ref type="bibr" target="#b37">[40,</ref><ref type="bibr" target="#b38">41]</ref>. A method to compute the different end-to-end delays of multi-rate cause-effect chains is presented in <ref type="bibr" target="#b39">[42]</ref>, however, the authors do not focus on reservations. Another research direction studied the timing behavior of time-triggered <ref type="bibr" target="#b40">[43]</ref>- <ref type="bibr" target="#b43">[46]</ref> (i.e., asynchronous) chains either considering implicit communication or using the LET paradigm. Precedence constraints have also been studied in the context of parallel real-time tasks <ref type="bibr" target="#b44">[47]</ref>- <ref type="bibr" target="#b47">[50]</ref>. Most relevant to us are those works targeting partitioned scheduling <ref type="bibr" target="#b48">[51]</ref>- <ref type="bibr" target="#b50">[53]</ref>, which, however, do not support DAGs with multiple sources triggered at different rates and a per-thread priority assignment. Finally, a relevant branch of related research consists in the study of resource reservation mechanisms: many different reservation algorithms have been proposed over the years (e.g., <ref type="bibr" target="#b51">[54,</ref><ref type="bibr" target="#b52">55]</ref>) working under different scheduling schemes. One of the seminal works is due to Shin and Lee <ref type="bibr" target="#b1">[2]</ref>, who proposed the periodic resource model, which has been used as a basis for many subsequent derivations of supplybound functions <ref type="bibr" target="#b53">[56]</ref>- <ref type="bibr" target="#b55">[58]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. CONCLUSIONS</head><p>This paper proposed a deep investigation of the real-time behavior of the APS scheduler of QNX, proposing a model for event chains running in QNX under APS. The model has been validated with an extensive set of experiments. By leveraging the model, a real-time analysis to bound the endto-end delay of event chains has been proposed. Furthermore, we presented the results of an experimental evaluation we performed to evaluate different design strategies on a real autonomous construction vehicle case study. In addition, we discussed some practical issues related to the time accounting in QNX, and on the way precedence constraints can be correctly implemented when working with APS.</p><p>Interesting research directions for future work include the investigation of priority assignment schemes <ref type="bibr" target="#b56">[59]</ref>- <ref type="bibr" target="#b58">[61]</ref>, the consideration of time-driven chains <ref type="bibr" target="#b42">[45]</ref>, e.g., under the LET paradigm <ref type="bibr" target="#b43">[46]</ref>, the comparison with other schedulers like SCHED_DEADLINE, and the derivation of optimization strategies to simultaneously optimize budgets, priorities, and the threads-to-core allocation.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 2 :Fig. 3 :Fig. 4 :</head><label>234</label><figDesc>Fig.2: Execution trace and partition budget usage of the for partitions P 1 (blue) and P 2 (red) in the first 600 ms of execution. The task parameters are in the following order: period, WCET, priority and assigned partition. Each partition is described by its budget B k , and W =100 ms in all cases. The current budget b k (t) is illustrated in Setting A.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 6 :</head><label>6</label><figDesc>Fig. 6: Timeline showing relevant time instants and intervals for Lemma 1.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 7 :</head><label>7</label><figDesc>Fig. 7: Two representations of the supply-bound function. The left side denotes the budget usage pattern to minimize the supply in the interval ∆. Here ∆ 1 = (∆/W ) • W and ∆ 2 = ∆ mod W is the rest of the window. The shaded region shows a possible budget usage to reduce the supply in the window under consideration. The right side shows how the supply increases over a period of time.</figDesc><graphic coords="9,50.22,496.06,248.54,60.62" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 8 : 4 Lemma 4 .</head><label>844</label><figDesc>Fig. 8: Relevant times for the proof of Lemma 4</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 10 :</head><label>10</label><figDesc>Fig. 10: Comparison of observed latency for γ 1 against the analytical worst-case bound and varying higher priority load.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 11 :</head><label>11</label><figDesc>Fig. 11: Use Case: Tactical decision making system of an autonomous construction vehicle.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Fig. 13 :</head><label>13</label><figDesc>Fig. 13: Observed latency of consecutive instances of γ 1 on the hardware platform.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>TABLE I :</head><label>I</label><figDesc>APS Scheduler Behavior and Validation.</figDesc><table><row><cell>Rule</cell><cell>Validation</cell></row><row><cell>R1 At the system startup, b k</cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head>TABLE II :</head><label>II</label><figDesc>Threads for Setting A-B</figDesc><table><row><cell></cell><cell>WCET [ms]</cell><cell>Period [ms]</cell><cell>Priority</cell><cell>Core</cell><cell>Partition</cell></row><row><cell>τ 1</cell><cell>50</cell><cell>200</cell><cell>255</cell><cell>3</cell><cell>P 1</cell></row><row><cell>τ 2</cell><cell>150</cell><cell>200</cell><cell>254</cell><cell>3</cell><cell>P 2</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head>TABLE III :</head><label>III</label><figDesc>Configured Partitions for Settings A-B-C</figDesc><table><row><cell></cell><cell>Window [ms]</cell><cell>Budget Global</cell><cell>Budget Per Core</cell></row><row><cell>P 1</cell><cell>100</cell><cell>5%</cell><cell>20%</cell></row><row><cell>P 2</cell><cell>100</cell><cell>20%</cell><cell>80%</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head>TABLE IV :</head><label>IV</label><figDesc>Threads for Setting C</figDesc><table><row><cell></cell><cell>WCET [ms]</cell><cell>Period [ms]</cell><cell>Priority</cell><cell>Core</cell><cell>Partition</cell></row><row><cell>τ 1</cell><cell>50</cell><cell>200</cell><cell>255</cell><cell>3</cell><cell>P 1</cell></row><row><cell>τ 2</cell><cell>150</cell><cell>200</cell><cell>254</cell><cell>3</cell><cell>P 2</cell></row><row><cell>τ 3</cell><cell>50</cell><cell>600</cell><cell>253</cell><cell>3</cell><cell>P 2</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>TABLE V :</head><label>V</label><figDesc>Threads for Setting D</figDesc><table><row><cell></cell><cell>WCET [ms]</cell><cell>Period [ms]</cell><cell>Priority</cell><cell>Core</cell><cell>Partition</cell></row><row><cell>τ 1</cell><cell>50</cell><cell>200</cell><cell>255</cell><cell>3</cell><cell>P 1</cell></row><row><cell>τ 2</cell><cell>100</cell><cell>200</cell><cell>254</cell><cell>3</cell><cell>P 2</cell></row><row><cell>τ 3</cell><cell>50</cell><cell>600</cell><cell>253</cell><cell>3</cell><cell>P 2</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_6"><head>TABLE VI :</head><label>VI</label><figDesc>Configured Partitions Setting D</figDesc><table><row><cell></cell><cell>Window [ms]</cell><cell>Budget Global</cell><cell>Budget Per Core</cell></row><row><cell>P 1</cell><cell>100</cell><cell>5%</cell><cell>20%</cell></row><row><cell>P 2</cell><cell>100</cell><cell>20%</cell><cell>20%</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_9"><head>TABLE VII :</head><label>VII</label><figDesc>Example Application</figDesc><table><row><cell></cell><cell>WCET [ms]</cell><cell>Period [ms]</cell><cell>Priority</cell><cell>Core</cell><cell>Partition</cell></row><row><cell>τ 1</cell><cell>20</cell><cell>100</cell><cell>255</cell><cell>1</cell><cell>P 1</cell></row><row><cell>τ 2</cell><cell>10</cell><cell>-</cell><cell>254</cell><cell>1</cell><cell>P 1</cell></row><row><cell>τ 3</cell><cell>40</cell><cell>100</cell><cell>253</cell><cell>1</cell><cell>P 2</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_10"><head>TABLE VIII :</head><label>VIII</label><figDesc>Threads of the Case Study</figDesc><table><row><cell></cell><cell>Name</cell><cell>WCET</cell><cell>Prio</cell><cell>Core</cell><cell>Part</cell></row><row><cell>τ 1</cell><cell>MPDM</cell><cell>2,2</cell><cell>250</cell><cell>1</cell><cell>P 1</cell></row><row><cell>τ 2</cell><cell>Sim Crowd</cell><cell>0,1</cell><cell>249</cell><cell>1</cell><cell>P 1</cell></row><row><cell>τ 3</cell><cell>Move Vehicle</cell><cell>12</cell><cell>248</cell><cell>3</cell><cell>P 2</cell></row><row><cell>τ 4</cell><cell>Vehicle Force</cell><cell>169,1</cell><cell>247</cell><cell>3</cell><cell>P 2</cell></row><row><cell>τ 5</cell><cell>Move Pedestrian</cell><cell>3,3</cell><cell>246</cell><cell>2</cell><cell>P 3</cell></row><row><cell>τ 6</cell><cell>Pedestrian Force</cell><cell>85,5</cell><cell>245</cell><cell>2</cell><cell>P 3</cell></row><row><cell>τ 7</cell><cell>Follow Vehicle</cell><cell>0,1</cell><cell>244</cell><cell>1</cell><cell>P 4</cell></row><row><cell>τ 8</cell><cell>Follow Force</cell><cell>6,4</cell><cell>243</cell><cell>1</cell><cell>P 4</cell></row><row><cell>τ 9</cell><cell>Stop Vehicle</cell><cell>0,1</cell><cell>242</cell><cell>1</cell><cell>P 5</cell></row><row><cell>τ 10</cell><cell>Cost</cell><cell>1,2</cell><cell>241</cell><cell>1</cell><cell>P 5</cell></row><row><cell>τ 11</cell><cell>Optimal Policy</cell><cell>0,1</cell><cell>240</cell><cell>1</cell><cell>P 5</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_11"><head>TABLE IX :</head><label>IX</label><figDesc>Configured Partitions for the Case Study</figDesc><table><row><cell></cell><cell>Window [ms]</cell><cell>Budget Global</cell><cell>Budget Core</cell></row><row><cell>P 1</cell><cell>100</cell><cell>64%</cell><cell>16%</cell></row><row><cell>P 2</cell><cell>100</cell><cell>80%</cell><cell>20%</cell></row><row><cell>P 3</cell><cell>100</cell><cell>44%</cell><cell>11%</cell></row><row><cell>P 4</cell><cell>100</cell><cell>12%</cell><cell>3%</cell></row><row><cell>P 5</cell><cell>100</cell><cell>14%</cell><cell>3,5%</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 01:33:21 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of hierarchical real-time systems under shared resources</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">65</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="1593" to="1605" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Periodic resource model for compositional real-time guarantees</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">24th IEEE Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Memguard: Memory bandwidth reservation system for efficient performance isolation in multi-core platforms</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Yao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2013 IEEE 19th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="55" to="64" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Bru: Bandwidth regulation unit for real-time multicore processors</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Farshchi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2020 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title level="m" type="main">Adaptive Partitioned Scheduler User Guide -QNX ® Software Development Platform 7</title>
+		<author>
+			<persName><forename type="first">Qnx</forename><surname>Blackberry</surname></persName>
+		</author>
+		<imprint>
+			<biblScope unit="page">2021</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Deadline scheduling in the Linux kernel</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lelli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Scordino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software: Practice and Experience</title>
+		<imprint>
+			<biblScope unit="volume">46</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="821" to="839" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Automatic Latency Management for ROS 2: Benefits, Challenges, and Open Problems</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blass</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Lange</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 27th IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<meeting>the 27th IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</meeting>
+		<imprint>
+			<biblScope unit="page">2021</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">Hard Real-Time Computing Systems: Predictable Scheduling Algorithms and Applications</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<publisher>Springer</publisher>
+		</imprint>
+	</monogr>
+	<note>Third Edition</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">System level performance analysis -the SymTA/S approach</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Henia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Jersak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Racu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Richter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Proceedings -Computers and Digital Techniques</title>
+		<imprint>
+			<date type="published" when="2005-03">March 2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Brief industry paper: Dissecting the qnx adaptive partitioning scheduler</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dasari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Broede</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Pressler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE 27th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="477" to="480" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">On the ineffectiveness of 1/m-based interference bounds in the analysis of global edf and fifo scheduling</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Sun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">54</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="515" to="536" />
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Global scheduling not required: Simple, near-optimal multiprocessor real-time scheduling with semi-partitioned reservations</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Gül</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="99" to="110" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">QNX ® Neutrino ® RTOS Programmer&apos;s Guide -QNX ® Software Development Platform 7</title>
+		<author>
+			<persName><forename type="first">Qnx</forename><surname>Blackberry</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Getting Started with QNX ® Neutrino ® : A Guide for Realtime Programmers -QNX ® Software Development Platform 7</title>
+		<author>
+			<persName><forename type="first">Qnx</forename><surname>Blackberry</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Responsetime analysis of ros 2 processing chains under reservation-based scheduling</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lütkebohle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Schloss Dagstuhl-Leibniz-Zentrum fuer Informatik</title>
+		<imprint>
+			<date type="published" when="2019">2019. 2019</date>
+		</imprint>
+	</monogr>
+	<note>31st Euromicro Conference on Real-Time Systems</note>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Abstract Response-Time Analysis: A Formal Foundation for the Busy-Window Principle</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bozhko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">32nd Euromicro Conference on Real-Time Systems (ECRTS 2020)</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="volume">165</biblScope>
+			<biblScope unit="page">24</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Response time analysis and priority assignment of processing chains on ros2 executors</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Feng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lv</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Deng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2020 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="231" to="243" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">Network Calculus: A Theory of Deterministic Queuing Systems for the Internet</title>
+		<author>
+			<persName><forename type="first">J.-Y. Le</forename><surname>Boudec</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Thiran</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+			<publisher>Springer-Verlag</publisher>
+			<pubPlace>Berlin, Heidelberg</pubPlace>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Compositional performance analysis in python with pycpa</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Diemer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Axer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems (WATERS)</title>
+		<meeting>the Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems (WATERS)</meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">Decision making for autonomous construction vehicles</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Gallardo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chakraborty</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+		<respStmt>
+			<orgName>Mälardalen University</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Master&apos;s thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">A ROS 2 response-time analysis exploiting starvation freedom and execution-time variance</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bozhko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="41" to="53" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<monogr>
+		<title level="m" type="main">Picas: New design of priority-driven chain-aware scheduling for ros2</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Analyzing parallel real-time tasks implemented with thread pools</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 56th Annual Design Automation Conference 2019, ser. DAC &apos;19</title>
+		<meeting>the 56th Annual Design Automation Conference 2019, ser. DAC &apos;19</meeting>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Timing characterization of openmp4 tasking model</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">A</forename><surname>Serrano</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Melani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Vargas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marongiu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Quiñones</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2015 International Conference on Compilers, Architecture and Synthesis for Embedded Systems (CASES)</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Timing isolation and improved scheduling of deep neural networks for real-time systems</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software: Practice and Experience</title>
+		<imprint>
+			<biblScope unit="volume">50</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1760" to="1777" />
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling and analysis of openmp task systems with tied tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2017 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2017-12">Dec 2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Compositional performance analysis with improved analysis techniques for obtaining viable end-to-end latencies in distributed embedded systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Rox</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Int. J. Softw. Tools Technol. Transf</title>
+		<imprint>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">A recursive approach to end-to-end path latency computation in heterogeneous multiprocessor systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Schliecker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+		<idno>ser. CODES+ISSS &apos;09</idno>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 7th IEEE/ACM International Conference on Hardware/Software Codesign and System Synthesis</title>
+		<meeting>the 7th IEEE/ACM International Conference on Hardware/Software Codesign and System Synthesis</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Response-time analysis for task chains with complex precedence and blocking relations</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Schlatow</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Embed. Comput. Syst</title>
+		<imprint>
+			<biblScope unit="volume">16</biblScope>
+			<biblScope unit="issue">5s</biblScope>
+			<date type="published" when="2017-09">Sep. 2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Real-time calculus for scheduling hard real-time systems</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Thiele</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chakraborty</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Naedele</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2000 IEEE International Symposium on Circuits and Systems. Emerging Technologies for the 21st Century. Proceedings</title>
+		<imprint>
+			<date type="published" when="2000-05">May 2000</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Holistic schedulability analysis for distributed hard real-time systems</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Clark</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Microprocessing and microprogramming</title>
+		<imprint>
+			<date type="published" when="1994">1994</date>
+			<biblScope unit="volume">40</biblScope>
+			<biblScope unit="page" from="117" to="134" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Adding time-offsets to schedulability analysis. department of computer science, university of york</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+		<idno>YCS-221</idno>
+	</analytic>
+	<monogr>
+		<title level="j">Tech. Rep</title>
+		<imprint>
+			<date type="published" when="1994">1994</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Technical Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis for tasks with static and dynamic offsets</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">C</forename><surname>Palencia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">G</forename><surname>Harbour</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings 19th IEEE Real-Time Systems Symposium (RTSS)</title>
+		<meeting>19th IEEE Real-Time Systems Symposium (RTSS)</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1998">1998</date>
+			<biblScope unit="page" from="26" to="37" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">Exploiting precedence relations in the schedulability analysis of distributed real-time systems</title>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings 20th IEEE Real-Time Systems Symposium</title>
+		<meeting>20th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1999">1999</date>
+			<biblScope unit="page" from="328" to="339" />
+		</imprint>
+	</monogr>
+	<note>Cat. No. 99CB37054</note>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">Efficient implementation of tight responsetimes for tasks with offsets</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mäki-Turja</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Nolin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">40</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="77" to="116" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">Response-time analysis of multipath flows in hierarchically-scheduled time-partitioned distributed real-time systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Amurrio</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Azketa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">J</forename><surname>Gutierrez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Aldea</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">G</forename><surname>Harbour</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Access</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="page" from="196" to="700" />
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">Endto-end timing analysis of cause-effect chains in automotive embedded systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Becker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dasari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Mubeen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">80</biblScope>
+			<biblScope unit="page" from="104" to="113" />
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Giotto: A timetriggered language for embedded programming</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">A</forename><surname>Henzinger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Horowitz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">M</forename><surname>Kirsch</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Workshop on Embedded Software</title>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="2001">2001</date>
+			<biblScope unit="page" from="166" to="184" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">Achieving predictable multicore execution of automotive applications using the let paradigm</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">Di</forename><surname>Natale</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">A Compositional Framework for End-to-End Path Delay Calculation of Automotive Systems under Different Path Semantics</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Feiertag</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Richter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Nordlander</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Jonsson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the IEEE Real-Time System Symposium</title>
+		<meeting>the IEEE Real-Time System Symposium</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+		<respStmt>
+			<orgName>Workshop on Compositional Theory and Technology for Real-Time Embedded Systems</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<analytic>
+		<title level="a" type="main">Period optimization for hard real-time distributed automotive systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Davare</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Zhu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Di Natale</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Pinello</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kanajan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Sangiovanni-Vincentelli</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2007 44th ACM/IEEE Design Automation Conference</title>
+		<imprint>
+			<date type="published" when="2007-06">June 2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<analytic>
+		<title level="a" type="main">Latency analysis for data chains of real-time periodic tasks</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Kloda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bertout</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Sorel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 IEEE 23rd International Conference on Emerging Technologies and Factory Automation (ETFA)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="page" from="360" to="367" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">Timing analysis of asynchronized distributed cause-effect chains</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Günzel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K.-H</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Ueter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Dürr</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE 27th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="40" to="52" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<analytic>
+		<title level="a" type="main">Optimizing the functional deployment on multicore platforms with logical execution time</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Pazzaglia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">Di</forename><surname>Natale</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2019 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="207" to="219" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b44">
+	<analytic>
+		<title level="a" type="main">Multi-core real-time scheduling for generalized parallel task models</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2011 IEEE 32nd Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b45">
+	<analytic>
+		<title level="a" type="main">Scheduling parallel realtime tasks on multi-core processors</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2010 31st IEEE Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2010-11">Nov 2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b46">
+	<analytic>
+		<title level="a" type="main">Improved response time analysis of sporadic DAG tasks for global FP scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Fonseca</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Nélis</surname></persName>
+		</author>
+		<idno>ser. RTNS &apos;17</idno>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th International Conference on Real-Time Networks and Systems</title>
+		<meeting>the 25th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b47">
+	<analytic>
+		<title level="a" type="main">Intra-task priority assignment in real-time scheduling of dag tasks on multi-cores</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Guo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="2283" to="2295" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b48">
+	<analytic>
+		<title level="a" type="main">Event-driven Delay-induced Tasks: Model, Analysis, and Applications</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Aromolo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<biblScope unit="page">2021</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b49">
+	<analytic>
+		<title level="a" type="main">Response time analysis of sporadic dag tasks under partitioned scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Fonseca</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Nelis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">M</forename><surname>Pinho</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 11th IEEE Symposium on Industrial Embedded Systems (SIES)</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b50">
+	<analytic>
+		<title level="a" type="main">Partitioned fixedpriority scheduling of parallel tasks without preemptions</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="421" to="433" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b51">
+	<analytic>
+		<title level="a" type="main">Integrating multimedia applications in hard real-time systems</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 19th IEEE Real-Time Systems Symposium (RTSS 1998)</title>
+		<meeting>the 19th IEEE Real-Time Systems Symposium (RTSS 1998)<address><addrLine>Madrid, Spain</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1998-04">December 2-4 1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b52">
+	<analytic>
+		<title level="a" type="main">Iris: a new reclaiming algorithm for server-based real-time systems</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Marzario</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Balbastre</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Crespo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings. RTAS 2004. 10th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>RTAS 2004. 10th IEEE Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2004-05">2004. May 2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b53">
+	<analytic>
+		<title level="a" type="main">Constant bandwidth servers with constrained deadlines</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Cucinotta</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<idno>ser. RTNS &apos;17</idno>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th International Conference on Real-Time Networks and Systems</title>
+		<meeting>the 25th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b54">
+	<analytic>
+		<title level="a" type="main">Resource partitioning among real-time applications</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bini</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">15th Euromicro Conference on Real-Time Systems, 2003. Proceedings</title>
+		<imprint>
+			<date type="published" when="2003-07">July 2003</date>
+			<biblScope unit="page" from="151" to="158" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b55">
+	<analytic>
+		<title level="a" type="main">Virtual multiprocessor platforms: Specification and use</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2009 30th IEEE Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="437" to="446" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b56">
+	<analytic>
+		<title level="a" type="main">A review of priority assignment in real-time systems</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of systems architecture</title>
+		<imprint>
+			<biblScope unit="volume">65</biblScope>
+			<biblScope unit="page" from="64" to="82" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b57">
+	<analytic>
+		<title level="a" type="main">Optimized priority assignment for tasks and messages in distributed hard real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">G</forename><surname>García</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">G</forename><surname>Harbour</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of Third Workshop on Parallel and Distributed Real-Time Systems</title>
+		<meeting>Third Workshop on Parallel and Distributed Real-Time Systems</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1995">1995</date>
+			<biblScope unit="page" from="124" to="132" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b58">
+	<analytic>
+		<title level="a" type="main">Task and message priority assignment in automotive systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Richard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Richard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Cottet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dietrich</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Neumann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Thomesse</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">4th FeT IFAC conference on fieldbus systems and their applications</title>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="page">16</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

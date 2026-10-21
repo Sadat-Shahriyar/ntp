@@ -1,0 +1,884 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Robust Real-Time Multiprocessor Interrupt Handling Motivated by GPUs</title>
+				<funder ref="#_yRkqpkz #_45Uv8qV">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+				<funder ref="#_GSGncTQ #_GdWyTBW">
+					<orgName type="full">AFRL</orgName>
+				</funder>
+				<funder ref="#_GvC3cee">
+					<orgName type="full">unknown</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Glenn</forename><forename type="middle">A</forename><surname>Elliott</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Robust Real-Time Multiprocessor Interrupt Handling Motivated by GPUs</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">CFB2FE86CD8DD2D0304E8E052EE4EFA1</idno>
+					<idno type="DOI">10.1109/ECRTS.2012.20</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T19:44+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Architectures in which multicore chips are augmented with graphics processing units (GPUs) have great potential in many domains in which computationally intensive real-time workloads must be supported. However, unlike standard CPUs, GPUs are treated as I/O devices and require the use of interrupts to facilitate communication with CPUs. Given their disruptive nature, interrupts must be dealt with carefully in real-time systems. With GPU-driven interrupts, such disruptiveness is further compounded by the closed-source nature of GPU drivers. In this paper, such problems are considered and a solution is presented in the form of an extension to LITMUS RT called klmirqd. The design of klmirqd targets systems with multiple CPUs and GPUs. In such settings, interruptrelated issues arise that have not been previously addressed.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Graphics processing units (GPUs) are capable of performing parallel computations at rates orders of magnitude greater than traditional CPUs. Driven both by this and by increased GPU programmability and singleprecision floating-point support, the use of GPUs to solve non-graphical (general purpose) computational problems began gaining wide-spread popularity about ten years ago <ref type="bibr" target="#b9">[1]</ref>, <ref type="bibr">[2]</ref>, <ref type="bibr">[3]</ref>. However, at that time, non-graphical algorithms had to be mapped to graphics-specific languages. GPU manufactures realized they could reach new markets by supporting general purpose computations on GPUs (GPGPU) and released flexible language extensions and runtime environments. <ref type="foot" target="#foot_0">1</ref> Since the release of these second-generation GPGPU technologies, both graphics hardware and runtime environments have grown in generality, enabling GPGPU across many domains. Today, GPUs can be found integrated on-chip in mobile devices and laptops <ref type="bibr" target="#b12">[4]</ref>, <ref type="bibr" target="#b13">[5]</ref>, <ref type="bibr">[6]</ref>, as discrete cards in higher-end consumer computers and workstations, and within many of the world's fastest supercomputers <ref type="bibr" target="#b16">[7]</ref>.</p><p>GPUs have applications in many real-time domains. For example, GPUs can efficiently perform multidimensional FFTs and convolutions, as used in signal processing, as well as matrix operations such as factorization on large data sets. Such operations are used in medical imaging and video processing, where realtime constraints are common. A particularly compelling use case is driver-assisted and autonomous automobiles, where multiple streams of video and sensor data must be processed and correlated in real time <ref type="bibr" target="#b17">[8]</ref>. GPUs are well suited for this purpose.</p><p>Prior Work. GPUs have received serious consideration in the real-time community only recently. Both theoretical work ( <ref type="bibr">[9]</ref>, <ref type="bibr" target="#b19">[10]</ref>) on partitioning and scheduling algorithms and applied work ( <ref type="bibr" target="#b20">[11]</ref>, <ref type="bibr" target="#b21">[12]</ref>, <ref type="bibr" target="#b22">[13]</ref>) on qualityof-service techniques and improved responsiveness has been done. Outside the real-time community, others have proposed operating system designs where GPUs are scheduled in much the same way as CPUs <ref type="bibr" target="#b23">[14]</ref>.</p><p>In our own work, we have investigated the challenges faced when augmenting multicore platforms with GPUs that have non-real-time, throughput-oriented, closedsource device drivers <ref type="bibr" target="#b24">[15]</ref>. These drivers exhibit problematic behaviors for real-time systems. For example, tasks non-preemptively execute on a GPU in first-in-firstout order. <ref type="foot" target="#foot_1">2</ref> Also, GPU access is arbitrated by non-realtime spinlocks that lack priority-inheritance mechanisms. CPU time lost to spinning can be significant: GPU accesses commonly take tens of milliseconds up to several seconds <ref type="bibr" target="#b24">[15]</ref>. Further, blocked tasks may experience unbounded priority inversions due to the lack of priority inheritance. <ref type="foot" target="#foot_2">3</ref>The primary solution we presented in <ref type="bibr" target="#b24">[15]</ref> to address these issues is to treat a GPU as a shared resource, protected by a real-time suspension-based semaphore. This removes the GPU driver from resource arbitration decisions and enables bounds on blocking time to be determined. We validated this approach in experiments on LITMUS RT  <ref type="bibr" target="#b25">[16]</ref>, UNC's real-time extension to Linux, and demonstrated that our methods reduced both CPU utilization and deadline tardiness.</p><p>Contributions. One issue not addressed in our prior work is the effect GPU interrupts have on real-time execution. Interrupts cause complications in the design and analysis of real-time systems. Ideally, interrupt handling should respect the priorities of executing real-time tasks. However, this is a non-trivial issue, especially for systems with shared I/O resources. In this paper, we examine the effects interrupt servicing techniques have on real-time execution on a multiprocessor, with GPUrelated interrupts particularly in mind.</p><p>Our major contributions are threefold. First, we develop techniques that enable interrupts due to asynchronous I/O to be handled without violating the single-threaded sporadic task model, improving schedulability analysis. Prior interrupt-related work has not directly addressed asynchronous I/O on multiprocessors. Second, we propose a technique to override the interrupt processing of closed-source drivers and apply this technique to a GPU driver. This required significant challenges to be overcome to alter the interrupt handling of the closedsource GPU driver. Third, we discuss an implementation of the proposed techniques and present an associated experimental evaluation. This implementation is given in the form of an extension to LITMUS RT called klmirqd.</p><p>The rest of this paper is organized as follows. In Sec. II, we provide necessary background. In Sec. III, we review prior work on real-time interrupt handling and describe our solution, klmirqd. In Sec. IV, we show how GPU interrupt processing can be intercepted and rerouted, despite the use of a closed-source GPU driver. In Secs. V-VII, we present an experimental evaluation of klmirqd. We conclude in Sec. VIII.</p><p>Due to space limitations, we henceforth limit attention to GPU technologies from the manufacture NVIDIA, whose CUDA <ref type="bibr" target="#b26">[17]</ref> platform is widely accepted as the leading GPGPU solution.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. INTERRUPT HANDLING</head><p>An interrupt is a hardware signal issued from a system device to a system CPU. Upon receipt of an interrupt, a CPU halts its currently-executing task and invokes an interrupt handler, which is a segment of code responsible for taking the appropriate actions to process the interrupt. Each device driver registers a set of driver-specific interrupt handlers for all interrupts its associated device may raise. An interrupted task can only resume execution after the interrupt handler has completed.</p><p>Interrupts require careful implementation and analysis in real-time systems. In uniprocessor and partitioned multiprocessor systems, an interrupt handler can be modeled as the highest-priority real-time task <ref type="bibr" target="#b27">[18]</ref>, <ref type="bibr" target="#b28">[19]</ref>, though the unpredictable nature of interrupts in some applications may require conservative analysis. Such approaches can be extended to multiprocessor systems where tasks may migrate between CPUs <ref type="bibr" target="#b29">[20]</ref>. However, in such systems, the subtle difference between an interruption and preemption creates an additional concern: an interrupted task cannot migrate to another CPU since the interrupt handler temporarily uses the interrupted task's program stack. As a result, conservative analysis must also be used when accounting for interrupts in these systems too. A real-time system, both in analysis and in practice, benefits greatly by minimizing interruption durations. Split interrupt handling is a common way of achieving this, even in non-real-time systems.</p><p>Under split interrupt handling, an interrupt handler performs the minimum amount of processing necessary to ensure proper functioning of hardware; additional work to be carried out in response to an interrupt is deferred. This deferred work may then be scheduled in a separate thread of execution with an appropriate priority.</p><p>The duration of interruption is minimized and deferred work competes fairly with other tasks for CPU time.</p><p>GPU interrupt management is important to real-time systems for two reasons. First, we want to minimize the interference of GPU interrupts on all system tasks, including those that do not use a GPU. Second, we want a system that can be modeled analytically, so that schedulability can be assessed. Such analysis could be useful for systems such as driver-assisted automobiles. For example, response time bounds of GPU-based sensor processing may be required by an automatic collision avoidance component since response time equates directly to distance-travelled in a moving vehicle. Through analysis, we can determine the minimum system provisioning that meets the requirements of the collision avoidance component, as well as any other timing requirements of other components. Interrupt Handling In Linux. We now review how Linux performs split interrupt handling. We focus on Linux for two reasons. First, despite its general-purpose origins, variants of Linux are widely used in supporting real-time workloads. Second, GPGPU is well supported on Linux and it is the only OS where we can make use of GPGPU and have the ability to modify OS source code. Other operating systems with reasonably robust GPGPU support (Windows and Mac OS X) are closed-source. Virtualization techniques that enable GPGPU in guest operating systems (ex. <ref type="bibr" target="#b30">[21]</ref>) cannot be used because the GPGPU software, including the GPU driver, must still be hosted in a traditional OS environment, such as Linux.</p><p>During the initialization of the Linux kernel, device drivers (even closed-source ones) register interrupt handlers with the kernel's interrupt services layer, mapping interrupt signals to interrupt service routines (ISRs). Upon receipt of an interrupt on a CPU, Linux immediately invokes the registered ISR. The ISR is the tophalf of the split interrupt handler. If an interrupt requires additional processing beyond what can be implemented in a minimal top-half, a deferrable bottom-half may be issued to the Linux kernel in the form of a softirq. There are several types of softirqs, but in this paper, we consider only tasklets, which are the type of softirq used by most I/O devices, including GPUs; we use the terms "softirq" and "tasklet" synonymously.</p><p>The Linux kernel executes tasklets using a heuristic. Immediately after executing a top-half, but before resuming execution of the interrupted task, the kernel executes up to ten tasklets. Any remaining tasklets are dispatched to one of several (per-CPU) kernel threads dedicated to tasklet processing; these are the "ksoftirq" daemons. The ksoftirq daemons are scheduled with high priority, but are preemptible. The described heuristic can introduce long interrupt latencies, causing one to wonder if this can even be considered a split interrupt system. In all likelihood, in a system experiencing few interrupts (though it may still be heavily utilized), for every tophalf that yields a tasklet (bottom-half), that tasklet will</p><formula xml:id="formula_0">P 0 P 1 T H T L BH H T L Priority Inversion t 0 t 1 time Figure 1.</formula><p>Priority inversion: T L should be scheduled on processor P 1 at time t 0 since it is one of the top two highest-priority tasks.</p><p>subsequently be executed before the interrupted task is restored to the CPU. If a tasklet is deferred to a ksoftirq daemon, it is generally not possible to analytically bound the length of the deferral since these daemons are not scheduled with real-time priorities.</p><p>The PREEMPT_RT Linux kernel patch addresses this issue by using real-time schedulable worker threads to process all tasklets. Ideally, the scheduling priority of a worker thread should match that of the client task using the interrupt-raising device. However, these threads have a single fixed priority, even if an associated device is shared by multiple client tasks of differing priorities. This can easily lead to harmful priority inversions, as demonstrated in Sec. VI.</p><p>Priority inversions may also arise when asynchronous I/O is used. In asynchronous I/O, a task may issue a batch of I/O requests while continuing on to other processing. The task defers receipt of I/O results to a later time. This technique helps improve overall performance and is commonly used in GPU applications to mask bus latencies. Since synchronization with the I/O device is deferred, it is possible for interrupts to be received, and the corresponding bottom-halves to be executed, while a client task is scheduled. In such a case, the client task essentially becomes temporarily multithreaded, breaking the assumption of single-threaded execution common in real-time task models such as the sporadic model. A co-scheduled bottom-half can be interpreted as causing a priority inversion. This is illustrated in Fig. <ref type="figure">1</ref> for a two-processor system with tasks T H and T L , where T H has higher priority. At time t 0 , a bottom-half for T H , BH H , preempts T L and is co-scheduled with T H . Under a single-threaded task model, T L should be scheduled at t 0 , so a priority inversion occurs.</p><p>Priority inversions caused by asynchronous I/O in nonpartitioned multiprocessors are not merely limited to Linux variants. Most methods in the real-time literature also have these shortcomings, and only a few techniques can avoid inversions in special cases. <ref type="foot" target="#foot_4">4</ref> To our knowledge, priority inversions caused by asynchronous I/O in non-partitioned multiprocessors have not been directly addressed in the real-time literature.</p><p>Neither standard Linux interrupt handling (SLIH) nor the PREEMPT_RT method implement split interrupt handling in a way amenable to real-time schedulability analysis. This is especially unfortunate since Linuxbased systems are currently the only reasonable option for developing GPU-enabled real-time systems. In the next section, we propose a Linux-based solution that is amenable to analysis.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. INTERRUPT HANDLING IN LITMUS RT</head><p>LITMUS RT , a real-time extension of Linux, has been under continual development at UNC for over five years. To date, LITMUS RT has largely been limited to workloads that are not I/O intensive, since LITMUS RT has provided no mechanisms for real-time I/O. The implementation of real-time I/O is a considerable effort, and proper implementation of split interrupt handling is one critical aspect of this work. We begin this work here.</p><p>As discussed in Sec. II, current Linux-based operating systems use fixed-priority softirq daemons. In this paper, we introduce a new class of LITMUS RT -aware daemons called klmirqd. <ref type="foot" target="#foot_5">5</ref> This name is an abbreviation for "Litmus softirq daemon" and is prefixed with a "k" to indicate that the daemon executes in kernel space. klmirqd daemons may function under any LITMUS RTsupported job-level static-priority (JLSP) scheduling algorithm, including partitioned-, clustered-, and globalearliest-deadline-first and -fixed-priority schedulers.</p><p>klmirqd is designed to be extensible. Unlike the ksoftirq daemons, the system designer may create an arbitrary number of klmirqd threads to process tasklets from a single device, or a single klmirqd thread may be shared among many devices. A klmirqd thread may be configured in either a dependent or independent mode. In dependent mode, a klmirqd thread executes on behalf of a tasklet owner (the real-time client task using the interrupt-raising device), and in independent mode, a klmirqd thread runs as a bandwidth server. The latter mode is useful for constraining the utilization of anonymous tasklets (those with no owners), which is common to network traffic <ref type="bibr" target="#b31">[22]</ref>, <ref type="bibr" target="#b32">[23]</ref>.</p><p>Instead of using the standard Linux tasklet_schedule() function call to issue a tasklet to the kernel, an alternative function litmus_tasklet_schedule() is provided to issue a tasklet to klmirqd. Owner and klmirqd thread identifier parameters must be supplied by the caller of litmus_tasklet_schedule(), to dispatch work to a dependent-mode klmirqd thread. No owner parameter is needed for independent mode. Idle klmirqd threads suspend, waiting for tasklets to process. Dependent-mode klmirqd threads adopt the scheduling priority, including any inherited priority, of the tasklet owner when it executes. The LITMUS RT scheduler also ensures that a dependent-mode klmirqd thread is</p><formula xml:id="formula_1">Owner-Based Bandwidth Threaded Non-Partitioned Async I/O JSLP Bottom-Half Server Interrupts Multiprocessor Without Support Scheduling Support Schedulers Inversions Linux (SLIH) X PREEMPT_RT X X LynxOS [24] X X X Steinberg et al. [25], [26] X X Lewandowski et al. [23] X X X Manica et al. [22] X X X X Zhang et al. (PAI) [27] X klmirqd X X X X X X Table I SUMMARY OF SYSTEM INTERRUPT FEATURES, COMPARING KLMIRQD AGAINST NOTABLE PRIOR WORK.</formula><p>never co-scheduled with its tasklet owner. This allows asynchronous I/O to be supported without violating the single-threaded task models commonly assumed.</p><p>klmirqd may be used for all system tasklets, both owned and anonymous. Unfortunately, applying klmirqd to all tasklets in LITMUS RT (and by extension, Linux) is a very significant task. As such, we limit our focus to GPU applications in this paper.</p><p>Comparisons to prior work. We recognize that similar architectures for split interrupt handling have been proposed and implemented before. However, each approach does not support a full array of desired features.</p><p>Priority inheritance mechanisms for threaded interrupt handling have been used in LynxOS <ref type="bibr" target="#b33">[24]</ref>, the L4 microkernel <ref type="bibr" target="#b34">[25]</ref>, and the NOVA microhypervisor <ref type="bibr" target="#b35">[26]</ref>. Bandwidth server techniques have also been used in Linux-based solutions <ref type="bibr" target="#b32">[23]</ref>, <ref type="bibr" target="#b31">[22]</ref>. With the exception of LynxOS, all of these methods were originally developed for uniprocessor or partitioned multiprocessor platforms, and only <ref type="bibr" target="#b31">[22]</ref> supports earliest-deadline-first scheduling. The use of partitioned solutions may constrain the allocation of shared resources, such as GPUs, between partitions. Schedulability analysis can also become overly pessimistic when these methods are extended to nonpartitioned JLSP-scheduled multiprocessors.</p><p>The benefits of threaded interrupt handling comes at the cost of additional thread context-switch overheads. To address these concerns, Zhang et al. <ref type="bibr" target="#b36">[27]</ref> developed a "process-aware interrupt" (PAI) method where arriving tasklets that do not have sufficient priority to be immediately scheduled are deferred, but not executed by dedicated interrupt threads. This is accomplished in the system's thread context switch code path. Prior to a context switch, the priority of the highest-priority deferred tasklet is compared against that of the next thread to be scheduled on the processor. The context switch is skipped if the tasklet has greater priority, and the tasklet is scheduled instead. The tasklet temporarily uses the program stack of the task that was scheduled prior to the aborted context switch. The resumption of this task can be delayed since it may not be rescheduled until the tasklet has completed, so the risk of priority inversions is not completely avoided. As shown in Sec. VII, this turns out to be a major analytical liability under non-partitioned multiprocessor scheduling. We have implemented a multiprocessor variant of Zhang's method that supports JLSP scheduling and compare it against klmirqd in later sections. <ref type="foot" target="#foot_6">6</ref>A comparative summary of real-time interrupt handling alternatives is given in Table <ref type="table">I</ref>. <ref type="foot" target="#foot_7">7</ref> klmirqd supports the greatest range of features.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. GPU INTEGRATION</head><p>In order to integrate GPU interrupt handling with klmirqd, we must first decide whether GPU klmirqd threads should run in dependent or independent mode. In the case of GPUs, the source device and ownership of every GPU tasklet can be determined by leveraging mechanisms already in place for real-time GPU management with additional reverse engineering of the closed-source GPU driver. Thus, we use dependent-mode klmirqd threads to avoid delays caused by budget exhaustion and analytical utilization loss due to budgetary overprovisioning, which can be introduced by bandwidth servers under independent mode.</p><p>In order to use klmirqd in dependent mode, for each tasklet we must identify: (1) the tasklet owner and (2) a target klmirqd thread to execute the tasklet. While an open source device driver could be modified to provide these parameters, how shall we accomplish this with a closed-source GPU driver that cannot be modified to call litmus_tasklet_schedule()? We addressed this issue by focusing separately on tasklet interception, device identification, owner identification, and dispatch. The approach taken to integrate GPUs into klmirqd is summarized in Fig. <ref type="figure" target="#fig_0">2</ref>. Tasklet Interception. The closed-source GPU driver must interface with the open source Linux kernel. We exploit this fact to intercept tasklets dispatched by the driver. This is done by modifying the standard internal Linux tasklet_schedule() function.</p><p>When tasklet_schedule() is called by a kernel component, the callback entry point of the deferred work is specified by a function pointer. We identify a tasklet as belonging to the closed-source GPU driver if this function pointer points to a memory region allocated to the driver. Luckily, it is possible to make this determination since the driver is loaded as a module (or kernel plugin).</p><p>We inspect every callback function pointer of every dispatched tasklet, online, using Linux's module-related routines. <ref type="foot" target="#foot_8">8</ref> Thus, we alter to tasklet_schedule() to intercept tasklets from the GPU driver and override their scheduling. It should be possible to use this technique to schedule tasklets of any closed-source driver in Linux, not just those from GPUs. Device Identification. Merely intercepting GPU tasklets is not enough if a system has multiple GPUs; we must also identify which GPU raised the initial interrupt in order to determine tasklet ownership. While it may be possible to perform this identification process at the lowest levels of interrupt handling, we opt for a simpler solution closer to tasklet scheduling. The GPU driver attaches a memory reference to each tasklet, providing input parameters for the tasklet callback. This reference points to a data block that includes a device identifier indicating which GPU raised the interrupt. However, locating this identifier within the data block is challenging since it is packaged in a driver-specific format.</p><p>Fortunately, the driver's links into the open source OS code allow us to locate the device identifier. NVIDIA does not distribute its GPU driver as an entirely as a precompiled binary because the internal APIs of Linux change frequently and many users use custom configurations. To enable support for a changing kernel in varied configurations, the distribution includes plain source code for an OS/driver layer that bridges the kernel interfaces with closed-source precompiled object files. By visually inspecting this bridge code, we gained insight into the format of the tasklet data block, and determined the fixed address offset of the device identifier.</p><p>We can now intercept and identify the source of a GPU tasklet. What remains is to identify the tasklet owner and dispatch the tasklet to the appropriate klmirqd thread. Owner Identification. As mentioned in Sec. I, we may arbitrate GPU access using a real-time suspension-based semaphore, thus preventing the GPU driver from exhibiting behaviors detrimental to real-time predictability <ref type="bibr" target="#b24">[15]</ref>. Whenever a GPU is allocated to a task by the locking protocol, an internal lookup table, called the GPU ownership registry, indexed by device identifier, is updated to record device ownership.</p><p>To manage a pool of k GPUs, we may use a realtime k-exclusion protocol to assign any available GPU to a GPU-requesting task. 9 The arbitration protocol considered herein is a k-exclusion extension of the flexible multiprocessor locking protocol (FMLP) <ref type="bibr" target="#b38">[29]</ref>, which we call the k-FMLP. 10 The k-FMLP is particularly attractive because worst-case wait times scale inversely with the number of GPUs. The k-FMLP was implemented in LITMUS RT to support this work. Special consideration had to be paid to integrate with klmirqd. Specifically, since the k-FMLP uses priority inheritance, a priority inherited by a GPU holder must be propagated immediately to any klmirqd thread executing on its behalf.</p><p>With the device identifier extracted from the tasklet and device registry table generated by the locking protocol, determining the current owner of a GPU is straightforward. We now have gathered all required information to dispatch a GPU tasklet to klmirqd; now we must determine which klmirqd thread will perform the processing. klmirqd Dispatch. The architecture of klmirqd is general enough to support any number of daemon instances, all scheduled by a JLSP real-time scheduler. We create a single klmirqd thread per GPU to ensure that all GPUs can be used simultaneously. Each thread is assigned to a specific GPU, and the assignment is recorded in the klmirqd assignment registry for later lookup.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EVALUATION OF PRIORITY INVERSIONS</head><p>In this and the next two sections, we present a runtime evaluation of klmirqd. We first focus attention on the severity of priority inversions arising from various bottom-half scheduling methods. We compare the threaded interrupt handling of klmirqd to both Zhang et al.'s PAI <ref type="bibr" target="#b36">[27]</ref> deferred bottom-half scheduler, as well as the heuristic-driven method of the standard Linux interrupt handler (SLIH). Evaluation Platform. The platform used in all of our experiments is a dual-socket six-cores-per-socket Intel Xeon X5060 CPU system running at 2.67GHz that is equipped with eight NVIDIA GTX-470 GPUs. The platform has a NUMA architecture of two NUMA nodes, each with six CPU cores and four GPUs apiece. 9 k-exclusion locking protocols can be used to arbitrate access to pools of similar or identical resources, such as communication channels or I/O buffers. k-exclusion extends ordinary mutual exclusion (mutex) by allowing up to k tasks to simultaneously hold locks (thus, mutual exclusion is equivalent to 1-exclusion).</p><p>10 A full description of the k-FMLP is available in Appendix A of the online version of this paper at http://www.cs.unc.edu/~anderson/ papers.html. A detailed discussion of some issues that arise when constructing a real-time k-exclusion protocol can be found in <ref type="bibr" target="#b39">[30]</ref>.</p><p>In all of our experiments, we used a clustered scheduler, with GPUs statically assigned to clusters, and GPU access arbitrated by a separate k-FMLP instance within each cluster. Clustered window-constrained schedulers, such as clustered earliest-deadline-first (C-EDF), have been shown to be effective if bounded deadline tardiness is the real-time requirement of interest <ref type="bibr" target="#b40">[31]</ref>. For this reason, we consider only C-EDF in this section since bounded deadline tardiness applies to many common real-time GPU applications <ref type="bibr" target="#b24">[15]</ref>. Clustering is split along the NUMA architecture of the system, yielding two clusters. This configuration minimizes bus contention, given the memory and I/O bus architectures of the system. This is especially important for the I/O bus since contention can significantly affect data transmission rates between CPUs and GPUs. We used CUDA 4.0 for our GPU runtime environment. Experimental Setup. LITMUS RT , based upon Linux 2.6.36, was used as the testbed operating system for this evaluation since it enables fair comparisons among interrupt handling methods. We did not include unmodified Linux or PREEMPT_RT for this reason since they have fundamentally different scheduler architectures (though higher-level comparisons to these are made in Sec. VI).</p><p>We assessed the severity of priority inversions by generating sporadic task sets and executing them in LITMUS RT . Each generated task set included both CPUonly and CPU-and-GPU-using (hereafter referred to as GPU-using) tasks. Individual task parameters were randomly generated as follows. The period of every task was randomly selected from the range [15ms, 60ms]; such a range is common for multimedia processing and sensor feeds such as video cameras. The utilization of each task was generated from an exponential distribution with mean 0.5 (tasks with utilizations greater than 1.0 were regenerated). This yields relatively large average pertask execution times. 11 We expect GPU-using tasks to have such execution times since current GPUs typically cannot efficiently process short GPU requests due to I/O bus latencies. Next, between 20% and 30% of tasks within each task set were selected as GPU-using tasks. Each GPU-using task had a GPU critical section length equal to 80% of its execution time. Of the critical section length, 20% was allocated to transmitting data to and from a GPU. This distribution of critical section length and data transmission time is common to many GPU applications, including FFTs and convolutions <ref type="bibr" target="#b24">[15]</ref>. Finally, each task set was partitioned across the two clusters using a two-pass worst-fit partitioning algorithm that first assigns GPU-using tasks to clusters, followed by CPU-only tasks. This tends to evenly distribute GPUusing tasks between clusters. We generated task sets with high utilizations to put the system under heavy load, increasing the likelihood of priority inversions. Task set utilizations ranged from 7.5 to 11.5, in increments of 11 A GPU-using task's execution time includes time spent executing on both CPUs and GPUs. Tasks executed numerical code (on both CPUs and GPUs) for the configured durations. GPUs were accessed via asynchronous I/O. Every task set was executed once in LITMUS RT for two minutes under each interrupt handling method. Scheduling logs were recorded, from which we compared the behaviors of each method. Metrics. Ideally, a system should conform to the sporadic task model and not suffer any priority inversions. However, this is difficult to achieve in a real system. We assessed deviance from the ideal by: (i) determining the distribution of priority inversion durations and (ii) computing cumulative priority inversions. Results. While priority inversions cannot be totally eliminated, they should nevertheless be as short as possible. Fig. <ref type="figure" target="#fig_1">3</ref> shows a representative example of the cumulative distribution function of priority inversion length induced by scheduled tasklets under the three interrupt handling methods for the task set with utilization 11.2. <ref type="foot" target="#foot_9">12</ref> As seen, a typical priority inversion is much shorter under klmirqd than under PAI or SLIH. For example, 90% of inversions under klmirqd are shorter than 5μs, whereas the 90th percentile is roughly 35μs under PAI and exceeds 40μs under SLIH. The cumulative distribution function for SLIH also has a very long tail, extending out to 16ms (not depicted in Fig. <ref type="figure" target="#fig_1">3</ref> due to scale). While the performance of SLIH is not entirely surprising, the performance of PAI is, since PAI schedules bottomhalves by priority. However, if a bottom-half has the priority to be scheduled, then it is likely that the owner of the bottom-half, making use of asynchronous I/O, also has sufficient priority to be scheduled. In such cases, both the bottom-half and owner are co-scheduled, resulting in an inversion on a non-partitioned multiprocessor.</p><p>Although priority inversions should be as short as possible, the cumulative duration of inversions is also important because a system that suffers many short inversions may still be disrupted by their cumulative effect. Fig. <ref type="figure" target="#fig_3">4</ref> shows cumulative priority inversion length as a function of maximum priority inversion length for  Cumulative priority inversion length as a function of maximum priority inversion length for the task set with utilization 11.2. The total duration of priority inversion is much less under klmirqd in comparison to PAI and SLIH. The curves for klmirqd and PAI plateau abruptly, indicating little variance in priority inversion durations.</p><p>the same task set shown in Fig. <ref type="figure" target="#fig_1">3</ref>. Observe in Fig. <ref type="figure" target="#fig_3">4</ref> that the sum duration of priority inversions is roughly 12,000μs under klmirqd, about 260,000μs under PAI, and approximately 350,000μs under SLIH. The long tail distribution under SLIH in Fig. <ref type="figure" target="#fig_1">3</ref> is also exhibited here: the curve for SLIH in Fig. <ref type="figure" target="#fig_3">4</ref> increases slowly, while the curves for klmirqd and PAI abruptly plateau. The durations of priority inversions under klmirqd and PAI have little variance in contrast to SLIH. Minimized variance is desirable for predictable systems as it reduces jitter in response times.</p><p>While we may never be able to completely bound priority inversions caused by the closed-source GPU driver, the observed deterministic behaviors exhibited by klmirqd (in particular) and PAI are promising. It is clear that heuristic-driven SLIH performs poorly in comparison. In addition to offering better performance, klmirqd and PAI are also amenable to real-time analysis. The poor performance of SLIH is not unexpected, but it is important to note since a GPU-enabled real-time system can only feasibly be supported on Linux platforms today.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. SYSTEM-WIDE EVALUATION OF INTERRUPT</head><p>HANDLING METHODS In this section, we examine system-wide effects of interrupt handling in terms under LITMUS RT , using SLIH, PAI, and klmirqd methods; PREEMPT_RT; and unmodified Linux (which also uses SLIH). Experimental Setup. To demonstrate the real-time weaknesses in unmodified Linux and PREEMPT_RT, and evaluate both klmirqd and PAI, we executed a workload of CPU-only and GPU-using tasks on the platform described in Sec. V. In order to fairly compare LITMUS RT against unmodified Linux and PRE-EMPT_RT, the workload was scheduled using the clustered rate-monotonic (C-RM) algorithm since unmodified Linux and PREEMPT_RT only support fixed realtime priorities. Counting semaphores were used to protect each pool of GPU resources in unmodified Linux and PREEMPT_RT, similarly to how the k-FMLP is used under LITMUS RT . The workload consisted of 50 tasks: two GPU-using tasks that consume 2ms of CPU time and 1ms of GPU time with a period of 19.9ms; 40 CPU-only tasks that consume 5ms of CPU time with a period of 20ms; and finally, eight GPU-using tasks that consume 2ms of CPU time and 1ms of GPU time with a period of 20.1ms. The set of tasks was evenly partitioned between the two clusters. Unique priorities were assigned to each task within each cluster according to task period.</p><p>This task set represents a pathological case for fixedpriority threaded interrupt handling. Here, the highest and lowest priority tasks share GPUs and the interrupt handling threads, which each have a single fixed priority. Unrelated CPU-only tasks are sandwiched between these GPU-using tasks. If all tasks had equal priority, then under RM scheduling, priorities could be reassigned such that CPU-only tasks have priorities strictly greater or strictly less than those of GPU-using tasks. However, though task periods are close to being equal, it is not the case here.</p><p>The workload was executed on eight platform configurations: (1) Unmodified Linux, using SLIH, to provide a baseline of performance; (2) PREEMPT_RT, with GPU-interrupt priorities set below that of any other real-time task; (3) PREEMPT_RT with GPU-interrupt priorities greater than the greatest GPU-using task;<ref type="foot" target="#foot_10">13</ref> (4) LITMUS RT using SLIH; (5) LITMUS RT with klmirqd; (6) LITMUS RT with PAI; and finally, under C-EDF (for the sake of comparison), both (7) LITMUS RT with klmirqd, and (8) LITMUS RT with PAI. The unmodified Linux and LITMUS RT configurations were based upon Linux kernel version 2.6.36. PREEMPT_RT was based upon the 2.6.33 Linux kernel, which was the most recent kernel supported by PREEMPT_RT at the time of our evaluation. This workload was executed 25 times for each system configuration for a duration of 60 seconds each. Measurements were recorded consistently on each platform. Results. Table <ref type="table" target="#tab_0">II</ref> gives the average percentage of deadlines missed, as well as average response times (as percent of period), for CPU-only and GPU-using tasks under the various platform scenarios. The percentage of deadlines missed is useful for comparing schedulability. Response time measurements express the timeliness of job completions (or severity of a deadline misses).</p><p>A deadline miss occurs if a job does not complete within one period of its release time. We avoid penalizing the response time of a subsequent job following a missed deadline by shifting the job's release point to coincide with the tardy completion time of the prior job. However, since these tests execute for a fixed duration, frequently tardy tasks may not execute all their jobs within the allotted time; any jobs that have not completed (even those not yet released) by the end of a test are considered to have missed deadlines, though these jobs are not included in response time measurements. Observation 1. There are no good options for selecting a fixed priority for interrupt threads shared by tasks of differing priorities. The increase of GPU interrupt priority in column (b) causes all bottom-half thread execution to preempt CPU-only jobs, directly increasing their response times with respect to column (a), where interrupts have the lowest priority. In most cases under column (b), GPU interrupt execution is on behalf of lower-priority GPU-using jobs, thus causing CPU-only jobs to experience priority inversions. Priority inversions also occur if interrupt priority is too low, resulting in the starvation of GPU-using jobs. This is evident in column (a), where GPU-using tasks miss deadlines more often than in column (b).</p><p>Observation 2. Unmodified Linux outperforms PRE-EMPT_RT (in this pathological case) due to lower interrupt handling overhead. Under unmodified Linux, bottom-halves are usually executed immediately after top-halves; thus, bottom-halves essentially execute with maximum priority (like column (b)), yet this is accomplished without the overhead of threaded interrupt handling. Increased CPU availability greatly improves the response times of CPU-only jobs in column (c) in comparison to both columns (a) and (b), while deadline misses of GPU-using jobs are reduced.</p><p>Observation 3. klmirqd dynamically assigns priorities to interrupt threads, resulting in schedulable and analyzable real-time systems. The average response time values in columns (d) and (e) indicate that jobs typically complete well before their deadlines (they are less than 100%). While the response time of GPU-using tasks is slightly worse in column (e), the heuristic-driven nature of SLIH is not amenable to schedulability analysis. Observation 5. LITMUS RT with klmirqd or PAI outperforms PREEMPT_RT. A comparison of column (b) to columns (e) and (f) shows that deadline misses were not significant under klmirqd or PAI, but were common under PREEMPT_RT. Unfortunately, it is difficult to identify a single difference between PREEMPT_RT and LITMUS RT that causes this disparity in performance, as there are many core differences (in scheduler implementation, etc.) between the two. Additional investigation is merited. Nevertheless, these differences do not have bearing on the previously made observations. Observation 6. C-EDF scheduling is superior to C-RM in limiting deadline tardiness. This is not surprising, in light of prior work <ref type="bibr" target="#b41">[32]</ref>, but we mention it nonetheless. This is another indication that PREEMPT_RT may not be a desirable solution in all applications, especially in soft real-time systems, since C-EDF is not supported.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. OVERHEAD-AWARE SCHEDULABILITY</head><p>As seen in Secs. V and VI, both klmirqd and PAI reduce the frequency and duration of priority inversions. klmirqd accomplishes this through some additional scheduling overheads. PAI, on the other hand, incurs lower system overheads due to the lack of scheduling, but does so through the sharing of program stacks with bottom-half execution. SLIH usually executes bottomhalves immediately following the top-half, incurring overheads less than even PAI. How do these trade-offs affect general task set schedulability? The answer to this question depends upon the actual system overheads and worst-case priority inversions that may occur in each approach. <ref type="foot" target="#foot_11">14</ref> To address this question in the context of C-EDF, we conducted schedulability experiments using a methodology similar to that proposed in <ref type="bibr" target="#b42">[33]</ref> to integrate actual measured overheads.</p><p>Using the same hardware platform described in Sec. V, we measured the following system overheads: thread context switching, scheduling, job release queuing, inter-processor interrupt latency, CPU clock tick processing, both GPU interrupt top-half and bottom-half processing, and, in the case of klmirqd and PAI, tasklet release queuing. We then randomly generated task sets with properties similar to those in Sec. V. Schedulability of each generated task set was determined by using a soft real-time (bounded tardiness) schedulability test for C-EDF scheduling <ref type="bibr" target="#b43">[34]</ref>, augmented to account for overheads. Average overhead values were used (as in <ref type="bibr" target="#b42">[33]</ref> when analyzing soft real-time systems). Interrupts were accounted for using task-centric methods <ref type="bibr" target="#b29">[20]</ref>. 15  A selection of our schedulability results is given in Fig. <ref type="figure">5</ref>, 16 which presents results for task sets in which: per-task utilizations vary uniformly over [0.5, 0.9]; GPUusing tasks use 75% of their execution time on the GPU; and 50% to 60% of tasks in each task set are GPUusing. Variance in GPU behavior was controlled by a parameter i ∈ {1, 3, 6}, which specifies the number of GPU interrupts each GPU-using job may generate. In Fig. <ref type="figure">5</ref>, schedulability is higher under klmirqd than both PAI and SLIH for each choice of i, with a greater disparity between them for larger values of i.</p><p>Contrary to what we might expect from the results in Secs. V and VI, PAI performs worse than SLIH. This is because, while PAI attempts to schedule bottom-halves to avoid priority inversions, it does so at the expense of using the program stacks of other tasks. Under PAI, a bottom-half can preempt the lowest-priority scheduled job when the bottom-half arrives. However, on a nonpartitioned multiprocessor, the relative priority of the preempted job may increase with respect to other jobs before the bottom-half completes (this may occur when higher-priority jobs on other processors complete). Unfortunately, the preempted job cannot resume execution until the preempting bottom-half completes, freeing up the task's program stack. The job is blocked, and this must be reflected in analysis. Accounting for bottomhalves under PAI results in formulas matching those for SLIH, except that PAI must also include additional 15 Please see Appendix B of the online version of this paper for theoretical analysis, which includes a detailed description of interrupt and overhead accounting methods. 16 Additional graphs are available in Appendix D of the online version of this paper. overheads due to bottom-half scheduling.</p><p>It is important to note that this scenario for PAI cannot occur on uniprocessors or partitioned multiprocessors since the preempted task never has a priority great enough to be scheduled before the preempting bottom-half completes. <ref type="foot" target="#foot_12">17</ref> Like the issues raised by coscheduling bottom-halves and their owner tasks, this PAI limitation reinforces the notion that prior solutions for real-time interrupt handling may need reconsideration on multiprocessor platforms.</p><p>The primary motivation for utilizing GPUs in a realtime system is increased performance. The benefits of threaded GPU interrupt handling are even more clear when effective utilization is considered instead of actual CPU utilization. By supposing a GPU-to-CPU speed-up ratio of R, we may convert each GPU-using task into a functionally equivalent CPU-only task by viewing each time unit spent executing on a GPU as R times units spent executing on a CPU. We define effective utilization to be the utilization of a task set after such a conversion. Fig. <ref type="figure" target="#fig_5">6</ref> depicts the same schedulability results shown in Fig. <ref type="figure">5</ref>, except that effective utilizations are considered, for the case R = 16 (i.e., a GPU is 16× faster than a CPU), a common speed-up.</p><p>As Fig. <ref type="figure" target="#fig_5">6</ref> shows, the impact of using klmirqd is even greater if effective utilizations are considered. When i = 6, 90% of task sets with an effective utilization of 65.0 CPUs are schedulable under klmirqd. In contrast, effective utilization must be decreased to 55.0 CPUs to achieve the same degree of schedulability under SLIH or PAI. klmirqd supports effective utilizations ten CPUs greater at 90% schedulability! VIII. CONCLUSION In this paper, we presented flexible real-time interrupthandling techniques for multiprocessor platforms that are applicable to any JLSP-scheduler and that respect single-threaded task execution. We also reported on our efforts in implementing such techniques in LITMUS RT , and showed that they can be successfully applied to even a closed-source GPU driver, thus allowing for improved real-time characteristics for real-time systems using GPUs. We presented an experimental evaluation of this implementation that shows that it reduces the interference caused by GPU interrupts in comparison to standard interrupt handling in Linux, outperforms fixedpriority interrupt handling methods, is competitive with other real-time methods, and offers better results in terms of overall schedulability (with overheads considered).</p><p>This paper lays the groundwork for future investigations into GPU-enabled real-time platforms. We limited attention to clustered scheduling in this paper. In a future study, we intend to consider a full gamut of partitioned, clustered, and global schedulers and different GPU-to-CPU assignment methods and GPU arbitration (i.e., locking) protocols. The goal of this study will be to identify the best combinations of scheduler, locking protocol, etc., for both soft and hard real-time systems, from the perspective of overhead-aware schedulability.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Figure 2 .</head><label>2</label><figDesc>Figure 2. GPU tasklet redirection. (1) A tasklet from the GPU driver is passed to tasklet_schedule().(2) The tasklet is intercepted if the callback points to the driver. (3) The GPU identifier is extracted from the data attached to the tasklet using a known address offset, and the GPU owner is found. (4) The GPU identifier is mapped to a klmirqd thread, and (5) the GPU tasklet is dispatched through litmus_tasklet_schedule().</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Figure 3 .</head><label>3</label><figDesc>Figure 3. Cumulative distribution of priority inversion durations. 0.1, for a total of 41 task sets.Tasks executed numerical code (on both CPUs and GPUs) for the configured durations. GPUs were accessed via asynchronous I/O. Every task set was executed once in LITMUS RT for two minutes under each interrupt handling method. Scheduling logs were recorded, from which we compared the behaviors of each method. Metrics. Ideally, a system should conform to the sporadic task model and not suffer any priority inversions. However, this is difficult to achieve in a real system. We assessed deviance from the ideal by: (i) determining the distribution of priority inversion durations and (ii) computing cumulative priority inversions. Results. While priority inversions cannot be totally eliminated, they should nevertheless be as short as possible. Fig.3shows a representative example of the cumulative distribution function of priority inversion length induced by scheduled tasklets under the three interrupt handling methods for the task set with utilization 11.2.12 As seen, a typical priority inversion is much shorter under klmirqd than under PAI or SLIH. For example, 90% of inversions under klmirqd are shorter than 5μs, whereas the 90th percentile is roughly 35μs under PAI and exceeds 40μs under SLIH. The cumulative distribution function for SLIH also has a very long tail, extending out to 16ms (not depicted in Fig.3due to scale). While the performance of SLIH is not entirely surprising, the performance of PAI is, since PAI schedules bottomhalves by priority. However, if a bottom-half has the priority to be scheduled, then it is likely that the owner of the bottom-half, making use of asynchronous I/O, also has sufficient priority to be scheduled. In such cases, both the bottom-half and owner are co-scheduled, resulting in an inversion on a non-partitioned multiprocessor.Although priority inversions should be as short as possible, the cumulative duration of inversions is also important because a system that suffers many short inversions may still be disrupted by their cumulative effect. Fig.4shows cumulative priority inversion length as a function of maximum priority inversion length for</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Figure 4 .</head><label>4</label><figDesc>Figure 4.Cumulative priority inversion length as a function of maximum priority inversion length for the task set with utilization 11.2. The total duration of priority inversion is much less under klmirqd in comparison to PAI and SLIH. The curves for klmirqd and PAI plateau abruptly, indicating little variance in priority inversion durations.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Observation 4 .</head><label>4</label><figDesc>Overheads introduced by klmirqd into LITMUS RT are largely negligible, in comparison to both SLIH and PAI. The nearly-equal response times in columns (d), (e), and (f) indicate that klmirqd overhead costs are negligible. This indicates that techniques like those of PAI are unnecessary in the case of GPU interrupts. However, PAI does perform slightly better than klmirqd in most cases, though it suffers from significant analytical pessimism, as shown next in Sec. VII.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Figure 6 .</head><label>6</label><figDesc>Figure 6. Schedulability results similar to Fig. 5 except that a GPU speedup of 16× is assumed.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>Table II AVERAGE</head><label>II</label><figDesc>NUMBER OF DEADLINE MISSES PER TASK AND AVERAGE JOB RESPONSE TIMES (EXPRESSED AS A PERCENTAGE OF PERIOD) FOR THE EXPERIMENTAL TASK SET EXECUTED UNDER SEVERAL SCHEDULING ALGORITHMS AND INTERRUPT HANDLING METHODS. THE EXPERIMENTAL TASK SET WAS EXECUTED 25 TIMES PER CATEGORY.</figDesc><table><row><cell>Scheduler:</cell><cell></cell><cell></cell><cell>C-RM</cell><cell></cell><cell></cell><cell></cell><cell cols="2">C-EDF</cell></row><row><cell>Operating System:</cell><cell cols="2">PREEMPT_RT</cell><cell>Unmod. Linux</cell><cell></cell><cell></cell><cell>LITMUS RT</cell><cell></cell><cell></cell></row><row><cell>Interrupt Handling Method:</cell><cell cols="2">Low Prio. Interrupts (a) Interrupts (b) High Prio.</cell><cell>SLIH (c)</cell><cell>SLIH (d)</cell><cell>klmirqd (e)</cell><cell>PAI (f)</cell><cell>klmirqd (g)</cell><cell>PAI (h)</cell></row><row><cell>Avg. % Miss Per Task</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell>CPU-Only Tasks</cell><cell>12.5%</cell><cell>12.5%</cell><cell>1.6%</cell><cell>10.0%</cell><cell>10.0%</cell><cell>9.9%</cell><cell>0%</cell><cell>0%</cell></row><row><cell>GPU-Using Tasks</cell><cell>10.1%</cell><cell>8.5%</cell><cell>6.8%</cell><cell>0%</cell><cell>0%</cell><cell>0%</cell><cell>0%</cell><cell>0%</cell></row><row><cell>Avg. Resp. Time as % Period</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell>CPU-Only Tasks</cell><cell>22474.5%</cell><cell>24061.0%</cell><cell>8992.1%</cell><cell>55.8%</cell><cell>55.8%</cell><cell>55.6%</cell><cell>55.4%</cell><cell>55.4%</cell></row><row><cell>GPU-Using Tasks</cell><cell>23066.1%</cell><cell>34263.5%</cell><cell>61131.7%</cell><cell>46.7%</cell><cell>49.6%</cell><cell>46.2%</cell><cell>46.2%</cell><cell>46.2%</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>Notable platforms include the Compute Unified Device Architecture (CUDA) from Nvidia, Stream from AMD/ATI, OpenCL from Apple and the Khronos Group, and DirectCompute from Microsoft.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_1"><p>Newer GPUs allow some degree of concurrency, at the expense of introducing non-determinism due to conflicts within co-scheduled work. Further, execution remains non-preemptive in any case.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_2"><p>A priority inversion occurs when a task has sufficient priority to be scheduled but it is not. Priority inversions can be introduced by a variety of sources, including locking protocols and interrupt services. These inversions must be bounded to ensure real-time guarantees.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_3"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 02:47:11 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_4"><p>These priority inversions may be avoided when bottom-halves are scheduled exclusively by bandwidth servers (<ref type="bibr" target="#b31">[22]</ref>,<ref type="bibr" target="#b32">[23]</ref>), provided that real-time tasks are not dependent upon the completion of these bottom-halves. This is because bottom-halves are scheduled with a dedicated server's priority, not that of a task using the interrupt-raising device, and tasks in this case never block waiting for a bottom-halves to complete. Unique priorities among servers and tasks ensure that co-scheduling does not result in inversions. Further, inversions due to blocking are avoided since tasks never block.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_5"><p>Source code available at http://www.litmus-rt.org.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="6" xml:id="foot_6"><p>PAI was originally designed for uniprocessor systems.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="7" xml:id="foot_7"><p>The scheduling of interrupts can also be addressed orthogonally at the hardware level<ref type="bibr" target="#b37">[28]</ref> and may be used to complement these softwarebased approaches.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="8" xml:id="foot_8"><p>This may sound like a costly operation, but it is actually quite a low-overhead process, as is shown in Sec. VI.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="12" xml:id="foot_9"><p>Graphs for all tested task sets are available in Appendix C of the online version of this paper.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="13" xml:id="foot_10"><p>This is a rational choice when an interrupt-generating device is shared by several tasks with differing priorities.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="14" xml:id="foot_11"><p>We assume for analysis that SLIH always executes bottom-halves immediately following the top-halves.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="17" xml:id="foot_12"><p>Barring priority inheritance mechanisms from locking protocols.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENT</head><p>Work supported by <rs type="funder">NSF</rs> grants <rs type="grantNumber">CNS 1016954</rs> and <rs type="grantNumber">CNS 1115284</rs>; <rs type="institution">ARO</rs> grant <rs type="grantNumber">W911NF-09-1-0535</rs>; AFOSR grant <rs type="grantNumber">FA9550-09-1-0549</rs>; and <rs type="funder">AFRL</rs> grant <rs type="grantNumber">FA8750-11-1-0033</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_yRkqpkz">
+					<idno type="grant-number">CNS 1016954</idno>
+				</org>
+				<org type="funding" xml:id="_45Uv8qV">
+					<idno type="grant-number">CNS 1115284</idno>
+				</org>
+				<org type="funding" xml:id="_GvC3cee">
+					<idno type="grant-number">W911NF-09-1-0535</idno>
+				</org>
+				<org type="funding" xml:id="_GSGncTQ">
+					<idno type="grant-number">FA9550-09-1-0549</idno>
+				</org>
+				<org type="funding" xml:id="_GdWyTBW">
+					<idno type="grant-number">FA8750-11-1-0033</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Pai</surname></persName>
+		</author>
+		<imprint>
+			<biblScope unit="page">1</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Slih</surname></persName>
+		</author>
+		<imprint>
+			<biblScope unit="page">1</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Slih</surname></persName>
+		</author>
+		<imprint>
+			<biblScope unit="page">3</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Slih</surname></persName>
+		</author>
+		<imprint>
+			<biblScope unit="page">6</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Util</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>uniform. 0.5, 0.9</note>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Per</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>15ms, 60ms. 2,3,4</note>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Slih</surname></persName>
+		</author>
+		<imprint>
+			<biblScope unit="page">1</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Slih</surname></persName>
+		</author>
+		<imprint>
+			<biblScope unit="page">3</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Slih</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>i=6 REFERENCES</note>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Sparse matrix solvers on the GPU: conjugate gradients and multigrid</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bolz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Farmer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Grinspun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Schröoder</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">SIGGRAPH &apos;03</title>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Simulation of cloud dynamics on graphics hardware</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">J</forename><surname>Harris</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">V</forename><surname>Baxter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Scheuermann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Lastra</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">SIGGRAPH &apos;03</title>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Linear algebra operators for gpu implementation of numerical algorithms</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Krüger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Westermann</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">SIGGRAPH &apos;03</title>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m">AMD Fusion Family of APUs</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Intel details 2011 processor features, offers stunning visuals build-in</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Available</surname></persName>
+		</author>
+		<ptr target="http://download.intel.com/newsroom/kits/idf/2010_fall/pdfs/Day1_IDF_SNB_Factsheet.pdf" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title level="m" type="main">Bringing high-end graphics to handheld devices</title>
+		<ptr target="http://www.nvidia.com/object/IO_90715.html" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Trends in highperformance computing</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Kindratenko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Trancoso</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="s">Computing in Science Engineering</title>
+		<imprint>
+			<biblScope unit="volume">13</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">GPU technology conference keynote</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Thrun</surname></persName>
+		</author>
+		<ptr target="http://livesmooth.istreamplanet.com/nvidia100923/" />
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="volume">3</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<monogr>
+		<title level="m" type="main">Assigning realtime tasks on heterogeneous multiprocessors with two unrelated types of processors</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Raravi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+	<note>in 31st RTSS</note>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">Provably good scheduling of sporadic tasks with resource sharing on two-type heterogeneous multiprocessor platform</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Raravi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+	<note>in 15th OPODIS</note>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Resource sharing in GPU-accelerated windowing systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">17th RTAS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">TimeGraph: GPU scheduling for real-time multitasking environments</title>
+	</analytic>
+	<monogr>
+		<title level="m">USENIX Annual Technical Conference</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<monogr>
+		<title level="m" type="main">RGEM: A responsive GPGPU execution model for runtime engines</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Kelkar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+	<note>in 32nd RTSS</note>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<monogr>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">J</forename><surname>Rossbach</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Currey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Silberstein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ray</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Witchel</surname></persName>
+		</author>
+		<title level="m">PTask: operating system abstractions to manage GPUs as compute devices</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+	<note>in 23rd SOSP</note>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Globally scheduled real-time multiprocessor systems with GPUs</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">48</biblScope>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<monogr>
+		<title level="m" type="main">LITMUS RT : A testbed for empirically comparing real-time multiprocessor schedulers</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+	<note>in 27th RTSS</note>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Cuda Zone</surname></persName>
+		</author>
+		<ptr target="http://www.nvidia.com/object/cuda_home_new.html" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<monogr>
+		<title level="m" type="main">Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Liu</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+			<publisher>Prentice Hall</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<monogr>
+		<title level="m" type="main">Accounting for interrupt handling costs in dynamic priority task systems</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Jeffay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Stone</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1993">1993</date>
+		</imprint>
+	</monogr>
+	<note>in 14th RTSS</note>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">An overview of interrupt accounting techniques for multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="s">Journal of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">57</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<monogr>
+		<title level="m" type="main">GViM: GPUaccelerated virtual machines</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Gupta</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Gavrilovska</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Schwan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kharche</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Tolia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Talwar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Ranganathan</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+	<note>in 3rd HPCVirt</note>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<monogr>
+		<title level="m" type="main">Schedulable device drivers: Implementation and experimental results</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Manica</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Palopoli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Scordino</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+	<note>in 6th OSPERT</note>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<monogr>
+		<title level="m" type="main">Modeling device driver effects in real-time schedulability analysis: Study of a network driver</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lewandowski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">J</forename><surname>Stanovich</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Gopalan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wang</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+	<note>in 13th RTASS</note>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<monogr>
+		<title level="m" type="main">Writing device drivers for LynxOS</title>
+		<ptr target="http://www.lynuxworks.com/support/lynxos/docs/lynxos4.2/0732-00-los42_writing_device_drivers.pdf" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<monogr>
+		<title level="m" type="main">Fast component interaction for real-time systems</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Steinberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wolter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Härtig</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+	<note>in 17th ECRTS</note>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<monogr>
+		<title level="m" type="main">Timeslice donation in component-based systems</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Steinberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Böttcher</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Kauer</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+	<note>in 6th OSPERT</note>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<monogr>
+		<title level="m" type="main">Process-aware interrupt scheduling and accounting</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+	<note>in 27th RTSS</note>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<monogr>
+		<title level="m" type="main">Predictable interrupt management for real time kernels over conventional pc hardware</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">E L</forename><surname>Del Foyo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Mejia-Alvarez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+	<note>in 12th RTAS</note>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<monogr>
+		<title level="m" type="main">A flexible real-time locking protocol for multiprocessors</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+	<note>in 13th ECRTS</note>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<monogr>
+		<title level="m" type="main">An optimal k-exclusion realtime locking protocol motivated by multi-GPU systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+	<note>in 19th RTNS</note>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<monogr>
+		<title level="m" type="main">An empirical comparison of global, partitioned, and clustered multiprocessor real-time schedulers</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bastoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+	<note>in 31st RTSS</note>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<monogr>
+		<title level="m" type="main">Soft real-time scheduling on multiprocessors</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+		<respStmt>
+			<orgName>University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note>Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<monogr>
+		<title level="m" type="main">Scheduling and locking in multiprocessor real-time operating systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+		<respStmt>
+			<orgName>University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<monogr>
+		<title level="m" type="main">Tardiness bounds for global EDF with deadlines different from periods</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+	<note>in 14th OPODIS</note>
+</biblStruct>
+
+<biblStruct xml:id="b44">
+	<monogr>
+		<title level="m" type="main">Real-time resourcesharing under clustered scheduling: Mutex, reader-writer, and k-exclusion locks</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+	<note>in 11th EMSOFT</note>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

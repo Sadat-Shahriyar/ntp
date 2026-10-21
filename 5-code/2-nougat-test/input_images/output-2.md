@@ -1,0 +1,5 @@
+Code Generation by Reading the Docs
+
+Our underlying assumption is that code documentation is the most exhaustive yet succinct resource for most libraries and programming languages (Roehm et al., 2012), and that documentation allows to effectively generalize to unseen libraries and functions (Forward and Lethbridge, 2002). We follow the retrieve-then-generate paradigm (Lewis et al., 2020; Guu et al., 2020), focusing on retrieving _documentation_. In this section, we describe the general approach of \(\mathrm{DocPrompting}\); in SS3 and SS6.2 we elaborate and experiment with practical implementations of \(\mathrm{DocPrompting}\).
+
+**Formulation** Given NL intent \(n\), our goal is to generate a corresponding code snippet \(c\) written in some programming language (PL) such as Python. We assume that a model has access to a collection of code documentation \(\mathcal{D}\), Each document \(d_{i}\in\mathcal{D}\) describes the usage of a library, a function, or an 

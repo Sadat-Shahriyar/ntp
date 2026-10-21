@@ -1,0 +1,784 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">vMPCP: A Synchronization Framework for Multi-Core Virtual Machines</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Hyoseung</forename><surname>Kim</surname></persName>
+							<email>hyoseung@cmu.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Carnegie Mellon University</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Shige</forename><surname>Wang</surname></persName>
+							<email>shige.wang@gm.com</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Carnegie Mellon University</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Raj</forename><surname>Rajkumar</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">Carnegie Mellon University</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">vMPCP: A Synchronization Framework for Multi-Core Virtual Machines</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">F9537EA08BEA5F6B733109D04DE55D25</idno>
+					<idno type="DOI">10.1109/RTSS.2014.11</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T00:02+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>The virtualization of real-time systems has received much attention for its many benefits, such as the consolidation of individually developed real-time applications while maintaining their implementations. However, the current state of the art still lacks properties required for resource sharing among real-time application tasks in a multi-core virtualization environment. In this paper, we propose vMPCP, a synchronization framework for the virtualization of multi-core real-time systems. vMPCP exposes the executions of critical sections of tasks in a guest virtual machine to the hypervisor. Using this approach, vMPCP reduces and bounds blocking time on accessing resources shared within and across virtual CPUs (VCPUs) assigned on different physical CPU cores. vMPCP supports periodic server and deferrable server policies for the VCPU budget replenish policy, with an optional budget overrun to reduce blocking times. We provide the VCPU and task schedulability analyses under vMPCP, with different VCPU budget supply policies, with and without overrun. Experimental results indicate that, under vMPCP, deferrable server outperforms periodic server when overrun is used, with as much as 80% more tasksets being schedulable. The case study using our hypervisor implementation shows that vMPCP yields significant benefits compared to a virtualization-unaware multicore synchronization protocol, with 29% shorter response time on average.</p><p>• We propose a new synchronization protocol for the virtualization of multi-core real-time systems. We characterize 2014 IEEE Real-Time Systems Symposium</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>The adoption of multi-core CPUs in real-time embedded systems is increasing dramatically. This trend creates the opportunity to consolidate multiple real-time applications into a single hardware platform. Such consolidation leads to a significant reduction in space and power requirements while also reducing installation, management and production costs by reducing the number of CPUs and wiring harnesses among them.</p><p>Virtualization plays a key role in the successful consolidation of real-time applications. Specifically, each application in use could have been developed independently by different vendors, but can maintain its own implementation by using virtualization. Since re-programming or re-structuring of realtime embedded software requires going through a rigorous and expensive re-certification process, virtualization offers multiple benefits. In addition, virtualization can also provide fault isolation, IP (intellectual property) protection and license segregation in consolidated embedded systems.</p><p>Modern virtualization solutions generally provide a twolevel hierarchical scheduling structure. Each virtual machine (VM) has one or more virtual CPUs (VCPUs) on which tasks of that VM are scheduled. Then, VCPUs are scheduled by the hypervisor on physical CPUs (PCPUs). Many researchers in the real-time systems community have studied such hierar-chical scheduling for both uni-core systems <ref type="bibr" target="#b10">[11,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b30">31,</ref><ref type="bibr" target="#b35">36]</ref> and multi-core systems <ref type="bibr" target="#b19">[20,</ref><ref type="bibr" target="#b33">34]</ref>. Recently, some researchers have applied the real-time hierarchical scheduling theory to virtualization environments, such as RT-Xen <ref type="bibr" target="#b38">[39]</ref>.</p><p>While real-time system virtualization can benefit from previous work on hierarchical scheduling, resource sharing and task synchronization issues still remain an open research question. Consolidating multiple tasks into a single hardware platform inevitably introduces the sharing of logical and physical resources, i.e. shared memory for communication, network stacks and I/O devices. The more real-time tasks are consolidated as the number of processing cores increases, the more we need a synchronization mechanism with bounded blocking times for multi-core real-time virtualization. Unfortunately, multi-core synchronization mechanisms designed for non-hierarchical scheduling, such as MPCP <ref type="bibr" target="#b25">[26,</ref><ref type="bibr" target="#b28">29]</ref> and MSRP <ref type="bibr" target="#b12">[13]</ref>, can lead to excessive blocking times due to the preemption and budget depletion of VCPUs. Available solutions in the uni-core hierarchical scheduling context <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b6">7,</ref><ref type="bibr" target="#b11">12]</ref> have not yet been extended to multi-core platforms. More importantly, in current virtualization solutions, the hypervisor is unaware of the executions of critical sections of application tasks within VCPUs and there is no systematic mechanism to do so.</p><p>In this paper, we propose a virtualization-aware multiprocessor priority ceiling protocol (vMPCP) and its framework to address the synchronization issue in multi-core virtualization. vMPCP extends the well-known multiprocessor priority ceiling protocol (MPCP) to the multi-core two-level hierarchical scheduling context. vMPCP enables the sharing of resources in a bounded time within and across VCPUs that could be assigned on different PCPUs. To do so, it uses a paravirtualization approach to expose the executions of critical sections in VCPUs to the hypervisor. Each guest VM can maintain its own priority-numbering scheme and task priorities do not need to be compared across VMs. For the VCPU budget supply and replenishment policy, vMPCP supports both periodic server <ref type="bibr" target="#b31">[32]</ref> and deferrable server <ref type="bibr" target="#b36">[37]</ref> policies. In addition, vMPCP provides an option for VCPUs to overrun their budgets while their tasks are executing critical sections. The effect of the overrun is analyzed and evaluated in detail.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Contributions:</head><p>The main contributions of this paper are as follows:</p><p>timing penalties caused by shared resources in a virtualization environment and propose a protocol to address such penalties.</p><p>• We analyze the impact of different VCPU budget supply policies, namely periodic and deferrable servers, on synchronization in a multi-core virtualization environment. We also analyze each of the policies with and without VCPU budget overrun. • From our analysis and experimental results, we found that the periodic server policy, which has been considered to dominate the deferrable server policy in the literature, does not dominate the deferrable server policy when overrun is used. We also found that the use of overrun does not always yield better results, especially for tasks with relatively long critical sections. • We have implemented the prototype of vMPCP on the KVM hypervisor running on a multi-core platform. Using this implementation, we identify the effect of vMPCP on a real system by comparing it against a virtualization-unaware synchronization protocol (MPCP). Organization: The rest of this paper is organized as follows.</p><p>Section II describes the system model used in this paper. Section III presents the vMPCP framework. Section IV provides the analysis on VCPU and task schedulability under vMPCP. A detailed evaluation is provided in Section V. Section VI reviews related work, and Section VII concludes the paper.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. SYSTEM MODEL</head><p>In this section, we first describe the hypervisor, virtual machine model, the task model and shared resource model used in this work. Then, we characterize scheduling penalties that arise from shared resources in the multi-core virtualization environment.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Hypervisor and Virtual Machines</head><p>Figure <ref type="figure" target="#fig_0">1</ref> shows an example system considered in this work. We assume a uniform multi-core system where each core runs at a fixed clock frequency. The system runs a hypervisor hosting multiple guest VMs, each of which has one or more VCPUs. The system has a two-level hierarchical scheduling structure: VCPU scheduling at the hypervisor level and task scheduling at the VCPU level. In this work, we consider partitioned fixed-priority preemptive scheduling for both the hypervisor and the VMs, because it is widely used in many commercial real-time embedded hypervisors and OSes such as OKL4 <ref type="bibr" target="#b1">[2]</ref> and PikeOS <ref type="bibr" target="#b2">[3]</ref>. Under partitioned scheduling, each VCPU is statically assigned to a single PCPU and each task is statically assigned to a single VCPU. Any fixed-priority assignment can be used for both VCPUs and tasks, such as Rate-Monotonic <ref type="bibr" target="#b20">[21]</ref>.</p><p>VCPU v i is represented to the hypervisor as follows:</p><formula xml:id="formula_0">v i = (C v i , T v i ) • C v i : the maximum execution budget of VCPU v i 1 • T v i : the budget replenish period of VCPU v i 1</formula><p>The superscript v denotes that the parameter is a VCPU parameter. VCPUs are ordered in increasing order of priorities, i.e. i &lt; j implies that a VCPU v i has lower priority than a VCPU v j .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Hypervisor</head><p>For the VPCU budget supply and replenishment policies, we consider both a periodic server <ref type="bibr" target="#b31">[32]</ref> and a deferrable server <ref type="bibr" target="#b36">[37]</ref>. Under the periodic server policy, each VCPU becomes active periodically and executes its tasks that are ready to be executed until the VCPU's budget is exhausted. When a VCPU has no task ready to execute, the VCPU cannot preserve its budget; the budget is idled away. Under the deferrable server policy, a VCPU can preserve its budget until the end of its current period. Hence, the tasks of the VCPU can execute any time while the VCPU's budget remains. The budget-preserving feature of the deferrable server policy causes a jitter equal to T v -C v <ref type="bibr" target="#b7">[8]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Tasks and Shared Resources</head><p>We consider periodic tasks with implicit deadlines. Each task has a unique priority within its VCPU. Note that each task does not need to have a unique priority across VCPUs and there is no need to compare task priorities in one VPCU with those in other VCPUs. In each VCPU, tasks are ordered in increasing order of priorities, i.e. i &lt; j implies that task τ i has lower priority than task τ j . Each task has an alternating sequence of normal execution segments and critical section segments. Task τ i is thus represented as follows:</p><formula xml:id="formula_1">τ i = ((C i,1 , E i,1 , C i,2 , E i,2 , ..., E i,Si , C i,Si+1 ), T i )</formula><p>• C i,j : the worst-case execution time (WCET) of the j-th normal execution segment of task τ i • E i,j : the WCET of the j-th critical section segment of τ i • T i : the period of task τ i • S i : the number of critical section segments of τ i We use C i and E i to denote the sum of the WCETs of all the segments of task τ i and the sum of the WCETs of the critical section segments of τ i , respectively. Hence,</p><formula xml:id="formula_2">C i = Si+1 j=1 C i,j + Si j=1 E i,j</formula><p>, and</p><formula xml:id="formula_3">E i = Si j=1 E i,j</formula><p>Shared resources considered in this work are protected by suspension-based mutually-exclusive locks (mutexes). Tasks access shared resources in a non-nested manner, meaning that each task can hold only one resource at a time. There are two types of shared resources: global and local resources. Global resources are the resources shared among tasks from different VCPUs that may be located on different PCPUs. The critical sections corresponding to the global resources are referred to as global critical sections (gcs's). Conversely, local resources are shared among tasks assigned to the same VCPU. The corresponding critical sections are local critical sections (lcs's). Each resource has a unique index and the function R(τ i , j) returns the index of the resource used by the j-th critical section of task τ i . The function type(τ i , j) returns gcs or lcs, which is the type of the j-th critical section of τ i . In addition, we use S gcs i and S lcs i to denote the number of global and local critical section segments of τ i , respectively. Hence, S i = S gcs i + S lcs i . For brevity, we will also use the following notation in the rest of the paper:</p><formula xml:id="formula_4">• V (τ i ): the VCPU assigned to a task τ i • P (v i ): the PCPU assigned to a VCPU v i</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Penalties from Shared Resources</head><p>Scheduling penalties caused by accessing shared resources in a multi-core platform can be categorized into local blocking and remote blocking. Local blocking time is the duration for which a task needs to wait for the execution of lowerpriority tasks assigned on the same core. Uniprocessor realtime synchronization protocols like PCP <ref type="bibr" target="#b32">[33]</ref> can bound the local blocking time to at most the duration of one local critical section. Remote blocking time is the duration that a task has to wait for the executions of tasks of any priorities assigned on different cores. If a task τ i tries to access a global resource held by another task on a different core, task τ i suspends by itself until the resource-holding task finishes its corresponding critical section. Multiprocessor real-time synchronization protocols such as MPCP <ref type="bibr" target="#b28">[29]</ref> are proposed to bound and minimize the duration of remote blocking.</p><p>Unlike local blocking, remote blocking causes additional timing penalties even though a multiprocessor synchronization protocol like MPCP is used: 2</p><p>• Back-to-back execution: If a task suspends by itself due to remote blocking, its self-suspending behavior can cause a back-to-back execution phenomenon <ref type="bibr" target="#b26">[27]</ref>, resulting in additional interference to lower-priority tasks. • Multiple priority inversions: Whenever a medium-priority task suspends due to remote blocking, lower-priority tasks get a chance to execute and issue requests for local or global resources. In case of local resources under PCP, every normal execution segment of a medium-priority task can be blocked at most once by one of the lower-priority tasks executing their local critical sections with inherited higher priorities. In case of global resources under MPCP, every normal execution segment of a task can be preempted at most once by each of the lower-priority tasks executing global critical sections. Consequently, multiple priority 2 More information on this issue can be found in <ref type="bibr" target="#b17">[18]</ref>. In the multi-core virtualization environment, the length of remote blocking time may become even significantly longer due to:</p><p>• Preemptions by higher-priority VCPUs: Consider a task τ i in a VCPU v j waiting on a global resource held by another task in a VCPU v k assigned on a different physical core.</p><p>If the VCPU v k is preempted by higher-priority VCPUs on its core, the remote blocking time for τ i is increased by the execution times of those higher-priority VCPUs. • VCPU budget depletion: Tasks in a VCPU are scheduled by using their VCPU's budget. When the VCPU budget of a resource-holding task is depleted, a task waiting remotely on that resource needs to wait at least until the start of the next replenishment period of the resource-holding task's VCPU. Goal: In this work, our goal is to minimize the remote blocking in a multi-core virtualization environment. Another goal is to bound the remote blocking time of a task as a function of the duration of global critical sections of other tasks (and the parameters of VCPUs having those tasks when overrun is not used), and not as a function of the duration of normal execution segments or local critical sections.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. VMPCP FRAMEWORK</head><p>In this section, we present the virtualization-aware multiprocessor ceiling protocol (vMPCP). We first define vMPCP and explain the optional VCPU budget overrun mechanism for periodic server and deferrable server replenishment policies under vMPCP. Then, we provide the details on the software design to implement vMPCP in the hypervisor.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Protocol Description</head><p>vMPCP is specifically designed to reduce and bound remote blocking times for accessing global shared resources in a multi-core virtualization environment. To do so, vMPCP uses hierarchical priority ceilings for global critical sections. This approach suppresses both task-level and VCPU-level preemptions while accessing a global resource, thereby reducing the remote blocking times of other tasks waiting on that resource. Global and local resource access rules under vMPCP are defined as follows. Global shared resources: vMPCP is based on the multiprocessor priority ceiling protocol (MPCP) <ref type="bibr" target="#b25">[26,</ref><ref type="bibr" target="#b28">29]</ref>, and extends it to the hierarchical scheduling context. 1) Under vMPCP, each mutex protecting a global resource uses a two-level priority queue for its waiting list. Figure <ref type="figure">2</ref> shows a logical structure of this two-level priority queue, where the first level is ordered by VCPU priorities and the second level is ordered by task priorities. The key for queue insertion is a pair of VCPU priority and task priority, i.e. (j, i) is a key for a task τ i in a VCPU v j . The queue has a dequeue function, which returns the highest priority task of the highest priority VCPU and removes it from the queue. 2) When a task τ i requests an access to a global resource R k , the resource R k can be granted to the task τ i , if it is not held by another task. 3) While a task τ i in a VCPU v j is holding a resource for its global critical section (gcs), the priority of τ i is raised to π B,vj + π i , where π B,vj is a base task-priority level greater than that of any task in the VCPU v j , and π i is the normal priority of τ i . We refer to π B,vj +π i as the task-level priority ceiling of the gcs of τ i . 4) While a task τ i executes a gcs, the priority of its VCPU v j is raised to π v B + π v j , where π v B is a base VCPU-priority level greater than that of any other VCPUs in the system, and π v j is the normal priority of the VCPU v j . We refer to π v B + π v j as the VCPU-level priority ceiling of the gcs of τ i . 5) When a task τ i requests access to a resource R k , the resource R k cannot be granted to τ i , if it is already held by another task. In this case, the task τ i is inserted to the waiting list (two-level priority queue) of the mutex for R k . 6) When a global resource R k is released and the waiting list of the mutex for R k is not empty, a task dequeued from the head of the queue is granted the resource R k .</p><p>Local shared resources: vMPCP follows the uniprocessor priority ceiling protocol (PCP) <ref type="bibr" target="#b32">[33]</ref> for accessing local resources. <ref type="foot" target="#foot_1">3</ref> Unlike the global resource case, a VCPU priority is not affected while its task is accessing a local resource. 1) Each mutex associated with a local resource R k is assigned a task-level priority ceiling, which is equal to the highest priority of any task accessing R k . Note that this is valid only within this VCPU. 2) A task τ i can access a local resource R k , if the priority of τ i is higher than the priority ceilings of any other mutexes currently locked by other tasks in that VCPU. 3) If a task τ i is blocked on a local resource by another task that has a lower priority than τ i , the lower-priority task inherits the priority of τ i .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. VCPU Budget Overrun</head><p>vMPCP provides an option for VCPUs to overrun their budgets when their tasks are in gcs's. This allows tasks to complete their gcs's, even though their VCPU has exhausted its budget. Hence, remote blocking time can be significantly reduced. We present the detailed behavior of the VCPU budget overrun under periodic server and deferrable server policies. Periodic server with overrun: The VCPU budget overrun with VCPUs under the periodic server policy works similar to the one presented in <ref type="bibr" target="#b11">[12]</ref>. Suppose that a VCPU's budget is exhausted while one of its tasks is in a gcs. If overrun is enabled, the task can continue to execute and finish the gcs. Recall that vMPCP immediately increases the priority of any task executing a gcs to be higher than that of any other normally executing tasks or tasks accessing local resources. Therefore, the amount of overrun time is only affected by the lengths of global critical sections in a VCPU.</p><p>If a VCPU's budget is exhausted while no task of the VCPU is in a gcs, the VCPU suspends until the start of its next replenishment period. Once the VCPU suspends, overrun has no effect. This is to maintain the good property of the periodic server policy, no potential back-to-back interference to lowerpriority VCPUs. For instance, consider a task τ i waiting for a global resource R that is held by another task on a different physical core. The VCPU of τ i is currently suspended due to its budget depletion. If the resource R is released while the VCPU of τ i is suspended, the task τ i needs to wait until the next replenishment period of its VCPU although overrun is enabled.</p><p>Deferrable server with overrun: Unlike the periodic server policy, VCPUs under the deferrable server policy can overrun more flexibly. Consider a task τ i waiting for a global resource R that is held by another task on different physical core. The VCPU of τ i has exhausted its regular budget. If the resource R is released, the VCPU of τ i is allowed to overrun its budget and the task τ i can execute its gcs corresponding to R. Once the task τ i finishes its gcs, the VCPU of τ i suspends again. This difference between periodic server and deferrable server with overrun leads to different values in remote blocking time.</p><p>We will analyze the details in Section IV-B.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. vMPCP Para-virtualization Interface</head><p>vMPCP increases both the priorities of a task and its VCPU when the task executes a gcs. If a lock corresponding to a global resource is implemented at the hypervisor, e.g., resource sharing among VCPUs from different guest VMs, the hypervisor can manage the priorities of VCPUs appropriately. However, if a lock for a global resource is implemented within a guest VM image, e.g., resource sharing in a multi-core guest VM hosted on the hypervisor, there is no way for the hypervisor to know if any task of a VCPU of the VM executes a gcs associated with the lock.</p><p>To address this issue, vMPCP provides a para-virtualization<ref type="foot" target="#foot_2">4</ref> interface for a VCPU to let the hypervisor know the executions of gcs's in the VCPU. The interface consists of the following two functions:</p><p>• vmpcp_start_gcs(): If any task of a VCPU acquires a lock for a global resource, this function is called to let the hypervisor increase the priority of the VCPU by the base VCPU-priority level π v B of the system. If overrun is enabled, the hypervisor allows the VCPU to continue to execute until vmpcp_finish_gcs() is called. The hypervisor may implement an enforcement mechanism for the VCPU not to exceed its pre-determined overrun time that will be given in Sec. IV-A.</p><p>• vmpcp_finish_gcs(): When there is no globalresource lock held by any task in a VCPU, this function is called to let the hypervisor reduce the priority of the VCPU to its normal priority. Also, if the VCPU's budget is exhausted, the hypervisor suspends the VCPU.</p><p>IV. VMPCP SCHEDULABILITY ANALYSIS In this section, we present the schedulability analysis under our proposed vMPCP. Our analysis considers each of the periodic server and deferrable server policies with and without VCPU budget overrun. We first analyze the VCPU schedulability on a physical core and the task schedulability on a VCPU.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. VCPU Schedulability</head><p>vMPCP increases the priority of a VCPU while any task of the VCPU is holding a global resource, which enables a lower-priority VCPU to block a higher-priority VCPU. 5  Also, vMPCP results in increased VCPU execution times when overrun is enabled. We now analyze these worst-case effects on VCPU schedulability and derive the VCPU schedulability test under vMPCP. Blocking from lower-priority VCPUs: We first focus on the case where the periodic server policy is used. Consider a higher-priority VCPU v h and a lower-priority VCPU v l , both assigned to the same core. Under the periodic server policy, the higher-priority VCPU v h never suspends by itself until its budget is exhausted. Hence, the lower-priority VCPU v l can block v h only when any global resource that v l 's task has been waiting on is released from another core. The blocking time is equal to the duration of the corresponding gcs (global resource holding time). The worst case happens when all the tasks of v l have been waiting on global resources and these resources are released from other cores while the higher-priority VCPU v h is executing. The maximum global resource holding time of v l is as follows:</p><formula xml:id="formula_5">ght(v l ) = τj ∈v l ∧S gcs j &gt;0 max 1≤k≤Sj ∧type(τj ,k)=gcs E j,k<label>(1)</label></formula><p>Using Eq. ( <ref type="formula" target="#formula_5">1</ref>), the worst-case blocking time imposed on a VCPU v i during a time interval t under the periodic server policy is given as follows:</p><formula xml:id="formula_6">B v i (t) = v l ∈P (vi)∧l&lt;i ght(v l )<label>(2)</label></formula><p>Note that the parameter t is used to be consistent with the deferrable server case which will be shown in Eq. ( <ref type="formula" target="#formula_8">4</ref>). We now consider the case where the deferrable server policy is used. Under this policy, a higher-priority VCPU v h may suspend itself several times every period. This means that, unlike the periodic server case, the tasks of a lowerpriority VCPU v l may get a chance to request global resources whenever v h suspends. Hence, each task of the lower-priority VCPU v l may block the higher-priority VCPU v h multiple 5 vMPCP does not increase the priority of a VCPU when its task is holding a local resource. Hence, local resources do not affect the VCPU schedulability.</p><p>times during v h 's period. The maximum accumulated global resource holding time of the tasks of v l during a time interval t is given by:</p><formula xml:id="formula_7">sum ght(v l , t) = τj ∈v l t T j +1 • 1≤k≤Sj ∧ type(τj ,k)=gcs E j,k<label>(3)</label></formula><p>Note that the "+1" term is to capture the carry-in job of each task during a given time interval t. By using Eq. ( <ref type="formula" target="#formula_7">3</ref>), the worstcase blocking time imposed on a VCPU v i during a time interval t under the deferrable server policy is represented as follows:</p><formula xml:id="formula_8">B v i (t) = v l ∈P (vi)∧l&lt;i sum ght(v l , t)<label>(4)</label></formula><p>Budget overrun time: If the VCPU budget overrun option is enabled, a VCPU can overrun its budget only when its tasks are executing gcs's. Hence, the maximum time that a VCPU v i can overrun is bounded by the maximum global resource holding time of that VCPU, which is given in Eq (1). Therefore, the maximum overrun time of a VCPU v i (O v i ) is equal to ght(v i ) if overrun is enabled, and zero if overrun is not enabled. VCPU schedulability: The schedulability of a VCPU v i can be determined by the following recurrence equation:</p><formula xml:id="formula_9">W v,n+1 i =C v i + O v i + B v i (W v,n i ) + v h ∈P (vi)∧h&gt;i W v,n i + J v h T v h • (C v h + O v h )<label>(5)</label></formula><p>where W v,n i is the worst-case response time of v i at the</p><formula xml:id="formula_10">n th iteration (W v,0 i = C v i + O v i )</formula><p>and J v h is a VCPU release jitter (J v h = 0 under the periodic server policy and</p><formula xml:id="formula_11">J v h = T v h -C v h</formula><p>under the deferrable server policy). Eq. ( <ref type="formula" target="#formula_9">5</ref>) is based on the iterative response time test <ref type="bibr" target="#b13">[14]</ref>. It terminates when W v,n+1 i = W v,n i , and the VCPU v i is schedulable if its response time does not exceed its period: W v,n i &lt;= T v i . In this equation, O v i and O v h are used to represent the budget overrun of v i and its higher-priority VCPUs, repectively. The third term represents the blocking time from lower-priority VCPUs during v i 's response time.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Task Schedulability</head><p>To determine the schedulability of a task τ i under vMPCP, we need to consider the factors discussed in Section II-C: (i) local blocking time, (ii) remote blocking time, (iii) back-toback execution due to remote blocking, (iv) multiple priority inversions, (v) preemptions by higher-priority VCPUs, and (vi) VCPU budget depletion. We take into account factor (iv) when analyzing local blocking time, and factors (v) and (vi) when analyzing remote blocking time. By considering factors (i), (ii) and (iii), we use the following recurrence equation that bounds the worst-case response time of a task τ i in a VCPU v k under vMPCP:</p><formula xml:id="formula_12">W n+1 i =C i + B l i + B r i + τ h ∈V (τi)∧h&gt;i W n i +J h +B r h T h C h + W n i + C v k T v k (T v k -C v k )<label>(6)</label></formula><p>VCPU ܸ(߬ )</p><p>Other VCPUs</p><formula xml:id="formula_13">‫ܥ‬ ఛ ௩ ܶ ఛ ௩ -‫ܥ‬ ఛ ௩</formula><p>Acquired the global resource of ‫ܧ‬ ,௨</p><p>‫݁ݎ_ݑܿݒ‬ ,௨</p><p>‫݈݀ܽ‬ ,௨</p><p>Fig. <ref type="figure">3</ref>: Periodic server with overrun where B l i is the local blocking time for τ i , B r i is the remote blocking time for τ i , and J h is the release jitter of each higher-priority task τ h</p><formula xml:id="formula_14">(J h = T v k -C v k ). It terminates when W n+1 i = W n</formula><p>i , and the task τ i is schedulable if its response time does not exceed its implicit deadline: W n i &lt;= T i . Eq. ( <ref type="formula" target="#formula_12">6</ref>) is based on the response-time test for independent tasks under hierarchical scheduling given in <ref type="bibr" target="#b30">[31]</ref>. Specifically, the last term of Eq. ( <ref type="formula" target="#formula_12">6</ref>) is from <ref type="bibr" target="#b30">[31]</ref>, which captures the execution gap due to the periodic budget supply of the VCPU. The back-to-back execution due to remote blocking from each higher-priority task τ h is captured by adding B r h in the summing term. 6  In the rest of this section, we shall analyze the local and remote blocking times, B l i and B r i . We use tc i,j as the tasklevel priority ceiling of the j-th critical section segment of task τ i . Similarly, vc i,j is used to represent the VCPU-level priority ceiling of the j-th critical section segment of task τ i .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Local blocking time:</head><p>The local and global critical sections of lower-priority tasks can block the normal execution segment of a higher-priority task τ i . With the local resource access rule of vMPCP based on PCP <ref type="bibr" target="#b32">[33]</ref>, only one lower-priority task with a priority ceiling higher than the normal priority of τ i can block each normal execution segment of τ i . Hence, the maximum per-segment blocking time from the local critical sections of lower-priority tasks is given by:</p><formula xml:id="formula_15">B l lcs i = max τ l ∈V (τi)∧l&lt;i ∧S lcs l &gt;0 max 1≤u≤S l ∧type(τ l ,u)=lcs ∧tc l,u &gt;i E l,u<label>(7)</label></formula><p>Unlike lcs's, the gcs's of each lower-priority task can block the normal execution segment of τ i . The maximum persegment blocking time from the gcs's of lower-priority tasks is given by:</p><formula xml:id="formula_16">B l gcs i = τ l ∈V (τi)∧l&lt;i ∧S gcs l &gt;0 max 1≤u≤S l ∧type(τ l ,u)=gcs E l,u<label>(8)</label></formula><p>The total local blocking time from both the local and global critical sections of lower-priority tasks is given by:</p><formula xml:id="formula_17">B l i = (B l lcs i + B l gcs i ) • (S gcs i + 1)<label>(9)</label></formula><p>Here, the reason for multiplying by S gcs i + 1 is that, before a task τ i executes or whenever τ i self-suspends due to a global resource, lower-priority tasks may issue requests for local or global resources.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Remote blocking time:</head><p>The remote blocking time B r i of a task τ i is given by:</p><formula xml:id="formula_18">B r i = 1≤j≤Si∧type(τi,j)=gcs B r i,j<label>(10)</label></formula><p>6 More details on a suspension-based blocking term in a response-time test can be found in <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b21">22]</ref>.</p><formula xml:id="formula_19">VCPU ܸ(߬ ) ‫ܥ‬ ఛ ௩ ‫݁ݎ_ݑܿݒ‬ ,௨ ‫݈݀ܽ‬ ,௨</formula><p>Acquired the global resource of ‫ܧ‬ ,௨</p><p>Other VCPUs Fig. <ref type="figure">4</ref>: Deferrable server with overrun where B r i,j is the remote blocking time for τ i in acquiring the global resource associated with the j-th critical section of τ i . Note that B r i,j = 0 if the j-th critical section of τ i is a lcs. The term B r i,j is bounded by the following recurrence equation:</p><formula xml:id="formula_20">B r,n+1 i,j = m a x V (τ l )∈lpvcpus(V (τi)) ∧R(τ l ,u)=R(τi,j) W gcs l,u + V (τ h )∈hpvcpus(V (τi)) ∧R(τ h ,u)=R(τi,j) B r,n i,j T h + 1 • W gcs h,u<label>(11)</label></formula><p>where B r,0 i,j = max V (τ l )∈lpvcpus(V (τi))∧R(τ l ,u)=R(τi,j) W gcs l,u</p><p>(the first term of the equation), lpvcpus(V (τ i )) is the set of lower-priority VCPUs than the VCPU of τ i in the system, hpvcpus(V (τ i )) is the set of higher-priority VCPUs than the VCPU of τ i , and W gcs l,u represents the worst-case response time of the execution E l,u of a gcs after acquiring the corresponding global resource. The first term of Eq. ( <ref type="formula" target="#formula_20">11</ref>) captures the time for a task in a lower-priority VCPU to finish its gcs. The second term represents the time for tasks in higher-priority VCPUs to execute their gcs's.</p><p>We now analyze W gcs l,u , the amount of which depends on which VCPU policy is used and whether overrun is used. We first define two terms, load l,u and vcpu prm l,u , as follows:</p><formula xml:id="formula_21">load l,u = E l,u + τx∈V (τ l ) max 1≤y≤Sx∧tcx,y&gt;tc l,u E x,y (<label>12</label></formula><formula xml:id="formula_22">)</formula><formula xml:id="formula_23">vcpu prm l,u = vz∈P (V (τ l )) ∧vz =V (τ l ) τx∈vz max 1≤y≤Sx∧ vcx,y&gt;vc l,u E x,y<label>(13)</label></formula><p>The term load l,u bounds the maximum VCPU budget required to execute the critical section E l,u . It captures the execution time of E l,u and the execution times of gcs's with higher task-level priority ceilings in the same VCPU. Since every gcs has a higher priority than any normal execution segment, we only need to consider one global critical section per task. The term vcpu prm l,u bounds the VCPU-level preemptions while E l,u executes. The VCPU of E l,u can only be preempted by other VCPUs that have tasks being executing gcs's with higher VCPU-level priority ceilings. Note that vcpu prm l,u increases the response time of E l,u (W gcs l,u ), but does not consume the budget of E l,u 's VCPU.</p><p>• Periodic server with overrun: The worst-case response time of the execution E l,u of a gcs happens when the corresponding resource is acquired right after its VCPU is suspended. In this case, the execution is delayed until the start of its VCPU's next replenishment period, and this waiting time is up to</p><formula xml:id="formula_24">T v V (τ l ) -C v V (τ l )</formula><p>, as shown in Figure <ref type="figure">3</ref>. Once the next period of the VCPU starts, the VCPU can execute and finish E l,u within this period due to overrun. Therefore, W gcs l,u VCPU ܸ(߬ )</p><formula xml:id="formula_25">‫ܥ‬ ఛ ௩ ܶ ఛ ௩ -‫ܥ‬ ఛ ௩ ‫݁ݎ_ݑܿݒ‬ ,௨ ‫݈݀ܽ‬ ,௨ -‫ܥ‬ (ఛ) ௩ Acquired the global resource of ‫ܧ‬ ,௨ ‫ܥ‬ ఛ ௩ ܶ ఛ ௩ -‫ܥ‬ ఛ ௩</formula><p>Other VCPUs Fig. <ref type="figure">5</ref>: Periodic/deferrable server without overrun under the periodic server policy with overrun is given by: <ref type="bibr" target="#b13">(14)</ref> • Deferrable server with overrun: In this case, E l,u can be executed without the need to wait until the VCPU's next replenishment period (Figure <ref type="figure">4</ref>). Therefore, W gcs l,u under the deferrable server policy with overrun is given by:</p><formula xml:id="formula_26">W gcs l,u = T v V (τ l ) -C v V (τ l ) + load l,u + vcpu prm l,u</formula><formula xml:id="formula_27">W gcs l,u = load l,u + vcpu prm l,u<label>(15)</label></formula><p>• Periodic/deferrable server without overrun: When overrun is not used, the execution of load l,u may span over multiple of its VCPU periods (Figure <ref type="figure">5</ref>). The total execution gap is bounded by</p><formula xml:id="formula_28">load l,u C v V (τ l ) (T v V (τ l ) -C v V (τ l )</formula><p>). Therefore, W gcs l,u under the periodic or deferrable server policy without overrun is given by:</p><formula xml:id="formula_29">W gcs l,u = load l,u C v V (τ l ) (T v V (τ l ) -C v V (τ l ) ) + load l,u + vcpu prm l,u<label>(16)</label></formula><p>Note that, if the amount of load l,u is smaller than the perperiod execution budget of the VCPU (C v V (τ l ) ), Eq. ( <ref type="formula" target="#formula_29">16</ref>) becomes equal to Eq. ( <ref type="formula">14</ref>).</p><p>V. EVALUATION This section presents our experimental evaluation on vM-PCP. To our knowledge, vMPCP is the first virtualizationaware multi-core synchronization protocol and there is no schedulability test for existing protocols in the multi-core virtualization environment. We first empirically investigate the performance characteristics of vMPCP in terms of task schedulability, and then compare vMPCP against a virtualizationunaware protocol (MPCP) in terms of response times on a real hardware platform.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Comparison of Different Configurations</head><p>The purpose of this experiment is to explore the impact of different uses of vMPCP on task schedulability. To do this, we use randomly-generated tasksets and capture the percentage of schedulable tasksets as the metric. Experimental Setup: The base parameters we use for experiments are summarized in Table <ref type="table" target="#tab_0">I</ref>. As the main interest of our work is in the timing penalties caused by global resources, local resources are not considered. For each experimental setting, we first generate the defined numbers of physical CPU cores in the system, VCPUs for each core, and tasks for each VCPU. Task periods are randomly selected within the defined min/max task period range. On each VCPU, the VCPU task utilization is split into k random-sized pieces, where k is the number of tasks in the VCPU. The size of each piece represents the utilization of the corresponding task. Then, the WCET of each task is calculated by dividing its Fig. <ref type="figure">6</ref>: Taskset schedulability as the size of a gcs increases utilization by its period. The priorities of tasks and VCPUs are assigned by the Rate-Monotonic approach <ref type="bibr" target="#b20">[21]</ref> (ties are broken arbitrarily). Once the task information is generated, we determine a VCPU budget value that is used for all VCPUs in the system. Starting from a value equal to the VCPU period, we decrease the VCPU budget by 10 μsecs until all VCPUs pass the VCPU schedulability test given in Eq. ( <ref type="formula" target="#formula_9">5</ref>). <ref type="foot" target="#foot_3">7</ref>We generate 10,000 tasksets for each experimental setting, and record the percentage of tasksets where all the tasks pass the task schedulability test given in Eq. ( <ref type="formula" target="#formula_12">6</ref>). Results: We consider the following four uses of vMPCP: periodic server with overrun (PSwO), deferrable server with overrun (DSwO), periodic server with no overrun (PSnO), and deferrable server with no overrun (DSnO). The main factors affecting task schedulability under vMPCP are: (i) the size of a gcs, (ii) the number of lockers per mutex, (iii) the number of gcs's per task, (iv) the VCPU period, and (v) the utilization of tasks in each VCPU. By exploring these factors, we identify the characteristics of the four schemes of vMPCP.</p><p>Figure <ref type="figure">6</ref> shows the percentage of schedulable tasksets as the size of a gcs increases. The schemes with no overrun, PSnO and DSnO, are almost unaffected by the size of a gcs. Conversely, the schedulability under the schemes with overrun, PSwO and DSwO, decreases as the size of a gcs increases. This is due to the fact that, without overrun, more VCPU budget can be used for the executions of normal execution segments of tasks. DSwO performs better than PSwO because DSwO results in a shorter response time of the execution of a gcs, as given in Eq. ( <ref type="formula" target="#formula_27">15</ref>).</p><p>Figure <ref type="figure" target="#fig_2">7</ref> shows the percentage of schedulable tasksets as the number of lockers per mutex increases. Points on the xaxis represent all possible values for the number of lockers per mutex in our experimental setting. The performance degradation happens only when the number of lockers per muxex is very high (&gt; 12). This is because vMPCP uses a two-level priority queue as the waiting list for a mutex. Hence, higher priority tasks or tasks in higher-priority VCPUs do not need to wait until all the lower-priority tasks or tasks in lower-priority VCPUs finish their gcs's. Fig. <ref type="figure">8</ref>: Taskset schedulability as the number of gcs's per task increases Figure <ref type="figure">8</ref> shows the percentage of schedulable tasksets as the number of gcs's per task increases. The performance difference between DSwO and the other three schemes becomes larger as the number of gcs's per task increases. Even if the number of gcs's per task reaches 64, DSwO does not show any noticeable performance degradation due to its short gcs response time.</p><p>Figure <ref type="figure">9</ref> shows the percentage of schedulable tasksets as the VCPU period increases. DSwO performs much better than the other three schemes. Especially, when the VCPU period is 40 msec, the difference in the percentage of schedulable tasksets between DSwO and the other schemes is 80%. This big difference is due to the fact that PSwO, PSnO and DSnO are sensitive to the VCPU period when accessing global resources, as given by Eq. ( <ref type="formula">14</ref>) and Eq. ( <ref type="formula" target="#formula_29">16</ref>).</p><p>Lastly, Figure <ref type="figure" target="#fig_0">10</ref> shows the percentage of schedulable tasksets as the utilization of tasks per VCPU increases. For all schemes, the percentage decreases when the per-VCPU utilization is greater than 22.5%. Interestingly, when the utilization is 25.0%, DSwO performs better than PSnO and DSnO, but when the utilization is 27.5%, the result is the opposite.</p><p>In summary, we observe from the results that there is no single scheme that can dominate the others. DSwO generally performs better than PSwO, PSnO and DSnO, due to its short gcs response time. In some cases, PSnO and DSnO outperform DSwO by allowing more VCPU budgets for the normal execution segments of tasks. PSwO gives the worst performance in our experiments. This is because PSwO allows less VCPU budget for normal execution segments than PSnO and DSnO, and gives longer gcs response time than DSwO.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Case Study: KVM Hypervisor</head><p>We now present a case study demonstrating the benefit of vMPCP by using our implementation on the KVM hypervisor.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Implementation:</head><p>We have implemented vMPCP on the KVM (Kernel-based Virtual Machine) hypervisor <ref type="bibr" target="#b16">[17]</ref> of the latest  <ref type="bibr" target="#b24">[25,</ref><ref type="bibr" target="#b27">28]</ref>. <ref type="foot" target="#foot_4">8</ref> The host machine runs on Linux/RK, and uses KVM to execute guest VMs that also run on Linux/RK. Our implementation supports the deferrable server policy and an optional overrun mechanism. The vMPCP mutex data structures and APIs (e.g., open, lock, unlock) are implemented as part of the Linux/RK kernel module. Specifically, the vMPCP mutexes are classified into intra-VM and inter-VM mutexes based on the memory spaces their corresponding global resources belong to. The intra-VM mutexes are for resources shared within a guest VM and use the vmpcp_start_gcs() and vmpcp_finish_gcs() hypercalls internally. The inter-VM mutexes are for resources shared among guest VMs and the hypervisor. They are implemented by using the per-VCPU virtqueue interface of virtio <ref type="bibr" target="#b29">[30]</ref> for hypervisor-VM communication.</p><p>Table <ref type="table" target="#tab_1">II</ref> lists the implementation costs of vMPCP APIs on the KVM hypervisor. The target system used is equipped with an Intel Core i7-2600 quad-core processor running at 3.4 GHz and 8GBytes of RAM. To reduce measurement inaccuracies, we have disabled the simultaneous multithreading and dynamic clock frequency scaling of the processor. The open and destroy APIs take longer times for intra-VM mutexes than for inter-VM mutexes. This is mainly due to the performance difference between a VM and the hypervisor in memory allocation and deallocation for mutex data structures. The costs of lock, trylock and unlock APIs are similar for both intra-and inter-VM mutexes. The major factor contributing to the lock/unlock costs is the "world switch" between a VM and the hypervisor. Since the intra-VM mutexes cause the vmpcp_start_gcs and vmpcp_finish_gcs hypercalls, the world switch happens for intra-VM mutexes as well.</p><p>Case Study: In this case study, we compare the response times of tasks sharing a global resource under vMPCP and those under a virtualization-unaware multi-core synchronization protocol, MPCP. The target system hosts two guest VMs,  Each task τ i also has a release offset of i -1 msec, e.g., τ 5 is released at t = 4 msec. We used Linux/RK to set the periods, release offsets, and real-time priorities of VCPUs and tasks.</p><p>In accordance with our system model, tasks and VCPUs with higher indices are assigned higher priorities.</p><p>Figure <ref type="figure" target="#fig_6">11</ref> shows the execution timelines of tasks captured under MPCP, vMPCP with deferrable server and no overrun (vMPCP+DSnO), and vMPCP with deferrable server and overrun enabled (vMPCP+DSwO). As can be seen, the response times of tasks are much shorter under vMPCP+DSnO and vMPCP+DSwO, compared to those under MPCP (7.5% of resposne time decrease on average under vMPCP+DSnO, and 29.1% under vMPCP+DSwO). The shared resource is first held by τ 2 at t = 3, but under MPCP and vMPCP+DSnO, it cannot release the resource due to its VCPU's budget depletion. Hence, the resource is held by τ 2 until the start of its VCPU's next replenish period. Conversely, under vM-PCP+DSwO, τ 2 can finish its gcs and release the resource. This allows other tasks to access the resource within the first VCPU period, thereby significantly reducing the response times of tasks. In case of task τ 8 , it acquires the resource at t = 10 under both MPCP and vMPCP+DSnO. Here, the difference happens when τ 8 finishes its gcs. Under MPCP, τ 8 continues to execute because its VCPU has the highest priority on that core. This causes a delay to task τ 7 , which is the highest-priority task among the tasks waiting on the resource, to enter its gcs. However, under vMPCP+DSnO, τ 7 starts its gcs right after the resource is released by τ 8 . This slightly lengthens the response time of τ 8 , but allows other tasks to access the resource much faster. Under vMPCP+DSwO, the response times of all tasks except τ 7 are shorter than those under the other two schemes. The increase in τ 7 's response time is due to the back-to-back execution of the VCPU of τ 8 ,  </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. RELATED WORK</head><p>Resource sharing and task synchronization issues in multicore and multiprocessor systems have been intensively studied in the non-hierarchical scheduling context. MPCP (Multiprocessor Priority Ceiling Protocol) <ref type="bibr" target="#b25">[26,</ref><ref type="bibr" target="#b28">29]</ref> provides bounded remote blocking time on accessing global shared resources under partitioned fixed-priority scheduling. MPCP uses the uniprocessor PCP <ref type="bibr" target="#b32">[33]</ref> for accessing local resources. Recently, a new schedulability analysis for MPCP is proposed in <ref type="bibr" target="#b17">[18]</ref>. MSRP (Multiprocessor Stack-based Resource Policy) <ref type="bibr" target="#b12">[13]</ref> is an extension of the uniprocessor SRP <ref type="bibr" target="#b5">[6]</ref> for resource sharing under partitioned EDF scheduling. A comparison of MPCP and MSRP is also provided in <ref type="bibr" target="#b12">[13]</ref>. FMLP (Flexible Multiprocessor Locking Protocol) <ref type="bibr" target="#b8">[9]</ref> is the first protocol that supports both partitioned and global EDF scheduling. MSOS (Multiprocessors Synchronization for real-time Open Systems) <ref type="bibr" target="#b23">[24]</ref> is designed for resource sharing among independently-developed systems where each processor uses different scheduling algorithms. All these protocols, however, are designed for nonhierarchical scheduling, so they may cause indefinite remote blocking time in multi-core virtual machines.</p><p>In the hierarchical scheduling context, much research has been conducted on the schedulability analysis of independent tasks on uniprocessors <ref type="bibr" target="#b10">[11,</ref><ref type="bibr" target="#b30">31,</ref><ref type="bibr" target="#b34">35,</ref><ref type="bibr" target="#b35">36]</ref> and multiprocessors <ref type="bibr" target="#b19">[20,</ref><ref type="bibr" target="#b33">34]</ref>. For tasks with shared resources, HSRP (Hierarchical Stack Resource Policy) <ref type="bibr" target="#b11">[12]</ref> is the first synchronization protocol proposed in the context of uniprocessor hierarchical scheduling. HSRP uses budget overrun and payback mechanisms to limit priority inversion. SIRAP (Subsystem Integration and Resource Allocation Policy) <ref type="bibr" target="#b6">[7]</ref> uses the idea of self-blocking to bound delays on accessing shared resources without knowing the timing parameters of other subsystems. RRP (Rollback Resource Policy) <ref type="bibr" target="#b3">[4]</ref> uses a rollback mechanism to avoid a lock-holding task to be blocked while holding a lock. However, none of these protocols has been extended to the multiprocessor hierarchical scheduling context.</p><p>In <ref type="bibr" target="#b22">[23]</ref>, the authors propose to group tasks sharing a resource into a single component and to use the hierarchical scheduling model to schedule the tasks and the component. The purpose of this approach is to avoid global resource sharing in a multi-core system, but it limits the sum of the utilization of tasks sharing a resource to be less than one.</p><p>Real-time virtual machines have recently received much attention. RT-Xen <ref type="bibr" target="#b18">[19,</ref><ref type="bibr" target="#b38">39]</ref> is the first hierarchical realtime scheduling framework for the Xen hypervisor. RT-Xen implements a suite of fixed-priority servers for the VCPU budget replenishment policy. The work in <ref type="bibr" target="#b9">[10]</ref> investigates the real-time performance of the L4/Fiasco microkernel-based hypervisor <ref type="bibr" target="#b0">[1]</ref>. However, these approaches have not considered resource sharing and synchronization issues.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. CONCLUSIONS</head><p>In this paper, we have proposed vMPCP to provide bounded blocking time on accessing shared resources in a multicore virtualization environment. vMPCP reduces the major inefficiencies caused by shared resources, by exposing the executions of global critical sections to the hypervisor. We have presented the schedulability analysis under vMPCP, with the periodic and deferrable server policies with and without the budget overrun mechanism. From our analysis and experimental results, we made two important findings: (i) the deferrable server outperforms the periodic server when overrun is used, and (ii) the use of overrun does not always yield better schedulability, especially for tasks with long critical sections. We also have implemented vMPCP on the KVM hypervisor and demonstrated the effect of vMPCP in reducing task response times by an average of 29% in our case study.</p><p>There are several directions for future work. First, we would like to extend real-time cache <ref type="bibr" target="#b14">[15]</ref> and DRAM <ref type="bibr" target="#b15">[16,</ref><ref type="bibr" target="#b37">38]</ref> management schemes to the virtualization environment. Second, more detailed theoretical and empirical evaluations remain to be conducted. Third, extending our schedulability analysis to the compositional framework <ref type="bibr" target="#b34">[35,</ref><ref type="bibr" target="#b35">36]</ref> and developing an efficient algorithm to choose VCPU parameters are also interesting topics. Lastly, we plan to implement vMPCP on other hypervisors, such as L4/Fiasco <ref type="bibr" target="#b0">[1]</ref>, and port to other architectures, such as ARM.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 :</head><label>1</label><figDesc>Fig. 1: Multi-core virtualization and shared resources</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>4 Fig. 2 :</head><label>42</label><figDesc>Fig. 2: Two-level priority queue of a global mutex inversions caused by remote blocking increase the local blocking time.In the multi-core virtualization environment, the length of remote blocking time may become even significantly longer due to:• Preemptions by higher-priority VCPUs: Consider a task τ i in a VCPU v j waiting on a global resource held by another task in a VCPU v k assigned on a different physical core.If the VCPU v k is preempted by higher-priority VCPUs on its core, the remote blocking time for τ i is increased by the execution times of those higher-priority VCPUs. • VCPU budget depletion: Tasks in a VCPU are scheduled by using their VCPU's budget. When the VCPU budget of a resource-holding task is depleted, a task waiting remotely on that resource needs to wait at least until the start of the next replenishment period of the resource-holding task's VCPU. Goal: In this work, our goal is to minimize the remote blocking in a multi-core virtualization environment. Another goal is to bound the remote blocking time of a task as a function of the duration of global critical sections of other tasks (and the parameters of VCPUs having those tasks when overrun is not used), and not as a function of the duration of normal execution segments or local critical sections.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 7 :</head><label>7</label><figDesc>Fig. 7: Taskset schedulability as the number of lockers per mutex increases</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 9 :Fig. 10 :</head><label>910</label><figDesc>Fig. 9: Taskset schedulability as the VCPU period increases</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head></head><label></label><figDesc>v i =<ref type="bibr" target="#b2">(3,</ref><ref type="bibr" target="#b9">10)</ref>, units in msec. The release offset of each VCPU is zero. The target machine has four processing cores, Core 1, 2, 3 and 4. Each core is assigned two VCPUs: Core1 = {v 1 , v 2 }, Core 2 = {v 3 , v 4 }, Core 3 = {v 5 , v 6 }, Core 4 = {v 7 , v 8 }.For a taskset, we use eight synthetic tasks, each of which has one gcs. There is one global resource shared among all these tasks. Each task is assigned to a VCPU with the same index number: τ 5 ∈ v 5 . All tasks except τ 2 have the same timing parameters: τ i = ((2, 1, 2), 200), where i = 2, units in msec. Task τ 2 has a slightly longer gcs: τ 2 = ((2, 1.1, 2), 200).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 11 :</head><label>11</label><figDesc>Fig. 11: Task execution timelines under MPCP, vMPCP+DSnO and vMPCP+DSwO the amount of which is bounded by our analysis. The case study results show that vMPCP is effective in reducing the response times of tasks accessing shared resources in a multicore virtualization environment.</figDesc><graphic coords="9,323.31,277.97,228.71,90.54" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>TABLE I :</head><label>I</label><figDesc>Base parameters for experiments</figDesc><table><row><cell cols="2">Parameters</cell><cell></cell><cell>Values</cell><cell>Parameters</cell><cell>Values</cell></row><row><cell cols="3"># of physical cores</cell><cell>8</cell><cell># of VCPUs per core</cell><cell>2</cell></row><row><cell cols="3"># of tasks per VCPU</cell><cell>3</cell><cell>Period of a VCPU</cell><cell>5 msec</cell></row><row><cell cols="3">Min. task period</cell><cell>100 msec</cell><cell>Max. task period</cell><cell>500 msec</cell></row><row><cell cols="3">Per-VCPU task util</cell><cell>15%</cell><cell># of gcs's per task</cell><cell>1</cell></row><row><cell cols="3"># of lockers per mutex</cell><cell>2</cell><cell>Size of a gcs</cell><cell>10 μsec</cell></row><row><cell>Schedulable tasksets (%)</cell><cell>20 40 60 80 100</cell><cell>PSwO DSwO PSnO DSnO</cell><cell></cell></row><row><cell></cell><cell>0</cell><cell></cell><cell></cell></row><row><cell></cell><cell cols="4">10 25 50 75 100 125 150 175 200 225 250 275 300</cell></row><row><cell></cell><cell></cell><cell></cell><cell cols="2">Size of a gcs (μsec)</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>TABLE II :</head><label>II</label><figDesc>Implementation cost of vMPCP on KVM of which has four VCPUs (VM1: {v 1 , v 3 , v 5 , v 7 }, VM2: {v 2 , v 4 , v 6 , v 8 }). All VCPUs have the same budget and period:</figDesc><table><row><cell>Types</cell><cell>Mutex APIs</cell><cell>Avg (μsec)</cell><cell>Max (μsec)</cell></row><row><cell></cell><cell>open (create new mutex)</cell><cell>4.16</cell><cell>7.14</cell></row><row><cell></cell><cell>open (existing mutex)</cell><cell>1.87</cell><cell>3.64</cell></row><row><cell></cell><cell>destroy</cell><cell>1.83</cell><cell>3.50</cell></row><row><cell>Intra-VM</cell><cell>lock trylock</cell><cell>3.51 2.75</cell><cell>5.69 5.15</cell></row><row><cell></cell><cell>unlock</cell><cell>2.26</cell><cell>2.68</cell></row><row><cell></cell><cell>* vmpcp_start_gcs * vmpcp_finish_gcs</cell><cell>2.05 1.40</cell><cell>2.88 1.60</cell></row><row><cell></cell><cell>open (create new mutex)</cell><cell>1.79</cell><cell>3.48</cell></row><row><cell></cell><cell>open (existing mutex)</cell><cell>1.76</cell><cell>3.35</cell></row><row><cell>Inter-VM</cell><cell>destroy lock</cell><cell>1.49 3.09</cell><cell>1.78 5.31</cell></row><row><cell></cell><cell>trylock</cell><cell>2.80</cell><cell>5.29</cell></row><row><cell></cell><cell>unlock</cell><cell>1.93</cell><cell>2.57</cell></row></table><note><p>each</p></note></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 00:43:17 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_1"><p>As an alternative to PCP, the highest locker priority protocol (HLP) can also be used for local resources.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_2"><p>Para-virtualization is a technique involving small modifications to guest operating systems or device drivers to achieve high performance and efficiency.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="7" xml:id="foot_3"><p>As the minimum time unit in Table I is 10 μsec, the step size of 10 μsec is fine-grained enough to find the VCPU budget values in this experiment.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="8" xml:id="foot_4"><p>Linux/RK is available at https://rtml.ece.cmu.edu/redmine/projects/rk.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<ptr target="https://os.inf.tu-dresden.de/fiasco" />
+		<title level="m">L4/Fiasco Microkernel</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<ptr target="http://www.ok-labs.com" />
+		<title level="m">OKL4 Microvisor</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<ptr target="http://sysgo.com" />
+		<title level="m">SYSGO PikeOS Embedded Virtualization</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Resource sharing using the rollback mechanism in hierarchically scheduled real-time open systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Asberg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Applying new scheduling theory to static priority pre-emptive scheduling</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Audsley</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software Engineering J</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="284" to="292" />
+			<date type="published" when="1993">1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Stack-based scheduling of realtime processes</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="67" to="99" />
+			<date type="published" when="1991">1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">SIRAP: a synchronization protocol for hierarchical resource sharingin real-time open systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">EMSOFT</title>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">New results on fixed priority aperiodic servers</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Bernat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="1999">1999</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">A flexible real-time locking protocol for multiprocessors</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTCSA</title>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">An evaluation of microkernel-based virtualization for embedded real-time systems</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Bruns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Hierarchical fixed priority pre-emptive scheduling</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Resource sharing in hierarchical fixed priority pre-emptive systems</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">A comparison of MPCP and MSRP when sharing resources in the Janus multiple-processor on a chip platform</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Gai</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Finding response times in a real-time system</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Joseph</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">K</forename><surname>Pandya</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Comput. J</title>
+		<imprint>
+			<biblScope unit="volume">29</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="390" to="395" />
+			<date type="published" when="1986">1986</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">A coordinated approach for practical OS-level cache management in multi-core real-time systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Bounding memory interference delay in cots-based multicore systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">KVM: the Linux virtual machine monitor</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kivity</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Linux Symposium</title>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="page" from="225" to="230" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Coordinated task scheduling, allocation and synchronization on multiprocessors</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Realizing compositional scheduling through virtualization</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">A hierarchical multiprocessor bandwidth reservation scheme with timing guarantees</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">43</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="60" to="92" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973">1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Scheduling of the inter-dependent messages in real-time communication</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Ming</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTCSA</title>
+		<imprint>
+			<date type="published" when="1994">1994</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Multiprocessor synchronization and hierarchical scheduling</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Nemati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ICPPW</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Independently-developed real-time systems on multi-cores with shared resources</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Nemati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<monogr>
+		<author>
+			<persName><forename type="first">S</forename><surname>Oikawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<title level="m">Linux/RK: A portable resource kernel in Linux</title>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+	<note>RTSS Work-In-Progress</note>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for shared memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ICDCS</title>
+		<imprint>
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<monogr>
+		<title level="m" type="main">Dealing with suspending periodic tasks. IBM Thomas J</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1991">1991</date>
+			<publisher>Watson Research Center</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Resource kernels: A resource-centric approach to real-time and multimedia systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">SPIE/ACM Conference on Multimedia Computing and Networking</title>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="1988">1988</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">virtio: towards a de-facto standard for virtual i/o devices</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Russell</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM SIGOPS Operating Systems Review</title>
+		<imprint>
+			<biblScope unit="volume">42</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="95" to="103" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Analysis of hierarhical fixed-priority scheduling</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Saewong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">H</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2002">2002</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Solutions for some practical problems in prioritized preemptive scheduling</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="1986">1986</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Priority inheritance protocols: An approach to real-time synchronization</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on computers</title>
+		<imprint>
+			<biblScope unit="volume">39</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1175" to="1185" />
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">Hierarchical scheduling framework for virtual clustering of multiprocessors</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Easwaran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">Periodic resource model for compositional real-time guarantees</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">Compositional real-time scheduling framework with periodic model</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM TECS</title>
+		<imprint>
+			<biblScope unit="volume">7</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page">30</biblScope>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">The deferrable server algorithm for enhanced aperiodic responsiveness in hard real-time environments</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">K</forename><surname>Strosnider</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">44</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="73" to="91" />
+			<date type="published" when="1995">1995</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Coordinated bank and cache coloring for temporal protection of memory accesses</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Suzuki</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ICESS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">RT-Xen: towards real-time hypervisor scheduling in Xen</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Xi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wilson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">EMSOFT</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

@@ -1,0 +1,768 @@
+{
+  "paper_name": "Scheduling_Suspendable_Pipelined_Tasks_with_Non_Preemptive_Sections_in_Soft_Real_Time_Multiprocessor_Systems",
+  "paper_description": "This paper presents a transformation method to convert complex real-time task systems (with suspensions, pipelines, and non-preemptive sections) into simpler systems with only suspensions. This allows existing schedulability analysis techniques for suspending tasks to be applied to these more complex systems, enabling the derivation of deadline tardiness bounds under the Global Earliest Deadline First (GEDF) scheduling algorithm, provided certain utilization constraints are met.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Definition 2",
+      "formal_description": {
+        "statement": "A job T_h_l,j is enabled if it has been released and both its U-predecessor (if any) and L-predecessor (if any) have completed. A job is considered to be completed if it has finished its last phase (be it suspension or computation).",
+        "variables": {
+          "T_h_l,j": "the j-th job of subtask T_h_l",
+          "U-predecessor": "the job T_{h-1}_l,j",
+          "L-predecessor": "the job T_h_l,j-1"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the condition for a job to be ready for execution."
+      },
+      "informal_sketch": {
+        "intuition": "A job can only start executing if it has been released and all its preceding dependencies (from the same pipeline stage in previous jobs, and from the previous pipeline stage in the same job) have finished.",
+        "steps": [
+          "Check if job T_h_l,j has been released.",
+          "Check if the U-predecessor (T_{h-1}_l,j) has completed.",
+          "Check if the L-predecessor (T_h_l,j-1) has completed.",
+          "If all conditions are met, the job T_h_l,j is enabled."
+        ],
+        "pseudocode": "def is_job_enabled(job):\n    if not job.is_released():\n        return False\n    if job.has_u_predecessor() and not job.u_predecessor.is_completed():\n        return False\n    if job.has_l_predecessor() and not job.l_predecessor.is_completed():\n        return False\n    return True",
+        "key_insights": [
+          "This definition captures the precedence constraints within and between pipeline stages."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 3",
+      "formal_description": {
+        "statement": "If a released job's L-predecessor has completed, but its U-predecessor has not, then it is said to be PL-blocked. Note that a first-stage job cannot be PL-blocked because it has no U-predecessor. Note also that the first job of any subtask cannot be PL-blocked because it has no L-predecessor.",
+        "variables": {
+          "PL-blocked": "Pipeline-blocked state of a job",
+          "L-predecessor": "the job T_h_l,j-1",
+          "U-predecessor": "the job T_{h-1}_l,j"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a specific type of blocking that occurs in pipeline tasks due to inter-stage dependencies."
+      },
+      "informal_sketch": {
+        "intuition": "A job is pipeline-blocked (PL-blocked) when it's ready to proceed based on its own job sequence (L-predecessor done), but it's held up because the corresponding job in the previous pipeline stage (U-predecessor) hasn't finished yet.",
+        "steps": [
+          "Check if the job's L-predecessor (previous job of the same subtask) has completed.",
+          "Check if the job's U-predecessor (same job of the previous subtask) has completed.",
+          "If L-predecessor is completed AND U-predecessor is NOT completed, the job is PL-blocked."
+        ],
+        "pseudocode": "def is_pl_blocked(job):\n    if not job.is_released():\n        return False\n    if job.has_l_predecessor() and not job.l_predecessor.is_completed():\n        if job.has_u_predecessor() and not job.u_predecessor.is_completed():\n            return True\n    return False",
+        "key_insights": [
+          "PL-blocking is the core issue that distinguishes pipeline scheduling from independent task scheduling."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 4",
+      "formal_description": {
+        "statement": "If job T_w_i,v is enabled at time t and does not suspend at t, but does not execute at t, then it is preempted at t. The total time for which T_w_i,v is preempted is called its preemption time.",
+        "variables": {
+          "T_w_i,v": "job v of subtask w in pipeline task i",
+          "preempted": "state of being interrupted",
+          "preemption_time": "total duration of preemption"
+        },
+        "assumptions": [],
+        "conclusion": "Defines preemption for a job."
+      },
+      "informal_sketch": {
+        "intuition": "A job is preempted if it's ready to run and not currently suspending, but it's not running because a higher-priority job is taking its place on the processor.",
+        "steps": [
+          "Check if job T_w_i,v is enabled at time t.",
+          "Check if job T_w_i,v is NOT currently suspending at time t.",
+          "Check if job T_w_i,v is NOT currently executing at time t.",
+          "If all conditions are true, the job is preempted at time t.",
+          "Sum up all such time intervals to get the total preemption time."
+        ],
+        "pseudocode": "def is_job_preempted(job, current_time):\n    if not job.is_enabled(current_time):\n        return False\n    if job.is_suspending(current_time):\n        return False\n    if job.is_executing(current_time):\n        return False\n    return True\n\ndef calculate_preemption_time(job, start_time, end_time):\n    total_preemption = 0\n    for t in range(start_time, end_time):\n        if is_job_preempted(job, t):\n            total_preemption += 1\n    return total_preemption",
+        "key_insights": [
+          "Preemption is a key factor in real-time scheduling that affects job progress and can complicate analysis."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 5",
+      "formal_description": {
+        "statement": "We define the set of U-jobs of any job T_w_i,v to be T_{w-1}_i,v , T_{w-2}_i,v , ..., T_1_i,v . A U-job of T_w_i,v is a job of the same pipeline task that may impact the scheduling of T_w_i,v , directly or indirectly, through precedence constraints.",
+        "variables": {
+          "U-jobs": "jobs in the same pipeline task but from preceding stages",
+          "T_w_i,v": "job v of subtask w in pipeline task i"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the set of jobs that can influence a given job through upstream pipeline stages."
+      },
+      "informal_sketch": {
+        "intuition": "The U-jobs of a job are all the jobs from the earlier stages of the same pipeline task. These jobs, by definition of pipelines, must complete before the current job can fully proceed.",
+        "steps": [
+          "Identify the current job T_w_i,v.",
+          "For each stage 'u' from 1 to w-1, consider the job T_u_i,v.",
+          "The set {T_1_i,v, T_2_i,v, ..., T_{w-1}_i,v} constitutes the U-jobs of T_w_i,v."
+        ],
+        "pseudocode": "def get_u_jobs(job):\n    u_jobs = []\n    current_stage = job.stage\n    pipeline_task_id = job.pipeline_task_id\n    job_index = job.job_index\n    for stage in range(1, current_stage):\n        u_jobs.append(get_job(stage, pipeline_task_id, job_index))\n    return u_jobs",
+        "key_insights": [
+          "This definition is crucial for understanding how upstream pipeline stages affect downstream stages."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 6",
+      "formal_description": {
+        "statement": "If T_w_i,v is PL-blocked at time t, and at least one processor is idle or occupied by a job with lower priority than T_w_i,v , then T_w_i,v is idle blocked at t. The total time for which T_w_i,v is idle blocked within a time interval [t, t ) is called its idle blocking time within [t, t ).",
+        "variables": {
+          "idle_blocked": "state of being blocked by idle processors or lower priority jobs",
+          "PL-blocked": "Pipeline-blocked state",
+          "T_w_i,v": "job v of subtask w in pipeline task i"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a specific type of blocking that occurs when a PL-blocked job cannot execute due to processor availability or priority constraints."
+      },
+      "informal_sketch": {
+        "intuition": "A job is 'idle blocked' if it's already PL-blocked (waiting for an upstream stage) AND there's an opportunity for it to run (either a processor is free, or only lower-priority jobs are running), but it still can't execute. This implies that the blocking is not just due to higher-priority tasks, but also due to the system's inability to schedule it even when resources seem available.",
+        "steps": [
+          "Check if job T_w_i,v is PL-blocked at time t.",
+          "Check if at least one processor is idle at time t.",
+          "OR check if at least one processor is occupied by a job with lower priority than T_w_i,v at time t.",
+          "If T_w_i,v is PL-blocked AND (processor is idle OR processor has lower priority job), then T_w_i,v is idle blocked at t.",
+          "Sum up all such time intervals to get the total idle blocking time."
+        ],
+        "pseudocode": "def is_idle_blocked(job, current_time, processor_states):\n    if not is_pl_blocked(job, current_time):\n        return False\n    \n    has_idle_processor = False\n    for proc_state in processor_states:\n        if proc_state.is_idle():\n            has_idle_processor = True\n            break\n        if proc_state.running_job.priority < job.priority:\n            has_idle_processor = True\n            break\n            \n    return has_idle_processor\n\ndef calculate_idle_blocking_time(job, start_time, end_time, processor_states):\n    total_idle_blocking = 0\n    for t in range(start_time, end_time):\n        if is_idle_blocked(job, t, processor_states):\n            total_idle_blocking += 1\n    return total_idle_blocking",
+        "key_insights": [
+          "Idle blocking is a more nuanced form of blocking that considers processor availability, not just priority."
+        ]
+      },
+      "dependencies": [
+        "Definition 3"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 7",
+      "formal_description": {
+        "statement": "If T_w_i,v 's first phase is an execution (suspension) phase and it begins executing (a suspension) for the first time at t, then t is called its start time, denoted S(T_w_i,v ). If T_w_i,v 's last phase (be it execution or suspension) completes at time t , then t is called its finish time, denoted F (T_w_i,v ). Let ET (T_w_i,v ) denote the first time instant when when T_w_i,v is enabled.",
+        "variables": {
+          "S(T_w_i,v)": "start time of job T_w_i,v",
+          "F(T_w_i,v)": "finish time of job T_w_i,v",
+          "ET(T_w_i,v)": "earliest enabled time of job T_w_i,v",
+          "T_w_i,v": "job v of subtask w in pipeline task i"
+        },
+        "assumptions": [],
+        "conclusion": "Defines key time instants related to a job's lifecycle."
+      },
+      "informal_sketch": {
+        "intuition": "These are important time markers for a job: when it first starts its actual work (or suspension), when it finally finishes all its work and suspensions, and the earliest moment it could possibly begin execution.",
+        "steps": [
+          "For S(T_w_i,v): Find the time of the first execution or suspension phase start.",
+          "For F(T_w_i,v): Find the time when the last phase (execution or suspension) completes.",
+          "For ET(T_w_i,v): Find the earliest time the job meets the 'enabled' criteria (Definition 2)."
+        ],
+        "pseudocode": "def get_start_time(job):\n    # Find the time of the first phase start\n    return job.first_phase_start_time\n\ndef get_finish_time(job):\n    # Find the time of the last phase completion\n    return job.last_phase_completion_time\n\ndef get_earliest_enabled_time(job):\n    # This would involve simulating or analyzing to find the first time\n    # the job satisfies Definition 2.\n    # For simplicity, assume it's available.\n    return job.earliest_possible_start_time",
+        "key_insights": [
+          "These time points are fundamental for analyzing job progress and blocking."
+        ]
+      },
+      "dependencies": [
+        "Definition 2"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 8",
+      "formal_description": {
+        "statement": "Let max_k = max{j | 1 ≤ j ≤ k ≤ m ∧ (∀w : 1 ≤ w ≤ k : e_j_i + s_j_i ≥ e_w_i + s_w_i )}. {T_1_i, T_2_i, ..., T_k_i} is maximal for T_{max_k}_i. If k = 0, then let max_k = 1.",
+        "variables": {
+          "max_k": "index of the subtask with the maximum sum of execution and suspension times among the first k subtasks",
+          "e_j_i": "execution time of subtask j in pipeline task i",
+          "s_j_i": "suspension time of subtask j in pipeline task i"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the subtask with the largest combined execution and suspension time within a given prefix of pipeline stages."
+      },
+      "informal_sketch": {
+        "intuition": "For a given pipeline task, and considering its first 'k' stages, this definition identifies which of those 'k' stages has the largest combined execution and suspension time. This 'maximal' stage is important for bounding blocking times.",
+        "steps": [
+          "For a pipeline task 'i' and a number of stages 'k':",
+          "Iterate through subtasks j from 1 to k.",
+          "Calculate the sum of execution time (e_j_i) and suspension time (s_j_i) for each subtask j.",
+          "Find the subtask j that yields the maximum sum.",
+          "max_k is the index of this subtask.",
+          "If k is 0, max_k is defined as 1 (a default)."
+        ],
+        "pseudocode": "def find_max_k_index(pipeline_task_i, k):\n    if k == 0:\n        return 1\n    \n    max_sum = -1\n    max_index = -1\n    \n    for j in range(1, k + 1):\n        current_sum = pipeline_task_i.subtasks[j-1].execution_time + pipeline_task_i.subtasks[j-1].suspension_time\n        if current_sum > max_sum:\n            max_sum = current_sum\n            max_index = j\n            \n    return max_index",
+        "key_insights": [
+          "This helps in finding a common upper bound for execution and suspension costs across a set of pipeline stages."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 9",
+      "formal_description": {
+        "statement": "Let Δ_1 be the total length of all maximal subintervals within [max(r_{1,i,v}, F(T_{1,i,v-1})), ET(T_{1,i,v+1})) during which some U-job of T_{k,i,v+1} or T_{k,i,v} is preempted. Let Δ_j (where 1 < j ≤ k) be the total length of all maximal sub-intervals within [ET(T_{j-1,i,v+1}), ET(T_{j,i,v+1})) during which some U-job of T_{k,i,v+1} or T_{k,i,v} is preempted. This is illustrated in Fig. 7.",
+        "variables": {
+          "Δ_j": "total preemption time of U-jobs within specific intervals",
+          "ET(T_j_i,v)": "earliest enabled time of job T_j_i,v",
+          "F(T_1_i,v-1)": "finish time of job T_{1,i,v-1}",
+          "r_{1,i,v}": "release time of job T_{1,i,v}",
+          "U-job": "a job from an upstream pipeline stage"
+        },
+        "assumptions": [],
+        "conclusion": "Defines intervals related to preemption of upstream jobs that can affect blocking times."
+      },
+      "informal_sketch": {
+        "intuition": "This definition quantifies the total time spent by upstream jobs (U-jobs) of a target job (or its successor) being preempted. These preemption intervals are critical because they can extend the time a target job might be blocked, even if processors are available.",
+        "steps": [
+          "For Δ_1: Consider the interval from the release of the first-stage job (or completion of its predecessor) up to the earliest enabled time of the next first-stage job.",
+          "Within this interval, sum the durations of all times when any U-job of T_{k,i,v+1} or T_{k,i,v} is preempted.",
+          "For Δ_j (j > 1): Consider the interval between the earliest enabled times of consecutive stages (j-1 and j) of the same job index (v+1).",
+          "Within this interval, sum the durations of all times when any U-job of T_{k,i,v+1} or T_{k,i,v} is preempted."
+        ],
+        "pseudocode": "def calculate_delta_j(job_k_i_v, job_k_i_v_plus_1, stage_j_index, time_interval):\n    total_preemption_duration = 0\n    # Iterate through all U-jobs of job_k_i_v and job_k_i_v_plus_1\n    for u_job in get_u_jobs(job_k_i_v) + get_u_jobs(job_k_i_v_plus_1):\n        # Check if u_job is preempted within the given time_interval\n        # This requires detailed simulation or analysis of preemption events\n        if u_job.is_preempted_in_interval(time_interval):\n            total_preemption_duration += u_job.get_preemption_duration_in_interval(time_interval)\n    return total_preemption_duration\n\n# Example for Δ_1:\n# interval_1 = (max(r_1_i_v, F(T_1_i,v-1)), ET(T_1_i,v+1))\n# delta_1 = calculate_delta_j(job_k_i_v, job_k_i_v_plus_1, 1, interval_1)\n\n# Example for Δ_j:\n# interval_j = (ET(T_{j-1}_i,v+1), ET(T_j_i,v+1))\n# delta_j = calculate_delta_j(job_k_i_v, job_k_i_v_plus_1, j, interval_j)",
+        "key_insights": [
+          "This definition attempts to bound the impact of preemption on upstream jobs, which in turn affects downstream blocking."
+        ]
+      },
+      "dependencies": [
+        "Definition 5",
+        "Definition 7"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 10",
+      "formal_description": {
+        "statement": "Let s_max = max{s_1, s_2, ..., s_n}. Let ξ_i = s_max + e_i / s_max be the suspension ratio of T_i. Let ξ_max = max{ξ_1, ξ_2, ..., ξ_n} be the maximum suspension ratio.",
+        "variables": {
+          "s_max": "maximum suspension time among all tasks",
+          "ξ_i": "suspension ratio of task i",
+          "e_i": "execution time of task i",
+          "s_i": "suspension time of task i",
+          "ξ_max": "maximum suspension ratio among all tasks"
+        },
+        "assumptions": [],
+        "conclusion": "Defines metrics related to suspension times and their ratios."
+      },
+      "informal_sketch": {
+        "intuition": "This definition introduces a 'suspension ratio' for each task, which compares its own suspension time to the maximum suspension time across all tasks. The maximum of these ratios across all tasks is then used as a system-wide parameter.",
+        "steps": [
+          "Find the maximum suspension time (s_max) among all tasks in the system.",
+          "For each task T_i, calculate its suspension ratio ξ_i = (s_max + e_i) / s_max.",
+          "Find the maximum suspension ratio (ξ_max) among all tasks."
+        ],
+        "pseudocode": "def calculate_suspension_ratios(task_set):\n    max_s = 0\n    for task in task_set:\n        max_s = max(max_s, task.suspension_time)\n    \n    suspension_ratios = []\n    for task in task_set:\n        if max_s == 0: # Avoid division by zero if no suspensions\n            xi_i = 1.0 # Or some other appropriate default\n        else:\n            xi_i = (max_s + task.execution_time) / max_s\n        suspension_ratios.append(xi_i)\n    \n    max_xi = 0\n    if suspension_ratios:\n        max_xi = max(suspension_ratios)\n    \n    return max_s, max_xi",
+        "key_insights": [
+          "The suspension ratio is used to normalize suspension impacts, particularly in utilization bounds."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 11",
+      "formal_description": {
+        "statement": "Let E_s_sum be the total execution cost of all suspending tasks in τ_S. Let E_sum be the total execution cost of all tasks in τ_S. Let S_s_sum be the total suspension length of all tasks in τ_S. Let u_s_max be the maximum utilization of any suspending task in τ_S.",
+        "variables": {
+          "E_s_sum": "total execution cost of suspending tasks",
+          "E_sum": "total execution cost of all tasks",
+          "S_s_sum": "total suspension length of all tasks",
+          "u_s_max": "maximum utilization of a suspending task",
+          "τ_S": "a task system with only suspensions"
+        },
+        "assumptions": [],
+        "conclusion": "Defines aggregate system parameters for suspending task systems."
+      },
+      "informal_sketch": {
+        "intuition": "These are system-wide metrics that summarize the computational load and suspension load. They are used in schedulability tests to understand the overall demand on the processors.",
+        "steps": [
+          "Identify all suspending tasks in τ_S.",
+          "Sum their execution costs to get E_s_sum.",
+          "Sum the execution costs of all tasks (suspending and non-suspending) to get E_sum.",
+          "Sum the suspension lengths of all tasks to get S_s_sum.",
+          "Find the maximum utilization among all suspending tasks to get u_s_max."
+        ],
+        "pseudocode": "def calculate_system_metrics(task_set):\n    E_s_sum = 0\n    E_sum = 0\n    S_s_sum = 0\n    u_s_max = 0\n    \n    for task in task_set:\n        E_sum += task.execution_time\n        if task.is_suspending:\n            E_s_sum += task.execution_time\n            S_s_sum += task.suspension_time\n            u_s_max = max(u_s_max, task.utilization)\n            \n    return E_s_sum, E_sum, S_s_sum, u_s_max",
+        "key_insights": [
+          "These aggregate metrics provide a global view of system load."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 12",
+      "formal_description": {
+        "statement": "Let U_c_L be the sum of the min(m - 1, c) largest computational task utilizations, where c is the number of computational tasks in τ_S. Let E_c_L be the sum of the min(m - 1, c) largest computational task execution costs in τ_S.",
+        "variables": {
+          "U_c_L": "sum of largest computational task utilizations",
+          "E_c_L": "sum of largest computational task execution costs",
+          "m": "number of processors",
+          "c": "number of computational tasks",
+          "τ_S": "a task system with only suspensions"
+        },
+        "assumptions": [],
+        "conclusion": "Defines sums of the largest utilizations and execution costs of computational tasks, considering the number of processors."
+      },
+      "informal_sketch": {
+        "intuition": "This definition focuses on the 'most demanding' computational tasks. It sums the utilizations (or execution costs) of the top 'm-1' computational tasks (or fewer if there aren't that many). This is relevant because on 'm' processors, the 'm-1' highest priority tasks can potentially interfere with each other.",
+        "steps": [
+          "Identify all computational tasks in τ_S.",
+          "Sort these tasks by their utilization in descending order.",
+          "Sum the utilizations of the top min(m-1, c) tasks to get U_c_L.",
+          "Sort these tasks by their execution cost in descending order.",
+          "Sum the execution costs of the top min(m-1, c) tasks to get E_c_L."
+        ],
+        "pseudocode": "def calculate_computational_load_metrics(task_set, num_processors):\n    computational_tasks = [task for task in task_set if not task.is_suspending]\n    c = len(computational_tasks)\n    \n    # Sort by utilization\n    computational_tasks.sort(key=lambda task: task.utilization, reverse=True)\n    U_c_L = sum(task.utilization for task in computational_tasks[:min(num_processors - 1, c)])\n    \n    # Sort by execution cost\n    computational_tasks.sort(key=lambda task: task.execution_time, reverse=True)\n    E_c_L = sum(task.execution_time for task in computational_tasks[:min(num_processors - 1, c)])\n    \n    return U_c_L, E_c_L",
+        "key_insights": [
+          "This metric captures the interference from the most demanding computational tasks."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 13",
+      "formal_description": {
+        "statement": "Let V = E_s_sum + E_c_L + u_s_max * S_s_sum + (m - 1) * e_l + m * s_l + 3 * n * s_max.",
+        "variables": {
+          "V": "a complex bound term",
+          "E_s_sum": "total execution cost of suspending tasks",
+          "E_c_L": "sum of largest computational task execution costs",
+          "u_s_max": "maximum utilization of a suspending task",
+          "S_s_sum": "total suspension length of all tasks",
+          "m": "number of processors",
+          "e_l": "execution time of task l",
+          "s_l": "suspension time of task l",
+          "n": "number of tasks",
+          "s_max": "maximum suspension time among all tasks"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a composite value 'V' used in tardiness bounds."
+      },
+      "informal_sketch": {
+        "intuition": "This is a complex formula that combines various system parameters: total execution, load from top computational tasks, impact of suspending tasks, and specific task parameters (e_l, s_l) along with system-wide bounds (s_max). It serves as a numerator or a key component in calculating the maximum tardiness.",
+        "steps": [
+          "Obtain E_s_sum (total execution of suspending tasks).",
+          "Obtain E_c_L (sum of top computational task execution costs).",
+          "Obtain u_s_max (max suspending task utilization).",
+          "Obtain S_s_sum (total suspension length).",
+          "Obtain m (number of processors).",
+          "Obtain e_l (execution time of the specific task l being analyzed).",
+          "Obtain s_l (suspension time of the specific task l being analyzed).",
+          "Obtain n (total number of tasks).",
+          "Obtain s_max (maximum suspension time across all tasks).",
+          "Calculate V using the provided formula."
+        ],
+        "pseudocode": "def calculate_V(task_l, task_set, system_metrics, computational_metrics, num_processors):\n    E_s_sum = system_metrics['E_s_sum']\n    E_c_L = computational_metrics['E_c_L']\n    u_s_max = system_metrics['u_s_max']\n    S_s_sum = system_metrics['S_s_sum']\n    m = num_processors\n    e_l = task_l.execution_time\n    s_l = task_l.suspension_time\n    n = len(task_set)\n    s_max = system_metrics['s_max']\n    \n    V = E_s_sum + E_c_L + u_s_max * S_s_sum + (m - 1) * e_l + m * s_l + 3 * n * s_max\n    return V",
+        "key_insights": [
+          "This formula aggregates various sources of delay and interference to bound the tardiness."
+        ]
+      },
+      "dependencies": [
+        "Definition 10",
+        "Definition 11",
+        "Definition 12"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 14",
+      "formal_description": {
+        "statement": "Ordinary tasks are those tasks in τ_NPS that do not contain suspensions, pipelines, and non-preemptive sections.",
+        "variables": {
+          "Ordinary tasks": "tasks without complex features",
+          "τ_NPS": "a task system with suspensions, pipelines, and non-preemptive sections"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a subset of tasks that are considered 'simple' or 'standard'."
+      },
+      "informal_sketch": {
+        "intuition": "These are the most basic type of tasks in the system model – they just have a period, execution time, and deadline, without any of the complexities like internal suspensions, pipeline dependencies, or non-preemptable code segments.",
+        "steps": [
+          "For each task in the τ_NPS system:",
+          "Check if it has any suspension phases.",
+          "Check if it is part of a pipeline (i.e., has more than one stage).",
+          "Check if it has any non-preemptive sections.",
+          "If a task has none of these, it is an ordinary task."
+        ],
+        "pseudocode": "def is_ordinary_task(task):\n    if task.has_suspensions:\n        return False\n    if task.is_pipeline:\n        return False\n    if task.has_non_preemptive_sections:\n        return False\n    return True",
+        "key_insights": [
+          "Distinguishes simple tasks from complex ones, which is important for applying different analysis or transformation rules."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 1",
+      "formal_description": {
+        "statement": "Any job T_h_l,j in τ_NPS can be NP-blocked for at most c_h_l * b_max time units.",
+        "variables": {
+          "NP-blocked": "Non-preemptively blocked",
+          "c_h_l": "maximum number of computation phases in subtask T_h_l",
+          "b_max": "maximum duration of any non-preemptive segment in the system",
+          "T_h_l,j": "the j-th job of subtask T_h_l",
+          "τ_NPS": "a task system with suspensions, pipelines, and non-preemptive sections"
+        },
+        "assumptions": [],
+        "conclusion": "Provides an upper bound on the non-preemptive blocking time for any job."
+      },
+      "informal_sketch": {
+        "intuition": "A job can be blocked non-preemptively if it's ready to run but a lower-priority job is executing in a non-preemptive section. The maximum time this can happen is limited by the number of computation phases a job has (each potentially starting a non-preemptive section) and the longest possible non-preemptive section duration in the entire system.",
+        "steps": [
+          "Consider a job T_h_l,j.",
+          "It has at most c_h_l computation phases.",
+          "Each computation phase can potentially start a non-preemptive section.",
+          "The maximum length of any non-preemptive section is b_max.",
+          "Therefore, the total time this job can be NP-blocked is at most the number of phases multiplied by the maximum non-preemptive section length: c_h_l * b_max."
+        ],
+        "pseudocode": "def get_max_np_blocking_time(subtask_h_l, system_b_max):\n    return subtask_h_l.max_computation_phases * system_b_max",
+        "key_insights": [
+          "This lemma quantifies the blocking introduced by non-preemptive sections, which is a key complexity addressed by the paper."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 2",
+      "formal_description": {
+        "statement": "The total idle blocking time of any job T_{k,i,v} in τ_PS is at most sum_{j=1}^{k-1} (e_{j,i} + s_{j,i}).",
+        "variables": {
+          "idle_blocking_time": "total time a job is idle blocked",
+          "T_{k,i,v}": "job v of subtask k in pipeline task i",
+          "τ_PS": "a fully preemptive suspendable pipelined task system",
+          "e_{j,i}": "execution time of subtask j in pipeline task i",
+          "s_{j,i}": "suspension time of subtask j in pipeline task i"
+        },
+        "assumptions": [],
+        "conclusion": "Provides an upper bound on the idle blocking time for a job in a pipeline task system."
+      },
+      "informal_sketch": {
+        "intuition": "The idle blocking time for a job in a pipeline is bounded by the total execution and suspension times of all its upstream (U) subtasks. This is because if the job is idle blocked, it means processors are available or occupied by lower-priority tasks, and the blocking is primarily due to the completion of its U-jobs. The worst case occurs when the U-jobs consume their maximum execution and suspension times.",
+        "steps": [
+          "Consider job T_{k,i,v}.",
+          "Its U-jobs are T_{1,i,v}, T_{2,i,v}, ..., T_{k-1,i,v}.",
+          "The proof uses induction. The base case (k=1) has no U-jobs, so idle blocking is 0.",
+          "For the inductive step (k>1), it considers two cases based on whether the U-predecessor of T_{k,i,v}'s U-predecessor (T_{k-2,i,v}) is complete by the time T_{k,i,v}'s L-predecessor (T_{k,i,v-1}) finishes.",
+          "In both cases, the idle blocking time is shown to be bounded by the sum of execution and suspension times of all U-jobs (from stage 1 to k-1)."
+        ],
+        "pseudocode": "def get_max_idle_blocking_time(job_k_i_v, pipeline_task_i):\n    max_idle_block = 0\n    # Sum of execution and suspension times for all U-jobs (stages 1 to k-1)\n    for stage_j in range(1, job_k_i_v.stage):\n        subtask_j_i = pipeline_task_i.get_subtask(stage_j)\n        max_idle_block += subtask_j_i.execution_time + subtask_j_i.suspension_time\n    return max_idle_block",
+        "key_insights": [
+          "This lemma is crucial for transforming pipeline blocking into suspension time, as it provides a quantifiable upper bound."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 3",
+      "formal_description": {
+        "statement": "If v ≥ 3 - k (recall that by adding \"extra\" initial jobs, T_{k,i,3-k} is the second job of T_{k,i}), k > 1, and L3.1 and L3.2 below hold, then ET(T_{k,i,v+1}) ≤ max(r_{1,i,v}, F(T_{1,i,v-1})) + sum_{j=1}^{k} Δ_j + k * (e_{max_{k-1},i} + s_{max_{k-1},i}).",
+        "variables": {
+          "ET(T_{k,i,v+1})": "earliest enabled time of job T_{k,i,v+1}",
+          "r_{1,i,v}": "release time of job T_{1,i,v}",
+          "F(T_{1,i,v-1})": "finish time of job T_{1,i,v-1}",
+          "Δ_j": "total preemption time of U-jobs within specific intervals",
+          "k": "stage index",
+          "e_{max_{k-1},i}": "execution time of the subtask with max (e+s) among first k-1 stages",
+          "s_{max_{k-1},i}": "suspension time of the subtask with max (e+s) among first k-1 stages",
+          "L3.1": "condition: T_{k-1,i,v} and T_{k-1,i,v+1} are both tardy",
+          "L3.2": "condition: T_{k,i,v} completes before T_{k-1,i,v+1}"
+        },
+        "assumptions": [],
+        "conclusion": "Provides an upper bound on the earliest enabled time of a job, considering pipeline dependencies and preemption."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma establishes a latest possible time a job can become enabled. It's based on when its predecessors (both within the pipeline and across job instances) finish, plus the accumulated preemption times of upstream jobs, and the maximum possible execution/suspension of the 'most demanding' upstream stages. The conditions L3.1 and L3.2 are critical for the proof to hold, implying specific tardiness and completion relationships.",
+        "steps": [
+          "The proof uses induction on 'k' (the stage number).",
+          "Base case (k=2): ET(T_{2,i,v+1}) is related to the completion of T_{1,i,v+1} and T_{2,i,v}.",
+          "Inductive step (k>2): Assumes the lemma holds for k-1 and proves it for k.",
+          "It considers the completion time of T_{k-1,i,v+1} (which depends on its own predecessors and preemption).",
+          "It then adds the preemption intervals (Δ_j) and the maximum execution/suspension costs of the most demanding upstream stages (e_{max_{k-1},i} + s_{max_{k-1},i}).",
+          "The conditions L3.1 and L3.2 ensure that the analysis correctly accounts for tardiness and sequential completion."
+        ],
+        "pseudocode": "def calculate_latest_enabled_time(job_k_i_v_plus_1, pipeline_task_i, delta_values, max_k_minus_1_params):\n    # This is a complex calculation based on the lemma's formula.\n    # It requires knowing release times, finish times of predecessors, \n    # Δ_j values, and max execution/suspension costs.\n    \n    # Simplified representation of the formula:\n    base_time = max(job_k_i_v_plus_1.first_stage_job.release_time, job_k_i_v_plus_1.l_predecessor.finish_time)\n    sum_delta = sum(delta_values[:job_k_i_v_plus_1.stage])\n    max_exec_susp = max_k_minus_1_params.execution_time + max_k_minus_1_params.suspension_time\n    \n    latest_et = base_time + sum_delta + job_k_i_v_plus_1.stage * max_exec_susp\n    return latest_et",
+        "key_insights": [
+          "This lemma provides a tight bound on when a job can start, crucial for analyzing pipeline blocking."
+        ]
+      },
+      "dependencies": [
+        "Definition 5",
+        "Definition 7",
+        "Definition 9",
+        "Definition 8"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 4",
+      "formal_description": {
+        "statement": "The total idle blocking time of any two consecutive jobs T_{k,i,v} and T_{k,i,v+1} in τ_PS is at most k * (e_{max_{k-1},i} + s_{max_{k-1},i}).",
+        "variables": {
+          "idle_blocking_time": "total time a job is idle blocked",
+          "T_{k,i,v}": "job v of subtask k in pipeline task i",
+          "T_{k,i,v+1}": "job v+1 of subtask k in pipeline task i",
+          "τ_PS": "a fully preemptive suspendable pipelined task system",
+          "k": "stage index",
+          "e_{max_{k-1},i}": "execution time of the subtask with max (e+s) among first k-1 stages",
+          "s_{max_{k-1},i}": "suspension time of the subtask with max (e+s) among first k-1 stages"
+        },
+        "assumptions": [],
+        "conclusion": "Provides an upper bound on the combined idle blocking time of two consecutive jobs in a pipeline task."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma bounds the total idle blocking for two consecutive jobs of the same subtask. It's shown that this combined blocking is limited by the number of stages ('k') and the maximum execution/suspension cost of the most demanding upstream stages (up to k-1). This is a key step in transforming pipeline blocking into suspension time.",
+        "steps": [
+          "The proof uses induction on 'v' (job index).",
+          "Base case (v=2k): T_{k,i,2-k} is the first job and has no L-predecessor, so it's not idle blocked. The bound holds.",
+          "Inductive step (v > 2k): Assumes the lemma holds for v and proves it for v+1.",
+          "It considers cases where one or both jobs are idle blocked.",
+          "It leverages Lemma 3 to bound the enabled times and uses the fact that if a job is idle blocked, processors are not fully utilized by higher priority tasks.",
+          "The bound is derived by considering the total preemption time of U-jobs and the maximum execution/suspension costs of upstream stages."
+        ],
+        "pseudocode": "def get_max_combined_idle_blocking_time(job_k_i_v, job_k_i_v_plus_1, pipeline_task_i, max_k_minus_1_params):\n    # This calculation is complex and relies on the lemma's proof.\n    # It involves summing Δ_j and considering max execution/suspension costs.\n    \n    # Simplified representation of the formula:\n    k = job_k_i_v.stage\n    max_exec_susp = max_k_minus_1_params.execution_time + max_k_minus_1_params.suspension_time\n    \n    combined_idle_block = k * max_exec_susp\n    return combined_idle_block",
+        "key_insights": [
+          "This lemma is critical for consolidating pipeline blocking into suspension times for independent tasks."
+        ]
+      },
+      "dependencies": [
+        "Definition 7",
+        "Definition 8",
+        "Definition 9",
+        "Lemma 3"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 1",
+      "formal_description": {
+        "statement": "For any concrete instantiation τ_NPS of τ_NPS, there exists a concrete instantiation τ_PS of τ_PS such that τ_NPS and τ_PS have equivalent GEDF schedules.",
+        "variables": {
+          "τ_NPS": "a task system with suspensions, pipelines, and non-preemptive sections",
+          "τ_PS": "a fully preemptive suspendable pipelined task system",
+          "GEDF": "Global Earliest Deadline First scheduling algorithm"
+        },
+        "assumptions": [],
+        "conclusion": "States that any NPS task system can be transformed into an equivalent fully preemptive suspendable pipelined task system."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem is the core of the first transformation step. It guarantees that by treating non-preemptive blocking as additional suspension time, we can create a simpler system (τ_PS) that behaves identically to the original complex system (τ_NPS) under GEDF scheduling. This simplification is achieved by adding c_h_l * b_max to the suspension time of each subtask T_h_l.",
+        "steps": [
+          "For each subtask T_h_l in τ_NPS:",
+          "Calculate its maximum non-preemptive blocking time using Lemma 1: max_np_block = c_h_l * b_max.",
+          "Create a corresponding subtask in τ_PS with its original execution time (e_h_l) and an increased suspension time: s'_h_l = s_h_l + max_np_block.",
+          "The theorem asserts that the GEDF schedule of the original τ_NPS system is equivalent to the GEDF schedule of the transformed τ_PS system."
+        ],
+        "pseudocode": "def transform_nps_to_ps(nps_task_system):\n    ps_task_system = create_empty_task_system()\n    for pipeline_task in nps_task_system.pipeline_tasks:\n        for subtask in pipeline_task.subtasks:\n            # Calculate max NP-blocking time for this subtask\n            max_np_block = subtask.max_computation_phases * nps_task_system.b_max\n            \n            # Create corresponding subtask in PS system\n            new_subtask = Subtask(\n                execution_time=subtask.execution_time,\n                suspension_time=subtask.suspension_time + max_np_block,\n                period=subtask.period,\n                pipeline_task_id=subtask.pipeline_task_id,\n                stage=subtask.stage\n            )\n            ps_task_system.add_subtask(new_subtask)\n    return ps_task_system",
+        "key_insights": [
+          "This transformation simplifies the problem by eliminating non-preemptive sections, converting them into a form of suspension."
+        ]
+      },
+      "dependencies": [
+        "Lemma 1"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 2",
+      "formal_description": {
+        "statement": "For any concrete instantiation τ_PS of τ_PS, there exists a concrete instantiation τ_S of τ_S such that τ_PS and τ_S have equivalent GEDF schedules.",
+        "variables": {
+          "τ_PS": "a fully preemptive suspendable pipelined task system",
+          "τ_S": "a periodic task system with only suspensions (no pipelines)",
+          "GEDF": "Global Earliest Deadline First scheduling algorithm"
+        },
+        "assumptions": [],
+        "conclusion": "States that any fully preemptive suspendable pipelined task system can be transformed into an equivalent periodic task system with only suspensions."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem is the core of the second transformation step. It guarantees that by treating pipeline blocking (specifically, idle blocking) as additional suspension time, we can create a simpler system (τ_S) where each subtask becomes an independent suspending task. This is achieved by adding bounds derived from Lemma 4 to the suspension times of subtasks.",
+        "steps": [
+          "For each subtask T_{k,i} in τ_PS:",
+          "If it's a first-stage subtask (k=1), it remains an independent suspending task with its current execution and suspension times.",
+          "If it's a non-first-stage subtask (k>1):",
+          "Calculate the maximum combined idle blocking time for consecutive jobs using Lemma 4: max_idle_block_bound = k * (e_{max_{k-1},i} + s_{max_{k-1},i}).",
+          "Add this bound to the subtask's suspension time: s''_k_i = s'_k_i + max_idle_block_bound / 2. (The division by 2 is mentioned in the text as a way to distribute the blocking time).",
+          "The theorem asserts that the GEDF schedule of the original τ_PS system is equivalent to the GEDF schedule of the transformed τ_S system."
+        ],
+        "pseudocode": "def transform_ps_to_s(ps_task_system):\n    s_task_system = create_empty_task_system()\n    for pipeline_task in ps_task_system.pipeline_tasks:\n        for subtask in pipeline_task.subtasks:\n            k = subtask.stage\n            if k == 1:\n                # First stage subtasks are already independent suspending tasks\n                new_subtask = Subtask(\n                    execution_time=subtask.execution_time,\n                    suspension_time=subtask.suspension_time,\n                    period=subtask.period,\n                    pipeline_task_id=subtask.pipeline_task_id,\n                    stage=subtask.stage\n                )\n                s_task_system.add_subtask(new_subtask)\n            else:\n                # For non-first stages, add idle blocking bound to suspension\n                # Get max_k_minus_1_params for the relevant pipeline task\n                max_k_minus_1_params = pipeline_task.get_max_k_minus_1_params(k-1)\n                \n                # Calculate bound from Lemma 4\n                # Note: The paper mentions dividing by 2 for distribution.\n                idle_blocking_bound = k * (max_k_minus_1_params.execution_time + max_k_minus_1_params.suspension_time) / 2\n                \n                new_subtask = Subtask(\n                    execution_time=subtask.execution_time,\n                    suspension_time=subtask.suspension_time + idle_blocking_bound,\n                    period=subtask.period,\n                    pipeline_task_id=subtask.pipeline_task_id,\n                    stage=subtask.stage\n                )\n                s_task_system.add_subtask(new_subtask)\n    return s_task_system",
+        "key_insights": [
+          "This transformation simplifies the problem by eliminating pipeline dependencies, converting them into a form of suspension for independent tasks."
+        ]
+      },
+      "dependencies": [
+        "Lemma 4",
+        "Definition 8"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 3",
+      "formal_description": {
+        "statement": "The tardiness of any task T_l in τ_S scheduled under GEDF is at most x + e_l + s_l, where x ≥ V / (1 - ξ_max) * m - U_s_sum - U_c_L, provided U_s_sum + U_c_L < (1 - ξ_max) * m. x is well-defined provided U_s_sum + U_c_L < (1 - ξ_max) * m.",
+        "variables": {
+          "T_l": "task l",
+          "τ_S": "a task system with only suspensions",
+          "GEDF": "Global Earliest Deadline First scheduling algorithm",
+          "x": "a bound variable",
+          "e_l": "execution time of task l",
+          "s_l": "suspension time of task l",
+          "V": "a complex bound term",
+          "ξ_max": "maximum suspension ratio",
+          "m": "number of processors",
+          "U_s_sum": "total utilization of suspending tasks",
+          "U_c_L": "sum of largest computational task utilizations"
+        },
+        "assumptions": [
+          "e_l + s_l <= p_l",
+          "U_sum + U_c_L < (1 - ξ_max) * m"
+        ],
+        "conclusion": "Provides a tardiness bound for suspending task systems under GEDF."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem, from prior work [9], provides a bound on how much a job's completion time can exceed its deadline (tardiness) in a system with only suspensions. The bound depends on a complex term 'V' (which aggregates various system loads and task-specific parameters), the system's total utilization, the maximum suspension ratio, and the number of processors. The condition on total utilization ensures that the system is not overloaded to the point where tardiness becomes unbounded.",
+        "steps": [
+          "Calculate the system parameters: V, ξ_max, m, U_s_sum, U_c_L.",
+          "Check the schedulability condition: U_s_sum + U_c_L < (1 - ξ_max) * m.",
+          "If the condition holds, calculate x = V / ((1 - ξ_max) * m - U_s_sum - U_c_L).",
+          "The tardiness of any task T_l is then bounded by x + e_l + s_l."
+        ],
+        "pseudocode": "def calculate_tardiness_bound_suspending(task_l, task_set, system_metrics, computational_metrics, num_processors):\n    # Assume V, xi_max, m, U_s_sum, U_c_L are pre-calculated\n    V = calculate_V(task_l, task_set, system_metrics, computational_metrics, num_processors) # Using Definition 13\n    xi_max = system_metrics['xi_max']\n    m = num_processors\n    U_s_sum = system_metrics['U_s_sum']\n    U_c_L = computational_metrics['U_c_L']\n    e_l = task_l.execution_time\n    s_l = task_l.suspension_time\n    \n    utilization_condition_denominator = (1 - xi_max) * m - U_s_sum - U_c_L\n    \n    if utilization_condition_denominator <= 0: # Condition U_s_sum + U_c_L < (1 - ξ_max) * m failed\n        return float('inf') # Tardiness can be unbounded\n        \n    x = V / utilization_condition_denominator\n    \n    tardiness_bound = x + e_l + s_l\n    return tardiness_bound",
+        "key_insights": [
+          "This theorem provides a concrete, albeit complex, formula for bounding tardiness in suspending task systems, which is then applied to the transformed NPS systems."
+        ]
+      },
+      "dependencies": [
+        "Definition 10",
+        "Definition 11",
+        "Definition 12",
+        "Definition 13"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 4",
+      "formal_description": {
+        "statement": "The tardiness of any task T_l in τ_S (and thus τ_NPS) scheduled under GEDF is at most x + e_l + s_l, where x is defined in Eq. (1), provided U_s_sum + U_c_L < (1 - ξ_max) * m.",
+        "variables": {
+          "T_l": "task l",
+          "τ_S": "a task system with only suspensions",
+          "τ_NPS": "a task system with suspensions, pipelines, and non-preemptive sections",
+          "GEDF": "Global Earliest Deadline First scheduling algorithm",
+          "x": "a bound variable (defined in Theorem 3)",
+          "e_l": "execution time of task l",
+          "s_l": "suspension time of task l",
+          "U_s_sum": "total utilization of suspending tasks",
+          "U_c_L": "sum of largest computational task utilizations",
+          "ξ_max": "maximum suspension ratio",
+          "m": "number of processors"
+        },
+        "assumptions": [
+          "e_l + s_l <= p_l for transformed tasks",
+          "U_s_sum + U_c_L < (1 - ξ_max) * m"
+        ],
+        "conclusion": "Provides a tardiness bound for NPS task systems by applying the suspending task system bound (Theorem 3) to the transformed system."
+      },
+      "informal_sketch": {
+        "intuition": "This is the main result of the paper. By transforming an NPS system into a suspending system (τ_S) using Theorems 1 and 2, and knowing that the transformed system preserves or increases response times (Corollaries 1 and 2), we can directly apply the tardiness bound from Theorem 3 to the original NPS system. The parameters e_l and s_l in the bound refer to the transformed task parameters.",
+        "steps": [
+          "Transform the original NPS task system τ_NPS into a suspending task system τ_S using the methods described in Sections 3 and 4 (based on Theorems 1 and 2).",
+          "For each task T_l in the transformed system τ_S, calculate its parameters (e_l, s_l, utilization, etc.).",
+          "Apply Theorem 3 to τ_S to get a tardiness bound of x + e_l + s_l, where x is calculated using the parameters of τ_S and the system-wide metrics.",
+          "Due to Corollaries 1 and 2, this tardiness bound for τ_S also applies to the original τ_NPS system."
+        ],
+        "pseudocode": "def get_tardiness_bound_nps(nps_task_system, num_processors):\n    # Step 1: Transform NPS to PS (using Theorem 1)\n    ps_task_system = transform_nps_to_ps(nps_task_system)\n    \n    # Step 2: Transform PS to S (using Theorem 2)\n    s_task_system = transform_ps_to_s(ps_task_system)\n    \n    # Step 3: Calculate system metrics for τ_S\n    system_metrics = calculate_system_metrics(s_task_system.all_tasks)\n    computational_metrics = calculate_computational_load_metrics(s_task_system.all_tasks, num_processors)\n    \n    # Step 4: Apply Theorem 3 to τ_S\n    # The bound is for *any* task T_l in τ_S.\n    # We can calculate it for a representative task or state it generally.\n    # For demonstration, let's calculate for the first task in s_task_system.\n    if not s_task_system.all_tasks:\n        return 0 # No tasks, no tardiness\n        \n    task_l_in_s = s_task_system.all_tasks[0]\n    tardiness_bound_for_task_l = calculate_tardiness_bound_suspending(\n        task_l_in_s, \n        s_task_system.all_tasks, \n        system_metrics, \n        computational_metrics, \n        num_processors\n    )\n    \n    # The theorem states the bound applies to any task T_l in τ_S (and thus τ_NPS)\n    # The parameters e_l and s_l in the bound refer to the transformed task.\n    return tardiness_bound_for_task_l",
+        "key_insights": [
+          "This theorem unifies the analysis by leveraging the transformations and existing results for simpler systems."
+        ]
+      },
+      "dependencies": [
+        "Theorem 1",
+        "Theorem 2",
+        "Theorem 3",
+        "Corollary 1",
+        "Corollary 2"
+      ]
+    },
+    {
+      "type": "corollary",
+      "identifier": "Corollary 1",
+      "formal_description": {
+        "statement": "For any subtask T_h_l, if the maximum response time of any job of T_h_l in any GEDF schedule for τ_PS is z time units, then the maximum response time of any such job in any GEDF schedule for τ_NPS is at most z time units.",
+        "variables": {
+          "T_h_l": "subtask T_h_l",
+          "response_time": "time from release to completion",
+          "GEDF": "Global Earliest Deadline First scheduling algorithm",
+          "τ_PS": "a fully preemptive suspendable pipelined task system",
+          "τ_NPS": "a task system with suspensions, pipelines, and non-preemptive sections",
+          "z": "maximum response time"
+        },
+        "assumptions": [],
+        "conclusion": "States that the maximum response time in the transformed system (τ_PS) is an upper bound for the original system (τ_NPS)."
+      },
+      "informal_sketch": {
+        "intuition": "This corollary is a direct consequence of Theorem 1. Since the transformation from τ_NPS to τ_PS treats NP-blocking as additional suspension, the actual execution time of a job in τ_NPS is effectively covered by the execution plus suspension in τ_PS. Therefore, the worst-case response time in the simpler τ_PS system cannot be worse than the worst-case response time in the original τ_NPS system. In fact, the paper states 'at most z', implying the response time in τ_NPS is bounded by that in τ_PS.",
+        "steps": [
+          "Consider a subtask T_h_l.",
+          "Let z be the maximum response time of any job of T_h_l in τ_PS.",
+          "Theorem 1 states that τ_PS has equivalent GEDF schedules to τ_NPS, where NP-blocking is converted to suspension.",
+          "This means that any delay in τ_NPS due to NP-blocking is accounted for as suspension in τ_PS.",
+          "Therefore, the response time in τ_PS (z) is an upper bound for the response time in τ_NPS."
+        ],
+        "pseudocode": "def get_max_response_time_nps_from_ps(subtask_h_l, ps_task_system, nps_task_system):\n    # Assume max_response_time_ps is calculated for subtask_h_l in ps_task_system\n    max_response_time_ps = calculate_max_response_time(subtask_h_l, ps_task_system, GEDF)\n    \n    # According to Corollary 1, this is an upper bound for the NPS system\n    return max_response_time_ps",
+        "key_insights": [
+          "This corollary establishes the relationship between response times in the original and the first transformed system, ensuring that analysis on τ_PS is conservative for τ_NPS."
+        ]
+      },
+      "dependencies": [
+        "Theorem 1"
+      ]
+    },
+    {
+      "type": "corollary",
+      "identifier": "Corollary 2",
+      "formal_description": {
+        "statement": "For any subtask T_h_l, if the maximum response time of any job of T_h_l in any GEDF schedule for τ_S is z time units, then the maximum response time of any such job in any GEDF schedule for τ_PS is at most z time units.",
+        "variables": {
+          "T_h_l": "subtask T_h_l",
+          "response_time": "time from release to completion",
+          "GEDF": "Global Earliest Deadline First scheduling algorithm",
+          "τ_S": "a periodic task system with only suspensions (no pipelines)",
+          "τ_PS": "a fully preemptive suspendable pipelined task system",
+          "z": "maximum response time"
+        },
+        "assumptions": [],
+        "conclusion": "States that the maximum response time in the final transformed system (τ_S) is an upper bound for the intermediate system (τ_PS)."
+      },
+      "informal_sketch": {
+        "intuition": "This corollary is a direct consequence of Theorem 2. The transformation from τ_PS to τ_S converts pipeline blocking into additional suspension. This means that the total execution and suspension time for a job in τ_S is at least as much as in τ_PS. Therefore, the worst-case response time in the simpler τ_S system cannot be worse than the worst-case response time in the τ_PS system. The paper states 'at most z', implying the response time in τ_PS is bounded by that in τ_S.",
+        "steps": [
+          "Consider a subtask T_h_l.",
+          "Let z be the maximum response time of any job of T_h_l in τ_S.",
+          "Theorem 2 states that τ_S has equivalent GEDF schedules to τ_PS, where pipeline blocking is converted to suspension.",
+          "This means that any delay in τ_PS due to pipeline blocking is accounted for as suspension in τ_S.",
+          "Therefore, the response time in τ_S (z) is an upper bound for the response time in τ_PS."
+        ],
+        "pseudocode": "def get_max_response_time_ps_from_s(subtask_h_l, s_task_system, ps_task_system):\n    # Assume max_response_time_s is calculated for subtask_h_l in s_task_system\n    max_response_time_s = calculate_max_response_time(subtask_h_l, s_task_system, GEDF)\n    \n    # According to Corollary 2, this is an upper bound for the PS system\n    return max_response_time_s",
+        "key_insights": [
+          "This corollary establishes the relationship between response times in the intermediate and final transformed systems, ensuring that analysis on τ_S is conservative for τ_PS."
+        ]
+      },
+      "dependencies": [
+        "Theorem 2"
+      ]
+    }
+  ],
+  "extracted_at": "2025-11-12T02:52:23.354568",
+  "xml_path": "papers\\xml\\Scheduling_Suspendable_Pipelined_Tasks_with_Non-Preemptive_Sections_in_Soft_Real-Time_Multiprocessor_Systems.xml"
+}

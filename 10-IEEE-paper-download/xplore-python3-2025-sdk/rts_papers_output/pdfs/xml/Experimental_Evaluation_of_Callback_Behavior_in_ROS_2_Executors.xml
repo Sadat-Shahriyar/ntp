@@ -1,0 +1,683 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Experimental Evaluation of Callback Behavior in ROS 2 Executors</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Lukas</forename><forename type="middle">Johannes</forename><surname>Dust</surname></persName>
+							<email>lukas.dust@mdu.se</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Mälardalen University Västerås</orgName>
+								<address>
+									<country key="SE">Sweden</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Emil</forename><surname>Persson</surname></persName>
+							<email>emil.persson@mdu.se</email>
+							<affiliation key="aff1">
+								<orgName type="institution">Mälardalen University Västerås</orgName>
+								<address>
+									<country key="SE">Sweden</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Mikael</forename><surname>Ekström</surname></persName>
+							<email>mikael.ekström@mdu.se</email>
+							<affiliation key="aff2">
+								<orgName type="institution">Mälardalen University Västerås</orgName>
+								<address>
+									<country key="SE">Sweden</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Saad</forename><surname>Mubeen</surname></persName>
+							<email>saad.mubeen@mdu.se</email>
+							<affiliation key="aff3">
+								<orgName type="institution">Mälardalen University Västerås</orgName>
+								<address>
+									<country key="SE">Sweden</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Cristina</forename><surname>Seceleanu</surname></persName>
+							<email>cristina.seceleanu@mdu.se</email>
+							<affiliation key="aff4">
+								<orgName type="institution">Mälardalen University Västerås</orgName>
+								<address>
+									<country key="SE">Sweden</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Rong</forename><surname>Gu</surname></persName>
+							<email>rong.gu@mdu.se</email>
+							<affiliation key="aff5">
+								<orgName type="institution">Mälardalen University Västerås</orgName>
+								<address>
+									<country key="SE">Sweden</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Experimental Evaluation of Callback Behavior in ROS 2 Executors</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">3F3119B878401661A4D2DA8504DC26A5</idno>
+					<idno type="DOI">10.1109/ETFA54631.2023.10275668</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-18T17:09+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Robot operating system 2 (ROS 2) is increasingly popular both in research and commercial robotic systems. ROS 2 is designed to allow real-time execution and data communication, enabling rapid prototyping and deployment of robotic systems. In order to predict and calculate execution times in ROS 2, one needs to analyze its internal scheduler, called executor. The executor has been updated in various distributions of ROS 2, which is shown to impact significantly the periodic execution invoked by the underlying operating system's timers, potentially causing unexpected latencies. To expose the mentioned impact due to executor differences, in this paper, we present an experimental evaluation of the execution behavior of ROS 2's schedulable entities, namely callbacks, among the existing versions of the executor. We visualize the differences of callback execution order via simulation, and we create design-level scenarios that impact the execution of periodically scheduled callbacks, negatively. Moreover, we show how such negative impact can be mitigated by using multi-threaded executors. Finally, we illustrate the observed behavior on a real-world centralized multi-agent robot system. Our work aims to raise awareness within the ROS 2 developer community, regarding possible problems of timer blocking, and propose a mitigation solution of the latter.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Robot Operating System 2 (ROS 2) is a middleware that supports the development and deployment of software for robotic systems, ranging from fully decentralized to centralized robotic systems <ref type="bibr" target="#b2">[4,</ref><ref type="bibr" target="#b15">17,</ref><ref type="bibr" target="#b9">11]</ref>. With the rising need for real-time capabilities in robotic systems, ROS 2 has been developed to replace ROS 1, and meet real-time demands by using Data Distribution Service (DDS) communication <ref type="bibr" target="#b5">[7]</ref>. The execution of ROS 2 relies on an underlying operating system (OS). Furthermore, ROS 2 includes an internal scheduler, called executor, which schedules ROS 2's smallest schedulable entities, namely callbacks. While a system can consist of several instances of executors, knowledge of its execution is essential to meet real-time requirements in ROS 2. Consequently, fellow researchers have conducted work on analyzing ROS 2 execution, including response-time analysis <ref type="bibr" target="#b6">[8,</ref><ref type="bibr" target="#b4">6]</ref>. To improve overall system performance, the executor has changed across different ROS 2 distributions. The change allows schedulable entities released by timers, that is, timer callbacks, to be included in the so-called ready set. This is important, as the ready set is only updated at specific time points after the executor of ROS 2 becomes idle. The executor schedules all callbacks (of any type) that are included in the ready set only. Prior to this change, timer-triggered callbacks are excluded from the set, and considered instead for scheduling after each execution of any callback, once the respective timer event arises. This change in execution causes issues, especially in periodic systems, as callbacks released by system timers can get blocked by callbacks available in the previously polled ready set. Some effects of the change have also been studied via timing analysis methods, in related work <ref type="bibr" target="#b4">[6,</ref><ref type="bibr" target="#b11">13,</ref><ref type="bibr" target="#b19">21]</ref>. Assuming systems that rely on periodic execution, the executor change and its consequences need to be identified. This can be done by investigating the differences in the executor versions and the respective scheduling of callbacks, via an experimental evaluation, such that design choices can be made by developers, without assuming worstcase execution time only, as in related work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Problem Statement and Paper Contributions</head><p>A functional model of the first version of the ROS 2 executor is developed by Casini et al. <ref type="bibr" target="#b6">[8]</ref>, and the change is noted in the literature <ref type="bibr" target="#b4">[6]</ref>. Nevertheless, no existing work compares the order of execution of callbacks in different executors in detail. In this paper, we present the differences in the internal scheduling of callbacks over the native ROS 2 versions, by an experimental evaluation. The experiments give insights into the semantics of ROS 2 executors, helping practitioners to decide for an appropriate implementation of real-time robotic systems, being aware of the implications of the different executor semantics. In the experimental evaluation, we consider the following research questions. RQ1: How does the scheduling of callbacks in a node differ in the single-threaded executor among the existing ROS 2 distributions? RQ2: What type of system configurations lead to timer blocking in the existing single-threaded executor versions, and how does the blocking affect periodic execution? RQ3: How do approaches using multi-threaded executors affect the timer blocking while preserving mutually exclusive execution?</p><p>The main contributions of this paper are as follows:</p><p>1. We identify and also visually show the differences in the execution of callbacks on the native single-threaded executor over different distributions in ROS 2, by conducting various experiments. Furthermore, we show the critical blocking of timer callbacks, which is possible in the updated version of the executor included in ROS 2 distributions starting from Eloquent on. 2. We provide a solution to the issue exposed above, by employing mutual-exclusive multi-threaded executors in experiments and showing again the differences in scheduling, as well as callbacks grouping in ROS 2 Humble. 3. We illustrate the impact of the system design on the periodic execution of callbacks in the single-threaded executor, on an abstracted real-world centralized multiagent robot system.</p><p>II. BACKGROUND This section introduces ROS 2 and its components, followed by an overview of the available ROS 2 distributions. The Robot Operating System (ROS 2) is an open-source metaoperating system for developing robotic applications. Since ROS 2 is not a standalone operating system (OS), it must be installed on top of an existing OS. ROS 2 has been introduced to meet the industrial requirements of guaranteeing fault tolerance, process synchronization, and meeting real-time constraints. Compared to its predecessor ROS 1, ROS 2 adopts the communication middleware called Data Distribution Service (DDS) developed by the Object Management Group (OMG) <ref type="bibr">[2]</ref>. Middleware is software that enables connection and communication between two or more applications or application parts, by linking the communication between the applications that are not built to communicate with each other.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Robot Operating System 2 Distributions</head><p>ROS 2 is constantly improving in versioned sets of ROS 2 packages or so-called distributions.  Communication between nodes in the included DDS can be performed using publish-subscribe or service-client communication patterns, see Figure <ref type="figure" target="#fig_0">1</ref>. In the publish-subscribe pattern, publishers generate data, while subscribers consume the data <ref type="bibr" target="#b3">[5]</ref>. The publisher and subscriber discover each other at run-time using the Real-time Publish-Subscribe Protocol (RTPS) <ref type="bibr" target="#b0">[1]</ref>. A topic describes the data that publishers and subscribers share; the publishers and subscribers only send and receive data on topics of interest. In ROS 2, several publishers may publish on the same topic, and many subscribers can subscribe to the same topic. Subscribers receive data from all publishers related to a specific topic, see Figure <ref type="figure" target="#fig_0">1</ref>. Compared to asynchronous publisher-subscriber communication, ROS 2 provides synchronous service-client communication. This type of communication uses request-and-response communication among nodes. A service server, commonly used to compute a request, responds only when a service client node sends an initial request.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Executors and Callbacks</head><p>The smallest schedulable entity in ROS 2 is a callback, which is scheduled by the executor. The executor utilizes one or more threads of the underlying operating system to invoke callbacks that belong to one of the four callback types: timers, subscribers, services, and clients. Timer callbacks are triggered by events invoked by the operating system's timer, whereas subscribers are invoked by new messages on subscribed topics. A client callback is invoked when a client makes a service request, while the service callback is invoked when a service response to the clients' request is received.</p><p>The first analytical model of the executor, which is valid up to the ROS 2 distribution Eloquent, was proposed by Blass and Casini et al. <ref type="bibr" target="#b6">[8]</ref>. In their work, the authors explain the execution behavior of ROS 2 Crystal 2018. The second executor version was introduced in ROS 2 Eloquent 2019, and the changes were first identified by Blaß et al. <ref type="bibr" target="#b4">[6]</ref>. It is important to note the differences between the two versions of executors, illustrated in Figure <ref type="figure">2</ref>. In both versions, all callbacks in ROS 2 are non-preemptive, which means that once the execution of a callback starts, it will be completed before the next callback is executed. However, the second executor version brought improvements and changes that warrant further discussion and analysis in this paper. The execution priorities of callbacks are determined based on their type. Callbacks belonging to the group of timers have the highest priority, followed by subscription callbacks and service callbacks. The client callbacks have the lowest priority. Inside each group, the priorities of callbacks are determined by the order of registration in the executor, meaning that, e.g., the first-registered timers are executed before the later-registered timer when both are available simultaneously <ref type="bibr" target="#b6">[8]</ref>. Decisions of scheduling in the executor are based on the so-called ready set. The ready set contains one instance of all topics, services, and client callbacks where data is available in the DDS, i.e., the so-called ready callbacks. When the executor is idle, e.g., when all callbacks in the ready set are executed, a ready set is built in both versions of the executor. The point where the ready set is built is called a polling point. The difference between execution models resides in how timers are handled. In the first version of the executor, timers are excluded from the ready set and scanned for every iteration when any callback instance finishes its</p><formula xml:id="formula_0">E2 cb ← the highest-priority callback in s executes the next instance of cb readySet ← readySet \ cb s != ∅ s = ∅ s != ∅ s ← Csub ∩ readySet s = ∅ s != ∅ s ← Csrv ∩ readySet s = ∅ s != ∅ s ← Cclt ∩ readySet Executor Model E1 readySet ← {c ∈ C | c ready} readySet ← {c ∈ (C \ Ctmr) | c ready} s ← {t ∈ Ctmr | t ready} s ← Ctmr ∩ readySet s = ∅ Fig. 2</formula><p>. Version 1 (E1) for the ROS 2 distributions earlier than Dashing Casini et al. <ref type="bibr" target="#b6">[8]</ref> and 2 (E2) for later distributions of ROS 2 (Eloquent -Humble) of the executor model. C represents a set of callbacks with an instance c, where tmr denotes a timer, sub the subscriber, srv the server, and clt the client callbacks. By s we denote the subset of a ready set, and by cb the highest priority callback in s.</p><p>execution. In the updated version of the executor, starting with ROS 2 Eloquent, the timers are included in the ready set <ref type="bibr" target="#b4">[6]</ref>.</p><p>The prioritization and execution of the callbacks in multithreaded executors (introduced in ROS 2 Foxy) follow the same procedure as shown in Figure <ref type="figure">2</ref>, except that the execution of callbacks is distributed to several system threads <ref type="bibr" target="#b11">[13]</ref>. That leaves two options for operating callbacks, that is (a) mutual exclusion, meaning that all callbacks in the ready set have to be processed after the previous callback finishes its execution, or (b) reentrant, meaning that all callbacks in the ready set can be executed in parallel. In an executor using option (a), multiple threads cannot operate callbacks from the same callback group in parallel, but operate the idle operation of updating the ready set, which increases the number of polling points.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. RELATED WORK</head><p>This section gives an overview of related works on timing analysis of ROS 2, alternative executor design, real-time capabilities of ROS 2, and systems and communication design. The first work mentioning and stating the ROS 2 execution model was conducted by Casini et al. <ref type="bibr" target="#b6">[8]</ref> in 2019. By analyzing the execution of the ROS 2 distribution Christal Clemmys, the executor model was identified and described. A responsetime analysis, calculating the worst-case response time was proposed under reservation-based scheduling. Another work regarding response-time analysis, considering the priorities of the ROS 2 callbacks, based on the first executor version was conducted by Tang et al. <ref type="bibr" target="#b18">[20]</ref>. In the paper by Blaß et al. <ref type="bibr" target="#b4">[6]</ref> the actual timer as a part of the ready set was considered. An expanded analysis under real-time scheduling for multi-threaded executors has been conducted by Jiang et al. <ref type="bibr" target="#b11">[13]</ref>. This work proposes response-time analysis for processing chains using multi-threaded executors. The latest paper in the field by Teper et al. <ref type="bibr" target="#b19">[21]</ref> proposes an end-toend timing analysis on a single-threaded executor, focusing on cause-effect chains. The named works are significant for the research we present in this paper. However, actual execution differences were not compared, which are addressed in our work. Furthermore, our work expands the knowledge about timer blocking in periodic systems and how the system design influences execution.</p><p>In addition to research on explaining and analyzing the execution of ROS 2 in the native distributions, work was conducted on implementing new executor algorithms. Choi et al. <ref type="bibr" target="#b8">[10]</ref> propose a new priority-driven executor and provide analysis in terms of end-to-end latency, which is improved compared to the native ROS 2 executor. Arafat et al. <ref type="bibr" target="#b1">[3]</ref> propose a new executor scheduling algorithm based on deadlinebased scheduling and carry out a response time analysis. Yang and Azumi <ref type="bibr" target="#b20">[22]</ref> replace the executor with the realtime executor from a scaled-down version of ROS 2 built for microcontrollers. While the previously stated works focus on creating new executors, our work is related to explaining the native ROS 2 scheduling and executor instead. Analyzing the real-time characteristics and performance of ROS 2, Choi et al. <ref type="bibr" target="#b8">[10]</ref> focuses more on the system and communication levels including the underlying OS, that is neglected in our work. Measuring performance in terms of transport latencies in the transportation layer of ROS 2 is conducted by Maruyama et al. <ref type="bibr" target="#b14">[16]</ref>, C. S. V. Gutiéerrez <ref type="bibr" target="#b5">[7]</ref>, and Kronauer et al. <ref type="bibr" target="#b12">[14]</ref>. Regarding communication architectures and performance using DDS, several works consider these within the context of ROS 2, for instance, Puck et al. <ref type="bibr" target="#b16">[18]</ref> [19] for real-time communication in distributed systems. Additional analysis of system performance, assuming different quality-of-service settings in the DDS, is proposed by Chen <ref type="bibr" target="#b7">[9]</ref>.</p><p>Further analysis on DDS vendors and the performance in centralized multi-agent robot systems was carried out by Dust et al. <ref type="bibr" target="#b9">[11]</ref>. Z. Li, A. Hasegawa, T. Azumi <ref type="bibr" target="#b21">[23]</ref> have proposed a framework for measuring system performance and callback execution time. The work from Erős et al. <ref type="bibr" target="#b10">[12]</ref> investigates and states different possible communication architecture approaches for multi-agent robot systems using ROS 2. However, neither performance analysis nor implications to systems' design are drawn. A time disparity analysis for message synchronization has been proposed by Li et al. <ref type="bibr" target="#b13">[15]</ref>, which helps evaluate data consistency in systems using sensor fusion. Above stated performance measures, tools, and advanced analysis methods are essential to provide a more holistic analysis of existing systems in the future.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. EXPERIMENTAL EVALUATION OF EXECUTION</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>BEHAVIOR</head><p>In this section, we present four experiments and their results to evaluate and visualize the execution differences in the existing executors. An overview of the experiments can be found in Table <ref type="table">II</ref>. In Exp1, a simple scenario is created on a single-threaded executor, using multiple subscribers and two single-shot timers, each triggered once. Throughout the experiment, the same scenario is repeated across the ROS 2 distributions Dashing, Eloquent, and Humble, respectively. In Exp2, experiments are carried out for the three distributions under consideration on a single-threaded executor creating a new scenario by using periodic timers. This scenario demonstrates the blocking in the execution of periodic systems. In Exp3 and Exp4, we conduct experiments in the same scenario as Exp2 utilizing periodic timers, but using multi-threaded executors. The difference between Exp3 and Exp4 is the usage of callback grouping in Exp4, where only callbacks assigned to the same group share the same instance of the executor. As the multi-threaded executors and callback groups have been introduced in more recent versions of ROS 2, our evaluation specifically targets ROS 2 Humble. By focusing on this latest distribution, we can better assess the performance and characteristics of these features in the most up-to-date ROS 2 distribution. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Experimental Setup</head><p>All the experiments in this paper are conducted on a single computer using docker, to create a controlled environment and enable simple switching between the different ROS 2 distributions. The ROS 2 distributions under consideration and their respective native DDS are as follows:</p><p>1) ROS 2 Humble, latest distribution of ROS 2, E2 2) ROS 2 Eloquent, first distribution to introduce E2 3) ROS 2 Dashing, last distribution that contains E1 We create a simple ROS 2 system consisting of two nodes, four topics, and three services, which are used throughout all four experiments. An overview of the evaluation system can be found in Figure <ref type="figure" target="#fig_1">3</ref>. The left-side node in Fig. <ref type="figure" target="#fig_1">3</ref>  as the control node and is used to control the experiment, by sending the start message and requesting service sequences at defined times. The right-side node in Fig. <ref type="figure" target="#fig_1">3</ref> is the experiment node, where the execution order of the callbacks is tracked. Topics and services in the system are called after their priority, which is determined by the order of registration. The topics are called H, M, and L (High, Medium, Low), and services SH, SM, and SL (Service High, Service Medium, Service Low). Furthermore, one control topic is created to start and control the experiment. A message sent over the control topic triggers the registration of the needed timers in the experiment node. Each subscriber and each client in the experiment node are connected to a unique callback that publishes its execution information in the ROS 2 log. For simplicity and better execution analysis, the callback execution time in the experiment node (except for the control topic callback) is artificially programmed to be 500 ms. However, the lengths of periods do not influence our conclusion of experimental evaluation. Each experiment consists of a different timer, message and service sequences to be released/requested at specified time points from the control node and executed in the experiment node. The same source code runs in all three different ROS 2 distributions under consideration, without any changes. All experiments are performed on the same computer, using Ubuntu 20.04.4 LTS with an Intel Xeon E5-1660 CPU, NVIDIA Quadro K2000 GPU and 32GiB RAM.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Timers on Single-threaded Executor</head><p>The significant difference between the two versions of the single-threaded executor ( E1 and E2 in Fig. <ref type="figure" target="#fig_2">4</ref> and Fig. <ref type="figure" target="#fig_3">5</ref>) is the handling of the timers. The differences in the execution behavior in the ROS 2 distributions are visualized by conducting the experiments described in the following.</p><p>1) Experimental Scenarios: We set up two scenarios for the experiments. The first scenario (SC1) used in Exp1 utilizes single-shot timers that only execute once, intending to introduce differences in execution in a simple manner. Furthermore, the first experiment only contains two timers and utilizes a message sequence using only the three topics, H, M, and L, released at the scenario's beginning.</p><p>In the second scenario (SC2) used in Exp2,3 and 4, a periodic timer with a given period is initialized, the scenario containing four message sequences released at different times. The scenario utilizes the topics H, M, and L and the services SH, SM, and SL. The scenarios (SC1 and SC2) and the corresponding experiments are specified in Table <ref type="table">III</ref>, where timers are denoted by T0 and T1, and sequences by S0, S1, S2, and S3. In Exp1 and Exp2 respectively, both scenarios are executed using the ROS 2 distributions Dashing, Eloquent and Humble, using the single-threaded executor (E1 and E2). 2) Results and Discussion: The execution behavior shown in Figure <ref type="figure" target="#fig_2">4</ref> is observed when executing Exp1. The figure includes the execution of the corresponding callbacks to each topic and timer, respectively. Furthermore, it visually presents the release time of the timers and the polling point for the update of the ready set, respectively. The polling points and the corresponding ready set of Exp1 can be found in Table <ref type="table" target="#tab_5">IV</ref>. Note that the execution behavior differs for ROS 2 Dashing using E1 , as compared to Eloquent and Humble, using E2 .  In both E1 and the first ready set created at the start of the experiment. The highest-priority task in the ready set, i.e., the H topic callback, is executed first ( 0 ). During the execution of this callback, the first timer is released (first red lines). Now the first difference between E1 and E2 can be observed. After finishing the execution of the first callback, E1 immediately schedules the timer callback to execution, whereas, in E2, the next element of the ready set (M-callback) is executed <ref type="bibr" target="#b0">( 1 )</ref>. E2 executes all remaining callbacks in the ready set ( 1 , 2 ) before polling the system to create a new ready set ( 3 -7 after the green line), which contains the released timer during the execution of the first callback ( 3 ), whereas in E1, the executor finishes the execution of the timer callback ( 1 ) before it schedules the rest of the callbacks in the ready set ( 2 , 3 ) and then polls the system to create the second ready set (green line). During the execution of the first callback of the second ready set ( 4 ), Timer 2 is expiring (second red lines). The difference in scheduling shown in the first ready set can be seen here too, that is, E1 schedules T1 for execution immediately after finishing the execution of the running callback ( 5 right after 4 ), and then E1 continues executing the callbacks of the ready set. In E2, T1 is executed after emptying the ready set ( 7 right after 6 ). These phenomena confirm the timer to be part of the ready set in E2.</p><p>Answer to RQ1: When a timer is released during an execution of a callback and its ready set has remaining callbacks, ROS 2 Dashing, which uses the E1 version of executors, immediately schedules the timer callback after the current callback, whereas ROS 2 Eloquent and Humble, which use the E2 version of executors, continue executing the remaining callbacks in the set before scheduling the timer callback.</p><p>Exp2 is conducted in scenario SC2 and the resulting execution diagram for Exp2 can be found in Figure <ref type="figure" target="#fig_3">5</ref>. The resulting ready set for all polling points can be found in Table <ref type="table" target="#tab_5">V</ref>.  In scenario SC2, the periodic timer T0 is released every 1.3 seconds. As depicted in Fig. <ref type="figure" target="#fig_3">5</ref>, E1 in ROS 2 Dashing executes all Timer instances directly after the previously executing callback is finished (e.g., D right after C ). Therefore, the maximum blocking of a timer in E1 must be the time of the longest callback. For E2 in ROS 2 Eloquent and Humble, the scheduling is different. The timers are firstly scheduled for execution after the next ready set is created after release time (e.g., F after E ). This can cause a long blocking time of a periodic timer. In Fig. <ref type="figure" target="#fig_3">5</ref> E2 , one can see that the first instance of timer T0 is released at 1.3 seconds (T0(0), first red line), but the execution is blocked until 2.5 seconds ( F ), which is shortly before the second instance of timer (T0(1), second red line). Such a long blocking is due to the fact that callbacks C -E , which are in the ready set when the first instance of T0 is released, must be finished before T0 can be scheduled. T0( <ref type="formula">1</ref>) is released at 2.6 seconds after a new creation of the ready set (PP1, first green line), which means T0(1) is released during the execution of T0(0). In this case, a consecutive execution of two timer instances takes place, which could be highly undesired. Therefore, system designers need to be aware of such a phenomenon and avoid potential faults. However, as far as we know, this paper is the first one that reveals the differences in scheduling between E1 and E2 in experiments. Moreover, we can see that in the following scheduling of E2, new instances of the timer are blocked again, for 1.2 and 1.5 seconds, followed by two consecutive executions of the timer callback, again ( Q and R ). Therefore, with a poor system design, blocking of periodic timers appears, which causes them to run sporadically, even though they are set to run periodically. In the worst case, the blocking of timers in E2 can be the sum of the execution time of all callbacks in the system, which is likely to cause significant degradation in system performance.</p><p>Answer to RQ2: Timer blocking can be significantly different in ROS 2 Dashing, Eloquent, and Humble, as it depends on the number of callbacks in the ready set. Therefore, more callbacks of any type can lead to a higher blocking time. In ROS 2 Dashing, timer blocking is slight and dependent on the execution time of the previous executing callback and higher priority timers, whereas ROS 2 Eloquent and Humble potentially have long timer blocking leading even to consecutive occurring timer callbacks, which makes periodic timer callbacks occur irregularly.</p><p>As timers do not contain buffers in ROS 2, if blocking is longer than two periods of a timer, one instance of the timer would be skipped. This issue cannot be solved on a single-threaded executor. Hence, it needs to be regarded when designing systems using ROS 2, especially if updating the system with a different ROS 2 distribution is planned. In the following, we show that a multi-threaded executor setting could be regarded as a mitigation solution for the previously exposed unpredictable behavior.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Periodic Timers on Multi-threaded Executors</head><p>In this section, we evaluate the multi-threaded executor via Exp3 and Exp4 to present a meaningful comparison to the single-threaded executor. The two designed experiments only focus on the mutually-exclusive executor and callback grouping, as the execution behavior is closest to the model of the single-threaded executor. Since multi-threaded executors and callback groups have been added to ROS 2 during recent releases, the experiments are only carried out on ROS 2 distribution 1) Experiment Setup: Both Exp3 and Exp4 use scenario SC2, which can be found in Table <ref type="table">III</ref>. While Exp3 only uses the multi-threaded executor, Exp4 uses callback grouping. By callback grouping, callbacks can be assigned to different groups, and each group has its own instance of the executor. In Exp4, the timer is assigned one callback group, while all the other callbacks are grouped in another callback group.</p><p>2) Results and Discussion: Figure <ref type="figure" target="#fig_4">6</ref> shows the resulting execution trace from Exp3 and Exp4, respectively. The order of execution of the callbacks in the experiment node is visualized. Furthermore, the timer and the sequence release times are marked as well.</p><p>Using the mutually-exclusive multi-threaded executor in Exp3, the timer is executing periodically, with a jitter caused by the callback that is under execution at the release time (e.g., the gap between d and T0(0), the first red line). The scheduling policy in Exp3 follows that of the single-threaded executor E2, which includes timers in the ready set, but the actual scheduling result is almost similar to E1. However, E1 in Exp2 ( E1 in Figure <ref type="figure" target="#fig_3">5</ref>) schedules the H callback ( Q ) at time point 7.5, after the SM callback ( P ), whereas in Figure <ref type="figure" target="#fig_4">6</ref> Exp3, the H callback ( o ) is scheduled at time point 7.0, before the SM callback ( p ). This execution difference shows that the multi-threaded executor in Exp3 polls more frequently than the single-threaded executor in Exp2, and the ready set is updated during the execution of callbacks. As the executor is set to be mutually exclusive, once a ready set is assigned to a thread, other threads cannot preempt the set and execute other callbacks, but they can update a ready set by adding later released callbacks.</p><p>In the execution trace of Exp4, Figure <ref type="figure" target="#fig_4">6</ref>, we mark the callbacks of the timer in red, as they are assigned a different callback group than other callbacks. The mutual-exclusive property is only valid within a callback group and each callback group has its own ready set, which means the multithreaded executor can execute the timer in parallel to other callbacks belonging to the other callback group. Additionally, as there are no other callbacks in the timer's callback group, the timer is executed as soon as it is released. As expected, in both experiments using the mutually exclusive multi-threaded executor, the blocking issue seen from the single-threaded executor is resolved.</p><p>Answer to RQ3: By using multi-threaded executors in ROS 2 Humble, timer blocking is largely alleviated or even eliminated, compared to the single-threaded executor. Even without callback grouping, timer blocking is reduced to higher priority timers and the length of the previously executed callback. When using callback grouping, timer callbacks can be scheduled in parallel to the execution of other callbacks, as timers can be scheduled as soon as they are released. Nevertheless, mutually exclusive execution is no longer possible using the callback grouping option.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. USE-CASE: CENTRALIZED MULTI-AGENT ROBOT</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>SYSTEM</head><p>This section focuses on a real-world use case by building an experimental system around the centralized multi-agent robot system. In such systems, multiple robots communicate towards a central node, that is, the robot tracker, via the so-called topics that are elements of ROS 2 communication by which data is moved between nodes. We investigate the impact of system design choices on the communication between multiple agents towards a centralized computing node that tracks robot information. We focus only on the design possibilities of the robot's communication towards the edge computer using ROS 2 and show the effects this communication has on the computation inside the tracker node.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Experiment Setup</head><p>The experiment system is based on a real-world legacy system. A centralized multi-robot system is built around central servers that manage the intensive processing for robots with limited computing capacity. The robots connect to the server and continuously update essential information about themselves, respectively, allowing global fleet management to control each robot. In the selected use case, the robots send their status information, including odometry and load data, to the centralized node periodically with a configurable period. The task of the central node is to collect all incoming data creating a list, that is sent out periodically, for further processing. For simplicity, this paper neglects all other parts of the system. While building such a centralized communication in ROS 2, three different communication approaches are possible, as shown in Figure <ref type="figure">7</ref>.</p><p>the execution gets increasingly delayed with the number of callbacks. This phenomenon can be explained with the current execution models, as blocking of the timer occurs.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. DISCUSSION AND CONCLUSION</head><p>The experimental work conducted in this paper compares the execution of callbacks in the different executors in ROS 2.</p><p>During the experiments and in the stated use-case, possible effects of the underlying operating system, network traffic and quality-of-service settings are neglected. Further analysis needs to be performed, including communication, to allow evaluation on holistic system performance.</p><p>From proposed response time analysis in related work, the timer blocking can be calculated, leading the result of this paper not to be surprising. However, the results give a good overview of the internal execution of ROS 2 with ideal underlying scheduling. Generally, the obtained scheduling semantics are hardware independent. Nevertheless, the execution of ROS 2 relies on the underlying OS as well, which might influence the obtained results in cases of limited resource availability. For ROS 2 developers and even researchers, this paper introduces the different existing executors and shows the effects of system design on execution. We show in a simple way how the different executors influence the execution order of callbacks, which can guide developers to the right system design choices without the need to perform worse-case response-time analysis for their system.</p><p>We conclude our experimental investigation as follows. In E1, included up to ROS 2 Dashing, through continuously polling for timers, a timer can only get blocked until the previous computing callback is finished. In comparison, in E2, through the inclusion of the timers into the ready set, a timer callback is blocked until the execution of all callbacks of the previous ready set is finished. With a higher amount of ready callbacks, the blocking time gets longer easily blocking a timer into its subsequent execution. This is critical, as timers have no buffer and instances can get lost. Using a mutuallyexclusive multi-threaded executor reduces the blocking of the timer to the execution of the previous computing callback. Due to the mutual exclusion, a second thread is not computing any callbacks, but updating the ready set instead. The execution jitter of the timer can be reduced to a minimum, by utilizing callback grouping, only adding the timer callback to a specific group. Nevertheless, the callback grouping shows a reentrant execution from the perspective of the node.</p><p>The provided use-case in this paper demonstrates that caused by the executor, a chosen communication architecture influences the execution of a system. Especially in cases of high utilization, the choice of callback organization becomes significant. When designing systems that rely on periodic execution, one needs to keep the number of topics to a minimum to reduce the amount of callbacks in the executor. Alternatively the multi-threaded executor options need to be considered. Especially when systems are built to scale in the number of agents, design compromises need to be made with system complexity, resource utilization, and system performance.</p><p>In a subsequent step to this paper, formal verification can be employed, to help address and prevent the timer issue more straightforwardly. Furthermore, towards real-time execution, work can be conducted to improve the ROS 2 executor by implementing other design opportunities, e.g., dynamic settings for the ready set.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 .</head><label>1</label><figDesc>Fig. 1. ROS 2 communication scheme of nodes, topic, publisher, subscriber, service, and client.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 3 .</head><label>3</label><figDesc>Fig.3. Simple ROS 2 system to verify the executor models. Green ellipses represent nodes, red boxes represent topics and blue boxes depict service communication. The Control node provides the publishers and service clients, while the experiment node provides the subscribers and the services service.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 4 .</head><label>4</label><figDesc>Fig. 4. Exp1: execution diagram of the given callbacks for subscribers (H, M, L) and timers (T0, T1). Red line: activation time of the timer callbacks. Green line: the polling points (PP) in the system.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 5 .</head><label>5</label><figDesc>Fig. 5. Exp2: execution diagram of the given callbacks for subscribers (H, M, L) and services (SH, SM, SL), and timer T0. Red line: expiration time of the timers. Green line: polling points (PP) in the system. Blue line: release of message sequences.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 6 .</head><label>6</label><figDesc>Fig. 6. Execution diagram of the given callbacks for subscribers (H, M, L) and timers (T1, T0) in Exp3 and Exp4. Red line: expiration time of the timers. Blue line: release of message sequences.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head></head><label></label><figDesc>Table I lists the distributions used in this paper, the respective default DDS vendor, as well as the version of the executor, respectively.</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>TABLE V POLLING</head><label>V</label><figDesc>POINTS AND READY SET IN EXP2</figDesc><table><row><cell></cell><cell cols="2">Polling Point PP0</cell><cell>PP1</cell><cell>PP2</cell><cell>PP3</cell><cell>PP4</cell><cell>PP5 PP6</cell></row><row><cell>E1</cell><cell>Time Ready Set</cell><cell cols="3">0 H;M;L;SH;SL H;M;L SH;SM 3.5 6</cell><cell>7.5 H</cell><cell>--</cell><cell>--</cell><cell>--</cell></row><row><cell>E2</cell><cell>Time Ready Set</cell><cell cols="2">0 H;M;L;SH;SL T0 2.5</cell><cell cols="4">3 T0;H;M;L T0;SH;SM T0;H T0 5 6.5 7.5</cell><cell>8 T0</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 13,2026 at 00:43:19 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>State</head><p>In the first approach (at the bottom), each robot registers its topic and, hence, receives a subscription callback in the centralized node. The second approach (on the upper left side) uses only one topic for all of the robots' state information, leading to only one subscription callback in the edge node. The third approach (on the upper right side) combines the first two approaches, where robots are grouped, with each group receiving a particular topic. Each approach uses a different amount of callbacks in the centralized node, which influences the periodicity of the centralized sending of the list of status information. Assuming the use-case and the ROS 2 system described at the beginning of this section, we perform measurements to show the impact of the system design on the execution. The experiment focuses on the tracker's periodic sending of the status list. To show how the communication approach influences the period of execution, the system is simulated with 10, 30, 50, and 70 robots, respectively. The period is manually configured to be 1 ms, being under the system's limit when the system contains 50 or 70 robots. In the first step, the system is simulated with one topic for all robots. In the second step, the robots are grouped into 10, 5, and 2 robots per topic. The last part of data collection is then carried out, with each robot having a particular topic. Each measurement consists of 500 iterations of sending the state list. Timestamps are taken and analyzed to calculate the average period. As the legacy system is implemented using ROS 2 Galactic and real system messages are considered, the experiments are performed on ROS 2 Galactic utilizing Cyclone DDS. There might be differences in the obtained periods depending on the network traffic and chosen DDS vendor. Nevertheless, the experiment is designed to keep the impact of communication minimal relative to the impact of the scheduling. The used hardware is the same as the one used during experiments one to four. For simplicity, all nodes are simulated on the same computer, which reduces other influences by a real network.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Results and Discussion</head><p>We present the results of the above measurements in Table <ref type="table">VI</ref>. In the first simulation with ten robots, we can see that the increase in topics does not influence the periodicity. Therefore, the callback execution time and the number of topics are not significant enough to block the timer and delay the execution. For 30 robots, the period is set to 1 ms, except for the approach where each robot has its topic (one robot per topic), so 30 topics and 30 reception callbacks exist in the tracker node, which is blocking the execution of the timer. In other cases, the impact is not significant enough to block the timer.</p><p>In the next simulation with 50 robots, one can see that already during the execution with only one topic (max robots per topic), the period is not set to 1, but it is 1.27 ms instead. This can be explained by the fact that the timer and receiver callback takes longer with more robots to create, sort, or send out the array. In this case, 1.27 ms is the maximum frequency, which the edge node can guarantee if the timer sends out the data array periodically. When we increase the number of topics, one can observe that the period is growing to 2.16 ms, with one robot per topic (50 topics and subscription callbacks). That clearly shows that the timer is blocked in its execution by the callbacks, and the period rises. The same effect can be seen in the simulation with 70 robots, where the maximum frequency with one topic is 2.26 ms, and the period increases to 4.18 ms for 70 topics. In brief, we show that in cases when the update period is manually set to the system's limit,</p></div>			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<ptr target="https://www.omg.org/spec/DDSI-RTPS/2.3/Beta1/" />
+		<title level="m">The real-time publish-subscribe protocol</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="22" to="33" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Response time analysis for dynamic priority scheduling in ros2</title>
+		<author>
+			<persName><forename type="first">Abdullah</forename><surname>Al Arafat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sudharsan</forename><surname>Vaidhun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kurt</forename><forename type="middle">M</forename><surname>Wilson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jinghao</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhishan</forename><surname>Guo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 59th ACM/IEEE Design Automation Conference</title>
+		<meeting>the 59th ACM/IEEE Design Automation Conference</meeting>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="301" to="306" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Centralized robotic fleet coordination and control</title>
+		<author>
+			<persName><forename type="first">Maximilian</forename><surname>Berndt</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Dennis</forename><surname>Krummacker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Christoph</forename><surname>Fischer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hans</forename><surname>Dieter Schotten</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Mobile Communication -Technologies and Applications; 25th ITG-Symposium</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="1" to="8" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Exploiting virtual synchrony in distributed systems</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Birman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Joseph</surname></persName>
+		</author>
+		<idno type="DOI">10.1145/41457.37515</idno>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the eleventh ACM Symposium on Operating systems principles</title>
+		<meeting>the eleventh ACM Symposium on Operating systems principles</meeting>
+		<imprint>
+			<date type="published" when="1987">1987</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">A ros 2 response-time analysis exploiting starvation freedom and execution-time variance</title>
+		<author>
+			<persName><forename type="first">Tobias</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Daniel</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sergey</forename><surname>Bozhko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Björn B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="41" to="53" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Towards a distributed and real-time framework for robots: Evaluation of ros 2.0 communications for real-time robotic applications</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">S V</forename><surname>Gutiéerrez</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Tech. Rep</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Response-time analysis of ros 2 processing chains under reservationbased scheduling</title>
+		<author>
+			<persName><forename type="first">Daniel</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Tobias</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ingo</forename><surname>Lütkebohle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Björn</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">31st Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="1" to="23" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">Performance analysis of ros 2 networks using variable quality of service and security constraints for autonomous systems</title>
+		<author>
+			<persName><forename type="first">Zhaolin</forename><surname>Chen</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+		<respStmt>
+			<orgName>Naval Postgraduate School Monterey United States</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical report</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Picas: New design of priority-driven chain-aware scheduling for ros2</title>
+		<author>
+			<persName><forename type="first">Hyunjong</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yecheng</forename><surname>Xiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hyoseung</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE 27th Real-Time and Embedded Technology and Applications Symposium</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="251" to="263" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Quantitative analysis of communication handling for centralized multi-agent robot systems using ros2</title>
+		<author>
+			<persName><forename type="first">Lukas</forename><surname>Dust</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Emil</forename><surname>Persson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ekström</forename><surname>Mikael</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mubeen</forename><surname>Saad</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Dean</forename><surname>Emmanuel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Conference on Industrial Informatics</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">A ros2 based communication architecture for control in collaborative and intelligent automation systems</title>
+		<author>
+			<persName><forename type="first">Endre</forename><surname>Erős</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Martin</forename><surname>Dahl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kristofer</forename><surname>Bengtsson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Atieh</forename><surname>Hanna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Petter</forename><surname>Falkman</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Procedia Manufacturing</title>
+		<imprint>
+			<biblScope unit="page">38</biblScope>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling and analysis of processing chains on multithreaded executor in ros 2</title>
+		<author>
+			<persName><forename type="first">Xu</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Dong</forename><surname>Ji</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ruoxiang</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yue</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yi</forename><surname>Wang</surname></persName>
+		</author>
+		<idno type="DOI">10.1109/RTSS55097.2022.00013</idno>
+	</analytic>
+	<monogr>
+		<title level="m">2022 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="27" to="39" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Latency analysis of ros2 multi-node systems</title>
+		<author>
+			<persName><forename type="first">Tobias</forename><surname>Kronauer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Joshwa</forename><surname>Pohlmann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Maximilian</forename><surname>Matthé</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Till</forename><surname>Smejkal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Gerhard</forename><surname>Fettweis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Conference on Multisensor Fusion and Integration for Intelligent Systems</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Worst-case time disparity analysis of message synchronization in ros</title>
+		<author>
+			<persName><forename type="first">Ruoxiang</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xu</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhishan</forename><surname>Guo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zheng</forename><surname>Dong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mingsong</forename><surname>Lv</surname></persName>
+		</author>
+		<idno type="DOI">10.1109/RTSS55097.2022.00014</idno>
+	</analytic>
+	<monogr>
+		<title level="m">2022 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="40" to="52" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Exploring the performance of ros2</title>
+		<author>
+			<persName><forename type="first">Yuya</forename><surname>Maruyama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Shinpei</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Takuya</forename><surname>Azumi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 International Conference on Embedded Software</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">System design for automation in multiagent-based manufacturing systems</title>
+		<author>
+			<persName><forename type="first">Samyeul</forename><surname>Noh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Junhee</forename><surname>Park</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">20th International Conference on Control, Automation and Systems</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="986" to="990" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Performance evaluation of real-time ros2 robotic control in a time-synchronized distributed network</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Puck</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Keller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Schnell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Plasberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Tanev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Heppner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Roennau</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Dillmann</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">17th International Conference on Automation Science and Engg</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">Distributed and synchronized setup towards real-time robotic control using ros2 on linux</title>
+		<author>
+			<persName><forename type="first">Lennart</forename><surname>Puck</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Philip</forename><surname>Keller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Schnell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Carsten</forename><surname>Plasberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Atanas</forename><surname>Tanev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Georg</forename><surname>Heppner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Arne</forename><surname>Roennau</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Rüdiger</forename><surname>Dillmann</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Response time analysis and priority assignment of processing chains on ros2 executors</title>
+		<author>
+			<persName><forename type="first">Yue</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhiwei</forename><surname>Feng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xu</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mingsong</forename><surname>Lv</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Qingxu</forename><surname>Deng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Wang</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="231" to="243" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Georg von der Brüggen, and Jian-Jia Chen. End-to-end timing analysis in ros2</title>
+		<author>
+			<persName><forename type="first">Harun</forename><surname>Teper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mario</forename><surname>Günzel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Niklas</forename><surname>Ueter</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2022 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="53" to="65" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Exploring real-time executor on ros 2</title>
+		<author>
+			<persName><forename type="first">Yuqing</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Takuya</forename><surname>Azumi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Conference on Embedded Software and Systems</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="1" to="8" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Autoware-perf: A tracing and performance analysis framework for ros 2 applications</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hasegawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Arch</title>
+		<imprint>
+			<biblScope unit="volume">123</biblScope>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

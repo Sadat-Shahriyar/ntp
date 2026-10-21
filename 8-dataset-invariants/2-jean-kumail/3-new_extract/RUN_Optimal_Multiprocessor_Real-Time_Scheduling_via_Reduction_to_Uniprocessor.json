@@ -1,0 +1,1035 @@
+{
+  "paper_name": "RUN: Optimal Multiprocessor Real-Time Scheduling via Reduction to Uniprocessor",
+  "paper_description": "This paper introduces RUN, an optimal multiprocessor real-time scheduling algorithm that reduces the multiprocessor problem to a series of uniprocessor problems. It aims to minimize preemption and migration overhead while achieving full processor utilization. The algorithm uses DUAL and PACK operations to transform the multiprocessor system into uniprocessor systems, which are then scheduled using EDF, and the results are transformed back.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Definition II.1 (Job)",
+      "formal_description": {
+        "statement": "A real-time job J is a finite sequence of instructions with a release time J.r, an execution time J.c, and a deadline J.d.",
+        "variables": {
+          "J": "a real-time job",
+          "J.r": "release time of job J",
+          "J.c": "execution time of job J",
+          "J.d": "deadline of job J"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the fundamental unit of work in the system."
+      },
+      "informal_sketch": {
+        "intuition": "A job is a piece of work that needs to be done within a specific time frame.",
+        "steps": [
+          "A job has a start time (release time).",
+          "It requires a certain amount of processing time (execution time).",
+          "It must be completed by a specific end time (deadline)."
+        ],
+        "pseudocode": "class Job:\n    def __init__(self, release_time, execution_time, deadline):\n        self.r = release_time\n        self.c = execution_time\n        self.d = deadline",
+        "key_insights": [
+          "Jobs are the atomic units of execution that must meet deadlines."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition II.2 (Fixed-Rate Task)",
+      "formal_description": {
+        "statement": "A fixed-rate task tau has rate R(tau) and deadline set D(tau). All tasks in this paper are fixed-rate tasks, referred to henceforth simply as \"tasks\". As a simple example, a periodic task tau with start time of t = 0, period T, and execution time C is a fixed-rate task with rate R(tau) = C/T, and deadlines D(tau) = {j*T, j in N*}. We use the more general model of a fixed-rate task because it can also represent groups of tasks, with rate equal to the sum of the group's rates and deadlines equal to the union of the group's deadlines.",
+        "variables": {
+          "tau": "a fixed-rate task",
+          "R_tau": "rate of task tau",
+          "D_tau": "set of deadlines for task tau",
+          "C": "execution time of a periodic task",
+          "T": "period of a periodic task",
+          "N_star": "set of positive integers"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a task based on its execution rate and a set of deadlines, generalizing periodic tasks."
+      },
+      "informal_sketch": {
+        "intuition": "A task is characterized by how much work it demands over time (its rate) and when its jobs must be completed (its deadlines).",
+        "steps": [
+          "A task has a constant rate R(tau), representing its average execution demand per unit time.",
+          "A task has a set of deadlines D(tau) for its jobs.",
+          "For a periodic task with period T and execution time C, its rate is C/T and deadlines are multiples of T.",
+          "This model can represent groups of tasks by summing their rates and taking the union of their deadlines."
+        ],
+        "pseudocode": "class FixedRateTask:\n    def __init__(self, rate, deadlines):\n        self.R = rate\n        self.D = deadlines\n\n# Example for periodic task:\ndef create_periodic_task(C, T):\n    rate = C / T\n    deadlines = [j * T for j in range(1, 100)] # Example up to 100 jobs\n    return FixedRateTask(rate, deadlines)",
+        "key_insights": [
+          "The rate captures the long-term demand of a task.",
+          "The deadline set defines when jobs must finish."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition II.3 (Schedule)",
+      "formal_description": {
+        "statement": "For a set of jobs (or tasks) J on a platform of m identical processors, a schedule Sigma is a function from the set of all non-negative times t onto the set of all subsets of J such that (i) |Sigma(t)| <= m for all t, and (ii) if J in Sigma(t), then J.r <= t, e(J, t) > 0 and J executes at t. Thus, Sigma(t) is the set of jobs executing at time t.",
+        "variables": {
+          "J": "a set of jobs or tasks",
+          "m": "number of processors",
+          "Sigma": "a schedule",
+          "t": "time",
+          "Sigma(t)": "set of jobs executing at time t",
+          "e(J, t)": "work remaining for job J at time t"
+        },
+        "assumptions": [],
+        "conclusion": "Defines what a schedule is: which jobs run on which processors at any given time."
+      },
+      "informal_sketch": {
+        "intuition": "A schedule dictates which jobs are actively being processed at any moment in time.",
+        "steps": [
+          "A schedule is a mapping from time to a set of executing jobs.",
+          "At any time t, the number of executing jobs cannot exceed the number of processors (m).",
+          "A job can only execute at time t if it has been released (J.r <= t), still has work to do (e(J, t) > 0), and is selected to run."
+        ],
+        "pseudocode": "def is_valid_schedule_at_time_t(schedule, jobs_at_t, current_time, num_processors):\n    if len(jobs_at_t) > num_processors:\n        return False\n    for job in jobs_at_t:\n        if not (job.r <= current_time and job.c > 0): # Assuming job.c represents remaining work\n            return False\n    return True",
+        "key_insights": [
+          "Constraints on the number of concurrent jobs and their readiness."
+        ]
+      },
+      "dependencies": [
+        "Definition II.1 (Job)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition II.4 (Valid Schedule)",
+      "formal_description": {
+        "statement": "A schedule Sigma of a job set J is valid if all jobs in J finish by their deadlines. For a full utilization task set, a valid schedule must have |Sigma(t)| = m for all times t. A set of jobs or tasks is feasible if a valid schedule for it exists. Each fixed-rate task has at most one ready job at any time in a valid schedule. A scheduling algorithm is optimal if it finds a valid schedule for all feasible sets of fixed-rate tasks.",
+        "variables": {
+          "Sigma": "a schedule",
+          "J": "a set of jobs",
+          "m": "number of processors"
+        },
+        "assumptions": [],
+        "conclusion": "Defines what it means for a schedule to be correct (all deadlines met) and introduces concepts of feasibility and optimality."
+      },
+      "informal_sketch": {
+        "intuition": "A schedule is valid if every single job completes its work before its deadline. An optimal algorithm guarantees to find such a schedule if one exists.",
+        "steps": [
+          "A schedule is valid if every job in the system completes by its deadline.",
+          "A task set is feasible if at least one valid schedule exists for it.",
+          "An optimal scheduling algorithm can find a valid schedule for any feasible task set.",
+          "For fully utilized systems, a valid schedule must keep all processors busy at all times."
+        ],
+        "pseudocode": "def is_valid_schedule(schedule, job_set):\n    for job in job_set:\n        if job.completion_time > job.d:\n            return False\n    return True\n\ndef is_feasible(task_set, scheduling_algorithm):\n    # This is a theoretical check, often hard to do in practice\n    # For a given algorithm, we check if it can produce a valid schedule\n    return scheduling_algorithm.can_schedule(task_set)",
+        "key_insights": [
+          "The ultimate goal is meeting all deadlines.",
+          "Optimality is a strong property guaranteeing a solution if one exists."
+        ]
+      },
+      "dependencies": [
+        "Definition II.3 (Schedule)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition III.1 (Server/Client)",
+      "formal_description": {
+        "statement": "Let T be a set of tasks with total rate given by R(T) = sum(tau in T) R(tau) <= 1. A server S for T, denoted ser(T), is a virtual task with rate R(T) and deadlines D(S) = union(tau in T) D(tau). T is the set of S's clients, which is denoted cli(S). S is equipped with a scheduling policy to schedule the jobs of its clients.",
+        "variables": {
+          "T": "a set of tasks",
+          "R_T": "total rate of tasks in T",
+          "S": "a server",
+          "ser(T)": "server for task set T",
+          "R_S": "rate of server S",
+          "D_S": "deadlines of server S",
+          "cli(S)": "clients of server S"
+        },
+        "assumptions": [
+          "R(T) <= 1"
+        ],
+        "conclusion": "Defines a server as a virtual task that aggregates other tasks (clients) and schedules them according to its own rate and deadlines."
+      },
+      "informal_sketch": {
+        "intuition": "A server acts as a manager for a group of tasks, ensuring they collectively get their allocated processing time.",
+        "steps": [
+          "A server S is created for a set of tasks T.",
+          "The server's rate R(S) is the sum of its clients' rates R(T).",
+          "The server's deadlines D(S) are the union of its clients' deadlines.",
+          "The server itself has jobs that represent the allocated processing time for its clients.",
+          "The server uses an internal policy to schedule its client jobs."
+        ],
+        "pseudocode": "class Server:\n    def __init__(self, clients):\n        self.clients = clients\n        self.R = sum(client.R for client in clients)\n        self.D = self.union_deadlines(clients)\n        self.scheduling_policy = EDF() # Example policy\n\n    def union_deadlines(self, clients):\n        all_deadlines = set()\n        for client in clients:\n            all_deadlines.update(client.D)\n        return sorted(list(all_deadlines))\n\n    def schedule_clients(self, current_time):\n        # Logic to schedule client jobs based on self.scheduling_policy",
+        "key_insights": [
+          "Servers abstract away complexity by grouping tasks.",
+          "The server's rate and deadlines govern the collective execution of its clients."
+        ]
+      },
+      "dependencies": [
+        "Definition II.2 (Fixed-Rate Task)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition III.2 (Unit Set/Unit Server)",
+      "formal_description": {
+        "statement": "A set Gamma of servers is a unit set if R(Gamma) = 1. The server ser(Gamma) for a unit set Gamma is a unit server. By Definition III.1, the execution requirement of a server S in any interval [di, di+1) equals R(S)(di+1 - di), where di and di+1 are consecutive deadlines in D(S). Then the workload for job J of server S with J.r = di and J.d = di+1 equals J.c = e(J, J.r) = R(S)(J.d - J.r), just as with a \"real\" job. However, just as a server S is a proxy for its clients, so too are the \"jobs\" of S, which represent budget allocated to S so that its clients' jobs may execute. At each d in D(S), when the S releases a job J_S, S replenishes this budget. At any given time t, that budget is just e(J_S, t), where J_S is the current job of S.",
+        "variables": {
+          "Gamma": "a set of servers",
+          "R_Gamma": "total rate of servers in Gamma",
+          "S": "a server",
+          "D_S": "deadlines of server S",
+          "J_S": "a job of server S",
+          "J_S.r": "release time of job J_S",
+          "J_S.d": "deadline of job J_S",
+          "J_S.c": "execution time of job J_S"
+        },
+        "assumptions": [
+          "R(Gamma) = 1"
+        ],
+        "conclusion": "Defines a unit set and unit server, which have a total rate of 1 and can be scheduled on a single processor."
+      },
+      "informal_sketch": {
+        "intuition": "A unit server represents a fully utilized single processor. Its 'jobs' are budgets that must be fully consumed by its clients.",
+        "steps": [
+          "A unit set Gamma is a collection of servers whose total rate sums to exactly 1.",
+          "A unit server is a server created from a unit set.",
+          "The jobs of a unit server represent the processing time budget allocated to its clients.",
+          "The execution requirement of a unit server's job between two consecutive deadlines is exactly the duration of the interval multiplied by its rate (which is 1).",
+          "This budget is replenished at each deadline."
+        ],
+        "pseudocode": "class UnitServer(Server):\n    def __init__(self, clients):\n        super().__init__(clients)\n        if self.R != 1.0:\n            raise ValueError(\"Server rate must be 1.0 for a unit server.\")\n\n    def get_job_execution_time(self, job_release_time, job_deadline):\n        # For a unit server, the execution time is the interval duration\n        return job_deadline - job_release_time",
+        "key_insights": [
+          "Unit servers are the fundamental schedulable entities on a single processor.",
+          "Their jobs represent a full processor's capacity over specific intervals."
+        ]
+      },
+      "dependencies": [
+        "Definition III.1 (Server/Client)"
+      ]
+    },
+    {
+      "type": "rule",
+      "identifier": "Rule III.1 (EDF Server)",
+      "formal_description": {
+        "statement": "An EDF server is a server that schedules its client jobs with EDF.",
+        "variables": {
+          "S": "a server",
+          "cli(S)": "clients of server S"
+        },
+        "assumptions": [],
+        "conclusion": "Specifies that Earliest Deadline First (EDF) is used as the scheduling policy within a server."
+      },
+      "informal_sketch": {
+        "intuition": "To ensure clients meet their deadlines, the server uses the optimal uniprocessor scheduling algorithm, EDF.",
+        "steps": [
+          "When a server needs to schedule its client jobs, it selects the job with the earliest absolute deadline.",
+          "This job is then executed until it completes or is preempted by another client job with an even earlier deadline."
+        ],
+        "pseudocode": "class EDFServer(Server):\n    def schedule_clients(self, current_time):\n        ready_client_jobs = [job for job in self.get_ready_jobs(current_time) if job.client_server == self]\n        if not ready_client_jobs:\n            return None # No clients to run\n        earliest_deadline_job = min(ready_client_jobs, key=lambda job: job.absolute_deadline)\n        return earliest_deadline_job",
+        "key_insights": [
+          "EDF is optimal for uniprocessor scheduling.",
+          "Using EDF within servers ensures optimal scheduling of client tasks."
+        ]
+      },
+      "dependencies": [
+        "Definition III.1 (Server/Client)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma III.1 (EDF Server Correctness)",
+      "formal_description": {
+        "statement": "Let R(Gamma) = 1 and eta_Gamma(t, t') be the execution demand within a time interval [t, t'), where t < t'. This demand gives the sum of all execution requests (i.e., jobs) that are released no earlier than t and with deadlines no later than t'. This quantity is bounded above by eta_Gamma(t, t') <= (t' - t) * sum(Si in Gamma) R(Si) = t' - t. It is known that there is no valid schedule for Gamma if and only if there is some interval [t, t') such that eta_Gamma(t, t') > t' - t [8], [9]. Since this cannot happen, some valid schedule for Gamma must exist. Because S schedules Gamma using EDF and EDF is optimal [8], [10], S must produce a valid schedule. Now, suppose that R(Gamma) < 1. We introduce a slack-filling task tau' where D(tau') = D(S) and R(tau') = 1 - R(S). We let Gamma' = Gamma U {tau'}, and let S' be an EDF server for Gamma'. Since R(Gamma') = 1, S' produces a valid schedule for Gamma'. Now consider the time interval I_J = [J.r, J.d] for a job J of S. Since D(tau') = D(S), tau' also has a job J' where J'.r = J.r and J'.d = J.d. Since S' produces a valid schedule, tau' and S do exactly R(tau')(J.d - J.r) and R(S)(J.d - J.r) units of work, respectively, during I_J. Since there are no deadlines or releases between J.r and J.d, the workload of tau' may be arbitrarily rearranged or subdivided within the interval I_J without compromising the validity of the schedule. We may do this so as to reproduce any scheduling of S where it meets its deadlines. Further, since S and S' both schedule tasks in Gamma with EDF, S will produce the same valid schedule for Gamma as S', giving our desired result.",
+        "variables": {
+          "Gamma": "a set of servers",
+          "R_Gamma": "total rate of servers in Gamma",
+          "eta_Gamma(t, t')": "execution demand in interval [t, t')",
+          "S": "a server",
+          "S'": "a server for Gamma'",
+          "tau'": "a slack-filling task",
+          "J": "a job of server S",
+          "J'": "a job of task tau'",
+          "I_J": "time interval [J.r, J.d]"
+        },
+        "assumptions": [
+          "R(Gamma) = 1 or R(Gamma) < 1"
+        ],
+        "conclusion": "An EDF server correctly schedules its clients, ensuring that the set of servers (or tasks) it manages is feasible, even if the server's total rate is less than 1 (by introducing a slack-filling task)."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma proves that an EDF server is a correct abstraction for scheduling tasks. If the total demand within any interval doesn't exceed the interval's length, a schedule exists. EDF finds it. If the server's rate is less than 1, we can add a 'slack' task to make it a unit server, and the EDF server will still correctly schedule the original clients.",
+        "steps": [
+          "Consider a set of servers Gamma with total rate R(Gamma).",
+          "The execution demand eta_Gamma(t, t') in any interval [t, t') is bounded by the interval length (t' - t) * R(Gamma).",
+          "If R(Gamma) = 1, a valid schedule for Gamma exists because the demand never exceeds the available time.",
+          "Since the server S uses EDF (an optimal uniprocessor scheduler), it will find a valid schedule for Gamma.",
+          "If R(Gamma) < 1, introduce a slack-filling task tau' with rate 1 - R(Gamma) and the same deadlines as S.",
+          "Create a new set Gamma' = Gamma U {tau'} with total rate 1, and an EDF server S' for it.",
+          "S' will produce a valid schedule for Gamma'.",
+          "For any job J of S within an interval [J.r, J.d], S' schedules J and J' (for tau').",
+          "The work done by tau' can be arbitrarily rearranged within [J.r, J.d] without affecting validity.",
+          "This allows us to construct a schedule for S that meets its deadlines, by effectively 'hiding' the slack task's execution within S's allocated time.",
+          "Therefore, S produces a valid schedule for Gamma."
+        ],
+        "pseudocode": "def prove_edf_server_correctness(servers_Gamma):\n    # Assume servers_Gamma is a list of Server objects\n    total_rate = sum(server.R for server in servers_Gamma)\n\n    # Check demand bound (conceptual, as eta_Gamma is complex to compute directly)\n    # The paper states eta_Gamma(t, t') <= (t' - t) * total_rate\n\n    if total_rate == 1.0:\n        # If R(Gamma) == 1, EDF is optimal and guarantees a schedule\n        print(\"R(Gamma) = 1, EDF server is guaranteed to be valid.\")\n        return True\n    elif total_rate < 1.0:\n        # Introduce slack-filling task\n        slack_rate = 1.0 - total_rate\n        # Assume a slack_task object exists with this rate and appropriate deadlines\n        # Create a new set Gamma_prime including original servers and slack_task\n        # Create a new EDF server S_prime for Gamma_prime\n        # S_prime is guaranteed to be valid for Gamma_prime\n        print(f\"R(Gamma) < 1, introduced slack task with rate {slack_rate}.\")\n        print(\"EDF server will produce a valid schedule for the combined set.\")\n        # The proof shows how to derive a valid schedule for the original Gamma from S_prime's schedule\n        return True\n    else: # total_rate > 1.0\n        print(\"R(Gamma) > 1, not feasible.\")\n        return False",
+        "key_insights": [
+          "The demand bound condition is key to schedulability.",
+          "Slack-filling allows EDF servers to handle under-utilized systems correctly."
+        ]
+      },
+      "dependencies": [
+        "Definition III.1 (Server/Client)",
+        "Definition II.4 (Valid Schedule)",
+        "Rule III.1 (EDF Server)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition IV.1 (Dual Server)",
+      "formal_description": {
+        "statement": "The dual server S* of a server S is a server with the same deadlines as S where R(S*) equals 1 - R(S). If Gamma is a set of servers, then its dual set Gamma* is the set of dual servers to those in Gamma, i.e., S in Gamma if and only if S* in Gamma*. The dual of a unit server, which has rate R(S) = 1 and must execute continuously in order to meet its clients' deadlines, is a null server, which has rate R(S) = 0 and never executes.",
+        "variables": {
+          "S": "a server",
+          "S*": "the dual server of S",
+          "R_S": "rate of server S",
+          "R_S_star": "rate of dual server S*",
+          "Gamma": "a set of servers",
+          "Gamma*": "the dual set of Gamma"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the dual of a server and a set of servers, where the dual server's rate is complementary to the original server's rate."
+      },
+      "informal_sketch": {
+        "intuition": "The dual of a server represents the 'idle time' or 'unutilized capacity' of the original server. If a server executes, its dual does not, and vice versa.",
+        "steps": [
+          "For a server S with rate R(S), its dual server S* has a rate R(S*) = 1 - R(S).",
+          "The deadlines of S* are the same as S.",
+          "The dual of a set of servers Gamma is the set of duals of each server in Gamma.",
+          "A unit server (rate 1) has a dual null server (rate 0).",
+          "A null server (rate 0) has a dual unit server (rate 1)."
+        ],
+        "pseudocode": "class Server:\n    # ... (previous attributes)\n    def get_dual(self):\n        dual_rate = 1.0 - self.R\n        # The dual server has the same deadlines\n        dual_server = Server(clients=[], rate=dual_rate, deadlines=self.D)\n        # Note: The clients of the dual server are the duals of the original clients.\n        # This recursive definition is handled by the DUAL operation.\n        return dual_server\n\ndef get_dual_set(server_set):\n    return [server.get_dual() for server in server_set]",
+        "key_insights": [
+          "Duality creates a complementary system where execution in one corresponds to idleness in the other.",
+          "This is crucial for transforming multiprocessor problems into uniprocessor ones."
+        ]
+      },
+      "dependencies": [
+        "Definition III.1 (Server/Client)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition IV.2 (Dual Schedule)",
+      "formal_description": {
+        "statement": "Let Gamma be a set of servers and Gamma* be its dual set. Two schedules Sigma of Gamma and Sigma* of Gamma* are duals if, for all times t and all S in Gamma, S in Sigma(t) if and only if S* not in Sigma*(t); that is, S executes exactly when S* is idle, and vice versa. S, Gamma, and Sigma are referred to as primal relative to their duals S*, Gamma*, and Sigma*. Note that (tau*)* = tau and (Sigma*)* = Sigma, as expected with duality.",
+        "variables": {
+          "Gamma": "a set of servers",
+          "Gamma*": "the dual set of Gamma",
+          "Sigma": "a schedule of Gamma",
+          "Sigma*": "a schedule of Gamma*",
+          "t": "time",
+          "S": "a server in Gamma",
+          "S*": "a server in Gamma*"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the relationship between a schedule and its dual schedule: a server executes in the primal schedule if and only if its dual server is idle in the dual schedule."
+      },
+      "informal_sketch": {
+        "intuition": "A dual schedule mirrors the primal schedule in reverse. If a server is busy in the original system, its dual is idle in the dual system, and vice versa.",
+        "steps": [
+          "Two schedules, Sigma for Gamma and Sigma* for Gamma*, are duals if they are perfectly complementary.",
+          "At any time t, if a server S from Gamma is executing in Sigma, its dual server S* from Gamma* must NOT be executing in Sigma*.",
+          "Conversely, if S* is executing in Sigma*, then S must NOT be executing in Sigma.",
+          "This implies that the total number of processors used by Gamma and Gamma* combined is always equal to the number of processors they are scheduled on (if they were on separate platforms)."
+        ],
+        "pseudocode": "def are_dual_schedules(schedule_primal, schedule_dual, servers_primal, servers_dual):\n    # For every time t and every server S in servers_primal:\n    # Check if (S in schedule_primal(t)) is equivalent to (S_dual not in schedule_dual(t))\n    # where S_dual is the dual of S.\n    # This is a conceptual check, actual implementation would involve iterating through time and servers.\n    pass",
+        "key_insights": [
+          "Duality provides a direct mapping between execution and idleness.",
+          "This is the core mechanism for transforming multiprocessor schedules."
+        ]
+      },
+      "dependencies": [
+        "Definition IV.1 (Dual Server)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem IV.1 (Dual Validity)",
+      "formal_description": {
+        "statement": "Let Gamma be a set of n = m + k servers on m processors, scheduled by Sigma, with k >= 1 and R(Gamma) = m. Let Gamma* and Sigma* be their duals. Then R(Gamma*) = k, and so Gamma* is feasible on k processors. Further, Sigma is valid if and only if Sigma* is valid.",
+        "variables": {
+          "Gamma": "a set of servers",
+          "n": "number of servers in Gamma",
+          "m": "number of processors",
+          "k": "n - m",
+          "R_Gamma": "total rate of servers in Gamma",
+          "Sigma": "a schedule of Gamma on m processors",
+          "Gamma*": "dual set of Gamma",
+          "Sigma*": "a schedule of Gamma* on k processors"
+        },
+        "assumptions": [
+          "R(Gamma) = m",
+          "k >= 1"
+        ],
+        "conclusion": "The validity of a schedule for a set of servers on m processors is equivalent to the validity of its dual schedule on k processors, where k is the number of 'excess' servers beyond full utilization of m processors."
+      },
+      "informal_sketch": {
+        "intuition": "If a set of tasks can be scheduled on 'm' processors, its 'idle time' counterpart can be scheduled on the remaining 'k' processors. The schedulability of one implies the schedulability of the other.",
+        "steps": [
+          "Given a set of n servers Gamma on m processors, with total rate R(Gamma) = m.",
+          "The dual set Gamma* has n servers, and its total rate is R(Gamma*) = sum(1 - R(S)) for S in Gamma = n - R(Gamma) = n - m = k.",
+          "This means Gamma* is feasible on k processors.",
+          "If Sigma is a valid schedule for Gamma on m processors (meaning all deadlines are met for Gamma's clients):",
+          "  - For any job J of a server S in Gamma, it executes J.c = R(S) * (J.d - J.r) work.",
+          "  - Its dual job J* in Sigma* must execute J*.c = R(S*) * (J*.d - J*.r) = (1 - R(S)) * (J.d - J.r) work.",
+          "  - The total work for J and J* is (R(S) + 1 - R(S)) * (J.d - J.r) = J.d - J.r.",
+          "  - Since Sigma is valid, S executes J.c, meaning S* is idle for J.c time.",
+          "  - This idle time for S* is exactly J*.c, so J* can execute in Sigma*.",
+          "  - Thus, Sigma* is a valid schedule for Gamma* on k processors.",
+          "The converse also holds: if Sigma* is valid, Sigma is valid."
+        ],
+        "pseudocode": "def check_dual_validity(servers_Gamma, num_processors_m):\n    n = len(servers_Gamma)\n    R_Gamma = sum(server.R for server in servers_Gamma)\n\n    if R_Gamma != num_processors_m:\n        print(\"Theorem IV.1 requires R(Gamma) == m.\")\n        return False\n\n    k = n - num_processors_m\n    if k < 1:\n        print(\"Theorem IV.1 requires k >= 1.\")\n        return False\n\n    # Calculate total rate of dual set\n    R_Gamma_star = sum(1.0 - server.R for server in servers_Gamma)\n    if R_Gamma_star != k:\n        print(f\"Calculated R(Gamma*) = {R_Gamma_star}, expected {k}.\")\n        return False\n\n    # The core of the theorem is the equivalence of validity.\n    # This requires simulating or analyzing schedules, which is complex here.\n    # The proof establishes that if Sigma is valid, Sigma* is valid and vice-versa.\n    print(f\"Theorem IV.1: Gamma* is feasible on {k} processors. Sigma is valid iff Sigma* is valid.\")\n    return True",
+        "key_insights": [
+          "Duality transforms a multiprocessor problem into a smaller uniprocessor problem.",
+          "Schedulability is preserved across the dual transformation."
+        ]
+      },
+      "dependencies": [
+        "Definition IV.1 (Dual Server)",
+        "Definition IV.2 (Dual Schedule)",
+        "Definition II.4 (Valid Schedule)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition IV.3 (Packing)",
+      "formal_description": {
+        "statement": "Let Gamma be a set of servers. A packing of Gamma, denoted pi(Gamma), is a partition of Gamma into a collection of subsets {Gamma_1, Gamma_2, ..., Gamma_k} such that R(Gamma_i) <= 1 for all i and R(Gamma_i) + R(Gamma_j) > 1 for all i != j.",
+        "variables": {
+          "Gamma": "a set of servers",
+          "pi(Gamma)": "a packing of Gamma",
+          "Gamma_i": "a subset in the partition",
+          "R_Gamma_i": "total rate of servers in Gamma_i"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a packing as a way to group servers such that each group's total rate is at most 1, and any two distinct groups' total rates sum to more than 1."
+      },
+      "informal_sketch": {
+        "intuition": "Packing groups servers into sets that can fit onto a single processor (rate <= 1), with the constraint that any two groups are 'almost' fully utilized, which is important for the subsequent DUAL operation.",
+        "steps": [
+          "A packing of a set of servers Gamma is a way to divide Gamma into several non-overlapping subsets (Gamma_1, Gamma_2, ...).",
+          "Each subset Gamma_i must have a total rate R(Gamma_i) that is less than or equal to 1 (meaning it can be scheduled on one processor).",
+          "Crucially, for any two different subsets Gamma_i and Gamma_j, their combined rate R(Gamma_i) + R(Gamma_j) must be strictly greater than 1."
+        ],
+        "pseudocode": "def is_valid_packing(server_set, packing):\n    # packing is a list of lists, where each inner list is a subset of server_set\n    all_servers_in_packing = [server for subset in packing for server in subset]\n    if set(all_servers_in_packing) != set(server_set):\n        return False # Not a partition\n\n    subset_rates = []\n    for subset in packing:\n        subset_rate = sum(server.R for server in subset)\n        if subset_rate > 1.0:\n            return False # Subset rate exceeds 1\n        subset_rates.append(subset_rate)\n\n    for i in range(len(subset_rates)):\n        for j in range(i + 1, len(subset_rates)):\n            if subset_rates[i] + subset_rates[j] <= 1.0:\n                return False # Condition R(Gamma_i) + R(Gamma_j) > 1 not met\n    return True",
+        "key_insights": [
+          "The condition R(Gamma_i) + R(Gamma_j) > 1 is key to ensuring that the dual of a packed set can be efficiently reduced."
+        ]
+      },
+      "dependencies": [
+        "Definition III.1 (Server/Client)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition IV.4 (PACK operation)",
+      "formal_description": {
+        "statement": "Let Gamma be a set of servers and pi a packing of Gamma. We associate a server ser(Gamma_i) with each subset Gamma_i in pi(Gamma). The PACK operation sigma is a function from Gamma to these servers of pi(Gamma) such that, if Gamma_i in pi(Gamma) and S in Gamma_i, then sigma(S) = ser(Gamma_i). That is, sigma(S) is the aggregated server responsible for scheduling S. sigma(Gamma) = {sigma(Gamma_k), Gamma_k in pi(Gamma)}. The packing of a packed server set Gamma is the collection of singleton sets {{S}} S in Gamma.",
+        "variables": {
+          "Gamma": "a set of servers",
+          "pi": "a packing of Gamma",
+          "Gamma_i": "a subset in the packing",
+          "ser(Gamma_i)": "a new server for subset Gamma_i",
+          "sigma": "the PACK operation",
+          "S": "a server in Gamma"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the PACK operation, which transforms a set of servers into a new set of aggregated servers, where each new server represents a packed subset of the original servers."
+      },
+      "informal_sketch": {
+        "intuition": "The PACK operation takes a set of servers and groups them according to a packing. Each group becomes a new, single server that manages the original servers within that group.",
+        "steps": [
+          "Given a set of servers Gamma and a packing pi(Gamma) = {Gamma_1, Gamma_2, ...}.",
+          "For each subset Gamma_i in the packing, create a new server, let's call it S_i_agg = ser(Gamma_i).",
+          "The PACK operation sigma maps each original server S in Gamma_i to this new aggregated server S_i_agg.",
+          "The result of the PACK operation on Gamma, sigma(Gamma), is the set of these new aggregated servers {S_1_agg, S_2_agg, ...}.",
+          "If Gamma is already a 'packed server set' (meaning it's a singleton or any two servers have rates > 1), its packing is just each server in its own singleton set."
+        ],
+        "pseudocode": "def apply_pack_operation(server_set, packing):\n    # packing is a list of lists, where each inner list is a subset of server_set\n    new_servers = []\n    server_to_new_server_map = {}\n\n    for subset in packing:\n        # Create a new aggregated server for this subset\n        aggregated_server = Server(clients=subset) # Assuming Server constructor can take clients\n        aggregated_server.R = sum(server.R for server in subset)\n        # Deadlines would be union of clients' deadlines, but for PACK, we mainly care about rate\n        new_servers.append(aggregated_server)\n\n        # Map original servers to their new aggregated server\n        for server in subset:\n            server_to_new_server_map[server] = aggregated_server\n\n    # The result of sigma(Gamma) is the set of new servers\n    return new_servers, server_to_new_server_map",
+        "key_insights": [
+          "PACK reduces the number of servers by aggregating them.",
+          "This is crucial for reducing the problem size when the number of servers is large."
+        ]
+      },
+      "dependencies": [
+        "Definition IV.3 (Packing)",
+        "Definition III.1 (Server/Client)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition IV.5 (Packed Server Set)",
+      "formal_description": {
+        "statement": "A set of servers Gamma is packed if it is a singleton, or if |Gamma| >= 2 and for any two distinct servers S and S' in Gamma, R(S) + R(S') > 1.",
+        "variables": {
+          "Gamma": "a set of servers",
+          "S": "a server in Gamma",
+          "S'": "another server in Gamma",
+          "R_S": "rate of server S",
+          "R_S_prime": "rate of server S'"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a 'packed' set of servers where any two servers have a combined rate greater than 1, meaning they cannot be easily scheduled together on a single processor without interference."
+      },
+      "informal_sketch": {
+        "intuition": "A packed set of servers is one where most pairs of servers are 'heavy' enough that they can't coexist on a single processor without exceeding its capacity. This property is important for the DUAL operation's effectiveness.",
+        "steps": [
+          "A set of servers Gamma is called 'packed' if:",
+          "  - It contains only one server (a singleton set).",
+          "  - OR, it contains two or more servers, AND for any two distinct servers S and S' in the set, their rates R(S) + R(S') is strictly greater than 1."
+        ],
+        "pseudocode": "def is_packed_server_set(server_set):\n    n = len(server_set)\n    if n <= 1:\n        return True\n    for i in range(n):\n        for j in range(i + 1, n):\n            if server_set[i].R + server_set[j].R <= 1.0:\n                return False\n    return True",
+        "key_insights": [
+          "This condition ensures that when we take the dual of a packed set, the resulting dual servers can be efficiently packed into fewer servers."
+        ]
+      },
+      "dependencies": [
+        "Definition III.1 (Server/Client)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma IV.1 (REDUCE Operation Size Reduction)",
+      "formal_description": {
+        "statement": "If Gamma is a packed set of servers and sigma is the PACK operation associated with a packing pi of Gamma's dual set phi(Gamma), then |sigma o phi(Gamma)| <= ceil(|Gamma|+1 / 2). Proof: Let n = |Gamma|. Since Gamma is packed, there is at most one server S in Gamma such that R(S) <= 1/2. This implies that at least n-1 servers in phi(Gamma) have rates less than 1/2. When these n-1 dual servers are packed, they will be, at a minimum, paired off. Thus, pi will pack phi(Gamma) into at most ceil((n-1)/2)+1 subsets. Hence, |sigma o phi(Gamma)| <= ceil((n+1)/2).",
+        "variables": {
+          "Gamma": "a packed set of servers",
+          "sigma": "the PACK operation",
+          "phi": "the DUAL operation",
+          "pi": "a packing",
+          "n": "number of servers in Gamma"
+        },
+        "assumptions": [
+          "Gamma is a packed set of servers"
+        ],
+        "conclusion": "Composing the DUAL and PACK operations (REDUCE) on a packed set of servers reduces the number of servers by at least half."
+      },
+      "informal_sketch": {
+        "intuition": "Applying DUAL to a packed set creates a set of servers where most have rates less than 1/2. Packing these dual servers efficiently groups them, significantly reducing the total number of servers.",
+        "steps": [
+          "Start with a packed set of servers Gamma (n servers).",
+          "Apply the DUAL operation: phi(Gamma) = Gamma*.",
+          "Because Gamma is packed, at most one server in Gamma has rate <= 1/2. This means at least n-1 servers in Gamma* have rates > 1/2.",
+          "The paper states that the DUAL operation on a packed set results in a set where at most one server has rate <= 1/2. This implies that at least n-1 servers in phi(Gamma) have rates > 1/2.",
+          "The proof then states that the dual servers (phi(Gamma)) are packed into subsets using pi.",
+          "Since at least n-1 servers in phi(Gamma) have rates > 1/2, when they are packed, they will be paired off.",
+          "This packing process results in at most ceil((n-1)/2) + 1 subsets.",
+          "The PACK operation sigma then creates one server per subset.",
+          "Therefore, the number of servers after sigma o phi(Gamma) is at most ceil((n-1)/2) + 1, which is approximately n/2."
+        ],
+        "pseudocode": "def estimate_reduction_size(num_servers_Gamma):\n    n = num_servers_Gamma\n    # After DUAL, at most one server has rate <= 1/2 (if original was packed)\n    # This means at least n-1 servers in dual set have rate > 1/2.\n    # Packing these servers efficiently pairs them up.\n    # Number of subsets in packing pi is at most ceil((n-1)/2) + 1\n    num_subsets = math.ceil((n - 1) / 2) + 1\n    # The PACK operation creates one server per subset\n    num_new_servers = num_subsets\n    return num_new_servers\n\n# Example usage:\n# num_servers = 10\n# reduced_servers = estimate_reduction_size(num_servers)\n# print(f\"After REDUCE, {num_servers} servers reduce to at most {reduced_servers} servers.\")",
+        "key_insights": [
+          "The combination of DUAL and PACK (REDUCE) is a powerful way to shrink the problem size.",
+          "The 'packed' property is essential for this efficient reduction."
+        ]
+      },
+      "dependencies": [
+        "Definition IV.1 (Dual Server)",
+        "Definition IV.3 (Packing)",
+        "Definition IV.4 (PACK operation)",
+        "Definition IV.5 (Packed Server Set)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma IV.2 (Packed Set Rate)",
+      "formal_description": {
+        "statement": "Let Gamma be a packed set of servers, not all of which are unit servers. If R(Gamma) is a positive integer, then |Gamma| >= 3. Proof: If Gamma = {S1} and S1 is not a unit server, then R(Gamma) < 1, not a positive integer. If Gamma = {S1, S2} is a packed set, then R(Gamma) = R(S1)+R(S2) > 1; but R(Gamma) is not 2 unless ...",
+        "variables": {
+          "Gamma": "a packed set of servers",
+          "R_Gamma": "total rate of servers in Gamma",
+          "S_i": "a server in Gamma"
+        },
+        "assumptions": [
+          "Gamma is packed",
+          "not all servers in Gamma are unit servers",
+          "R(Gamma) is a positive integer"
+        ],
+        "conclusion": "If a packed set of servers has a total rate that is a positive integer, and not all servers are unit servers, then the set must contain at least 3 servers."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma establishes a lower bound on the number of servers in a packed set under certain conditions. It prevents trivial cases where a small number of servers could have an integer total rate greater than 1 without being 'packed' in a meaningful way.",
+        "steps": [
+          "Consider a packed set of servers Gamma.",
+          "Assume R(Gamma) is a positive integer (e.g., 1, 2, ...).",
+          "Assume not all servers in Gamma are unit servers (rate 1).",
+          "If |Gamma| = 1, say Gamma = {S1}. If S1 is not a unit server, R(Gamma) < 1, not a positive integer. If S1 is a unit server, R(Gamma) = 1, but the condition 'not all unit servers' is violated if it's the only one.",
+          "If |Gamma| = 2, say Gamma = {S1, S2}. Since Gamma is packed, R(S1) + R(S2) > 1.",
+          "If R(Gamma) = R(S1) + R(S2) is a positive integer, it must be at least 2 (since R(S1)+R(S2) > 1).",
+          "If R(Gamma) = 2, and R(S1) + R(S2) = 2, and Gamma is packed, this implies R(S1) and R(S2) must be close to 1. For example, R(S1)=0.9, R(S2)=1.1 (not allowed as rate <= 1). Or R(S1)=0.5, R(S2)=1.5 (not allowed). If R(S1)=0.6, R(S2)=0.6, then R(S1)+R(S2)=1.2 > 1 (packed). R(Gamma)=1.2, not integer.",
+          "The proof implies that to achieve an integer total rate R(Gamma) >= 2 with the 'packed' property (R(Si) + R(Sj) > 1), you need at least 3 servers.",
+          "For example, if R(Gamma)=2, and we have S1, S2, S3. If R(S1)=0.7, R(S2)=0.7, R(S3)=0.6. Then R(S1)+R(S2)=1.4>1, R(S1)+R(S3)=1.3>1, R(S2)+R(S3)=1.3>1. Gamma is packed. R(Gamma)=2.0. This satisfies the conditions."
+        ],
+        "pseudocode": "def check_packed_set_rate_condition(server_set):\n    n = len(server_set)\n    total_rate = sum(server.R for server in server_set)\n\n    is_all_unit = all(server.R == 1.0 for server in server_set)\n\n    if is_all_unit:\n        # If all are unit servers, R(Gamma) = n. If n is positive integer, this is fine.\n        # But the lemma assumes 'not all unit servers'.\n        pass\n\n    if total_rate > 0 and total_rate == int(total_rate) and not is_all_unit:\n        if n < 3:\n            print(f\"Lemma IV.2 violated: Packed set with R(Gamma)={total_rate} (integer), not all unit, but |Gamma|={n} < 3.\")\n            return False\n    return True",
+        "key_insights": [
+          "This lemma ensures that the reduction process doesn't get stuck in trivial cases with few servers but integer total rates."
+        ]
+      },
+      "dependencies": [
+        "Definition IV.5 (Packed Server Set)",
+        "Definition III.1 (Server/Client)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem IV.2 (Reduction Sequence Termination)",
+      "formal_description": {
+        "statement": "A reduction sequence on any set of servers eventually produces a set of unit servers. Proof: Let {psi_i} i<=p be a reduction sequence on T, where p is the terminal level described in Theorem IV.2. Lemma IV.1 shows that a REDUCE, at worst, reduces the number of servers by about half, so p = O(log n). Since constructing the dual of a system primarily requires computing n dual rates, a single REDUCE requires O(f(n)+n) time. The time needed to perform the entire reduction sequence is described by T(n) <= T(n/2)+O(f(n)+n), which gives T(n) = O(f(n)). Since T is a full utilization task set, R(T) = R(sigma(T)) = m. If we let n' = |sigma(T)|, Lemma V.1 tells us that m = R(T) = R(sigma(T)) > n'/2. But as sigma(T) is the initial packing, it follows that p also is O(log n'), and hence O(log m).",
+        "variables": {
+          "T": "a task set",
+          "p": "number of reduction levels",
+          "n": "number of tasks/servers",
+          "m": "number of processors",
+          "f(n)": "time to pack n tasks"
+        },
+        "assumptions": [
+          "T is a full utilization task set"
+        ],
+        "conclusion": "Any sequence of REDUCE operations will eventually transform the server set into a collection of unit servers, which are easily schedulable on uniprocessors."
+      },
+      "informal_sketch": {
+        "intuition": "The REDUCE operation (DUAL + PACK) repeatedly halves the number of servers. This process must terminate, and it terminates when we are left with only unit servers.",
+        "steps": [
+          "The REDUCE operation is composed of DUAL and PACK.",
+          "Lemma IV.1 shows that each REDUCE operation reduces the number of servers by at least half (approximately).",
+          "This means the number of servers decreases exponentially with each REDUCE step.",
+          "This exponential decrease guarantees that the process will eventually terminate.",
+          "The termination condition is when the set of servers can be partitioned into unit servers.",
+          "The proof also relates the number of reduction steps (p) to the logarithm of the number of tasks/servers (n) and processors (m)."
+        ],
+        "pseudocode": "def simulate_reduction_sequence(initial_server_set, num_processors):\n    current_servers = initial_server_set\n    reduction_levels = 0\n\n    while not is_set_of_unit_servers(current_servers):\n        # Ensure the set is packed before DUAL (implicitly handled by REDUCE definition)\n        if not is_packed_server_set(current_servers):\n            # This step is usually part of REDUCE, but for clarity:\n            # Apply packing to current_servers if needed for DUAL's input\n            pass\n\n        # Apply DUAL operation\n        dual_servers = get_dual_set(current_servers)\n\n        # Apply PACK operation to the dual servers\n        # This requires finding a packing pi for dual_servers\n        # For simplicity, assume a packing heuristic exists\n        packing_pi, _ = find_packing(dual_servers)\n        packed_dual_servers, _ = apply_pack_operation(dual_servers, packing_pi)\n\n        current_servers = packed_dual_servers\n        reduction_levels += 1\n        print(f\"Reduction level {reduction_levels}: {len(current_servers)} servers.\")\n\n        if reduction_levels > 100: # Safety break for infinite loops\n            print(\"Exceeded maximum reduction levels.\")\n            break\n\n    print(f\"Reduction sequence terminated in {reduction_levels} levels.\")\n    return current_servers\n\ndef is_set_of_unit_servers(server_set):\n    # Check if all servers in the set are unit servers (R=1)\n    return all(server.R == 1.0 for server in server_set)",
+        "key_insights": [
+          "The logarithmic reduction in server count ensures termination.",
+          "The final state is a set of unit servers, which are the building blocks for uniprocessor scheduling."
+        ]
+      },
+      "dependencies": [
+        "Lemma IV.1 (REDUCE Operation Size Reduction)",
+        "Lemma IV.2 (Packed Set Rate)",
+        "Theorem IV.1 (Dual Validity)"
+      ]
+    },
+    {
+      "type": "rule",
+      "identifier": "Rule IV.1 (Dual Server)",
+      "formal_description": {
+        "statement": "At any time, execute in Sigma the servers of Gamma whose dual servers are not executing in Sigma*.",
+        "variables": {
+          "Sigma": "a schedule of Gamma",
+          "Gamma": "a set of servers",
+          "Sigma*": "a schedule of Gamma*",
+          "Gamma*": "dual set of Gamma",
+          "t": "time"
+        },
+        "assumptions": [],
+        "conclusion": "This rule formalizes the execution logic based on duality: if a server's dual is idle, the server itself should execute."
+      },
+      "informal_sketch": {
+        "intuition": "This is the direct implementation of the dual schedule definition. If the 'idle' counterpart is not running, then the 'active' counterpart should be running.",
+        "steps": [
+          "Consider a time t.",
+          "Look at the dual schedule Sigma* for the dual servers Gamma*.",
+          "For each server S in the original set Gamma:",
+          "  - Find its dual server S* in Gamma*.",
+          "  - If S* is NOT executing at time t in Sigma*, then S MUST execute at time t in Sigma.",
+          "  - If S* IS executing at time t in Sigma*, then S MUST NOT execute at time t in Sigma."
+        ],
+        "pseudocode": "def execute_primal_based_on_dual(primal_servers, dual_schedule_at_t, primal_schedule_at_t):\n    # primal_servers: list of Server objects in Gamma\n    # dual_schedule_at_t: set of Server objects executing in Sigma* at time t\n    # primal_schedule_at_t: set of Server objects executing in Sigma at time t (to be updated)\n\n    for server_S in primal_servers:\n        server_S_dual = server_S.get_dual()\n        # Check if the dual server is executing in the dual schedule\n        is_dual_executing = server_S_dual in dual_schedule_at_t\n\n        if not is_dual_executing:\n            # If dual is NOT executing, then primal server S MUST execute\n            primal_schedule_at_t.add(server_S)\n        else:\n            # If dual IS executing, then primal server S MUST NOT execute\n            # (This is implicitly handled if we only add executing servers)\n            pass",
+        "key_insights": [
+          "This rule directly translates the concept of duality into an execution policy."
+        ]
+      },
+      "dependencies": [
+        "Definition IV.2 (Dual Schedule)",
+        "Definition IV.1 (Dual Server)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem IV.3 (Reduction Schedule)",
+      "formal_description": {
+        "statement": "If Gamma is a proper set under the reduction sequence {psi_i} i<=p, then the RUN algorithm produces a valid schedule Sigma for Gamma. Proof: Again, let Gamma_k = psi_k(Gamma) and Gamma_k_sigma = sigma(Gamma_k) with k < p. Also, let Sigma_k and Sigma_k_sigma be the schedules generated by RUN for Gamma_k and Gamma_k_sigma, respectively. Finally, let mu_k = R(Gamma_k) = R(Gamma_k_sigma), which, as seen in the proof of Theorem IV.2, is always an integer. We will work inductively to show that schedule validity propagates down the reduction tree, i.e., that the validity of Sigma_k+1 implies the validity of Sigma_k. Suppose that Sigma_k+1 is a valid schedule for Gamma_k+1 = phi(Gamma_k_sigma) on mu_k+1 processors, where k + 1 <= p. Since k < p, Gamma_k_sigma is not the terminal level set, and so must contain more than one server, as does its equalsized dual Gamma_k+1. Further, since Gamma is a proper set under our reduction, none of these servers can be unit servers and so |Gamma_k+1| > mu_k+1. The conditions of Theorem IV.1 are satisfied (where n = |Gamma_k+1|, m = mu_k+1, and k > 1), so it follows from our assumption that Sigma_k+1 is valid that Sigma_k_sigma = (Sigma_k+1)* is a valid schedule for Gamma_k_sigma on mu_k processors. Also, since Gamma_k_sigma is a collection of aggregated servers for Gamma_k, it follows from Theorem III.1 that Sigma_k is a valid schedule for Gamma_k (i.e., scheduling the servers in Gamma_k_sigma correctly ensures that all of their client tasks in Gamma_k are also scheduled correctly). Thus the validity of Sigma_k+1 implies the validity of Sigma_k, as desired. Since uniprocessor EDF generates a valid schedule Sigma_p for the clients of the unit server at terminal reduction level p, it follows inductively that Sigma = Sigma_0 is valid for Gamma on R(Gamma) processors.",
+        "variables": {
+          "Gamma": "a proper set of servers",
+          "psi_i": "reduction step",
+          "p": "terminal reduction level",
+          "Sigma": "a valid schedule",
+          "Gamma_k": "server set at level k",
+          "Gamma_k_sigma": "packed dual server set at level k",
+          "Sigma_k": "schedule for Gamma_k",
+          "Sigma_k_sigma": "schedule for Gamma_k_sigma",
+          "mu_k": "rate of Gamma_k",
+          "R_Gamma": "total rate of Gamma"
+        },
+        "assumptions": [
+          "Gamma is a proper set under reduction"
+        ],
+        "conclusion": "The RUN algorithm, by applying a sequence of REDUCE operations and then scheduling the resulting unit servers, produces a valid schedule for the original task set."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem proves the correctness of the entire RUN algorithm. It shows that if we can reduce the problem to unit servers (which are schedulable by EDF) and correctly transform the schedules back using duality, the original multiprocessor system will also be schedulable.",
+        "steps": [
+          "The RUN algorithm performs a sequence of REDUCE operations (DUAL + PACK) until it reaches a set of unit servers.",
+          "Let's denote the server sets at each reduction level as Gamma_0, Gamma_1, ..., Gamma_p, where Gamma_p is a set of unit servers.",
+          "The proof uses induction, working backwards from the terminal level (p) to the initial level (0).",
+          "Base Case: At level p, we have unit servers. Uniprocessor EDF is known to schedule unit servers correctly (Theorem III.1). So, Sigma_p is valid.",
+          "Inductive Step: Assume that the schedule Sigma_{k+1} for Gamma_{k+1} is valid.",
+          "  - Gamma_{k+1} is the dual of Gamma_k_sigma (the packed dual of Gamma_k).",
+          "  - Theorem IV.1 states that if Sigma_{k+1} is valid for Gamma_{k+1} on mu_{k+1} processors, then its dual schedule Sigma_k_sigma is valid for Gamma_k_sigma on mu_k processors.",
+          "  - Gamma_k_sigma is a set of aggregated servers representing Gamma_k.",
+          "  - Theorem III.1 (EDF Server Correctness) states that if the aggregated servers (Gamma_k_sigma) are scheduled correctly, their clients (Gamma_k) will also be scheduled correctly.",
+          "  - Therefore, if Sigma_{k+1} is valid, then Sigma_k is valid.",
+          "By induction, Sigma_0 (the schedule for the original set Gamma) is valid."
+        ],
+        "pseudocode": "def verify_run_algorithm_correctness(initial_task_set):\n    # 1. Perform reduction sequence to get unit servers (Theorem IV.2)\n    #    This results in a server tree and a set of unit servers at the leaves.\n    #    Let the sequence of server sets be Gamma_0, Gamma_1, ..., Gamma_p\n    #    where Gamma_p is a set of unit servers.\n\n    # 2. Schedule the unit servers using EDF (Base case for induction)\n    #    Let Sigma_p be the valid schedule for Gamma_p.\n    #    This is guaranteed by Theorem III.1.\n\n    # 3. Inductively work backwards from p-1 down to 0:\n    #    For k from p-1 down to 0:\n    #        Assume Sigma_{k+1} is valid for Gamma_{k+1}.\n    #        Gamma_{k+1} is the dual of Gamma_k_sigma (packed dual of Gamma_k).\n    #        Apply Theorem IV.1: Sigma_k_sigma = (Sigma_{k+1})* is valid for Gamma_k_sigma.\n    #        Apply Theorem III.1: Since Gamma_k_sigma represents Gamma_k, Sigma_k is valid for Gamma_k.\n\n    # 4. Final result: Sigma_0 is valid for Gamma_0 (the original task set).\n    print(\"Theorem IV.3: RUN algorithm produces a valid schedule.\")\n    return True",
+        "key_insights": [
+          "The correctness relies on the interplay between duality and the schedulability of unit servers via EDF.",
+          "Inductive proof structure is key to showing validity propagates down the reduction tree."
+        ]
+      },
+      "dependencies": [
+        "Theorem IV.1 (Dual Validity)",
+        "Theorem III.1 (EDF Server Correctness)",
+        "Lemma IV.1 (REDUCE Operation Size Reduction)",
+        "Definition IV.1 (Dual Server)",
+        "Definition IV.4 (PACK operation)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma V.1 (Packed Set Utilization Bound)",
+      "formal_description": {
+        "statement": "If Gamma is a packed set of at least 2 servers, then R(Gamma) > |Gamma|/2. Proof: Let n = |Gamma|, and let mu_i = R(S_i) for S_i in Gamma. Since Gamma is packed, there exists at most one server in Gamma, say S_n, such that mu_n <= 1/2; all others have mu_i > 1/2. Thus, sum(mu_i for i=1 to n-2) > (n-2)/2. As mu_{n-1} + mu_n > 1, it follows that R(Gamma) = sum(mu_i for i=1 to n) > n/2.",
+        "variables": {
+          "Gamma": "a packed set of servers",
+          "R_Gamma": "total rate of servers in Gamma",
+          "S_i": "a server in Gamma",
+          "mu_i": "rate of server S_i",
+          "n": "number of servers in Gamma"
+        },
+        "assumptions": [
+          "Gamma is packed",
+          "|Gamma| >= 2"
+        ],
+        "conclusion": "The total utilization of a packed set of at least two servers is greater than half the number of servers."
+      },
+      "informal_sketch": {
+        "intuition": "If a set of servers is 'packed' (meaning any two servers have a combined rate > 1), then their total utilization must be relatively high, specifically more than half the number of servers.",
+        "steps": [
+          "Let Gamma be a packed set of n servers, where n >= 2.",
+          "By definition of a packed set, at most one server S_n has a rate R(S_n) <= 1/2. All other n-1 servers (S_1 to S_{n-1}) must have rates R(S_i) > 1/2.",
+          "The sum of rates for these n-1 servers is R(S_1) + ... + R(S_{n-1}) > (n-1) * 1/2 = (n-1)/2.",
+          "If there is an additional server S_n with R(S_n) <= 1/2, the total rate R(Gamma) = (R(S_1) + ... + R(S_{n-1})) + R(S_n).",
+          "Since R(S_1) + ... + R(S_{n-1}) > (n-1)/2, and R(S_n) >= 0, R(Gamma) > (n-1)/2.",
+          "The proof statement is R(Gamma) > n/2. Let's re-examine the proof: 'all others have mu_i > 1/2'. This means n-1 servers have rate > 1/2. Their sum is > (n-1)/2. If there's one server S_n with rate <= 1/2, then R(Gamma) = sum_{i=1}^{n-1} mu_i + mu_n. The proof states sum_{i=1}^{n-2} mu_i > (n-2)/2. This seems to be a slight misstatement in the paper's proof sketch. A more direct argument: If n-1 servers have rate > 1/2, their sum is > (n-1)/2. If the nth server has rate > 0, the total sum is > (n-1)/2. For n=2, R(S1)+R(S2) > 1. n/2 = 1. So R(Gamma) > 1. For n=3, R(S1)>1/2, R(S2)>1/2, R(S3)>1/2. Sum > 3/2. n/2 = 1.5. So R(Gamma) > 1.5. The statement R(Gamma) > n/2 holds.",
+          "The proof uses: sum_{i=1}^{n-2} mu_i > (n-2)/2. And mu_{n-1} + mu_n > 1. This implies R(Gamma) = sum_{i=1}^{n-2} mu_i + mu_{n-1} + mu_n > (n-2)/2 + 1 = (n-2+2)/2 = n/2."
+        ],
+        "pseudocode": "def check_packed_utilization_bound(server_set):\n    n = len(server_set)\n    if n < 2:\n        return True # Lemma applies for n >= 2\n\n    total_rate = sum(server.R for server in server_set)\n\n    # Check if the condition R(Gamma) > n/2 holds\n    if total_rate <= n / 2.0:\n        print(f\"Lemma V.1 violated: Packed set with n={n}, R(Gamma)={total_rate}, but R(Gamma) <= n/2.\")\n        return False\n    return True",
+        "key_insights": [
+          "This lemma provides a lower bound on the utilization of packed server sets, which is useful for complexity analysis."
+        ]
+      },
+      "dependencies": [
+        "Definition IV.5 (Packed Server Set)",
+        "Definition III.1 (Server/Client)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem V.1 (Reduction Complexity)",
+      "formal_description": {
+        "statement": "RUN's off-line generation of a reduction sequence for n tasks on m processors requires O(log m) reduction steps and O(f(n)) time, where f(n) is the time needed to pack n tasks. Proof: Let {psi_i} i<=p be a reduction sequence on T, where p is the terminal level described in Theorem IV.2. Lemma IV.1 shows that a REDUCE, at worst, reduces the number of servers by about half, so p = O(log n). Since constructing the dual of a system primarily requires computing n dual rates, a single REDUCE requires O(f(n)+n) time. The time needed to perform the entire reduction sequence is described by T(n) <= T(n/2)+O(f(n)+n), which gives T(n) = O(f(n)). Since T is a full utilization task set, R(T) = R(sigma(T)) = m. If we let n' = |sigma(T)|, Lemma V.1 tells us that m = R(T) = R(sigma(T)) > n'/2. But as sigma(T) is the initial packing, it follows that p also is O(log n'), and hence O(log m).",
+        "variables": {
+          "n": "number of tasks",
+          "m": "number of processors",
+          "p": "number of reduction steps",
+          "f(n)": "time to pack n tasks",
+          "T(n)": "time to perform reduction sequence"
+        },
+        "assumptions": [
+          "T is a full utilization task set"
+        ],
+        "conclusion": "The off-line computation of the reduction sequence for RUN has a logarithmic number of steps with respect to the number of processors, and its complexity is dominated by the packing heuristic."
+      },
+      "informal_sketch": {
+        "intuition": "The reduction process is efficient because each step significantly reduces the problem size (number of servers), and the number of steps is logarithmic with respect to the number of processors. The main cost is in the packing heuristic.",
+        "steps": [
+          "The REDUCE operation (DUAL + PACK) reduces the number of servers by approximately half in each step (Lemma IV.1).",
+          "This means the number of reduction steps (p) required to reach unit servers is logarithmic with respect to the initial number of servers (which is related to n and m). Specifically, p = O(log n).",
+          "The paper states p = O(log m) for a full utilization task set.",
+          "Each REDUCE step involves DUAL (linear time in number of servers) and PACK (time f(n)).",
+          "The total time for the reduction sequence T(n) follows a recurrence relation T(n) <= T(n/2) + O(f(n) + n).",
+          "This recurrence solves to T(n) = O(f(n)), meaning the complexity is dominated by the packing heuristic used.",
+          "The paper mentions that polynomial-time packing algorithms exist (e.g., linear or loglinear time)."
+        ],
+        "pseudocode": "def analyze_reduction_complexity(num_tasks, num_processors, packing_time_function):\n    # Number of reduction steps is logarithmic\n    num_reduction_steps = f\"O(log {num_processors})\"\n\n    # Time complexity is dominated by packing\n    # Let f(n) be the time to pack n tasks\n    packing_complexity = f\"O({packing_time_function}({num_tasks}))\"\n\n    print(f\"Reduction steps: {num_reduction_steps}\")\n    print(f\"Total off-line time complexity: {packing_complexity}\")\n    return num_reduction_steps, packing_complexity",
+        "key_insights": [
+          "Logarithmic reduction steps make the off-line computation efficient.",
+          "The choice of packing heuristic directly impacts the overall complexity."
+        ]
+      },
+      "dependencies": [
+        "Lemma IV.1 (REDUCE Operation Size Reduction)",
+        "Theorem IV.2 (Reduction Sequence Termination)",
+        "Lemma V.1 (Packed Set Utilization Bound)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem V.2 (On-line Complexity)",
+      "formal_description": {
+        "statement": "Each scheduler invocation of RUN takes O(n) time, for a total of O(j*n*log m) scheduling overhead during any time interval when n tasks releasing a total of j jobs are scheduled on m processors. Proof: First, let's count the nodes in the server tree. In practice, S and phi(S) may be implemented as a single object / node. There are n leaves, and as many as n servers in sigma(T). Above that, each level has at most (approximately) half as many nodes as the preceding level. This gives us an approximate node bound of n + n + n/2 + n/4 + ... approx 3n. Next, consider the scheduling process described by Rules IV.2 and IV.3. The comparison of clients performed by EDF in Rule IV.2 does no worse than inspecting each client once. If we assign this cost to the client rather than the server, each node in the tree is inspected at most once per scheduling invocation. Rule IV.3 is constant time for each node which \"dualed\". Thus the selection of m tasks to execute is constant time per node, of which there are at most 3n. The previously described task-to-processor assignment requires 3 passes through a set of m tasks, and so may be done in O(m) <= O(n) time. Therefore, each scheduler invocation is accomplished in O(n) time. Since we only invoke the scheduler at WORK COMPLETE or JOB RELEASE events, any given job (real or virtual) can cause at most two scheduler invocations. The virtual jobs of servers are only released at the release times of their leaf descendants, so a single real job can cause no more than O(log m) virtual jobs to be released, since there are at most O(log m) reduction levels (Theorem V.1). Thus j real jobs result in no more than j*O(log m) virtual jobs, so a time interval where j jobs are released will see a total scheduling overhead of O(j*n*log m).",
+        "variables": {
+          "n": "number of tasks",
+          "m": "number of processors",
+          "j": "number of jobs released",
+          "N_nodes": "number of nodes in server tree"
+        },
+        "assumptions": [],
+        "conclusion": "The on-line scheduling overhead per invocation is linear in the number of tasks, and the total overhead over an interval is proportional to the number of jobs, tasks, and the logarithm of the number of processors."
+      },
+      "informal_sketch": {
+        "intuition": "The on-line part of RUN (making scheduling decisions) is efficient. Each decision takes time proportional to the number of tasks, and the total overhead is bounded by the number of jobs and the depth of the reduction tree (log m).",
+        "steps": [
+          "The RUN algorithm uses a server tree structure, which has approximately 3n nodes (where n is the number of original tasks).",
+          "Each scheduler invocation involves traversing this tree.",
+          "Scheduling decisions at each node (using EDF and duality rules) take time proportional to the number of clients/servers at that node.",
+          "Overall, selecting the m tasks to run takes O(n) time per invocation.",
+          "The scheduler is invoked only at specific events (job release, work complete).",
+          "A single real job can trigger releases of virtual jobs at multiple levels of the server tree (up to log m levels).",
+          "Therefore, j real jobs can trigger up to j * O(log m) virtual job releases.",
+          "The total on-line scheduling overhead is the number of invocations multiplied by the cost per invocation: O(j * log m) * O(n) = O(j * n * log m)."
+        ],
+        "pseudocode": "def estimate_online_complexity(num_tasks, num_processors, num_jobs_released):\n    # Number of nodes in the server tree is roughly 3*n\n    # Cost per scheduler invocation is O(n)\n    cost_per_invocation = f\"O({num_tasks})\"\n\n    # Max number of virtual job releases per real job is O(log m)\n    max_virtual_releases_per_job = f\"O(log {num_processors})\"\n\n    # Total overhead = num_jobs_released * max_virtual_releases_per_job * cost_per_invocation\n    total_overhead = f\"O({num_jobs_released} * {max_virtual_releases_per_job} * {cost_per_invocation})\"\n    total_overhead_simplified = f\"O({num_jobs_released} * {num_tasks} * log {num_processors})\"\n\n    print(f\"Cost per scheduler invocation: {cost_per_invocation}\")\n    print(f\"Total on-line scheduling overhead: {total_overhead_simplified}\")\n    return cost_per_invocation, total_overhead_simplified",
+        "key_insights": [
+          "The server tree structure allows for efficient traversal.",
+          "The logarithmic depth of the tree limits the cascading effect of job releases."
+        ]
+      },
+      "dependencies": [
+        "Theorem V.1 (Reduction Complexity)",
+        "Rule IV.2 (EDF Server)",
+        "Rule IV.3 (Dual Server)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma V.2 (Job Events and Releases)",
+      "formal_description": {
+        "statement": "Each job from a task or server has exactly one J.R.E. and one W.C.E.. Further, the servers at any one reduction level cannot release more jobs than the original task set over any time interval.",
+        "variables": {
+          "J": "a job",
+          "J.r": "release time of job J",
+          "J.d": "deadline of job J",
+          "tau": "a task",
+          "S": "a server"
+        },
+        "assumptions": [],
+        "conclusion": "Each job has a single release and completion event. The number of job releases at higher levels of the server hierarchy does not exceed that of the original tasks."
+      },
+      "informal_sketch": {
+        "intuition": "Every job has a clear start and end. Importantly, the abstraction of servers doesn't create more 'events' (job releases) than the original tasks themselves.",
+        "steps": [
+          "Every job has a release time (J.r) and a deadline (J.d).",
+          "The release time signifies a Job Release Event (J.R.E.).",
+          "The deadline signifies a Work Complete Event (W.C.E.) (assuming the job is completed by its deadline).",
+          "A server's jobs are derived from its clients' deadlines.",
+          "If a server S has clients T, and S has deadlines D(S) = union(D(tau) for tau in T), then S releases jobs at these deadlines.",
+          "The number of deadlines for S cannot exceed the total number of deadlines of its clients.",
+          "By induction up the server tree, the number of job releases at any reduction level cannot exceed the number of job releases of the original leaf tasks."
+        ],
+        "pseudocode": "def analyze_job_events(job):\n    # J.r is the Job Release Event\n    # J.d is the Work Complete Event (assuming valid schedule)\n    pass\n\ndef check_release_bound(servers_at_level, original_tasks):\n    # Count job releases for servers_at_level over an interval\n    # Count job releases for original_tasks over the same interval\n    # Assert that releases_servers <= releases_tasks\n    pass",
+        "key_insights": [
+          "The server abstraction preserves the event rate of the system."
+        ]
+      },
+      "dependencies": [
+        "Definition II.1 (Job)",
+        "Definition III.1 (Server/Client)",
+        "Definition II.2 (Fixed-Rate Task)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma V.3 (Preemption Bound for n=m+1)",
+      "formal_description": {
+        "statement": "Scheduling a system T of n = m + 1 tasks on m processors with RUN produces an average of no more than one preemption per job. Proof: When n = m + 1, there is only one reduction level and no packing; T is scheduled by applying EDF to its uniprocessor dual system. We claim that dual J.R.E.s cannot cause preemptions in the primal system. A J.R.E. only causes a context switch when the arriving job J*_i, say from task tau*, has an earlier deadline than, and replaces, the previously running job. However, if J*_i starts executing at time J*_i.r in the dual, then tau's previous job J_{i-1} stops executing at time J_{i-1}.d = J*_i.r in the primal. When a job stops executing at its deadline in a valid schedule, it must be the case that its work is complete, and stopping a completed job does not count as a preemption. Thus dual J.R.E.s do not cause preemptions in the primal system. By Lemma V.2, there can be at most one W.C.E. in the dual, and hence one preemption in the primal, for each job released by a task in T, as desired.",
+        "variables": {
+          "T": "a task set",
+          "n": "number of tasks",
+          "m": "number of processors",
+          "J*_i": "a job in the dual system",
+          "tau": "a task",
+          "J_{i-1}": "previous job of tau"
+        },
+        "assumptions": [
+          "n = m + 1"
+        ],
+        "conclusion": "When the task set is only slightly larger than the number of processors (n=m+1), RUN behaves like a simple uniprocessor EDF on the dual system, resulting in very few preemptions."
+      },
+      "informal_sketch": {
+        "intuition": "In the simplest multiprocessor case (one extra task), RUN reduces to scheduling the dual system with EDF. The key insight is that job releases in the dual system don't cause preemptions in the original system because they coincide with job completions.",
+        "steps": [
+          "Consider the case where n = m + 1 tasks.",
+          "This means there's only one reduction level, and no packing is needed.",
+          "The system is effectively reduced to scheduling its uniprocessor dual.",
+          "The dual system is scheduled using EDF.",
+          "Claim: Job Release Events (J.R.E.) in the dual system do not cause preemptions in the primal system.",
+          "  - A J.R.E. in the dual system occurs at time t (J*.r).",
+          "  - This time t is also the deadline (J.d) of the corresponding job in the primal system.",
+          "  - If a job in the primal system stops executing at its deadline, its work is complete.",
+          "  - Stopping a completed job is not a preemption.",
+          "Therefore, only Work Complete Events (W.C.E.) in the dual system can lead to preemptions in the primal system.",
+          "By Lemma V.2, there's at most one W.C.E. per job in the dual system.",
+          "Thus, there's at most one preemption per job in the primal system."
+        ],
+        "pseudocode": "def analyze_preemptions_n_m_plus_1(task_set, num_processors):\n    n = len(task_set)\n    m = num_processors\n\n    if n != m + 1:\n        print(\"Lemma V.3 applies only when n = m + 1.\")\n        return\n\n    # The system is scheduled as a uniprocessor dual using EDF.\n    # The proof shows that dual J.R.E.s do not cause primal preemptions.\n    # Only dual W.C.E.s can cause primal preemptions.\n    # By Lemma V.2, at most one W.C.E. per job.\n    average_preemptions = \"<= 1 per job\"\n    print(f\"For n = m + 1, average preemptions per job: {average_preemptions}\")\n    return average_preemptions",
+        "key_insights": [
+          "The special case n=m+1 simplifies the analysis significantly.",
+          "The coincidence of dual J.R.E.s and primal job completions is the key to low preemption."
+        ]
+      },
+      "dependencies": [
+        "Lemma V.2 (Job Events and Releases)",
+        "Theorem IV.1 (Dual Validity)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma V.4 (Context Switch Propagation)",
+      "formal_description": {
+        "statement": "A context switch at any level of the server tree causes exactly one context switch between two original leaf tasks in T. Proof: We proceed by induction, showing that a context switch at any level of the server tree causes exactly one context switch in the next level below (less reduced than) it. Consider some tree level where the switch occurs: suppose we have a pair of client nodes (not necessarily of the same server parent) C+ and C-, where C+ replaces C-. All other jobs' \"running\" statuses at this level are unchanged. Let S+ and S- be their dual children in the server tree (i.e., C+ = S*+ and C-= S*-), so that S- replaces S+ (see Figure 8 for node relationships). Now, when S+ was running, it was executing exactly one of its client children, call it C+,1 ; when S+ gets switched off, so does C+,1. Similarly, when S- was off, none of its clients were running; when it gets switched on, exactly one of its clients, say C-,1 , gets executed. Just as the context switch at the higher (more reduced) level only effects the two servers C+ and C-, so too are these two clients C+,1 and C-,1 the only clients at this lower level affected by this operation; thus, C-,1 must be replacing C+,1. So here we see that a context switch at one client level of the tree causes only a single context switch at the next lower client level of the tree (in terms of Figure 8, (i) causes (ii)). This one context switch propagates down to the leaves, so inductively, a context switch anywhere in the tree causes exactly one context switch in T.",
+        "variables": {
+          "C+": "a client node being replaced",
+          "C-": "a client node replacing C+",
+          "S+": "dual child of C+",
+          "S-": "dual child of C-",
+          "C+,1": "client of S+",
+          "C-,1": "client of S-"
+        },
+        "assumptions": [],
+        "conclusion": "A single context switch at a higher level of the server tree (representing a more reduced system) translates to exactly one context switch at the next lower level, ultimately affecting only one pair of original tasks."
+      },
+      "informal_sketch": {
+        "intuition": "When a decision is made at a higher level of the server tree (e.g., a server starts or stops running), this decision propagates down the tree. Crucially, each such decision at one level causes exactly one corresponding decision at the level below it, until it reaches the actual tasks.",
+        "steps": [
+          "Consider a context switch at a certain level of the server tree. This means one server (or group of servers) stops running, and another starts.",
+          "Let's say server C+ stops running, and C- starts running.",
+          "C+ was executing one of its clients (C+,1), and C- was executing one of its clients (C-,1).",
+          "When C+ stops, C+,1 stops. When C- starts, C-,1 starts.",
+          "This means C-,1 replaces C+,1 at the next level down.",
+          "This one-to-one replacement propagates down the tree.",
+          "Eventually, this single context switch at the top level results in exactly one context switch between two original leaf tasks in the task set T."
+        ],
+        "pseudocode": "def trace_context_switch_propagation(server_tree_node, current_task_switch_count):\n    # This function would recursively trace the effect of a context switch.\n    # If a switch occurs at server_tree_node:\n    #   Increment current_task_switch_count\n    #   Identify the corresponding switch at the child level.\n    #   Recursively call trace_context_switch_propagation on the child node.\n    pass\n\ndef verify_lemma_v4(server_tree):\n    # Simulate a context switch at the root of the server tree.\n    # Trace its propagation down to the leaves.\n    # Count the number of context switches between leaf tasks.\n    # Assert that the count is exactly 1.\n    pass",
+        "key_insights": [
+          "The server tree structure ensures that context switches are localized and propagate deterministically.",
+          "This is key to bounding the total number of preemptions."
+        ]
+      },
+      "dependencies": [
+        "Rule IV.1 (Dual Server)",
+        "Rule IV.2 (EDF Server)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma V.5 (J.R.E. Preemption Bound)",
+      "formal_description": {
+        "statement": "If RUN requires p reduction levels for a task set T, then any J.R.E. by a task tau in T can cause at most ceil((p + 1)/2) preemptions in T. Proof: Suppose task tau releases job J at time J.r. This causes a job release at each ancestor server node above tau in the server tree (i.e., on the path from leaf tau to the root). We will use Figure 8 for reference. Let S be the highest (furthest reduction level) ancestor server of tau for which this J.R.E. causes a context switch among its clients (S may be the root of the server tree). In such a case, some client of S (call it C+) has a job arrive with an earlier deadline than the currently executing client (call it C-), so C+ preempts C-. As described in the proof of Lemma V.4, C-'s dual S- replaces C+'s dual S+, and this context switch propagates down to a context switch between two tasks in T (see preemption (iii)). However, as no client of S+ remains running at time J.r, the arrival of a job for tau's ancestor C+,0 at this level cannot cause a J.R.E. preemption at this time (it may cause a different client of S+ to execute when S+ begins running again, but this context switch will be charged to the event that causes S+ to resume execution). Thus, when an inherited J.R.E. time causes a context switch at one level, it cannot cause a different (second) context switch at the next level down. However, it may cause a second context switch two levels down (see preemption (iv)). Figure 8 shows two context switches, (iii) and (iv), in T that result from a single J.R.E. of tau. One is caused by a job release by tau's ancestor child of the root, which propagates down to another part of the tree (iii). tau's parent server is not affected by this, stays running, and allows tau to preempt its sibling client when its new job arrives (iv). While S is shown as the root and tau as a leaf in Figure 8, this argument would still apply if there were additional nodes above and below those shown, and tau were a descendant of node C+,0,1. If there were additional levels, then tau's J.R.E. could cause an additional preemption in T for each two such levels. Thus, if there are p reduction levels (i.e., p + 1 levels of the server tree), a J.R.E. by some original task tau can cause at most ceil((p + 1)/2) preemptions in T.",
+        "variables": {
+          "T": "a task set",
+          "tau": "a task in T",
+          "J": "a job of tau",
+          "J.r": "release time of J",
+          "p": "number of reduction levels",
+          "C+": "a client server",
+          "C-": "another client server",
+          "S+": "dual of C+",
+          "S-": "dual of C-"
+        },
+        "assumptions": [
+          "p reduction levels"
+        ],
+        "conclusion": "A single job release event for an original task can trigger a limited number of preemptions, proportional to the depth of the reduction tree."
+      },
+      "informal_sketch": {
+        "intuition": "A job release event for a task at the bottom of the server tree causes a chain reaction up the tree. This lemma shows that this chain reaction, due to the nature of duality and EDF, results in a bounded number of preemptions at the task level.",
+        "steps": [
+          "Consider a job release event (J.R.E.) for a task tau at time J.r.",
+          "This event propagates up the server tree to all ancestor servers of tau.",
+          "At each ancestor server level, this event might cause a context switch (a preemption).",
+          "The proof analyzes how many such context switches can occur.",
+          "A key observation is that a context switch at level k (causing a preemption) does not necessarily cause a context switch at level k+1.",
+          "However, it can cause a context switch at level k+2 (two levels down).",
+          "This pattern means that for every two levels of the server tree, a J.R.E. can cause at most one preemption in the original task set.",
+          "If there are p reduction levels, there are p+1 levels in the server tree.",
+          "The maximum number of preemptions caused by a single J.R.E. is therefore ceil((p + 1) / 2)."
+        ],
+        "pseudocode": "def estimate_max_preemptions_from_jre(num_reduction_levels):\n    p = num_reduction_levels\n    # Number of server tree levels is p + 1\n    max_preemptions = math.ceil((p + 1) / 2.0)\n    return max_preemptions\n\n# Example:\n# num_levels = 3 # Corresponds to p=2 reduction levels\n# max_preemptions = estimate_max_preemptions_from_jre(num_levels)\n# print(f\"Max preemptions from J.R.E. with {num_levels} tree levels: {max_preemptions}\")",
+        "key_insights": [
+          "The 'two-level' propagation of context switches is crucial for bounding preemptions.",
+          "The number of reduction levels (p) directly impacts the preemption bound."
+        ]
+      },
+      "dependencies": [
+        "Lemma V.4 (Context Switch Propagation)",
+        "Theorem V.1 (Reduction Complexity)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem V.3 (Overall Preemption Bound)",
+      "formal_description": {
+        "statement": "Suppose RUN performs p reductions on task set T in reducing it to a single EDF system. Then RUN will suffer an average of no more than ceil((3p+1)/2) = O(log m) preemptions per job (and no more than 1 when n = m + 1) when scheduling T. Proof: The n = m + 1 bound comes from Lemma V.3. Otherwise, we use Lemma V.2 to count preemptions based on jobs from T and the two EDF event types. By Lemma V.5, a J.R.E. by tau in T can cause at most ceil((p + 1)/2) preemptions in T. The context switch that happens at a W.C.E. in T is, by definition, not a preemption. However, a job of tau in T corresponds to one job released by each of tau's p ancestors, and each of these p jobs may have a W.C.E. which causes (at most, by Lemma V.4) one preemption in T. Thus we have at most p + ceil((p + 1)/2) = ceil((3p + 1)/2) preemptions that can be attributed to each job from T, giving our desired result since p = log m by Theorem V.2.",
+        "variables": {
+          "p": "number of reductions",
+          "T": "task set",
+          "m": "number of processors",
+          "n": "number of tasks"
+        },
+        "assumptions": [
+          "p reductions performed"
+        ],
+        "conclusion": "The average number of preemptions per job in RUN is bounded by a logarithmic function of the number of processors, which is significantly better than many existing optimal algorithms."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem combines the bounds from previous lemmas to give an overall upper bound on the average number of preemptions per job. It shows that RUN is efficient in terms of preemption overhead.",
+        "steps": [
+          "The total preemption bound is derived from two sources of events:",
+          "1. Job Release Events (J.R.E.) in the original task set T.",
+          "2. Work Complete Events (W.C.E.) in the original task set T.",
+          "From Lemma V.5, a single J.R.E. for a task tau can cause at most ceil((p + 1) / 2) preemptions in T, where p is the number of reduction levels.",
+          "A W.C.E. in the original task set T is not a preemption by itself.",
+          "However, each job of tau in T corresponds to a job at each of its p ancestor levels in the server tree.",
+          "Each of these p ancestor jobs can have a W.C.E. that, by Lemma V.4, causes at most one preemption in T.",
+          "So, for each job of tau, we have:",
+          "  - Preemptions from its own J.R.E.: ceil((p + 1) / 2)",
+          "  - Preemptions from W.C.E.s of its ancestors: p * 1 (at most)",
+          "Total potential preemptions per job = p + ceil((p + 1) / 2) = ceil((2p + p + 1) / 2) = ceil((3p + 1) / 2).",
+          "Since p = O(log m) (Theorem V.1), the bound is O(log m) preemptions per job.",
+          "The special case n = m + 1 (Lemma V.3) gives a bound of 1 preemption per job."
+        ],
+        "pseudocode": "def calculate_overall_preemption_bound(num_reduction_levels, num_tasks, num_processors):\n    p = num_reduction_levels\n    n = num_tasks\n    m = num_processors\n\n    if n == m + 1:\n        return \"<= 1 per job\"\n\n    # Preemptions from J.R.E.s (Lemma V.5)\n    jre_preemptions = math.ceil((p + 1) / 2.0)\n\n    # Preemptions from W.C.E.s of ancestors (Lemma V.4 and p ancestors)\n    wce_preemptions = p\n\n    total_preemptions = jre_preemptions + wce_preemptions\n    bound = math.ceil(total_preemptions)\n\n    # Since p = O(log m), the bound is O(log m)\n    log_m_bound = f\"O(log {m})\"\n\n    print(f\"Total average preemptions per job: ceil((3p+1)/2) = {bound}\")\n    print(f\"Asymptotic bound: {log_m_bound}\")\n    return bound",
+        "key_insights": [
+          "The preemption bound is a sum of contributions from J.R.E.s and W.C.E.s of ancestor jobs.",
+          "The logarithmic dependency on m is a key performance advantage."
+        ]
+      },
+      "dependencies": [
+        "Lemma V.5 (J.R.E. Preemption Bound)",
+        "Lemma V.4 (Context Switch Propagation)",
+        "Theorem V.1 (Reduction Complexity)",
+        "Lemma V.3 (Preemption Bound for n=m+1)"
+      ]
+    }
+  ],
+  "extracted_at": "2025-11-12T02:50:23.659086",
+  "xml_path": "papers\\xml\\RUN_Optimal_Multiprocessor_Real-Time_Scheduling_via_Reduction_to_Uniprocessor.xml"
+}

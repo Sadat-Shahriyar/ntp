@@ -1,0 +1,676 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">GPUSync: A Framework for Real-Time GPU Management *</title>
+				<funder ref="#_eKDBwSm #_DBXz7ZR #_G8JRdXC #_bqE6ZwT #_gEcQHCM">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Glenn</forename><forename type="middle">A</forename><surname>Elliott</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Bryan</forename><forename type="middle">C</forename><surname>Ward</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">GPUSync: A Framework for Real-Time GPU Management *</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">8DA1241FC5829A2DA0DB736BF2CB4980</idno>
+					<idno type="DOI">10.1109/RTSS.2013.12</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-13T23:02+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>This paper describes GPUSync, which is a framework for managing graphics processing units (GPUs) in multi-GPU multicore real-time systems. GPUSync was designed with flexibility, predictability, and parallelism in mind. Specifically, it can be applied under either static-or dynamicpriority CPU scheduling; can allocate CPUs/GPUs on a partitioned, clustered, or global basis; provides flexible mechanisms for allocating GPUs to tasks; enables task state to be migrated among different GPUs, with the potential of breaking such state into smaller "chunks"; provides migration cost predictors that determine when migrations can be effective; enables a single GPU's different engines to be accessed in parallel; properly supports GPU-related interrupt and worker threads according to the sporadic task model, even when GPU drivers are closed-source; and provides budget policing to the extent possible, given that GPU access is non-preemptive. No prior real-time GPU management framework provides a comparable range of features.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1">Introduction</head><p>Graphics processing units (GPUs) are commonly used today to accelerate intensive general-purpose computations, a practice termed GPGPU. The breadth of application domains that can benefit from GPGPU includes many where real-time constraints exist. In automotive systems, for example, GPUs have been used to perform eye tracking <ref type="bibr" target="#b16">[18]</ref>, pedestrian detection <ref type="bibr" target="#b24">[26]</ref>, navigation <ref type="bibr" target="#b9">[11]</ref>, and obstacle avoidance <ref type="bibr" target="#b23">[25]</ref>. If a single platform consolidates such features, then it may require a multicore system with multiple GPUs. Such systems are the focus of this paper.</p><p>Although multiple tasks can share GPUs, stock operating system (OS) drivers from GPU manufacturers offer little in terms of scheduling policies. Contention for GPU resources is often resolved through undisclosed closed-source arbitration policies. These arbitration policies typically have no regard for task priority and may exhibit behaviors detrimental to multitasking on host CPUs <ref type="bibr" target="#b8">[10]</ref>. Furthermore, a single task can dominate GPU resources by issuing many or long-running operations. Allocation methods are needed that eliminate or ameliorate these problems.</p><p>Such methods must address issues in three fundamental categories: allocation, budgeting, and integration. Allocation issues include task-to-GPU assignment, the scheduling of GPU memory transfers, and the scheduling of GPU computations. Budgeting issues arise when tasks utilize more GPU resources than allocated. Integration issues relate to the technical challenges of integrating GPU hardware (and closed-source software) into a real-time system.</p><p>In resolving such issues, careful attention should be paid to managing GPU-related parallelism. For example, modern GPUs can send data, receive data, and perform computations simultaneously. Ideally, these three operations should be allowed to overlap in time to maximize performance. Additionally, data transmissions result in increased traffic on shared buses used in parallel by other tasks. One must carefully manage bus traffic or all computations in a system (even non-GPU-related ones) may be slowed <ref type="bibr" target="#b19">[21]</ref>.</p><p>If a system has multiple GPUs, then parallelism-related issues arise when allocating GPUs. It may be desirable to use a clustered or global GPU organization in order to avoid the utilization loss common to partitioned approaches. However, a GPU-using task may develop memory-based affinity for a particular GPU as it executes. In such cases, program state (data) is stored in GPU memory and accessed by the task each time it executes on that particular GPU. This state must be migrated each time the task uses a GPU different from the one it used previously. Such migrations increase bus traffic and thus affect system-wide performance and predictability. As explained in greater detail later, prior work on real-time GPU management has only partially addressed these parallelism-related issues. Furthermore, issues unique to multi-GPU systems have received little attention. Contributions. In this paper, we present a real-time GPU management framework called GPUSync that addresses the above issues. While GPU management is often viewed as a scheduling problem (e.g., see <ref type="bibr" target="#b0">[2,</ref><ref type="bibr" target="#b4">6,</ref><ref type="bibr" target="#b12">14,</ref><ref type="bibr" target="#b11">13,</ref><ref type="bibr" target="#b13">15]</ref>), we instead view it as a synchronization problem. 1 Indeed, GPUSync is the culmination of several years of research by us on various aspects of synchronization-based GPU management <ref type="bibr" target="#b5">[7,</ref><ref type="bibr" target="#b6">8,</ref><ref type="bibr" target="#b7">9,</ref><ref type="bibr" target="#b8">10]</ref>. GPUSync extends this prior work in many ways, most notably by significantly enhancing the parallel control of GPU-related resources, by allowing GPU state to be migrated, by providing support for GPU budget enforcement, and by allowing the overall system to be configurable for use under different scheduling policies, prioritization schemes, etc. As in our prior work, we consider GPU management under job-level-static-priority (JLSP) schedulers, such as the rate-monotonic (RM) and earliest-deadline-first (EDF) schedulers, where the allocation of both CPUs and GPUs may be on a partitioned, clustered, or global basis.</p><p>Regarding parallelism, GPUSync extends our prior work by enabling simultaneous two-way data transmission and GPU computation. In the case of non-partitioned GPU approaches, we also provide support for predictable and efficient GPU-to-GPU (peer-to-peer, or P2P) state migration, as well as self-tuning heuristics that attempt to determine when migrations can be effective.</p><p>Because GPU accesses are non-preemptive, it is not possible to completely isolate tasks from the effects of budget overruns by other tasks. In GPUSync, such isolation is provided to the extent possible by monitoring execution budgets and utilizing various methods that penalize overrunning tasks by reducing their future allocations. Although it is not always possible to immediately take a GPU away from an overrunning task, GPUSync can notify a task of an overrun through signals. User code may leverage exception handling language features to gracefully relinquish a GPU in response to these signals. In a multi-GPU system, the effects of overruns are further mitigated by having multiple GPUs that tasks can utilize (this is yet another instance of replicated hardware ameliorating the effects of erroneous behaviors).</p><p>In our prior work, we showed how to support GPUrelated interrupt handling in accordance with the sporadic task model <ref type="bibr" target="#b7">[9]</ref>. GPUSync improves upon this earlier work by also properly managing user-space helper threads, which are utilized in the latest closed-source GPGPU runtimes. Our support for GPU-related interrupt handling is applicable to closed-source drivers. This is advantageous since closedsource drivers often offer better performance and support newer hardware than open-source alternatives.</p><p>To assess the efficacy of GPUSync, we implemented it in LITMUS RT , a Linux-based real-time OS jointly developed by UNC and MPI. 2 Using this implementation, we conducted experiments that show that a synchronizationbased approach can successfully meet the resource allocation needs of a real-time GPGPU system. We further show that execution behaviors can be predicted to promote task affinity in multi-GPU systems.</p><p>Organization. In the rest of the paper, we provide needed background (Sec. 2), describe GPUSync (Sec. 3), compare it to relevant prior work (Sec. 4), present our experimental results (Sec. 5), and conclude (Sec. 6). Due to space limitations, we limit attention to GPU technologies from NVIDIA, whose CUDA [1] platform is widely accepted as a leading GPGPU solution. However, the design of GPUSync does not rely upon specific NVIDIA technology.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2">Background</head><p>We begin by describing relevant aspects of GPGPU technology and challenges it poses to OS-level resource management. We then explain our reasoning for pursing a synchronization-based framework for realizing GPUenabled real-time systems. 2 Source code for LITMUS RT and GPUSync is available at www. litmus-rt.org. GPU hardware. GPUs may be "discrete" or "integrated." Discrete GPUs are those that plug into a host system as a daughter card. Integrated GPUs are on the same chip as system CPUs. In both cases, GPUs interface to the host system as I/O devices and are managed by OS drivers. Discrete GPUs differ from integrated GPUs in three ways: (i) they are much more computationally capable; (ii) they have local high-speed memory (integrated GPUs use system memory); and (iii) they operate most efficiently upon local memory, which requires copying data to and from system memory. We focus our attention on discrete GPUs for their performance characteristics and interesting challenges posed by memory management. However, our management techniques are still applicable to integrated GPUs, except that there is no need for GPU memory management.</p><p>Our GPUs of interest each have an execution engine (EE) and one or two DMA copy engines (CEs). The execution engine consists of many parallel processors and performs computations, similar to a CPU. The copy engines transmit data between system memory and GPU memory. GPUs commonly have only one copy engine, and thus cannot send and receive data at the same time. However, high-end GPUs may have an additional independent copy engine, enabling simultaneous bi-directional transmissions. The execution and copy engines perform operations non-preemptively.</p><p>Fig. <ref type="figure" target="#fig_0">1</ref> depicts a high-level architecture of a multicore, multi-GPU system. The copy engines connect to the host system via a full-duplex PCIe bus. PCIe is a hierarchically organized packet-switched bus with an I/O hub at its root. Switches multiplex the bus to allow multiple devices to connect to the I/O hub. Unlike the older PCI bus, where only one device on a bus may transmit data at a time, PCIe devices can transmit data simultaneously. Traffic is arbitrated at each switch using round-robin arbitration at the packet level in case of contention. <ref type="foot" target="#foot_1">3</ref> The structure depicted in Fig. <ref type="figure" target="#fig_0">1</ref> may be replicated in large-scale NUMA platforms, with CPUs and I/O hubs connected by high-speed interconnects. However, only devices that share an I/O hub may communicate directly with each other as peers. GPGPU operations and state migration. GPGPU programs execute on CPUs and invoke a sequence of GPU op- erations. There are two types of GPU operations. Kernel operations are programs executed by the GPU execution engine. Memory copy operations are data transfers to or from a GPU's local memory; these are processed by the copy engines. A general execution sequence for a GPGPU program scheduled alone is depicted in Fig. <ref type="figure" target="#fig_1">2</ref>. Observe that a program running on a CPU initiates GPU operations-the GPU does not initiate them independently. At time t 1 , the GPGPU program selects a GPU to use. At time t 2 , the program transmits input data for the GPU kernel from system memory to GPU memory. The memory copy is processed by one of the GPU's copy engines. The program waits (it may elect to either busywait or suspend) until the copy operation completes at time t 3 . A kernel that operates on the input data is executed at time t 4 -computational results are stored in GPU memory. The program copies the kernel output from the GPU at time t 5 . Finally, the program no longer requires the GPU at time t 6 . We call the duration from time t 1 to time t 6 a GPU critical section because the GPGPU program expects its sequence of operations to be carried out on the same GPU. Recall that GPU operations on the various engines are non-preemptive. For example, GPU CE0 cannot be preempted during the interval [t 2 , t 3 ]. However, the program running on the CPU is preemptive while waiting, if it busy-waits. There are two important things to note about this example. First, this is only a simple execution sequence. Any number of GPU operations may be issued within the GPU critical section. Second, we have depicted the input and output memory copies as processed by different copy engines-it is actually up to the GPU to select which copy engine to use.</p><p>In addition to memory used for input and output, recurrent tasks may maintain state in GPU memory. For example, motion-tracking algorithms maintain information about the movement of objects between video frames. A task has affinity with the GPU that holds its most recent state. State must migrate with tasks from one GPU to another. <ref type="foot" target="#foot_2">4</ref> The cost of migration is the time it takes to move state from one GPU to another. Cost is partly dependent upon the distance between GPUs and the the method used to copy state between them. Distance is the number of links to the nearest common switch or I/O hub of two GPUs. For example, in Fig. <ref type="figure" target="#fig_0">1</ref>, the distance between GPUs 0 and 2 is two (one link to a switch, a second link to a common I/O hub). One may use either of two methods to migrate state between GPUs. The first is a two-step process by way of a temporary buffer in system memory: data is copied to system memory from one GPU and then back out to another. The other method is a more efficient single-step approach using P2P communication: data is copied directly from one GPU to another. P2P-based migrations are more efficient, especially over short distances, due to proximity and reduced bus contention. However, this method requires coordination between the GPUs. Regardless of the method employed, current GPU technology requires that migrations must be carried out by the user application and is thus not transparent to the user. OS concerns. A real-time OS (RTOS) provides timing guarantees for applications through prescribed resource allocation algorithms and the enforcement of allocation decisions. How does an RTOS achieve this for GPU-enabled systems? To answer this we must first consider other questions, such as: Which GPUs may a task access? Which GPU is best among multiple GPUs? When may a task access an assigned GPU? When may a task migrate between GPUs? How should contention for GPUs be arbitrated? How should allocation decisions be enforced?</p><p>The answers to these questions are not immediately apparent because the realities of GPU technology force us to use methods different from real-time CPU scheduling. There are three major differences that relate to allocation, budgeting, and integration. First, allocation. GPUs have local memory that hold state and kernel input and output data. A task may have to move all this data between GPUs to support migration at arbitrary points (between non-preemptive operations) during execution. This is often prohibitively expensive, and not necessarily starvation-free, if migration decisions are not made carefully. This is not the case with modern shared-memory CPUs where data is always immediately accessible from any CPU and migration is transparent to the user. However, despite the cost of migration, opportunities to distribute work across GPUs may be lost if a scheduler is too migration-averse.</p><p>Second, budgeting. GPU operations are non-preemptive. Non-preemptive GPU scheduling may not be problematic to implement in and of itself, but it implies that budget policies must focus on recovery rather than strict enforcement since overrunning GPU operations cannot be halted. Furthermore, migration costs may motivate us to allow an overrunning task to execute to completion, rather than resume execution on a different GPU at a later time.</p><p>Finally, integration. CPU and GPU scheduling is interdependent. A GPU-using task requires CPU time in order to initiate GPU operations. Also, a GPU may block while waiting for a CPU to service device interrupts. Computing resources may be left idle if GPU operation initiation or interrupt servicing is delayed. Likewise, immediately handling these events may introduce unnecessary priority inversions and harm real-time schedulability.</p><p>Synchronization-based philosophy. In Sec. 1, we posited that GPU management is best viewed as a synchronization problem rather than one of scheduling. However, we wish to make clear that this distinction is somewhat blurred: the locking protocols we utilize are the GPU schedulers-these protocols prioritize ready GPU work and grant access accordingly. Nonetheless, as we shall see, a synchronizationbased approach gives us established techniques to address problems relating to allocation, budgeting, and integration.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3">GPUSync</head><p>We consider a system with m CPUs, partitioned into clusters of c CPUs each, and h GPUs, partitioned into clusters of g GPUs each. Each GPU cluster is wholly assigned to a single CPU cluster in order to avoid complexities that arise due to the incomparability of priorities when resources are shared among CPU clusters. <ref type="foot" target="#foot_3">5</ref> We assume that the workload to be supported can be modeled as a traditional sporadic real-time task system, with jobs (task invocations) being scheduled by a JLSP scheduler. Furthermore, we assume that the scheduled system is a soft real-time (SRT) system for which bounded deadline tardiness is acceptable. While GPUSync's design does not inherently preclude use in hard real-time (HRT) systems, reliance upon closed-source software would make a claim of HRT support premature <ref type="bibr" target="#b6">[8]</ref>. Thus, we focus on design strategies that improve predictability and average-case performance, while maintaining SRT guarantees. Finally, we assume that tasks can tolerate GPU migration at job boundaries, and that the per-job execution times of each task remain relatively consistent, with overruns of provisioned bounds being uncommon events.</p><p>We now present the design of GPUSync by separately discussing allocation, budgeting, and integration.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.1">Allocation</head><p>GPUSync utilizes a two-level nested locking structure, which we discuss at a high level before delving into details.</p><p>The high-level design of GPUSync's allocation mechanisms is illustrated in Fig. <ref type="figure" target="#fig_2">3</ref>. There are several components: a self-tuning execution cost predictor; a GPU allocator, based upon a real-time k-exclusion locking protocol, <ref type="foot" target="#foot_4">6</ref> augmented with heuristics; and a set of real-time engine locks, one per GPU engine, to arbitrate access to GPU engines.</p><p>We now describe the general steps followed within GPUSync to allocate GPU resources. Recall from Sec. 2 that a GPU critical section is a region of code where a GPUusing task cannot tolerate a migration between GPUs during a sequence of GPU operations. A job must acquire one of ρ tokens associated with a particular GPU before entering a critical section that involves accessing that GPU. We call a GPU critical section protected by a token a token critical section. For the sake of simplicity in discussion, we assume each job has at most one token critical section, even though GPUSync supports jobs with multiple non-overlapping sections. As depicted in Fig. <ref type="figure" target="#fig_2">3</ref>, a job requests a token from the GPU allocator in Step A (or time t 1 in Fig. <ref type="figure" target="#fig_1">2</ref>). Utilizing the cost predictor in Step B and internal heuristics, the GPU allocator determines which token (and by extension, which GPU) should be allocated to the request. The requesting job is allowed access to the assigned GPU once it receives a token in Step C. In Step D, the job competes with other tokenholding jobs for GPU engines; access is arbitrated by the engine locks. A job may only issue GPU operations on its assigned GPU once its needed engine locks have been acquired in Step E. For example, an engine lock must be acquired at times t 2 , t 4 , and t 5 in Fig. <ref type="figure" target="#fig_1">2</ref>. With the exception of P2P migrations, a job cannot hold more than one engine lock at a time.</p><p>The general structure of GPUSync is straightforward: a GPU allocator assigns jobs to GPUs and engine locks arbitrate engine access. However, many questions remain. For example, how many tokens can each GPUs have? What queuing structures should be used to manage token and engine requests? How can we enable GPU migration, yet minimize associated overheads? We now answer such questions, and provide additional rationale for our design choices.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.1.1">GPU Allocators</head><p>Each cluster of g GPUs is managed by one GPU allocator; as such, we henceforth consider GPU management only within a single GPU cluster. We associate ρ tokens (a configurable parameter) with each GPU. All GPU tokens are pooled and managed by the GPU allocator using a single k-exclusion lock, where k = ρ × g.</p><p>The GPU allocator's k-exclusion lock uses a hybrid queuing structure consisting of several fixed-size FIFO queues FQ i and a priority queue PQ, as depicted in Fig. <ref type="figure" target="#fig_4">4</ref>. The FIFO queue FQ i is associated with the ith token. Token-requesting jobs are enqueued in a load-balancing manner until every FQ is f jobs in length. (We will discuss rules for load balancing shortly.) The parameter f is configurable. Additional requests that cannot be placed in an FQ "overflow" into PQ. Jobs are moved from PQ into an FQ as space becomes available. A job enqueued in FQ i suspends until it is at the head of FQ i , in which case it is granted the ith token.</p><p>This structure is similar to that of the Replica-Request Donation Global Locking Protocol (R 2 DGLP), a real-time k-exclusion locking protocol that is asymptotically optimal  for globally-scheduled systems <ref type="bibr" target="#b25">[27]</ref>. Indeed, the GPU allocator lock utilizes the same inheritance rules as the R 2 DGLP to ensure bounded blocking times. However, selecting different values for f allows the GPU allocator lock to take on different analytical properties. The GPU allocator functions exactly as the R 2 DGLP when f = c/k , as the k-FMLP <ref type="bibr" target="#b7">[9]</ref> when f = ∞, and as a purely priority-based protocol when f = 1. A system designer may tailor the GPU allocator to their specific task sets and schedulers. For instance, the k-FMLP can outperform the R 2 DGLP for some tasks sets. The purely priority-based GPU allocator may be used with a task-level static priority scheduler such as the RM scheduler, when request interference on high-priority tasks must be minimized <ref type="bibr" target="#b2">[4]</ref>.</p><p>The value of ρ directly affects the maximum parallelism that can be achieved by a GPU since it controls the number of jobs that may directly compete for a GPU's enginesρ must be at least the number of engines in a GPU if every engine is to ever be used in parallel. This implies that a large value should be used for ρ. However, the value of ρ also strongly affects GPU migrations. Too great a value may make the GPU allocator too migration-averse since tokens will likely be available for every job's preferred GPU, even those that are heavily utilized. Constraining ρ prevents GPUSync from overloading a GPU and promotes GPU migration to distribute load. We discuss this process next.</p><p>Maintaining GPU affinity. Real-time locking protocols are rarely designed to make use of online knowledge of critical section lengths, even though critical sections figure prominently in schedulability analysis and system provisioning. We augment the GPU allocator lock to incorporate knowledge of token critical section lengths into queueing decisions to reduce the frequency and cost of GPU migrations without preventing beneficial migrations.</p><p>The cost predictor returns an estimated token critical section length for a GPU request by a job J for each FQ where J's request may be potentially enqueued. This estimate includes the cost of migrating task state if J's task had previously executed on a different GPU. The total estimated critical section length for J's request for a particular FQ i is obtained by adding the execution time and any potential migration cost for the request to the total estimated waiting time for the request in that FQ i . The latter can be obtained by summing the estimated execution times and migration costs of all requests currently enqueued in FQ i . When the GPU allocator selects among several FQs for J's request, it can select the FQ that yields that shortest estimated token critical section length for J. This heuristic is sensitive to GPU migration costs and results in the desirable behavior of promoting only beneficial GPU migrations. Cost predictor. To determine an estimated critical section length, the cost predictor must be able to determine the total execution time for a particular GPU request including any potential migration cost. GPUSync's cost predictor does this by measuring the accumulated CPU execution time of the requesting job once it has been allocated a GPU by acquiring a token. Execution delays due to preemption and blocking due to engine lock acquisition (explained later) are not included, but CPU suspension durations due to GPU operations (memory copies, GPU kernels) are. When a job releases its GPU token, this measurement gives a total request execution cost for both CPU and GPU operations and includes any delays due to migrations. However, this measurement is for only a single observation and provides a poor basis for predicting future behavior, especially since these measurements are strongly affected by PCIe bus congestion. Thus, we use a more refined process to drive a prediction model based upon statistical process control <ref type="bibr" target="#b15">[17]</ref>.</p><p>Specifically, for each task and GPU migration distance pair, we maintain an average and standard deviation over a window of recent observations (we found a window of twenty was suitable in our implementation). The average and standard deviation is recomputed after every new observation unless the observation falls more than two standard deviations away from the average and at least ten prior observations have been made. This filtering prevents unusual observations from overly-influencing future predictions.</p><p>One may be concerned that the heuristic nature of GPUSync's cost predictor does not lend itself to real-time predictability. However, the cost predictor has been designed to not violate analytical worst-case behavior. Predictability is preserved provided system provisioning does not rely upon the cost predictor's optimizations.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.1.2">Engine Locks</head><p>A mutex is associated with each GPU copy and execution engine, was seen in Fig. <ref type="figure" target="#fig_2">3</ref>. For GPUs with two copy engines, there is some flexibility in how copy engines may be used. For example, one copy engine may be reserved only for P2P operations with the remaining copy engine used both for inbound and outbound data.</p><p>GPUSync can be configured to satisfy engine lock requests in either FIFO or priority order (all GPUs within the same GPU cluster must use the same engine lock order). Blocked jobs suspend while waiting for an engine. A job that holds an engine lock may inherit the effective priority of any job it blocks. We stress effective priority, because the blocked job may itself inherit a priority from a job waiting for a token. In order to reduce worst-case blocking, a job is allowed to hold at most one engine lock at a time, except during P2P migrations. Engine locks enable the parallelism offered by GPUs to be utilized while simultaneously obvi-ating the need for the (unpredictable) GPU driver to make resource arbitration decisions.</p><p>Engine locks should be held for as little time as possible in order to prevent excessive blocking times that degrade overall schedulability. Minimizing the hold time of execution engine locks requires application-specific solutions to break kernels into small operations. However, a generic approach is possible for copy engine locks. Chunking is a technique where large memory copies are broken up into smaller copies. The effectiveness of this technique is demonstrated in <ref type="bibr" target="#b11">[13]</ref>. GPUSync supports chunking of both regular and P2P memory copies by way of a user-space library. Chunk size is fully configurable. The library also transparently handles copy engine locking. Bus scheduling concerns. The copy engine locks indirectly impose a schedule on the PCIe bus if we assume that bus traffic from non-GPU devices is negligible. This is because these locks grant permission to send/receive data to/from a particular GPU to one task at a time. It is true that traffic of other GPUs will cause bus congestion and slow down a single memory transmission. However, since the PCIe bus is packetized, it is shared fluidly among copy engine lock holders. Thus, we can bound the effect of maximum PCIe bus congestion and incorporate it into real-time analysis. Deeper analysis or explicit bus scheduling techniques may be necessary if very strict timing guarantees are required, but such approaches are beyond the scope of this paper. Migrations. GPUSync supports both P2P and system memory migrations, which are handled differently.</p><p>For a P2P migration from one GPU to another, a job must hold copy engine locks for both GPUs. Requests for both copy engine locks are issued together atomically to avoid deadlock. 7 The job may issue memory copies to carry out the migration once both engine locks are held. P2P migration isolates traffic to the PCIe bus: copied data does not traverse the high-speed processor interconnect or system memory buses-computations utilizing these interconnects are not disturbed. However, gains from fast P2P migrations may be offset by higher lock contention: unlikely scenarios exist where every token holder in a GPU cluster may request the same copy engine lock simultaneously.</p><p>If GPUSync is configured to perform migrations through system memory, then such migrations are performed conservatively, i.e., they are always assumed to be necessary. Thus, state data is aggregated with input and output data. State is always copied off of a GPU after per-job GPU computations have completed. State is then copied back to the next GPU used by the corresponding task for its subsequent job if a different GPU is allocated. An advantage of this approach over P2P migration is that a job never needs to hold two copy engine locks at once.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.2">Budgeting</head><p>Budget enforcement policies are necessary to ensure that a task's resource utilization remains within its provisioned 7 GPUSync also grants requests atomically to avoid deadlock if priorityordered engine locks are used. FreeToken(t); end procedure budget. However, the non-preemptivity of GPU operations makes budget enforcement problematic. Even if limited preemption is provided by breaking a single GPU request into multiple non-preemptive regions, data on a GPU may be in a transient state at a preemption point and thus be too difficult (or too costly) to migrate to another GPU to resume at a later time. This motivates us to focus on budget enforcement based on overrun recovery rather than strict enforcement that absolutely prevents overruns. GPUSync provides three budget enforcement options: signaled overruns, early budget releasing, and a bandwidth inheritance-based method. Signaled overruns. Under the signaled overrun policy, jobs are provisioned with a single budget equal to a maximum CPU execution time, plus a maximum total GPU operation time. A job's budget is drained when it is scheduled on a CPU or GPU engine. The OS delivers a signal to the job if it exhausts its budget. The signal triggers the job to execute an application-defined signal handler. The handler is application-defined since appropriate responses may vary at different points of execution. As depicted in Pseudocode 1, one way an application may respond to a signal is to unwind the job's stack (either by throwing an exception<ref type="foot" target="#foot_5">8</ref> or a call to the standard function longjmp()) and execute clean-up code before releasing its token lock. Early releasing. The early releasing policy extends the signaled overrun policy by early-releasing a task's next job upon budget exhaustion to continue the execution of the overrunning job. This refreshes the task's budget, but its current deadline is shifted (postponed) to that of its next job. In essence, the next job has been sacrificed in order to complete the overrunning one. This policy penalizes an overrunning task by forcing it to consume its own future budget allocations. This prevents the system from being overutilized in the long-term. Under deadline schedulers, deadline postponement also helps to prevent the system from being overutilized in the short-term. We note that deadline postponement is challenging to implement since it requires priority inheritance relations established by locking protocols to be re-evaluated. Bandwidth inheritance. As shown in <ref type="bibr" target="#b17">[19]</ref>, a job that overruns its budget while holding a shared resource can negatively affect other jobs, even non-resource-using ones. Bandwidth inheritance (BWI) limits the effects of such overruns to resource-sharing tasks. This is accomplished by draining the budget of a blocked job whose priority is being inherited by a scheduled job in place of the scheduled job's own budget. This can cause a blocked job to be penalized for the overrun of another, but improves temporal isolation from nonresource-using tasks. GPUSync allows the early releasing policy to be applied with the variant of BWI described in <ref type="bibr" target="#b1">[3]</ref> when deadline scheduling is used. However, jobs must be provisioned with additional budget derived from analytical blocking bounds. This policy may be desirable in systems where CPU-only tasks require protection from GPU-using tasks in order to meet strict timing constraints.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.3">Integration</head><p>Our desire to support closed-source drivers and GPGPU runtimes requires GPUSync to adapt to aspects of software that has not necessarily been designed with real-time predicability in mind. We have already addressed many of these aspects through synchronization and budgeting. A remaining issue to resolve is that of worker threads. There are two types of worker threads: (i) OS kernel-level threads, one per GPU, that process GPU interrupts, and (ii) GPGPU runtime user-level threads, g per task, that mediate communication between application code and the GPU driver. The primary purpose of the work executed by these threads is notification delivery. Real-time jobs are dependent upon these notifications, as illustrated by the schedule in Fig. <ref type="figure" target="#fig_5">5</ref>. Here, a job J i initiates work on GPU j (the engine irrelevant) and it suspends waiting for an operation to complete; GPU j signals completion with an interrupt. The interrupt is processed by interrupt thread I j , which then notifies the user-space worker thread W i,j , which in turn notifies J i . Although these worker threads actually perform very little work, unbounded priority inversions can result if they are not properly scheduled.</p><p>To enable the real-time scheduling of worker threads, we map these threads to a particular GPU and register them with GPUSync before task set execution begins. This process can be tricky with closed-source software, but it is possible-we share the technical details in the online appendix of this paper. <ref type="foot" target="#foot_6">9</ref> When J i suspends waiting for a GPU operation to complete, the user-level and interrupt threads for that GPU become eligible to run and may inherit the pri-  <ref type="foot" target="#foot_7">10</ref> Thus, these threads are scheduled according to priority when signals need to be delivered, so J i does not experience any priority inversions. Also, jobs with priorities greater than J i are unaffected.</p><p>User-level threads may only inherit priority from a single source since each thread is associated exclusively with a single task. However, the interrupt thread is shared among the engine lock holders of the interrupt thread's GPU. Under GPUSync, and similar to <ref type="bibr" target="#b27">[29]</ref>, the interrupt thread inherits the greatest priority among all suspended engine lock holders of its GPU. This may cause an interrupt to be processed at too great a priority since the interrupt thread may ultimately signal a lower-priority engine lock holder. However, this is unavoidable since we cannot know which of the suspended engine lock holders will receive the notification generated by the interrupt a priori. , RGEM <ref type="bibr" target="#b11">[13]</ref>, and Gdev <ref type="bibr" target="#b13">[15,</ref><ref type="bibr" target="#b10">12]</ref>. TimeGraph is a userspace/kernel-space real-time GPU scheduler designed for computer graphics. RGEM is implemented entirely in userspace and supports real-time GPGPU. Gdev extends many of the ideas developed in RGEM to the kernel-space.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4">Prior GPU Approaches</head><p>Other than GPUSync, only TimeGraph and RGEM are designed for predictable real-time systems. Both Time-Graph and RGEM schedule GPU operations by fixed priority, and schedule GPU operations in priority order. GPUSync can be configured to subsume this functionality.</p><p>RGEM addresses schedulability problems caused by long non-preemptive copies between system and GPU memory by breaking large copies into smaller chunks, reducing the duration of priority inversions and thus improving schedulability. This chunking approach is supported by GPUSync.</p><p>Gdev allows GPUs to access main system memory directly and has been shown to be beneficial in supporting low-latency applications <ref type="bibr" target="#b10">[12]</ref>. This is also supported by closed-source GPGPU runtimes and may be used under GPUSync. However, direct system memory access is incompatible with GPUSync's copy engine management, so making use of such features under GPUSync requires re-served or exclusively-allocated GPUs for these tasks (which appears necessary in Gdev as well).</p><p>TimeGraph uses a global OS kernel-space GPU scheduler in conjunction with an open-source GPU device driver.</p><p>Dependence on an open-source driver can be a limitation since these drivers lag behind vendor-provided ones with respect to performance, available features, and support for the most recent GPUs. RGEM, PTasks, and Gdev support the overlapping of GPU data transmissions and computation. RGEM utilizes a user-space GPU scheduler, separately scheduling the execution and copy engines of a GPU. PTasks uses data-flow graphs to describe flows of execution, and this is leveraged to individually schedule execution and copy engines. Gdev's design is similar to RGEM, but is implemented as a kernel-space open-source GPU driver.</p><p>All approaches, but RGEM, include budget enforcement. TimeGraph supports two budgetary methods: posterior and apriori. Posterior enforcement is similar GPUSync's early releasing policy, but it does not include deadline postponement. A job is scheduled under apriori enforcement if the job is predicted to not overrun its budget. Being non-real-time, PTasks and Gdev focus on quality-of-service and fairness.</p><p>Excluding GPUSync, only PTasks supports automatic GPU allocation in multi-GPU systems. PTasks includes a data-aware GPU scheduler that attempts to greedily schedule GPU computations on the "best" available GPU at the time of an issued operation, where "best" is defined by GPU capabilities (such as speed) and affinity. However, data migration between GPUs must be performed by copying data to and from system memory. In the field of responsive or realtime GPGPU, no prior work has supported P2P migrations, let alone with real-time determinism.</p><p>Precursors of GPUSync use a synchronization-based approach for real-time GPU management in <ref type="bibr" target="#b8">[10]</ref>, with support for multiple GPUs added in <ref type="bibr" target="#b5">[7]</ref> and <ref type="bibr" target="#b7">[9]</ref>. Support for real-time interrupt handling is also supported in <ref type="bibr" target="#b7">[9]</ref>, but a GPU could only be used by one task at a time. GPUSync greatly expands upon these prior efforts by enabling fine-grained management of GPU resources and also supports GPGPU runtimes that make use of user-level worker threads, such as in CUDA 4.2 and later.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5">Evaluation</head><p>In this section, we evaluate several performance characteristics in an implementation of GPUSync.</p><p>GPUSync was implemented as an extension to LITMUS RT , a real-time kernel extension to Linux. GPUSync adds approximately 20,000 lines of code to LITMUS RT . <ref type="foot" target="#foot_8">11</ref> Contributions to this total by category are: GPU allocator and locking protocols, 35%; scheduler enhancements, budgeting, and nested inheritance, 35%; GPU interrupt and thread management, 20%; miscellaneous infrastructural changes, 10%.</p><p>Our implementation of GPUSync was run on a test platform much like that in Fig. <ref type="figure" target="#fig_0">1</ref>. This platform has two NUMA "nodes," each with one Xeon X5060 processor with six 2.67GHz cores and four NVIDIA Quadro K5000 "Kepler" GPUs, for a total of twelve CPUs and eight GPUs. The K5000 is a high-end GPU with two copy engines. We used CUDA 5.0 for our GPGPU runtime environment with the NVIDIA 304.54 driver.</p><p>We present our evaluation in two parts. First, we examine the effectiveness GPUSync's budgeting mechanisms, cost predictor, and affinity-aware GPU allocator. Second, we assess the effectiveness of clustered GPU management and P2P migrations through the scheduling of real-world computer vision workloads.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5.1">Budgeting, Cost Prediction, and Affinity</head><p>We used a mixed task set of CPU-only and GPU-using implicit-deadline periodic tasks to evaluate budget enforcement and the cost predictor. Numerical code was executed by tasks on both CPUs and GPUs to simulate real applications. Task execution time was tightly controlled through the use of processor cycle counters on both CPUs and GPUs. GPU-using tasks also transmitted data on the PCIe bus. Task periods ranged from 10 to 75 milliseconds, reflecting sensor sampling rates found in advanced vehicle prototypes <ref type="bibr" target="#b9">[11]</ref>one motivating application we discussed in Sec. 1.</p><p>The task set consisted of 28 CPU-only tasks and 34 GPUusing tasks. Each task was assigned a utilization based upon the combined processor time (CPU and GPU engines) a task's job must receive before completing. Of the CPU-only tasks, twelve had a utilization of 0.1, eight had a utilization of 0.2, and two had a utilization of 0.3. Of the GPU-using tasks, fourteen had a utilization of 0.1, fourteen more had a utilization of 0.25, and six had a utilization of 0.5. 90% of each GPU-using task's utilization was devoted to GPU operations, with 75% of that towards GPU kernels, and the remaining 25% towards memory copies. The amount of memory to copy was determined based upon desired copy time and worst-case bus congestion bandwidth derived from empirical measurements. Memory copies were evenly split between input and output data. Task state size was set to twice the combined size of input and output data. Additionally, data was transmitted in 2MB chunks. We configured our system to run as a cluster along NUMA boundaries. Thus, there were two clusters of six CPUs and four GPUs apiece. The above task set was evenly partitioned between the two clusters. The task set was scheduled under clustered EDF (C-EDF) and clustered RM (C-RM) schedulers. Under C-EDF, the GPU allocator was configured to use the R 2 DGLP as its token lock, and engine locks were FIFO ordered. Under C-RM, the GPU allocator was configured to be priority-ordered, and priority-ordered engine locks were also used. Three tokens (ρ = 3) were allocated to each GPU in order to allow all GPU engines to be used simultaneously. P2P migrations were also used. These configurations were selected because they both offer good analytical schedulability under their respective C-EDF and C-RM schedulers.</p><p>The task set was scheduled under two execution-behavior Figure <ref type="figure">6</ref>: Allocated execution engine time. scenarios. Under the first scenario, tasks adhered to their prescribed execution times as closely as possible. Under the second scenario, however, eight GPU-using tasks in each cluster were configured to exhibit aberrant behaviors by executing for ten times their normal execution time at random moments (roughly spaced by five seconds for each task). These scenarios were scheduled for 180 seconds under both C-EDF and C-RM schedulers and measurements were taken.</p><p>Budget performance. We analyze the ability of GPUSync to manage budgets (and penalize overrunning tasks) by examining the long-term utilization of the execution engines. Here, we test GPUSync under the no-budget-enforcement and the early releasing policies described in Sec. 3. We measure execution engine utilization (kernel time divided by period) with respect to the hold time of execution engine locks. This is an effective measure, even if the engine may idle while the engine lock is held, since all other tasks are blocked from using the engine.</p><p>From the task set described above, we focus our attention on two GPU-using tasks, T 1 and T 2 . T 1 has a period of 15ms and a utilization of 0.25. T 1 's ideal execution-engine utilization is 0.169, and it sends and receives 512KB to and from the GPU. T 2 has a period of 75ms, a utilization of 0.1, an ideal execution-engine utilization of 0.068, and it sends and receive 1024KB to and from the GPU. We focus on these tasks because of their short and long periods, respectively. Fig. <ref type="figure">6</ref> depicts the accumulated time tasks T 1 and T 2 hold an execution engine lock over the duration of their execution. Equations characterizing each line are also given. We make several observations. Obs. 1. A synchronization-based approach to GPU scheduling is effective at supplying GPU-using tasks with provisioned execution time.</p><p>Ideally, the slope of the lines in Fig. <ref type="figure">6</ref> should be equal to the task's execution-engine utilization. With the exception of line <ref type="bibr" target="#b1">[3]</ref>, the slopes of all the lines are very close to the desired utilization. For example, when T 2 is well-behaved under C-EDF scheduling (line <ref type="bibr" target="#b8">[10]</ref>), the slope is 0.065, this is commensurate with the assigned utilization of 0.068. Obs. 2. Budget enforcement can penalize aberrant tasks by allocating less execution time.</p><p>This may be observed in lines <ref type="bibr" target="#b1">[3]</ref> and <ref type="bibr" target="#b7">[9]</ref> for the aberrant task T 1 under both C-RM and C-EDF scheduling in Fig. <ref type="figure">6</ref>. As shown by line <ref type="bibr" target="#b1">[3]</ref> ( <ref type="bibr" target="#b7">[9]</ref>), T 1 's utilization is 0.12 (0.153)-30% (10%) less than the provisioned 0.169, for C-RM and C-EDF, respectively. This loss of utilization is a result of the early releasing budget policy where any surplus from an early-released budget is discarded after an overrunning job completes. Obs. 3. C-RM and C-EDF can both perform well.</p><p>For this particular experiment, we observe that both C-RM and C-EDF are able to supply the needed GPU execution time. This is an important result because it empowers system designers to select the scheduler that suits their needs. This is promising for SRT applications, where bounded tardiness can be guaranteed even for relatively high utilization levels. Cost predictor accuracy. We measured the overheads related to the cost predictor because of our concern that computing averages and standard deviations can be computationally expensive. However, we found these worries to be unfounded. Updating the cost predictor estimate took 0.294μs on average, and 2.335μs in the (observed) worst-case.</p><p>We now discuss the accuracy of the cost predictor. As seen in Fig. <ref type="figure">7</ref>, under C-EDF (inset (a)), roughly 95% of all predictions for task T 1 have a percentage error of 5% or less (only one sample exists for T 1 , d = 2). Accuracy is even better for T 1 under C-RM. This is expected since T 1 has a statically high priority due to its short period, and it is thus able to avoid more interference from other tasks than under C-EDF. Obs. 5. The cost predictor is less accurate for tasks with longer execution times and periods.</p><p>Both insets (a) and (b) of Fig. <ref type="figure">7</ref> show that the cost predictor is less accurate for T 2 than T 1 in this experiment. This is because T 2 has a longer execution time and period than most other tasks in the task set. Thus, T 2 is more likely to experience interference from aberrant tasks. Obs. 6. The cost predictor is moderately less accurate under C-RM than C-EDF.</p><p>This can be seen by comparing insets (a) and (b) of Fig.   Obs. 7. The cost predictor is generally less accurate for longer migration distances.</p><formula xml:id="formula_0">≤ x [1] T1, d =0 [2] T1, d =1 [3] T1, d =2 [4] T2, d =0 [5] T2, d =1 [6] T2, d =2 [1] [2] [4] [5] [6] [3] CDF of</formula><formula xml:id="formula_1">≤ x [1] T1, d =0 [2] T1, d =1 [3] T1, d =2 [4] T2, d =0 [5] T2, d =1 [6] T2, d =2 [3,1] [2] [4] [5]</formula><p>A migrating job of a task must acquire additional copy engine locks and do more work than non-migrating jobs. This introduces variability into token hold times predicted by the cost predictor. We see that this generally has a negative effect on the cost predictor. This is clearly demonstrated in Fig. <ref type="figure">7</ref> for C-RM, where each CDF generally upper-bounds the CDF of the same task at the next migration distance. We note that this does not always hold under C-EDF. For example, predictions for T 2 with d = 1 are more accurate than d = 0. However, as we discuss shortly, this may be due to a smaller sample size of observations. Migration frequency. The cost predictors are an important component of GPUSync, as they influence the behavior of the migration heuristics. Table <ref type="table" target="#tab_6">2</ref> gives the total number of migrations observed under the aberrant scenario, with and without budget enforcement.</p><p>Obs. 8. Affinity-aware GPU assignment helps maintain affinity.</p><p>Under all scenarios, we see that tasks are significantly more likely to be assigned the GPU with which they have affinity. For instance, task T 1 , under C-EDF with no budget enforcement, maintained affinity 11887 times, migrated to a  neighboring GPU 110 times, and never migrated to a distant GPU. Similar trends are observed for all tasks. Without an affinity-aware method, migrations would be more frequent than reassignment since any task would have a 75% chance (with a GPU-cluster size of four) of being assigned to a different GPU. Obs. 9. GPUSync is more successful at maintaining affinity under the C-EDF configuration.</p><p>Observe in Table <ref type="table" target="#tab_6">2</ref> that migrations are more frequent under C-RM than C-EDF. Indeed, distant migrations are practically eliminated under C-EDF. This behavior is attributable to the decreased cost-predictor accuracy under C-RM (recall Obs. 6). Inaccurate estimates can cause migrations to seem faster than waiting for the GPU for which the job has affinity. This observation demonstrates the importance of the cost predictor with respect to the runtime behavior.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5.2">Real-Time Vision Workloads</head><p>We now describe the vision-related experiments mentioned earlier. In these experiments, we adapted a freely-available CUDA-based feature tracking program to GPUSync on LITMUS RT <ref type="bibr" target="#b14">[16]</ref>. Feature tracking is an important application in automotive systems that sense and monitor the environment. The tracker represents a scheduling challenge since it utilizes both CPUs and GPUs to carry out its computations. Though feature tracking is only one GPGPU application, its image-processing operations are emblematic of many others.</p><p>We stressed our evaluation platform by applying feature tracking to thirty independent video streams simultaneously. Each video stream is handled by one task, with each frame being processed by one job. The video streams have different execution-rate requirements: two high-rate streams run at 30 frames per second (FPS), ten medium-rate streams run at 20 FPS, and eighteen low-rate streams run at 10 FPS. The high-and medium-rate streams operate on video frames with a resolution of 320x240 pixels. Each job of these streams has roughly 1MB of combined input and output data and a state size of about 6.5MB. The low-rate streams process larger video frames with a resolution of 640x480. A low-rate stream requires four times as much memory as a higher-rate stream. Video frames were preloaded into memory in order to avoid disk latencies (such latencies would be non-existent with real video cameras). All data was page-locked in system memory to facilitate fast and deterministic memory operations.</p><p>We tested the same configurations as in the prior experiments, with the addition C-EDF configured with a priorityordered GPU allocator and engine locks. The token count was also reduced to ρ = 2 for all configurations-we found    this worked best for this data-heavy workload. The video streams were scheduled on three different GPU clustering configurations: eight GPU partitions (g = 1), four small GPU clusters of two GPUs (g = 2), and two large GPU clusters of four GPUs (g = 4). We tested the clustered configurations with both P2P and system memory migration. Tasks were partitioned evenly among the CPU and GPU clusters. Our video-stream workload was scheduled under each configuration for 120 seconds and measurements were taken.</p><formula xml:id="formula_2">1] g =1 [2] g =2 (P2P) [3] g =2 (SysMem) [4] g =4 (P2P) [5] g =4 (SysMem) [1] [2] [3] [5] [4] (59408%) (47820%) (a) C-EDF,</formula><formula xml:id="formula_3">1] g =1 [2] g =2 (P2P) [3] g =2 (SysMem) [4] g =4 (P2P) [5] g =4 (SysMem) [1] [4, 2] [3] [5] (17295%) (9033%)<label>(</label></formula><formula xml:id="formula_4">[1] g =1 [2] g =2 (P2P) [3] g =2 (SysMem) [4] g =4 (P2P) [5] g =4 (SysMem) [1] [2, 4]<label>[3]</label></formula><p>Results. We analyze each GPUSync configuration by inspecting the response time of each job. We classify a configuration as resulting in an "unschedulable" system if any task consistently exhibits growth in response time (a sign of unbounded deadline tardiness). <ref type="foot" target="#foot_9">12</ref> We assume a schedulable system with bounded deadline tardiness, otherwise. Fig. <ref type="figure" target="#fig_9">8</ref> plots the CDF of job response times under each configuration, expressed as a percent of period. Unschedulable configurations are denoted by dashed lines. We truncate the plots in order to show more detail for shorter response times. Truncated lines are annotated with the value (in parentheses) where the associated CDF reaches 1.0 (i.e., the observed worst-case response time). We make several observations from these results.</p><p>Obs. 10. Priority-ordered queues often provide improved observed response times. This trend can be seen by comparing the curves in inset (a) to insets (b) and (c). The priority-ordered queues decrease the average-case blocking experienced by highpriority requests, i.e., those with urgent deadlines or short periods under C-EDF and mboxC-RM, repetitively. However, Wieder and Brandenburg <ref type="bibr" target="#b26">[28]</ref> have recently shown that FIFO-ordered queues often improve schedulability. While schedulability analysis is outside the scope of this paper, we believe that GPUSync can be configured to use FIFOordered queues to optimize for schedulability, or priorityordered queues to optimize for runtime behavior, highlighting GPUSync's flexibility.</p><p>Obs. 11. Clustered GPU management can outperform a partitioned approach. This can be observed in lines <ref type="bibr" target="#b0">[2]</ref> and <ref type="bibr" target="#b2">[4]</ref> in inset (a) of Fig. <ref type="figure" target="#fig_9">8</ref>. The CDFs of these clustered GPU configurations with P2P migration show that a job is more likely to have a shorter response time than jobs in the other FIFO-ordered configurations. Despite the extra load imposed by memory migrations, clustered GPU approaches can still outperform a partitioned GPU approach (line [1]). This is a positive result in light of the benefits FIFO ordering can have on schedulabilityclustering may provide a viable FIFO-based alternative to a poorer performing partitioned approach.</p><p>Obs. 12. Small GPU clusters may be preferable over large GPU clusters.</p><p>In Fig. <ref type="figure" target="#fig_9">8</ref>, we observe that small GPU clusters (lines <ref type="bibr" target="#b0">[2]</ref> and <ref type="bibr" target="#b1">[3]</ref>) generally yield shorter response times than large GPU clusters (lines <ref type="bibr" target="#b2">[4]</ref> and <ref type="bibr" target="#b3">[5]</ref>) in this experiment. For example, in inset (a) of Fig. <ref type="figure" target="#fig_9">8</ref>, a cluster size of two with P2P migrations (line <ref type="bibr" target="#b0">[2]</ref>) has the shorter response times than a cluster size of four (line <ref type="bibr" target="#b2">[4]</ref>). This difference is attributable to the higher cost of migration between distant GPUs in the larger clusters. In each inset of Fig. <ref type="figure" target="#fig_9">8</ref>, a cluster size of two with system memory migrations (line <ref type="bibr" target="#b1">[3]</ref>) has shorter response times than a cluster size of four (line <ref type="bibr" target="#b3">[5]</ref>), despite an equal migration distance to system memory. Large clusters perform poorly due to an increased chance of migration.</p><p>Obs. 13. GPU state migration through system memory is often too costly.</p><p>We observe from Fig. <ref type="figure" target="#fig_9">8</ref> that no configuration that used system memory migration resulted in a schedulable system in our experiment. Indeed, partitioned GPU management is preferable to all such system-memory-migration configurations. This is clearly reflected by lines <ref type="bibr" target="#b1">[3]</ref> and <ref type="bibr" target="#b3">[5]</ref> in each inset, where the observed worst-case response times are over 9,000% of task period.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="6">Conclusion</head><p>In this paper, we presented GPUSync, a lock-based GPU management framework for real-time multi-GPU systems. Unlike prior research, GPUSync takes a synchronizationbased approach to GPU scheduling that simultaneously promotes affinity among computational tasks and GPUs, and fully exposes the parallelism offered by modern GPUs. While others have approached GPU management from a scheduling perspective, GPUSync's synchronization-based techniques allows it to be "plugged in" to a variety of realtime schedulers. We reported on our efforts of implementing GPUSync in LITMUS RT , and have given evidence, through empirical evaluations, that GPUSync can successfully meet the resource allocation needs of a real-time GPGPU system. We further show that execution behaviors can be predicted to promote task affinity in multi-GPU systems. We also demonstrated that efficient clustered GPU management, enabled by peer-to-peer communication between GPUs, can outperform partitioned approaches in some GPUSync configurations.</p><p>This paper has focused on the design and implementation of GPUSync. In a future paper, we will analytically model the real-time predicability of GPUSync and examine the trade-offs of different GPUSync configurations in terms of schedulability analysis. This work is already underway and nearing completion.</p><p>Considering the broader area of research, GPUSync does not support systems with different types of GPUs, i.e., heterogenous GPUs. A particularly interesting scenario to study would be the simultaneous support of both integrated and discrete GPUs. If these GPUs were to be managed in a clustered fashion, then online mechanisms would have to balance the relatively weak computational power of integrated GPUs against the data communication cost of discrete GPUs. Optimizing the solution for power consumption would add yet another dimension of complexity.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Figure 1 :</head><label>1</label><figDesc>Figure 1: Example high-level architecture. On some multicore chips the I/O hub may be integrated.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Figure 2 :</head><label>2</label><figDesc>Figure 2: GPGPU program execution sequence.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Figure 3 :</head><label>3</label><figDesc>Figure 3: High-level design of GPUSync.problem rather than one of scheduling. However, we wish to make clear that this distinction is somewhat blurred: the locking protocols we utilize are the GPU schedulers-these protocols prioritize ready GPU work and grant access accordingly. Nonetheless, as we shall see, a synchronizationbased approach gives us established techniques to address problems relating to allocation, budgeting, and integration.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Figure 4 :</head><label>4</label><figDesc>Figure 4: The structure of a GPU allocator lock.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Figure 5 :</head><label>5</label><figDesc>Figure 5: Schedule of worker threads and dependencies.Bandwidth inheritance. As shown in<ref type="bibr" target="#b17">[19]</ref>, a job that overruns its budget while holding a shared resource can negatively affect other jobs, even non-resource-using ones. Bandwidth inheritance (BWI) limits the effects of such overruns to resource-sharing tasks. This is accomplished by draining the budget of a blocked job whose priority is being inherited by a scheduled job in place of the scheduled job's own budget. This can cause a blocked job to be penalized for the overrun of another, but improves temporal isolation from nonresource-using tasks. GPUSync allows the early releasing policy to be applied with the variant of BWI described in<ref type="bibr" target="#b1">[3]</ref> when deadline scheduling is used. However, jobs must be provisioned with additional budget derived from analytical blocking bounds. This policy may be desirable in systems where CPU-only tasks require protection from GPU-using tasks in order to meet strict timing constraints.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head></head><label></label><figDesc>Fig. 7 plots cumulative distribution functions (CDFs) for the percentage error of the cost predictor for different migration distances under the aberrant behavior scenario, without budget enforcement. Migration distance is denoted by d; d = 0 reflects no migration, d = 1 denotes migrations to neighboring GPUs, and d = 2 reflects migrations to distant GPUs. Obs. 4. The cost predictor is generally accurate at predicating token hold time, despite aberrant task behavior.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>[ 6 ]Figure 7 :</head><label>67</label><figDesc>Figure 7: Cumulative distribution functions of percentage error. under C-EDF (inset (a)) have a percentage error no greater than 20%. Compare this to C-RM (inset (b)), where only 80% of d = 1 predictions for T 2 have the same degree of accuracy.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head></head><label></label><figDesc>b) C-EDF, Priority Queues Time As % of Period for C-RM, Priority Queues</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Figure 8 :</head><label>8</label><figDesc>Figure 8: Cumulative distribution functions of job response times as percent of period. Graphs are truncated for visual clarity.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head></head><label></label><figDesc>Pseudocode 1 Example of budget signal handling.</figDesc><table><row><cell cols="2">Enabled/disabled on try-block enter/exit.</cell></row><row><cell cols="2">function BUDGETSIGNALHANDLER()</cell></row><row><cell>throw BudgetException();</cell><cell></cell></row><row><cell>end function</cell><cell></cell></row><row><cell>procedure DOJOB()</cell><cell></cell></row><row><cell>t ← GetToken();</cell><cell></cell></row><row><cell>gpu ← MapTokenToGpu(t);</cell><cell></cell></row><row><cell>try:</cell><cell></cell></row><row><cell>DoGpuWork(gpu);</cell><cell>Main job computation.</cell></row><row><cell>catch BudgetException:</cell><cell></cell></row><row><cell>CleanUpGpu(gpu);</cell><cell>Gracefully cleans up state.</cell></row><row><cell>finally:</cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>Table 1 :</head><label>1</label><figDesc>GPUSync vs. notable prior work. ority of J i .</figDesc><table><row><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="2">Data/ Auto.</cell><cell></cell><cell>Multi</cell><cell>Clsd.</cell></row><row><cell></cell><cell cols="2">Real-Time</cell><cell cols="3">Budg. Comp. GPU</cell><cell>P2P</cell><cell>GPU</cell><cell>Src.</cell></row><row><cell></cell><cell>FP</cell><cell cols="7">EDF Enfrced Ovlp. Alloc. Migr. Aware Compat.</cell></row><row><cell>PTasks</cell><cell></cell><cell></cell><cell>x</cell><cell>x</cell><cell>x</cell><cell></cell><cell>x</cell><cell>x</cell></row><row><cell>TimeGraph</cell><cell>x</cell><cell></cell><cell>x</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell>RGEM</cell><cell>x</cell><cell></cell><cell></cell><cell>x</cell><cell></cell><cell></cell><cell></cell><cell>x</cell></row><row><cell>Gdev</cell><cell></cell><cell></cell><cell>x</cell><cell>x</cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell>GPUSync</cell><cell>x</cell><cell>x</cell><cell>x</cell><cell>x</cell><cell>x</cell><cell>x</cell><cell>x</cell><cell>x</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head>Table 1</head><label>1</label><figDesc></figDesc><table /><note><p>compares features of other notable GPU management frameworks related to GPUSync. PTasks [24], developed by Rossbach et al., creates a new OS-level infrastructure for GPU management. Kato et al. designed and implemented TimeGraph [14]</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head></head><label></label><figDesc>7.For example, about 90% of predictions for T 2 with d = 1</figDesc><table><row><cell></cell><cell>1.0</cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell></cell><cell>0.8</cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell>Probability(|Percentage Error|)</cell><cell>0.4 0.6</cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell></cell><cell>0.2</cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell></cell><cell>0.0% 0.0</cell><cell>20.0%</cell><cell>40.0%</cell><cell>60.0%</cell><cell>80.0%</cell><cell>100.0%</cell></row><row><cell></cell><cell></cell><cell></cell><cell cols="2">|Percentage Error|</cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head></head><label></label><figDesc>Percentage Error, C-EDF With No Budgeting</figDesc><table><row><cell></cell><cell></cell><cell></cell><cell>(a) C-EDF</cell><cell></cell><cell></cell></row><row><cell></cell><cell>1.0</cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell></cell><cell>0.8</cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell>Probability(|Percentage Error|)</cell><cell>0.4 0.6</cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell></cell><cell>0.2</cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell></cell><cell>0.0% 0.0</cell><cell>20.0%</cell><cell>40.0%</cell><cell>60.0%</cell><cell>80.0%</cell><cell>100.0%</cell></row><row><cell></cell><cell></cell><cell></cell><cell cols="2">|Percentage Error|</cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_6"><head>Table 2 :</head><label>2</label><figDesc>Observed migration counts and distances for T1 and T2.</figDesc><table /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 02:06:39 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_1"><p>The PCIe specification allows for other arbitration schemes, but these appear to be rarely implemented<ref type="bibr" target="#b18">[20]</ref>.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_2"><p>Memory must be pre-allocated on each GPU where a task may run to facilitate fast migrations. This is a reasonable constraint given that the memory footprints of real-time GPU applications are typically small (40MB in<ref type="bibr" target="#b14">[16]</ref>) with respect to large GPU memories (2GB and greater).</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_3"><p>There is a large body of work that explores inter-cluster resource sharing that could be drawn upon for future extensions of GPUSync that allow the sharing GPU clusters among CPU clusters<ref type="bibr" target="#b3">[5,</ref><ref type="bibr" target="#b20">22,</ref><ref type="bibr" target="#b21">23]</ref>.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="6" xml:id="foot_4"><p><ref type="bibr" target="#b4">6</ref> k-exclusion generalizes ordinary mutual exclusion by allowing up to k tasks to simultaneously hold a lock.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="8" xml:id="foot_5"><p>Throwing exceptions from signal handlers may require special compiler options.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="9" xml:id="foot_6"><p>Available at www.cs.unc.edu/ ˜anderson/papers.html.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="10" xml:id="foot_7"><p>We also schedule worker threads with a base-priority statically lower than any normal real-time task on idle CPUs. This has the potential to increase performance when a job's GPU operation has completed, but the job has yet to block for results.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="11" xml:id="foot_8"><p>For comparison, the LITMUS RT patch to the Linux 3.0 kernel is roughly 15,000 lines of code.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="12" xml:id="foot_9"><p>We plan on investigating formal schedulability analysis in future work.</p></note>
+		</body>
+		<back>
+
+			<div type="funding">
+<div><p>* Work supported by <rs type="funder">NSF</rs> grants <rs type="grantNumber">CNS 1016954</rs>, <rs type="grantNumber">CNS 1115284</rs>, <rs type="grantNumber">CNS 1218693</rs>, and <rs type="grantNumber">CNS 1239135</rs>; <rs type="institution">ARO</rs> grant <rs type="grantNumber">W911NF-09-1-0535</rs>; and an <rs type="funder">NSF</rs> graduate fellowship.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_eKDBwSm">
+					<idno type="grant-number">CNS 1016954</idno>
+				</org>
+				<org type="funding" xml:id="_DBXz7ZR">
+					<idno type="grant-number">CNS 1115284</idno>
+				</org>
+				<org type="funding" xml:id="_G8JRdXC">
+					<idno type="grant-number">CNS 1218693</idno>
+				</org>
+				<org type="funding" xml:id="_bqE6ZwT">
+					<idno type="grant-number">CNS 1239135</idno>
+				</org>
+				<org type="funding" xml:id="_gEcQHCM">
+					<idno type="grant-number">W911NF-09-1-0535</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Assigning real-time tasks on heterogeneous multiprocessors with two unrelated types of processors</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Raravi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">31st RTSS</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<title level="m" type="main">Virtually exclusive resources</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<idno>MPI-SWS-2012-005</idno>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+		<respStmt>
+			<orgName>Max Planck Institute for Software Systems</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Improved analysis and evaluation of realtime semaphore protocols for P-FP scheduling</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">19th RTAS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<title level="m" type="main">The OMLP family of optimal multiprocessor real-time locking protocols. Design Automation for Embedded Systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">The power of preemption on unrelated machines and applications to scheduling orders</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Correa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Skutella</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Verschae</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">12th APPROX and 13th RANDOM</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">An optimal k-exclusion real-time locking protocol motivated by multi-GPU systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">19th RTNS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Real-world constraints of GPUs in real-time systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">17th RTCSA</title>
+		<imprint>
+			<biblScope unit="volume">2</biblScope>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">Building a real-time multi-GPU platform: Robust real-time interrupt handling despite closedsource drivers</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+	<note>In 24th ECRTS</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title level="m" type="main">Globally scheduled real-time multiprocessor systems with GPUs. Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="volume">48</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Efficient occupancy grid computation on the GPU with LIDAR and radar for road boundary detection</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Homm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Kaempchen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Ota</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Burschka</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Intelligent Vehicles Symposium</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">Zero-copy I/O processing for low-latency GPU computing</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Aumiller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Brandt</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+	<note>In 4th ICCPS</note>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">RGEM: A responsive GPGPU execution model for runtime engines</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Kelkar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">32nd RTSS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">TimeGraph: GPU scheduling for real-time multi-tasking environments</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">USENIX ATC</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Gdev: First-class GPU resource management in the operating system</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Mcthrow</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Maltzahn</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Brandt</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">USENIX ATC</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Realtime affinephotometric KLT feature tracker on GPU in CUDA framework</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">S</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hwangbo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Kanade</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">12th ICCV Workshop</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title level="m" type="main">Mobile network estimation</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Noble</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+	<note>In 7th MobiCom</note>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Real-time eye blink detection with GPU-based SIFT tracking</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lalonde</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Byrns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Gagnon</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Teasdale</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Laurendeau</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Canadian Conf. on Computer and Robot Vision</title>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">A bandwidth inheritance algorithm for real-time task synchronization in open systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lamastra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">22nd RTSS</title>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Pci-Sig</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+	<note>PCIe Base 3.0 Specification</note>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">Predictable and Monitored Execution for COTS-based Real-Time Embedded Systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+		<respStmt>
+			<orgName>Univ. of Illinois at Urbana Champaign</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">PhD thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for shared memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">10th Distributed Computing Systems</title>
+		<imprint>
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Lui</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">9th RTSS</title>
+		<imprint>
+			<date type="published" when="1988">1988</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<monogr>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">J</forename><surname>Rossbach</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Currey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Silberstein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ray</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Witchel</surname></persName>
+		</author>
+		<title level="m">PTask: operating system abstractions to manage GPUs as compute devices. In 23rd SOSP</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<monogr>
+		<author>
+			<persName><forename type="first">S</forename><surname>Thrun</surname></persName>
+		</author>
+		<title level="m">GPU Technology Conf</title>
+		<meeting><address><addrLine>Keynote, Day</addrLine></address></meeting>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Integrated pedestrian detection and localization using stereo cameras</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Kato</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Digital Signal Processing for In-Vehicle Systems and Safety</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<monogr>
+		<title level="m" type="main">Replica-request priority donation: A real-time progress mechanism for global locking protocols</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+	<note>In 18th RTCSA</note>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">On spinlocks in AUTOSAR: Blocking analysis of FIFO, unordered, and priority-ordered spin locks</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wieder</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">34th RTSS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Process-aware interrupt scheduling and accounting</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">27th RTSS</title>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

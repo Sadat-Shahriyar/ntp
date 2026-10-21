@@ -1,0 +1,813 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">A Fully Preemptive Multiprocessor Semaphore Protocol for Latency-Sensitive Real-Time Applications</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems</orgName>
+								<orgName type="institution">MPI-SWS</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">A Fully Preemptive Multiprocessor Semaphore Protocol for Latency-Sensitive Real-Time Applications</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">A5F4FB90BCD9637BD4F30869878E7CAA</idno>
+					<idno type="DOI">10.1109/ECRTS.2013.38</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T08:05+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Independence preservation, a property in real-time locking protocols that isolates latency-sensitive tasks from delays due to unrelated critical sections, is identified, formalized, and studied in detail. The key to independence preservation is to ensure that tasks remain fully preemptive at all times. For example, on uniprocessors, the classic priority inheritance protocol is independence-preserving. It is shown that, on multiprocessors, independence preservation is impossible if job migrations are disallowed. The O(m) independencepreserving protocol (OMIP), a new, asymptotically optimal binary sempahore protocol based on migratory priority inheritance, is proposed and analyzed. The OMIP is the first independence-preserving, real-time, suspension-based locking protocol for clustered job-level fixed-priority scheduling. It is shown to benefit latency-sensitive workloads, both analytically by means of schedulability experiments, and empirically using response-time measurements in LITMUS RT .</p><p>1 Priority inheritance is ineffective under partitioning, e.g., see <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b12">13]</ref>.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1">Introduction</head><p>A frequent, but challenging requirement in the design and implementation of practical real-time systems is the need for predictable, mutually exclusive access to shared resources such as I/O ports, network links, message buffers, or other shared data structures. To this end, virtually all modern realtime operating systems (RTOSs) offer some sort of locking primitives, most commonly binary semaphores (or mutexes), under which tasks suspend when trying to access already locked resources. The defining characteristics of a real-time semaphore protocol are that it (i) must guarantee bounded delays for all real-time tasks-which at times requires lockholding tasks to be scheduled despite the presence of (otherwise) higher-priority tasks <ref type="bibr" target="#b30">[31,</ref><ref type="bibr" target="#b33">34]</ref>-while (ii) simultaneously ensuring that urgent, high-priority tasks are not unduly delayed by unrelated critical sections in lower-priority tasks.</p><p>In the uniprocessor case, the real-time locking problem has long been solved: the three classic uniprocessor realtime semaphore protocols, namely the priority-inheritance protocol (PIP) <ref type="bibr" target="#b30">[31,</ref><ref type="bibr" target="#b33">34]</ref>, the priority-ceiling protocol (PCP) <ref type="bibr" target="#b30">[31,</ref><ref type="bibr" target="#b33">34]</ref>, and the stack resource policy (SRP) <ref type="bibr" target="#b2">[3]</ref>, fully satisfy requirements (i) and (ii). Unfortunately, the same cannot be said of the multiprocessor case. While numerous protocols satisfying requirement (i) have been developed for various scheduling approaches (reviewed below), we show in this paper that all existing protocols fail to meet the second requirement when confronted with latency-sensitive workloads (i.e., if some tasks have near-zero tolerance for scheduling delays) under partitioned scheduling (where each task is statically assigned to a processor and each processor is scheduled individually). In other words, there exist demanding, but common hard real-time workloads that currently simply cannot be provisioned on multiprocessors under partitioned scheduling (which is widespread in practice) due to the lack of appropriate synchronization primitives.</p><p>The primary contribution of this paper is a solution to this problem: we present the design, analysis, implementation, and evaluation of the first multiprocessor real-time semaphore protocol applicable to partitioned scheduling (and other policies) that guarantees that latency-sensitive applications are never delayed by unrelated lower-priority tasks.</p><p>The problem. To understand why existing multiprocessor semaphore protocols fail, first consider why the classic uniprocessor protocols do work. For example, consider the de facto industry standard of preemptive fixed-priority (FP) scheduling in conjunction with the PIP, and let T h denote the highest-priority task in the system. Priority inheritance <ref type="bibr" target="#b30">[31,</ref><ref type="bibr" target="#b33">34]</ref> famously addresses requirement (i) by temporarily raising the priority of a lock-holding task to that of the highest-priority waiter (if any). One major advantage of this approach is that task T h is never delayed by critical sections associated with resources shared only among lower-priority tasks, since such critical sections always execute at a lower priority. As a result, such unrelated critical sections may be of arbitrary length without affecting the temporal correctness of T h . This isolation property, which we formalize as "independence preservation" in Sec. 3, crucially depends on the fact that lock-holding tasks remain fully preemptive. Now consider the most straightforward (and widespread) multiprocessor extension of FP scheduling, namely partitioned fixed-priority (P-FP) scheduling, together with the multiprocessor priority-ceiling protocol (MPCP) <ref type="bibr" target="#b29">[30,</ref><ref type="bibr" target="#b30">31]</ref>, a classic shared-memory semaphore protocol for P-FP scheduling. Under partitioned scheduling, it is particularly difficult to ensure that lock-holders are scheduled when remote tasks are blocked; 1 the MPCP-and all real-time semaphore protocols for partitioned scheduling developed since-employ priority boosting, that is, they simply raise the priority of lock-holding tasks above any "normal" priority, thereby ensuring that lock-holding tasks are never preempted by non-lock-holding tasks. While effective, this simple technique has the unfortunate consequence that lockholding tasks are effectively no longer fully preemptive: even the highest-priority task T h cannot preempt all other tasks at all times. As a result, there is no isolation: the temporal correctness of any task depends on the maximum critical section length of any other task (assigned to the same processor). Crucially, this is unacceptable for latency-sensitive workloads, where lower-priority tasks must not affect the correctness of the highest-priority tasks.</p><p>The described phenomenon is not specific to the MPCP, but rather a consequence of priority boosting. While priority boosting can be acceptable if all critical sections can be ascertained with high confidence to always be "short enough," latency-sensitive workloads with highly heterogeneous timing requirements fundamentally require high-priority tasks to be shielded from unrelated critical sections. Such workloads are common in practice. For instance, in the automotive domain, it is not unusual for real-time constraints to span three orders of magnitude, ranging from a few milliseconds for high-frequency control tasks up to one second for less urgent tasks (e.g., see <ref type="bibr" target="#b36">[37]</ref>). However, in a task with a period of 1000 milliseconds, it is not unreasonable to encounter critical sections with worst-case lengths in excess of one millisecond, especially in embedded systems with relatively slow processors. Clearly such a critical section cannot be permitted to delay latency-sensitive tasks (e.g., those with a one-millisecond period). However, as we discuss next, none of the real-time semaphore protocols for partitioned scheduling proposed to date can actually guarantee this-a major oversight that we rectify in this paper.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Related work.</head><p>Multiprocessor semaphore protocols are typically designed for, and tightly integrated with, a specific scheduling policy. Most relevant to our work are prior semaphore protocols for partitioned scheduling. The first such protocols were proposed by Rajkumar et al. <ref type="bibr" target="#b29">[30]</ref><ref type="bibr" target="#b30">[31]</ref><ref type="bibr" target="#b31">[32]</ref>, who designed the aforementioned MPCP and the distributed PCP for P-FP-scheduled systems. In later work, Block et al. <ref type="bibr" target="#b6">[7]</ref> proposed the flexible multiprocessor real-time locking protocol (FMLP), and an improved version for partitioned scheduling, termed FMLP + , has since been developed in <ref type="bibr" target="#b7">[8]</ref>. In recent work, Nemati et al. <ref type="bibr" target="#b27">[28]</ref> proposed a semaphore protocol that simplifies the consolidation of independently developed (legacy) applications onto P-FPscheduled multicore platforms. Crucially, all of the just-cited protocols employ priority boosting and are thus not suitable for latency-sensitive workloads, as explained above.</p><p>In work focused on global scheduling, under which (conceptually) all processors serve a single ready queue and tasks may migrate freely among cores, several semaphore protocols have been proposed in recent years, including a global variant of the FMLP and two extensions of the PCP <ref type="bibr" target="#b20">[21,</ref><ref type="bibr" target="#b26">27]</ref>. These protocols rely on priority inheritance <ref type="bibr" target="#b33">[34]</ref> instead of priority boosting and allow tasks to remain fully preemptive; however, they apply only to global scheduling and cannot be easily transferred to the partitioned case, which is (more) commonly used in industrial applications (e.g., partitioning is mandated by the Autosar 4.0 standard).</p><p>Most closely related to this paper are optimality results <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b12">13]</ref> pertaining to the intuitive goal of "minimal blocking" in multiprocessor real-time semaphore protocols under job-level fixed-priority (JLFP) scheduling, a broad category of schedulers that includes the FP and earliest-deadline first (EDF) policies. Specifically, recent work <ref type="bibr" target="#b11">[12]</ref> investigated asymptotic bounds on maximum priority-inversion blocking (pi-blocking), which (intuitively) occurs whenever a high-priority task is delayed by a lowerpriority one. Surprisingly, there exist two classes of schedulability analysis, called suspension-aware and suspensionoblivious analysis <ref type="bibr" target="#b11">[12]</ref>, resp., that give rise to different lower bounds on worst-case pi-blocking, namely Ω(n) and Ω(m), resp., where n denotes the number of tasks and m the number of processors. In brief, the difference arises due to how semaphore-induced self-suspensions are accounted for.</p><p>This paper pertains to the suspension-oblivious case, for which there already exists the asymptotically optimal family of O(m) locking protocols (OMLP) <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b12">13]</ref>. In particular, the OMLP family contains semaphore-based mutual exclusion protocols for global scheduling, partitioned scheduling, and for clustered scheduling <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b16">17]</ref>, which is a hybrid (or generalization) of global and partitioned scheduling where tasks are statically assigned to non-overlapping subsets (or clusters) of processors, and each cluster is scheduled using a global policy. We revisit these protocols, denoted as P-OMLP, G-OMLP, and C-OMLP, resp., in greater detail in Sec. 2. However, note that the OMLP family decidedly does not solve the problem addressed in this paper, which is to support latency-sensitive workloads under clustered scheduling, since the priority-inheritance-based G-OMLP applies only to global scheduling, whereas the P-OMLP and the C-OMLP use (a variant of) priority boosting, and thus are susceptible to potentially problematic latency increases.</p><p>A well-studied, sometimes-preferable alternative to semaphores are non-preemptive spinlocks, in which blocked jobs busy-wait by executing a delay loop (e.g., see <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b7">8,</ref><ref type="bibr" target="#b17">18,</ref><ref type="bibr" target="#b24">25]</ref>). While busy-waiting conceptually wastes processor cycles, non-preemptive spinlocks are an attractive choice in practice due to their simplicity and low overheads <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b14">15]</ref>. Unfortunately, non-preemptive spinlocks can cause unacceptable delays for latency-sensitive workloads because tasks may remain non-preemptive for prolonged times. While it is possible to reduce the negative effects by allowing spinning tasks to remain preemptive (e.g., see <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b19">20,</ref><ref type="bibr" target="#b34">35]</ref>), critical sections are still executed non-preemptively in such spinlocks and thus have a major impact on latency, not unlike the priority-boosting of critical sections under the MPCP.</p><p>The need for non-preemptive execution can be avoided altogether with helping mechanisms (e.g., see <ref type="bibr" target="#b35">[36]</ref>), where instead of executing a delay loop, "spinning" tasks attempt to complete the critical sections of preempted lock holders. However, such helping-based approaches have two limitations in practice. First, they are considerably more complicated than regular spinlocks, which negates one of the key reasons to use spinlocks in the first place, and second, they are less general than regular locks. That is, "helping" cannot be offered as a generic OS primitive, but must be integrated individually into each application because critical sections must be implemented in a "helping-aware" manner such that they can be posted to a queue of pending operations.</p><p>Finally, in work aimed at temporal isolation among tasks in mixed real-time/non-real-time environments, Faggioli et al. <ref type="bibr" target="#b23">[24]</ref> presented the multiprocessor bandwidthinheritance protocol (MBWI), a scheduler-agnostic locking protocol based on preemptive spinning. Notably, to ensure progress, the MBWI allows lock-holding tasks to migrate to processors on which tasks are waiting for the lock, an effective technique that we reuse in Sec. 3.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Contributions.</head><p>We provide a precise definition of independence preservation, which captures the idea that "tasks should be isolated from unrelated critical sections," and provide evidence of its considerable practical importance (Sec. 3). We show in Sec. 4.1 that this desirable property is impossible on multiprocessors unless jobs may (temporarily) migrate among all processors. Based on this observation, we present in Sec. 4.2 our main contribution, the O(m) independence-preserving locking protocol (OMIP) for clustered scheduling, and show that it is optimal within a factor of approximately two under suspension-oblivious analysis (Sec. 4.3). Finally, in Sec. 5, we report on response-time measurements and schedulability experiments that show the OMIP to greatly benefit latency-sensitive workloads. We begin with a review of needed background.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2">Background and Definitions</head><p>This paper assumes the classic sporadic task model and follows the conventions from <ref type="bibr" target="#b11">[12]</ref>.</p><p>Tasks and jobs. The workload is specified as a set of n sporadic tasks τ = {T 1 , . . . , T n } that is to be scheduled on m identical processors. We let T i denote a task with a worstcase per-job execution time e i and a minimum job separation p i , and let J i denote a job of T i . Our results do not depend on the type of deadline constraint; we assume implicit deadlines for simplicity. A task's utilization is the ratio u i = e i /p i , and τ 's total utilization is given by U = Ti∈τ u i .</p><p>Task T i 's slack p ie i is the maximum delay any J i can tolerate without missing its deadline. A task is latencysensitive if the maximum preemption delay due to lowerpriority critical sections (see below) is greater than its slack.</p><p>Jobs are pending from the time when they are released until they complete. A pending job can be in one of two states: a ready job is available for execution, whereas a suspended job cannot be scheduled. A job resumes when its state changes from suspended to ready.</p><p>Scheduling. Under clustered scheduling <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b16">17]</ref>, processors are grouped into m c non-overlapping sets (or clusters) of c processors each, where C k denotes the k th cluster. We require uniform cluster sizes and for simplicity assume that m is an integer multiple of c. <ref type="foot" target="#foot_1">2</ref> Each task is statically assigned to a cluster; we let C(T i ) denote the cluster to which task T i has been assigned. Partitioned (c = 1) and global (c = m) scheduling are special cases of clustered scheduling.</p><p>Priority. Each cluster is scheduled independently using a work-conserving job-level fixed-priority (JLFP) scheduler. Under a JLFP scheduler, each job is assigned a unique base priority that does not change while it is pending. However, a locking protocol (see below) may temporarily raise the effective priority of a job to ensure its timely completion. At any point in time and w.r.t. each cluster, the c highesteffective-priority ready jobs are scheduled.</p><p>JLFP scheduling is a broad category of scheduling policies that includes EDF and FP scheduling. Note that in the following, we use the terms "higher-priority" and "lowerpriority" to refer to the generic JLFP notion of a job's base priority (and not to a task's priority under FP scheduling). For illustrative purposes, we consider clustered earliestdeadline-first (C-EDF) scheduling as a representative JLFP policy. (We chose C-EDF since it is the policy actually implemented in LITMUS RT , the RTOS underlying the evaluation in Sec. 5.) We let P-EDF denote the special case of partitioned scheduling (i.e., C-EDF scheduling with c = 1).</p><p>Real-time locking. Besides the m processors, tasks share r serially-reusable shared resources 1 , . . . , r . Access to shared resources is governed by a locking protocol that ensures mutual exclusion by serializing conflicting requests.</p><p>A job J i requests a resource q at most N i,q times. If q is already in use, J i incurs acquisition delay until its request for q is satisfied. In this paper, we focus on semaphore protocols, that is, jobs wait by self-suspending. Once J i has finished using q , its request is complete and J i releases q . We let L i,q denote the maximum critical section length, that is, the maximum time that J i uses q as part of a single request (or critical section). We assume that J i must be scheduled in order to use q ; however, the analysis in Sec. 4 remains valid even if critical sections contain suspensions (e.g., when performing I/O). For notational convenience, we define L max q max i {L i,q } and L max max q {L max q }, and require that L i,q = 0 if N i,q = 0.</p><p>We assume that tasks do not hold resources across job boundaries and that jobs request at most one resource at any time. Analysis of nested critical sections is beyond the scope of this paper and the subject of future work (see Sec. 6).</p><p>Priority inversion. Intuitively, a priority inversion exists if a high-priority job that should be scheduled is not scheduled, which is typically due to acquisition delay. However, priority inversion is not the same as acquisition delay: a suspended job does not suffer a priority inversion if it would not have been scheduled anyway (i.e., in the presence of higher-priority jobs) <ref type="bibr" target="#b30">[31,</ref><ref type="bibr" target="#b33">34]</ref>. We let b i denote the maximum cumulative duration of priority inversion incurred by any J i .</p><p>Recent work <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b11">12]</ref> showed that what exactly constitutes a priority inversion (Def. 1 below) depends on how selfsuspensions are accounted for during schedulability analysis (i.e., when checking whether all jobs will meet their deadline). Accurate analysis of self-suspensions is NP-hard <ref type="bibr" target="#b32">[33]</ref> and complicates schedulability tests considerably. Therefore, many published tests (e.g., <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b5">6]</ref>) make the simplifying assumption that tasks never self-suspend. Such suspensionoblivious (s-oblivious) tests can still be used with semaphores by inflating each task's execution cost e i by b i prior to applying the test <ref type="bibr" target="#b11">[12]</ref>. In contrast, suspension-aware (s-aware) schedulability tests explicitly account for self-suspensions. The focus of this paper is s-oblivious analysis; the s-aware case is subject of ongoing work. S-oblivious analysis yields the following definition of "priority inversion." Def. 1. A pending job J i suffers an s-oblivious priority inversion at time t iff J i is (i) not scheduled and (ii) among the c highest-base-priority pending jobs in cluster C(T i ) <ref type="bibr" target="#b11">[12]</ref>.</p><p>Note that clause (ii) pertains only to jobs in J i 's assigned cluster C(T i )-the priorities of jobs in other clusters are irrelevant since each cluster is analyzed individually-and that it pertains to pending (and not just ready) jobs because self-suspensions are analyzed as execution time.</p><p>Priority inversions are considered to cause "blocking" because they lead to an undesirable increase in worst-case response time. To avoid confusing such locking-related delays with other uses of the word "blocking," we use the more specific term "pi-blocking" in this paper.</p><p>PI-Blocking optimality. The purpose of a real-time locking protocol is to minimize the occurrence and duration of priority inversions, which, however, cannot be avoided entirely. The significance of differentiating between s-oblivious and saware analysis is that they give rise to different lower bounds on maximum pi-blocking, formally max τ {b i } <ref type="bibr" target="#b11">[12]</ref>. In particular, the s-oblivious case is subject to an Ω(m) lower bound on maximum pi-blocking, whereas s-aware analysis yields an Ω(n) lower bound (where n ≥ m). In other words, under soblivious analysis, there exist pathological task sets such that pi-blocking is linear in the number of processors under any semaphore protocol. To be asymptotically optimal, a locking protocol must ensure that maximum pi-blocking is always within a constant factor of m. In the suspension-oblivious case, max i {b i } = O(m) is hence asymptotically optimal. When stating asymptotic bounds, L max and q N i,q are considered constant (i.e., not a function of n or m) <ref type="bibr" target="#b11">[12,</ref><ref type="bibr" target="#b12">13]</ref>. The task execution costs e i are not constants, and pi-blocking is considered "bounded" only if no b i depends on any e i .</p><p>The OMLP. The family of O(m) locking protocols is a collection of in total five asymptotically optimal locking proto-cols for global, partitioned, and clustered JLFP scheduling <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b12">13]</ref>. Most relevant to this paper are the two mutual exclusion protocols for partitioned <ref type="bibr" target="#b11">[12]</ref> and clustered scheduling <ref type="bibr" target="#b12">[13]</ref>, which we denote as P-OMLP and C-OMLP, resp. Both use priority boosting to ensure lock-holder progress, which means that the effective priority of lock-holding jobs exceeds any possible base priority. Lock-holding jobs thus are never preempted by non-lock-holding jobs, and in particular not by newly-released jobs (which cannot yet have acquired any locks at the time of their release).</p><p>While we consider clustered JLFP scheduling with arbitrary cluster sizes, we focus on the P-OMLP <ref type="bibr" target="#b11">[12]</ref> as a baseline because it is somewhat simpler and because it suffices to reveal the limitations of priority boosting. The key difference between the two protocols is that the P-OMLP is asymptotically optimal only for c = 1, whereas the C-OMLP uses a refined version of priority boosting called priority donation that allows it to cover the entire range of 1 ≤ c ≤ m <ref type="bibr" target="#b12">[13]</ref> . For the purpose of this paper, the C-OMLP and the P-OMLP can be considered to be equivalent.</p><p>In brief, the P-OMLP works as follows. Requests for each q are serialized with a FIFO queue FQ q . However, before a job can be enqueued in any FQ q , it must hold its processor's contention token CT k . As there is only one such token per processor, at most m jobs are enqueued in any FQ q at any time, which yields the desired O(m) bound. Contention for each CT k is managed using a per-processor priority queue PQ k . The P-OMLP is simple, easy to implement <ref type="bibr" target="#b7">[8]</ref>, ensures asymptotically optimal maximum pi-blocking, and has been shown to perform well compared to the FMLP + and the MPCP for certain workloads <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b12">13]</ref>. However, its chief limitation, which it shares with the FMLP + and the MPCP, is its reliance on priority boosting, as we show in detail next.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3">Independence Preservation</head><p>In this section, we first give a precise specification for the intuitive requirement that "high-priority jobs should be isolated from unrelated critical sections," and then provide evidence of its considerable practical importance.</p><p>To motivate the need for such isolation, consider the example P-OMLP schedule given in Fig. <ref type="figure" target="#fig_2">1(a)</ref>, which demonstrates that priority boosting is ill-suited to latency-sensitive workloads. In this particular example, task T 1 with parameters e 1 = 6 and p 1 = 10 is latency-sensitive since it has only four time units of slack, less than task T 2 's maximum critical section length (L 2,1 = 5). In the depicted schedule, job J 2 acquires resource 1 and becomes priority-boosted shortly after its release at time 0. Hence, job J 1 cannot preempt J 2 at time 1 and consequently misses its deadline at time 11. Notably, J 1 does not access shared resources and is continuously the highest-priority job while it is pending-clearly it should not incur any delays, but under the P-OMLP (or any other semaphore protocol based on priority boosting), J 1 is not isolated from J 2 's long critical section because   is effectively non-preemptable while accessing 1 .</p><formula xml:id="formula_0">2 C 1 5 1 0 1 5 0 deadline miss J 1 J 2 J 3 (b) Priority inheritance is ineffective across clusters. C 2 C 1 5 1 0 1 5 0 J 1 J 2 J 3 (c) Temporarily migrating J 2 to C 1 renders the task set schedulable.</formula><p>It bears repeating that classic priority inheritance <ref type="bibr" target="#b33">[34]</ref>, which allows jobs to remain fully preemptive, is unfortunately ineffective (analytically speaking) when applied across clusters or partitions, as shown in Fig. <ref type="figure" target="#fig_2">1(b)</ref>. At time 2, job J 3 attempts to lock 1 , but must wait since J 2 already holds the resource. Assuming priority inheritance, this causes J 2 's effective priority (i.e., deadline under P-EDF) to be raised from time 40 (J 2 's deadline) to time 12 (J 3 's deadline). However, J 1 has an even earlier deadline at time 11 and J 2 remains preempted. As a result, J 3 incurs unbounded pi-blocking in the sense that it is no longer possible to bound pi-blocking only in terms of critical section lengths (b 3 depends on e 1 ). A deadline miss results.</p><p>However, a simple tweak renders this example schedulable: instead of boosting J 2 's priority while holding 1 , it should simply be migrated to J 3 's cluster C 1 when J 3 requests 1 . As illustrated in Fig. <ref type="figure" target="#fig_2">1(c</ref>), this allows J 2 to complete its critical section in a timely fashion so that J 3 can meet its deadline. Notably, this is accomplished without causing any additional delay for the independent, latencysensitive job J 1 , and while some pi-blocking is unavoidable when using semaphores <ref type="bibr" target="#b11">[12]</ref>, it is only incurred by the job that actually requires a shared resource (J 3 in this example). We formalize this property as follows (first defined in <ref type="bibr" target="#b7">[8]</ref>). Def. 2. Let b i,q denote the maximum pi-blocking incurred by J i due to requests by any task for resource q . Under s-oblivious analysis, a locking protocol is independencepreserving if and only if N i,q = 0 implies b i,q = 0.</p><p>In other words, independence among tasks is preserved if the overall s-oblivious<ref type="foot" target="#foot_2">3</ref> pi-blocking b i = q b i,q does not depend on resources that a task does not access.</p><p>Significance. We posit that independence preservation is indispensable for many workloads common in current practice in industry, as illustrated by the following use cases.</p><p>First, if the locks acquired (only) by lower-priority tasks protect data structures of potentially unbounded size (e.g., lists or trees of unknown size), or if they serialize operations of potentially unbounded or unknown runtime (e.g., vendorprovided "black-box" functionality), then it is not possible to derive a priori bounds on the maximum duration that lower-priority tasks remain effectively non-preemptive. This renders priority-boosting-based locking protocols unviable for real-time systems that need to be certified, even if the developer is certain that all lower-priority critical sections are "short enough." Due to the lack of isolation under priority boosting, a small, but hard-to-quantify risk remains, which can pose considerable challenges in the certification process. Use of a predictable, independence-preserving locking protocol allows to categorically rule out such concerns.</p><p>Second, in open systems (i.e., in systems in which the final task set composition is unknown at design time), in RTOSs based on commodity OSs, and in real-time applications incorporating commodity libraries (e.g., for common tasks such as encryption, compression, or signal processing), locks acquired by lower-priority (or even best-effort) tasks often stem from (a large volume of) untrusted code. In this case, it is (at least economically) impossible to rule out the existence of unknown, potentially dangerous critical sections. For instance, this is a major problem in real-time Linux variants, since the Linux kernel contains millions of lines of code of varying quality (device drivers are notorious for aboveaverage defect densities <ref type="bibr" target="#b18">[19]</ref>), and because real-time locking primitives are exported to all, potentially untrusted userspace tasks (via the pthreads library). With an independencepreserving locking protocol, tasks remain fully preemptive and it is sufficient to inspect and test only the (few) parts of the kernel actually used by latency-sensitive tasks.</p><p>Finally, current industrial practice heavily favors fully preemptive kernel designs and uses scheduling latency (i.e., how quickly a newly released high-priority job can be sched-uled) as a key evaluation metric. For example, the non-profit Open Source Automation Development Lab reports longterm, large-scale scheduling latency measurements of Linuxbased real-time systems to demonstrate Linux's viability as an RTOS <ref type="bibr" target="#b28">[29]</ref>. Similarly, commercial RTOSs are commonly advertised as sporting fully preemptive designs and negligible scheduling latencies. Case in point, a prominently advertised feature of the commercial ThreadX uniprocessor RTOS is that "[a] high priority thread starts responding to an external event on the order of the time it takes to perform a highly optimized ThreadX context switch" <ref type="bibr" target="#b22">[23]</ref>. Without an independence-preserving locking protocol, it will be impossible to extend such claims to partitioned scheduling.</p><p>Taken as a whole, these examples reveal a clear need for practical real-time multiprocessor semaphore protocols that are both predictable and independence-preserving. However, in the case of partitioned and clustered scheduling, no such protocols have been proposed to date. To address this gap, we present the first design and analysis of an independence-preserving real-time semaphore protocol for clustered scheduling in the remainder of this paper. <ref type="bibr" target="#b3">4</ref> The OMIP for Clustered JLFP Scheduling Real-time semaphore protocols must deal with two central issues: how to avoid excessive pi-blocking when lock-holding jobs are preempted (Sec. 4.1), and how to order conflicting requests such that pi-blocking is minimized to the extent possible (Sec. 4.2). We begin with the former aspect.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.1">An Independence-Preserving Progress Mechanism</head><p>As reviewed in Sec. 1, all prior real-time semaphore protocols for partitioned and clustered scheduling use variants of priority boosting to ensure lock-holder progress, which is not independence-preserving. A new progress mechanism is thus required. Interestingly, the example schedule in Fig. <ref type="figure" target="#fig_2">1(c</ref>) contains an inter-cluster migration (i.e., job J 2 must temporarily execute in cluster C 1 despite T 2 being assigned to C 2 ), which runs counter to the idea of clustered scheduling. Such migrations are in fact unavoidable.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Theorem 1. Under clustered JLFP scheduling with c = m, it is impossible for a semaphore protocol to simultaneously (i) prevent unbounded pi-blocking, (ii) be independencepreserving, and (iii) avoid inter-cluster migrations.</head><p>Proof. Consider Fig. <ref type="figure" target="#fig_2">1</ref>. When job J 3 issues its request at time 2, any locking protocol that does not employ intercluster migrations has only two options: either it forces J 2 to complete its critical section at the expense of delaying J 1 , as shown in Fig. <ref type="figure" target="#fig_2">1(a)</ref>, or the locking protocol can isolate J 1 from any locking-related delays, as shown in Fig. <ref type="figure" target="#fig_2">1(b</ref>). In the former case, the locking protocol is not independencepreserving, in the latter case, J 3 is subject to unbounded pi-blocking because b 3 then depends on J 1 's execution cost e 1 (recall that pi-blocking is considered "bounded" only if it does not depend on job execution costs).</p><p>Priority boosting satisfies properties (i) and (iii) at the expense of (ii), whereas priority inheritance satisfies properties (ii) and (iii) at the expense of (i). For our purpose, however, we require a progress mechanism that satisfies both properties (i) and (ii), which according to Theorem 1 is only possible at the expense of (iii). As it turns out, such a mechanism is easily obtained by generalizing the idea of priority inheritance to "cluster inheritance," that is, inheritance should not only pertain to scheduling priorities, but also to where a job is eligible to execute, a concept that we refer to as "migratory priority inheritance" <ref type="bibr" target="#b13">[14]</ref>. Def. 3. Let W i denote the set of jobs waiting for a job J i to release a resource. Under migratory priority inheritance, whenever J i is not scheduled (but ready) and there exists a job J x ∈ W i ∪ {J i } such that J x is eligible to be scheduled in its assigned cluster (i.e., whenever J i is preempted and there are fewer than c ready higher-effective-priority jobs in J x 's cluster), J i migrates to J x 's cluster (if necessary) and assumes J x 's priority. After releasing all locks, J i migrates back to its assigned cluster (if necessary).</p><p>Paraphrased, the idea is to move preempted, lock-holding jobs among clusters such that they are always local to a waiting job that would be scheduled if it were not suspended (if any). Migratory priority inheritance may be triggered whenever a lock-holding job J i is preempted, when a new waiter is added to W i , or when one of the jobs in W i becomes one of the c highest-effective-priority jobs in its cluster (due to the completion or suspension of a higher-priority job). If there are multiple candidates in W i ∪ {J i }, then J x may be chosen arbitrarily among the candidates (e.g., cache locality may be taken into consideration).</p><p>Migratory priority inheritance is a straightforward generalization of classic priority inheritance <ref type="bibr" target="#b33">[34]</ref>; it can also be understood as a greatly simplified, reduced-to-the-core <ref type="foot" target="#foot_3">4</ref>version of Faggioli et al. multiprocessor bandwidth inheritance <ref type="bibr" target="#b23">[24]</ref>. Notably, a progress mechanism akin to migratory priority inheritance appeared as early as 2001 in TU Dresden's Fiasco microkernel under the name "local helping" <ref type="bibr" target="#b25">[26]</ref> (a more detailed discussion of these techniques can be found in <ref type="bibr" target="#b13">[14]</ref>). While migratory priority inheritance has received surprisingly little attention in the real-time literature so far, it is ideal for our purposes as ready jobs are never pi-blocked since lock holders remain fully preemptive.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 1. In a mutual-exclusion semaphore protocol based on migratory priority inheritance, if a job J i is ready at time t, then it does not incur s-oblivious pi-blocking at time t.</head><p>Proof. Follows from the fact that priorities are not "duplicated" in a mutual-exclusion protocol. For each job that inherits a priority higher than J i 's base priority in cluster C(T i ), there exists at least one suspended, pending job local to C(T i ) with base priority higher than J i 's base priority. If J i is ready but not scheduled at time t, then there exist c jobs with higher effective priorities, which, due to the one-to-one inheritance relationship (and because priorities are inherited only locally after migrating to the blocked job's cluster), implies the existence of c pending higher-base-priority jobs local to C(T i ), which precludes s-oblivious pi-blocking.</p><p>However, migratory priority inheritance by itself is not sufficient to guarantee independence preservation. For example, if combined with the P-OMLP's contention token abstraction, requests of otherwise independent jobs could still conflict (i.e., contention tokens create artificial dependencies). Rather, a new locking protocol designed specifically to take advantage of migratory priority inheritance is required.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.2">Queue Structure for Optimal Waiting Times</head><p>Asymptotic optimality under s-oblivious analysis requires max τ b i = O(m). Clearly, this cannot be achieved using only FIFO queues, which would yield Ω(n) pi-blocking, nor can it be achieved using only priority queues, which are susceptible to starvation and can be shown to yield Ω(m • n) pi-blocking <ref type="bibr" target="#b12">[13]</ref>. However, a hybrid FIFO/priority queue design can be used to obtain O(m) pi-blocking bounds under global scheduling <ref type="bibr" target="#b11">[12]</ref>. While such a hybrid queue cannot be directly applied to clustered scheduling (this would require comparing priorities across cluster boundaries, which, analytically, is meaningless), it can be used within each cluster. Further, while it is not possible to directly apply the P-OMLP's per-processor contention token design, it is beneficial to reuse the underlying idea of multiple "stages" of contention; that is, contention should be resolved first on an intra-cluster basis (where priorities can be safely compared) and only thereafter on an inter-cluster basis. Based on these considerations, the O(m) independence-preserving locking protocol (OMIP) is defined as follows.</p><p>Structure. Each shared resource q is protected by a global FIFO queue GQ q of maximum length m c . The job at the head of GQ q holds q . Access to GQ q is resolved on a per-cluster and per-resource basis: in each cluster C k , there exist another two queues for each q , a bounded-length FIFO queue FQ q,k of maximum length c that feeds into GQ q , and a priority queue PQ q,k that feeds into FQ q,k .</p><p>Rules. Requests for each q are satisfied as follows. Let J i denote a job of a task assigned to cluster C k . Conceptually, J i first enters its local PQ q,k and then advances through the queues until it becomes the head of GQ q . R1 When J i issues a request for q and FQ q,k is empty, then J i is enqueued in both GQ q and FQ q,k . Otherwise, if there are fewer than c jobs queued in FQ q,k , then J i is enqueued only in FQ q,k . Finally, if there are already c jobs queued in FQ q,k , then J i is enqueued in PQ q,k .</p><p>R2 J i 's request for q is satisfied when it becomes the head of GQ q . J i is suspended while it waits (if necessary). R3 While J i holds q , it benefits from migratory priority inheritance (w.r.t. any job waiting to acquire q ). R4 When J i releases q , it is dequeued from both GQ q and FQ q,k . If PQ q,k is non-empty, then the head of PQ q,k is transferred to FQ q,k . Further, if FQ q,k is non-empty, then the new head of FQ q,k is enqueued in GQ q . The new head of GQ q , if any, is resumed.</p><p>Rules R1-R4 together ensure O(m) s-oblivious pi-blocking, which we show in Sec. 4.3 below after a brief example.</p><p>Example. Fig. <ref type="figure">2</ref> shows an example OMIP schedule under C-EDF scheduling with m = 4 and c = 2. Job J 3 enters both GQ 1 and FQ 1,1 and acquires 1 at time 1 since 1 is uncontested (Rule R1). Job J 6 requests 1 shortly thereafter and enqueues in GQ 1 and FQ 1,2 (Rule R1), but must suspend since J 3 holds 1 (Rule R2). At time 2, J 3 is preempted due to the release of J 1 and J 2 . As J 3 holds 1 , it is subject to migratory priority inheritance and migrates to J 6 's cluster, where it is scheduled on processor 3 (Rule R3). J 2 proceeds to request 1 as well and enqueues in FQ 1,1 , but suspends without enqueuing in GQ 1 because FQ 1,1 already contained J 3 (Rule R1). J 3 is now eligible to execute in C 1 again, but remains scheduled in C 2 since Def. 3 only takes effect when J 3 is preempted. At time 4, jobs J 4 and J 5 are released in C 2 , which implies that J 6 is no longer among the c = 2 highest-priority pending jobs. J 3 is thus preempted and migrates back to C 1 (Def. 3), where it inherits J 2 's priority (Rule R3). When J 3 releases 1 at time 5, it is removed from both GQ 1 and FQ 1,1 , and the new head of FQ 1,1 , which is J 2 , is enqueued in GQ 1 (Rule R4). J 2 does not immediately acquire 1 because it is preceded by J 6 (Rule 2). However, due to the presence of J 4 and J 5 , J 6 is no longer of sufficient priority to be scheduled in C 2 . Hence, migratory priority inheritance takes effect (Rule 3) and J 6 migrates to C 1 to execute its critical section. At time 6, J 6 releases 1 and ceases to benefit from migratory priority inheritance; it is thus preempted and not scheduled until time 7 when J 5 completes. J 2 finally acquires 1 as it becomes the head of GQ 1 . Importantly, the example shows that jobs J 1 , J 4 , and J 5 , which do not require 1 , do not incur any pi-blocking.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.3">PI-Blocking Optimality</head><p>We bound the maximum s-oblivious pi-blocking incurred by a given task T i under the OMIP. In the following, let J i denote a job in cluster C k that has requested resource q . We begin with the observation that migratory priority inheritance ensures lock-holder progress.</p><p>Lemma 2. Let J h denote the job at the head of GQ q (i.e., the job that holds q ). If J i incurs s-oblivious pi-blocking at time t, and if J h requires processor service at time t (i.e., if J h is ready), then J h is scheduled.</p><p>Proof. Since J i incurs s-oblivious pi-blocking, it is among the c highest-priority jobs in C k . Therefore, J i would be eligible to execute if it were not suspended. By Rule R3, J h is subject to migratory priority inheritance. Thus, by Def. 3, if J h requires processor service to proceed (i.e., if J h is ready), then J h migrates to C(T i ) (if required), inherits J i 's priority, and is thus scheduled by a processor in C(T i ).</p><p>Lemma 2 implies that transitive pi-blocking due to processor unavailability is impossible, which allows us to bound maximum pi-blocking in terms of the number of critical sections that must complete before J i acquires q . Due to the multi-stage structure of the OMIP, we proceed in reverse order, starting with jobs already enqueued in GQ q . Lemma 3. Once J i is enqueued in GQ q , at most m c -1 requests for q must complete before J i holds q . Proof. Due to the interplay of Rules R1 and R4, at most one job per cluster is enqueued in GQ q at any time. Thus, as there are m c clusters and since GQ q is FIFO-ordered, at most m c -1 critical sections must complete before J i becomes the head of the queue and its request is satisfied (Rule 2). This also bounds how long J i remains the head of FQ q,k . Lemma 4. Once J i becomes the head of FQ q,k , at most m c requests for q must complete before J i is dequeued.</p><p>Proof. Follows from Lemma 3 and the fact that J i must complete its own request before being dequeued. This yields a bound on how long it takes to traverse FQ q,k . Lemma 5. Once J i is enqueued in FQ q,k , at most m c •(c-1) requests for q must complete before J i enters GQ q . Proof. J i enters GQ q when it becomes the head of FQ q,k (Rules R1 and R4). Due to the bounded length of FQ q,k , at most c -1 jobs precede J i in FQ q,k . By Lemma 4, each such job, once it has become the head of FQ q,k is dequeued after at most m c requests complete. Thus there are no jobs remaining in front of J i after m c • (c -1) requests complete. The final step is to bound the pi-blocking that J i incurs while waiting in PQ q,k . Since priority queues do not offer strong progress guarantees, simply counting preceding jobs is insufficient in this case and an indirect proof is required. Lemma 6. While J i waits in PQ q,k , at most m requests for q must complete until either J i enters FQ q,k or J i stops to incur s-oblivious pi-blocking. Proof. Suppose not. Then there exists a point in time t at which more than m requests have completed since J i entered PQ q,k and J i still waits in PQ q,k and incurs pi-blocking. By Lemma 4, a job at the head of FQ q,k is dequeued after at most m c requests complete. Thus, at time t, at least m/ m c = c jobs have been dequeued from FQ q,k since J i entered PQ q,k . By Rule R4, the highest-priority job in PQ q,k is transferred to FQ q,k when the head of FQ q,k is dequeued. Since J i is still in PQ q,k at time t, a job with higher priority has been moved to FQ q,k at least c times. Therefore, each job in FQ q,k has a higher priority than J i , that is, there exist c higherpriority pending jobs in cluster C k at time t, which precludes s-oblivious pi-blocking (recall Def. 1). Contradiction.</p><p>Having bounded maximum pi-blocking during each of the OMIP's "stages" that a job traverses, we obtain the following overall bound on per-resource s-oblivious pi-blocking. Lemma 7. J i incurs at most b i,q = N i,q • (2m -1) • L max q s-oblivious pi-blocking due to requests by any task for q . Proof. By Lemma 1, J i incurs pi-blocking only while suspended. Consider a single request for q . While J i is suspended waiting to acquire q , the amount of pi-blocking incurred is determined by the number of conflicting requests that precede J i 's request. By Lemma 6, at most m requests must complete before J i enters FQ q,k or ceases to incur pi-blocking in PQ q,k . By Lemmas 3 and 5, at most m c -1+ m c •(c-1) = m-1 requests must complete from the time that J i enters FQ q,k until it holds q . Lemma 2 implies that the job holding q progresses towards completion of its request whenever J i incurs s-oblivious pi-blocking. Thus, after J i has incurred (m + m -1) • L max q s-oblivious piblocking, at least 2m -1 requests must have completed and J i holds q . The stated bound follows from considering the maximum number of requests issued by any J i for q .</p><p>Note that Lemma 7 implies that the OMIP is indeed independence-preserving (recall Def. 2). Finally, we obtain the following bound on total s-oblivious pi-blocking.</p><p>Theorem 2. Under clustered JLFP scheduling with the OMIP, a job J i incurs in total at most b</p><formula xml:id="formula_1">i = q b i,q = q N i,q • (2m -1) • L max q = O(m) s-oblivious pi-blocking.</formula><p>Proof. Follows from Lemma 7 since b i = q b i,q .</p><p>Prior work has established m -1 as a simple per-request lower bound under s-oblivious analysis <ref type="bibr" target="#b11">[12]</ref>; the OMIP is thus optimal within a factor of 2m-1 m-1 = 2 + 1 m-1 ≈ 2.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5">Implementation and Evaluation</head><p>We modified the existing C-EDF plugin in LITMUS RT <ref type="bibr" target="#b0">[1]</ref>, a real-time extension of the Linux kernel, to incorporate migratory priority inheritance, the OMIP, and the OMLP. The OMIP's multi-level queue structure is easily realized by combining multiple wait queues, which are readily available in Linux. Most complexity stems from the need to coordinate scheduling decisions across cluster boundaries when a job is eligible to be scheduled in multiple clusters due to migratory priority inheritance. In particular, if a processor decides to not schedule a lock-holding job J l because it observes that J l is already scheduled in another cluster, the processor must be notified if J l is subsequently preempted. In our prototype, this is realized with a per-semaphore bitmask that tracks on which processors a job holding the semaphore may currently be scheduled, and by sending an inter-processor interrupt (IPI) to available processors when a lock-holder preemption occurs. A migration, if possible, is then carried out by the first available processor to reschedule in response to the IPI. A detailed discussion of the implementation is omitted here due to space constraints; however, our changes are publicly available as a patch on the LITMUS RT homepage <ref type="bibr" target="#b0">[1]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5.1">Response-Time Measurements</head><p>Based on LITMUS RT , we conducted an experiment to empirically demonstrate that the OMIP is effective at protecting latency-sensitive tasks, that is, to rule out the possibility that independence-preservation is merely an "analytical trick" without practical impact. To this end, we configured a simple synthetic task set on a 2.0 GHz Intel Xeon X7550 system with m = 8 cores using the modified LITMUS RT C-EDF plugin with clusters defined by the L1 cache topology, which results in P-EDF scheduling (c = 1) on the test platform.</p><p>On each core, we launched four tasks with periods 1ms, 25ms, 100ms, and 1000ms and execution costs of roughly 0.1ms, 2ms, 15ms, and 600ms, resp. The latency-sensitive, one-millisecond tasks did not access any shared resources. All other tasks shared a single lock with an associated maximum critical section length of approximately L max = 1ms, and each of their jobs acquired the lock once. While the task set is synthetic, the chosen parameters are inspired by the range of periods found in automotive systems <ref type="bibr" target="#b15">[16,</ref><ref type="bibr" target="#b36">37]</ref> and we believe them to be a reasonable approximation of heterogenous timing constraints as they arise in practice.</p><p>We ran the task set once using the C-OMLP, once using the OMIP, and once using no locks at all (as a baseline assuming that all tasks are independent) for 30 minutes each. We traced the resulting schedules using LITMUS RT 's sched trace facility and recorded the response times of more than 45, 000, 000 individual jobs. Fig. <ref type="figure" target="#fig_5">3</ref> shows two histograms of recorded response times under each configuration. Fig. <ref type="figure" target="#fig_5">3</ref>(a) depicts response times of the one-millisecond tasks. Due to the short period (and consistent deadline tie-breaking), their jobs always have the highest priority and thus incur no delays at all in the absence of locks (all response times are in the first bin). In contrast, under the C-OMLP, jobs are not protected from pi-blocking due to unrelated critical sections and response times exceeding 8ms were observed-priority boosting causes deadline misses in latency-sensitive tasks  (not coincidentally, 8ms ≈ m • L max ). Not so under the OMIP, where the response-times are identical to the case without locks-task independence was indeed preserved. However, mutual exclusion invariably causes some delays, and if such delays do not manifest in the highest-priority jobs, then they will be necessarily observable elsewhere. This is apparent in Fig. <ref type="figure" target="#fig_5">3(b)</ref>, which depicts the responsetime distribution of the 100ms-tasks. For these tasks with considerable slack, worst-case response-times are noticeably shorter under the C-OMLP than under the OMIP. This emphasizes that there is an obvious tradeoff between not penalizing higher-priority jobs and rapidly completing critical sections. To explore this tradeoff, we conducted schedulability experiments, which allow analytical differences w.r.t. response-time guarantees to be quantified (as opposed to the differences in observed response times discussed so far).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5.2">Schedulability Experiments</head><p>In preparation, we derived and implemented fine-grained (i.e., non-asymptotic) pi-blocking analysis of the OMIP suitable for schedulability analysis based on a recently developed analysis technique using linear programming <ref type="bibr" target="#b10">[11]</ref>; details can be found online <ref type="bibr" target="#b9">[10]</ref>. To quantify each protocol's impact on schedulability, we generated task sets using Emberson et al.'s method <ref type="bibr" target="#b21">[22]</ref> consisting of n ∈ {20, 30, 40} tasks with total utilization U ∈ {0.4m, 0.5m, 0.7m}. Of the n tasks, n lat ∈ {0, 1, . . . , 8} were chosen to be latency-sensitive. Latency-sensitive tasks were assigned a period randomly chosen from [0.5ms, 2.5ms], and regular tasks were assigned  a period randomly chosen from [10ms, 1000ms] (in both cases with a granularity of 500μs).</p><p>The n lat latency-sensitive tasks shared three resources, which each job accessed once each with maximum critical section lengths chosen uniformly from [1μs, 15μs]. The remaining nn lat regular tasks shared 12 different resources, of which each task accessed N max ∈ {1, 2, 3}, with a maximum critical section length randomly chosen from <ref type="bibr">[1, mcsl ]</ref>, where mcsl is a variable parameter denoting the maximum critical section length. We varied mcsl ∈ [5μs, 1000μs] in steps of 5μs on processor platforms with m ∈ {2, 4, 8, 16} processors and generated for each combination of n, n lat , U , N max , and mcsl at least 1000 task sets (more than 150, 000, 000 in total). Each generated task set was schedulability tested under both the C-OMLP and the OMIP assuming P-EDF scheduling (i.e., C-EDF with c = 1). The full set of results, 678 schedulability plots when visualized as a function of mcsl , is available online <ref type="bibr" target="#b9">[10]</ref>; three illustrative examples highlighting two main "bottlenecks" that constrain schedulability are shown in Fig. <ref type="figure" target="#fig_7">4</ref>. Fig. <ref type="figure" target="#fig_7">4</ref>(a) shows one of many cases where the OMIP is clearly preferable. In this scenario with one latency-sensitive task (i.e., n lat = 1, see figure for all parameters), schedulability under the C-OMLP decreases rapidly as critical section lengths start to exceed ≈ 50μs. The cause is that starting with mcsl = 50μs, latency-sensitive tasks with a period of p i = 500μs are likely rendered unschedulable by delays due to unrelated critical sections in the range of m • L max ≈ 50μs = 400μs, similar to the hand-crafted example discussed in Sec. 5.1. In contrast, the OMIP achieves high schedulability even in the presence of much longer critical sections. In this scenario, latency sensitivity is the bottleneck, and the OMIP is preferable for such workloads.</p><p>In contrast, Fig. <ref type="figure" target="#fig_7">4</ref>(b) shows a scenario with the opposite outcome. In this case, no latency-sensitive tasks are included in the generated task sets (n lat = 0) and there is a high degree of contention (N max = 3). As a result, independencepreservation is not essential and constant factors in the piblocking analysis dominate: while the C-OMLP and the OMIP are both O(m) protocols, the C-OMLP has a perrequest bound of (m -1) • L max <ref type="bibr" target="#b12">[13]</ref>, whereas the OMIP has a per-request bound of (2m -1) • L max (Lemma 7). The C-OMLP thus achieves somewhat higher schedulability in this case, though long critical sections are infeasible under either protocol due to the high level of contention.</p><p>Finally, Fig. <ref type="figure" target="#fig_7">4</ref>(c) shows a scenario with n lat = 6 and N max = 3 where both effects combine. Due to the high level of contention, schedulability under the OMIP is limited across the entire range of critical section lengths, whereas under the C-OMLP, schedulability for short critical sections is markedly higher than under the OMIP due to the C-OMLP's advantage in constant factors, but then decreases rapidly due to the lack of independence preservation under the C-OMLP.</p><p>In summary, our results show that independence preservation and the OMIP are clearly beneficial for latency-sensitive workloads. Further, the OMIP is competitive with and often performs similar to the C-OMLP even if independence preservation is not required, but may perform worse than the C-OMLP in the presence of heavy contention.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="6">Conclusion</head><p>This paper is the first to investigate the challenge of supporting latency-sensitive real-time applications under partitioned and clustered scheduling. We have proposed independence preservation to capture the essential requirement of such workloads. The primary contribution of this paper is the OMIP, the first independence-preserving real-time semaphore protocol for clustered JLFP scheduling. Interestingly, the OMIP employs a novel three-stage queue, which yields asymptotic optimality under s-oblivious analysis.</p><p>In summary, latency-sensitive real-time applications have long been well-supported on uniprocessors, but could not be hosted on partitioned multiprocessors with prior semaphore protocols. The OMIP is the first semaphore protocol to overcome this limitation, at the expense of job migrations.</p><p>Naturally, job migrations do cause additional overheads, and current industry practice thus regards them critically. However, if job migration is disallowed or fundamentally infeasible (e.g., if the processors in different clusters implement incompatible instruction sets), then Theorem 1 shows that there is little that can be done besides disallowing crosscluster resource sharing altogether. In contrast, in shared-memory systems in which global scheduling is technically possible, but a non-global scheduling approach is preferred for other reasons (e.g., to improve cache affinity or to reuse existing uniprocessor algorithms), the OMIP is a viable compromise: first, migratory priority inheritance is triggered only if the lock-holding job is preempted, which means that its cache contents are likely evicted anyway, and second, it is cheaper to migrate critical sections than it is to migrate jobs since the cache footprint of a critical section is typically much smaller than that of an entire job. Concerning the number of times that a critical section may be preempted, migratory priority inheritance is no worse in this regard than the widely deployed PIP. Nontheless, it will be interesting to study the effects of the OMIP on overheads in more detail.</p><p>In future algorithmic work, we seek to lift the assumption that jobs lock only one resource at a time. Ward and Anderson <ref type="bibr" target="#b37">[38]</ref> recently showed how to support nested critical sections without loss of asymptotic optimality. However, under s-oblivious analysis, their approach permits at most m concurrent (outermost) critical sections by means of a global token lock, which can serialize otherwise independent jobs. Ward and Anderson's technique <ref type="bibr" target="#b37">[38]</ref> thus preserves asymptotic optimality when applied to the OMIP, but it is not independence-preserving. However, it may be possible to combine Ward and Anderson's approach with the FMLP's notion of resource groups <ref type="bibr" target="#b6">[7]</ref> to obtain independence preservation and asymptotic optimality despite lock nesting.</p><p>Finally, we further seek to explore the design space of independence-preserving locking protocols for s-aware analysis, and are currently investigating synchronization mechanisms that provide "freedom from interference" (i.e., temporal isolation) among mutually untrusting tasks, despite resource sharing in the presence of budget overruns, for which the OMIP is an essential building block <ref type="bibr" target="#b8">[9]</ref>.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>J 2 w 3 (</head><label>23</label><figDesc>a) Priority boosting causes pi-blocking for independent jobs.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>C</head><label></label><figDesc></figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Figure 1 :</head><label>1</label><figDesc>Figure 1: P-EDF schedules (c = 1) of three tasks T1, T2, T3 with execution costs e1 = 6, e2 = 9, e3 = 3, and periods p1 = 10, p2 = 40, and p3 = 11. Tasks T2 and T3 share one resource ( 1),where L2,1 = 5 and L3,1 = 1. While P-EDF is assumed in this example, the same effect can arise under any partitioned JLFP scheduler (including P-FP). The legend applies to Fig.2, too.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>1 J 2 J 3 J 4 J 5 J 6 Figure 2 :</head><label>1234562</label><figDesc>Figure 2: C-EDF schedule of six jobs in two two-processor clusters sharing one resource 1 under the OMIP. Changes in shade indicate migrations; jobs J3 and J6 migrate across cluster boundaries due to migratory priority inheritance. See Fig. 1 for a legend.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head></head><label></label><figDesc>Response times of latency-sensitive tasks with period p i = 1ms. Response times of regular tasks with period p i = 100ms.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Figure 3 :</head><label>3</label><figDesc>Figure 3: Response times measured in LITMUS RT under C-EDF scheduling with the OMIP, the C-OMLP, and without locks.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head></head><label></label><figDesc>(a) A single latency-sensitive task dominates. (b) Overall pi-blocking dominates.(c) Combination of effects.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Figure 4 :</head><label>4</label><figDesc>Figure 4: The effect of increasing maximum critical section length under P-EDF scheduling with the C-OMLP and the OMIP.</figDesc></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 07:18:49 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_1"><p>If c does not evenly divide m, there are m c clusters of size c and one cluster of size m mod c. This does not affect the asymptotic bounds.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_2"><p>Def. 2 is specific to s-oblivious analysis. For technical reasons, s-aware analysis requires a slightly weaker definition (a subject of future work).</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_3"><p>The MBWI<ref type="bibr" target="#b23">[24]</ref> also uses (non-optimal) FIFO queueing and allows for budget overruns, which is orthogonal to the idea of migrating lock holders.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<ptr target="http://www.litmus-rt.org" />
+		<title level="m">The LITMUS RT project</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Efficient object sharing in quantum-based real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Jain</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Jeffay</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 19th Real-Time Systems Symposium</title>
+		<meeting>of the 19th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Stack-based scheduling for realtime processes</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="67" to="99" />
+			<date type="published" when="1991">1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of multiprocessor sporadic task systems</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Handbook of Real-Time and Embedded Systems</title>
+		<imprint>
+			<publisher>Chapman Hall/CRC</publisher>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Techniques for multiprocessor global schedulability analysis</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 28th Real-Time Systems Symposium</title>
+		<meeting>of the 28th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Response-time analysis for globally scheduled symmetric multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cirinei</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 28th Real-Time Systems Symposium</title>
+		<meeting>of the 28th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">A flexible real-time locking protocol for multiprocessors</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 13th Conference on Embedded and Real-Time Computing Systems and Applications</title>
+		<meeting>of the 13th Conference on Embedded and Real-Time Computing Systems and Applications</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">Scheduling and Locking in Multiprocessor Real-Time Operating Systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+		<respStmt>
+			<orgName>The University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">PhD thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title level="m" type="main">Virtually exclusive resources</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<idno>MPI-SWS-2012-005</idno>
+		<imprint>
+			<date type="published" when="2012-05">May 2012</date>
+		</imprint>
+		<respStmt>
+			<orgName>MPI-SWS</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<monogr>
+		<title level="m" type="main">A fully preemptive multiprocessor semaphore protocol for latency-sensitive real-time applications (extended version)</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<idno>MPI-SWS-2013-003</idno>
+		<imprint>
+			<date type="published" when="2013-05">May 2013</date>
+			<publisher>MPI-SWS</publisher>
+		</imprint>
+	</monogr>
+	<note type="report_type">Technical Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Improved analysis and evaluation of real-time semaphore protocols for P-FP scheduling</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 19th Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>of the 19th Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Optimality results for multiprocessor real-time locking</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 31st Real-Time Systems Symposium</title>
+		<meeting>of the 31st Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">The OMLP family of optimal multiprocessor real-time locking protocols. Design Automation for Embedded Systems, online first</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2012-07">July 2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">The case for migratory priority inheritance in Linux: Bounded priority inversions on multiprocessors</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bastoni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 14th Real-Time Linux Workshop</title>
+		<meeting>of the 14th Real-Time Linux Workshop</meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Anderson. Synchronization on real-time multiprocessors: To block or not to block, to suspend or spin?</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 14th Real-Time and Embedded Technology and Apps. Symposium</title>
+		<meeting>of the 14th Real-Time and Embedded Technology and Apps. Symposium</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Real-time in the prime-time</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Buttle</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">24th Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2012-07">July 2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">A hybrid real-time scheduling approach for large-scale multicore platforms</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Baumberger</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 19th Euromicro Conference on Real-Time Systems</title>
+		<meeting>of the 19th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Reducing queue lock pessimism in multiprocessor schedulability analysis</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Chang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wellings</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 18th Conference on Real-Time and Network Systems</title>
+		<meeting>of the 18th Conference on Real-Time and Network Systems</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">An empirical study of operating systems errors</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Chou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Chelf</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Hallem</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Engler</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 18th Symposium on Operating Systems Principles</title>
+		<meeting>of the 18th Symposium on Operating Systems Principles</meeting>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Queuing spin lock algorithms to support timing predictability</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Craig</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 14th IEEE Real-Time Systems Symposium</title>
+		<meeting>of the 14th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="1993">1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Resource sharing in global fixedpriority preemptive multiprocessor scheduling</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Easwaran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 30th Real-Time Systems Symposium</title>
+		<meeting>of the 30th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Techniques for the synthesis of multiprocessor tasksets</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Emberson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Stafford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">1st Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<monogr>
+		<title level="m" type="main">ThreadX real-time operating system</title>
+		<ptr target="http://rtos.com/products/threadx/" />
+		<imprint>
+			<date type="published" when="2013">1/26/2013</date>
+			<publisher>Express Logic, Inc</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">The multiprocessor bandwidth inheritance protocol</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Cucinotta</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 22nd Euromicro Conference on Real-Time Systems</title>
+		<meeting>of the 22nd Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">A comparison of MPCP and MSRP when sharing resources in the Janus multiple processor on a chip platform</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Gai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Di Natale</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Ferrari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gabellini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Marceca</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 9th Real-Time And Embedded Technology Application Symposium</title>
+		<meeting>of the 9th Real-Time And Embedded Technology Application Symposium</meeting>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Helping in a multiprocessor environment</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hohmuth</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Peter</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceeding of the Second Workshop on Common Microkernel System Platforms</title>
+		<meeting>eeding of the Second Workshop on Common Microkernel System Platforms</meeting>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Limited blocking resource sharing for global multiprocessor scheduling</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Macariu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Cretu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 23rd Euromicro Conference on Real-Time Systems</title>
+		<meeting>of the 23rd Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Independently-developed realtime systems on multi-cores with shared resources</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Nemati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 23rd Euromicro Conference on Real-Time Systems</title>
+		<meeting>of the 23rd Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<monogr>
+		<ptr target="https://www.osadl.org/Continuous-latency-monitoring.qa-farm-monitoring.0.html" />
+		<title level="m">Continuous worst-case latency monitoring</title>
+		<imprint>
+			<date type="published" when="2013">1/26/2013</date>
+		</imprint>
+		<respStmt>
+			<orgName>Open Source Automation Development Lab eG</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for shared memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 10th Conference on Dist Computing Systems</title>
+		<meeting>of the 10th Conference on Dist Computing Systems</meeting>
+		<imprint>
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<monogr>
+		<title level="m" type="main">Synchronization In Real-Time Systems-A Priority Inheritance Approach</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1991">1991</date>
+			<publisher>Kluwer Academic Publishers</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 9th Real-Time Systems Symposium</title>
+		<meeting>of the 9th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="1988">1988</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Negative results for scheduling independent hard real-time tasks with self-suspensions</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Ridouard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Richard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Cottet</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 25th Real-Time Systems Symposium</title>
+		<meeting>of 25th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">Priority inheritance protocols: an approach to real-time synchronization</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Comput</title>
+		<imprint>
+			<biblScope unit="volume">39</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1175" to="1185" />
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">Predictable spin lock algorithms with preemption</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Takada</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Sakamura</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 11th Workshop on Real-Time Operating Systems and Software</title>
+		<meeting>of the 11th Workshop on Real-Time Operating Systems and Software</meeting>
+		<imprint>
+			<date type="published" when="1994">1994</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">A novel approach to multiprogrammed multiprocessor synchronization for real-time kernels</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Takada</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Sakamura</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 18th Real-Time Systems Symposium</title>
+		<meeting>of the 18th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="1997">1997</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">Guaranteeing message latencies on control area network (CAN)</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 1st Intl. CAN Conference</title>
+		<meeting>of the 1st Intl. CAN Conference</meeting>
+		<imprint>
+			<date type="published" when="1994">1994</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Supporting nested locking in multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 24th Euromicro Conference on Real-Time Systems</title>
+		<meeting>of the 24th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

@@ -1,0 +1,471 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Supporting Soft Real-Time Tasks in Zephyr with Constant Bandwidth Servers</title>
+				<funder ref="#_hZjuFNR">
+					<orgName type="full">European Regional Development Fund</orgName>
+					<orgName type="abbreviated">ERDF</orgName>
+				</funder>
+				<funder ref="#_Xn7EBYF">
+					<orgName type="full">Portuguese Innovation Agency (ANI)</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Alexander</forename><surname>Paschoaletto</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">ISEP &amp; INESC TEC</orgName>
+								<address>
+									<settlement>Porto</settlement>
+									<country key="PT">Portugal</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Paulo</forename><forename type="middle">Baltarejo</forename><surname>Sousa</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="institution">ISEP &amp; INESC TEC</orgName>
+								<address>
+									<settlement>Porto</settlement>
+									<country key="PT">Portugal</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Miguel</forename><surname>Luís</surname></persName>
+							<affiliation key="aff2">
+								<orgName type="institution">ISEP &amp; INESC TEC</orgName>
+								<address>
+									<settlement>Porto</settlement>
+									<country key="PT">Portugal</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><surname>Pinho</surname></persName>
+							<affiliation key="aff2">
+								<orgName type="institution">ISEP &amp; INESC TEC</orgName>
+								<address>
+									<settlement>Porto</settlement>
+									<country key="PT">Portugal</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Tiago</forename><surname>Carvalho</surname></persName>
+							<affiliation key="aff3">
+								<orgName type="institution">ISEP &amp; INESC TEC</orgName>
+								<address>
+									<settlement>Porto</settlement>
+									<country key="PT">Portugal</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Supporting Soft Real-Time Tasks in Zephyr with Constant Bandwidth Servers</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">F364226672A16694485F7A52D3E928B1</idno>
+					<idno type="DOI">10.1109/ISORC65339.2025.00017</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-18T18:33+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>CBS</term>
+					<term>Zephyr</term>
+					<term>RTOS</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>The Constant Bandwidth Server (CBS) is a mechanism used in real-time systems to enable aperiodic soft realtime tasks with unknown execution parameters to run under a dynamic scheduling policy such as Earliest Deadline First (EDF), while still ensuring schedulability by using a bandwidth reservation strategy. This paper proposes an approach to extend the Zephyr open-source real-time operating system, currently maintained by the Linux Foundation, to support aperiodic tasks with CBS. The paper provides the proposed architecture and the design and implementation of the CBS mechanisms in the operating system, which are then evaluated in two test cases in an embedded platform.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>The design of real-time applications may integrate activities (i.e. tasks) with different criticality requirements and execution characteristics, but which need to share the computing resources such as the processor and memory. Some tasks may require hard guarantees on the usage of these resources (e.g. the synchronous control of actuators on a power plant or a robot), with strict periodic behavior and worst-case execution time estimates, while other tasks might have more relaxed constraints due to variable computational times and/or unknown periodicity (e.g. capturing and image processing of a camera feed using computer vision). These latter ones are labeled soft tasks in a way to express their completion on time would benefit the system performance, but occasional delays would not be critical for the system functionality. The former ones, however, are labeled hard tasks in a sense they can't afford to miss a deadline, or else grave consequences might follow.</p><p>The theory behind real-time guarantees usually rely on each task having a known worst-case execution time (WCET) and defined periodic behavior. However, a precise estimation of a task's WCET is difficult and often yields results higher than the average execution time for applications, such as multimedia <ref type="bibr" target="#b0">[1]</ref>. Moreover, aperiodic tasks do not have a defined period between activations by definition, which make the applicability of this analysis somewhat limited for realtime systems which need to handle both periodic and aperiodic tasks.</p><p>A fundamental approach to providing these guarantees when mixing different types of tasks is the use of resource reserva-tion servers, which allow achieving a balance between meeting deadlines and efficiently utilizing Central Processing Unit (CPU) resources. This approach allows for better predictability and control over task execution, making it a valuable technique in the design of real-time systems <ref type="bibr" target="#b1">[2]</ref>. When dynamic scheduling is considered, bandwidth-preserving servers ensure that tasks receive a guaranteed share of CPU time, preserving the bandwidth allocated to each task. Furthermore, servers are a widely considered mechanism to provide isolation between tasks in the domain of mixed-criticality systems <ref type="bibr" target="#b2">[3]</ref>;</p><p>Real-time operating systems (RTOS) play a pivotal role in managing real-time scheduling, and the integration of hard and soft tasks with servers, being fundamental to guarantee timing isolation. RTOS need to provide the necessary infrastructure and mechanisms to support correct scheduling and execution, such as scheduling algorithms for CPU allocation, task synchronization and timers support for server management.</p><p>In this context, this paper proposes the integration of a bandwidth-preserving server, the Constant Bandwidth Server (CBS) <ref type="bibr" target="#b0">[1]</ref>, in the Zephyr operating system <ref type="bibr" target="#b3">[4]</ref>. The paper is structured as follows. The next section provides a brief overview of CBS, while Section III introduces the Zephyr support to real-time systems scheduling. Afterwards, Section IV provides the proposed architecture and the design of the CBS mechanisms within the Zephyr kernel, which is then evaluated in a small embedded platform in Section V. Section VI concludes with a summary and discussion of future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. CONSTANT BANDWIDTH SERVER</head><p>The CBS is a service mechanism meant to allow soft and non-real-time tasks to be executed alongside a hard real-time task set running under the EDF policy. This goal is achieved by effectively implementing a bandwidth reservation strategy, which assigns each served task a maximum execution time before triggering an action by the scheduler. Thus, the CBS isolates eventual execution overloads from the rest of the system and enables the schedulability analysis to be performed on hybrid task sets <ref type="bibr" target="#b0">[1]</ref>  <ref type="bibr" target="#b4">[5]</ref>.</p><p>A CBS has two major parameters: (Q, P ). Q is the server maximum budget, which corresponds to the maximum amount of time a specific instance of a task can be executed by the CBS before triggering scheduler interventions, and P is the server period, which is used by the scheduler to calculate the server's absolute deadline when an intervention happens. The current budget level of a CBS oscillates between 0 and Q as execution goes and is represented by q.</p><p>Figure <ref type="figure" target="#fig_0">1</ref> illustrates the benefit of using a CBS, which we'll cover in detail throughout the following paragraphs, versus giving the soft tasks a Fixed and Lower Priority (FLP), which in turn means just executing when no hard task is ready for execution. In this example, as well as in all remaining diagrams within this paper, the numbers inside the tasks represent the current instance (i.e. the job) in execution. With the FLP, the first soft task (J 1 ) has to wait 3 units of time before starting and is preempted twice afterwards, only being able to finish after the second soft task (J 2 ) is activated (at instant 15). The third soft task (J 3 ) also experiences a 3-time-unit delay before starting. When the CBS is enabled, though, both J 1 and J 3 start executing immediately, and J 1 is preempted only once. As a consequence, the hard tasks are subject to some initial delay but still get to finish within their own deadlines. The CBS therefore enables soft tasks to start executing more rapidly without jeopardizing the real-time constraints of hard tasks. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Schedulability</head><p>The ratio U i = Q i /P i for a CBS i is denoted as the server bandwidth and can be seen as the equivalent to the utilization factor U r for a real-time task. In fact, on a system with n periodic tasks, directly scheduled by EDF and which collectively have an utilization factor of U p :</p><formula xml:id="formula_0">U p = n i=1 C i /T i (1)</formula><p>and a set of m CBSs that serve aperiodic tasks and which have a collective bandwidth of U s :</p><formula xml:id="formula_1">U s = m j=1 Q j /P j (2)</formula><p>then the whole set will have a total utilization U r of</p><formula xml:id="formula_2">U r = U p + U s<label>(3)</label></formula><p>which also must be lower than or equal to 1 to guarantee system schedulability a priori. This condition holds thanks to the isolation property of bandwidth reservation strategy that inserts execution boundaries, and thus predictability, to otherwise soft tasks with variable computation times <ref type="bibr" target="#b1">[2]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. System Model</head><p>For the remainder of this paper we consider a preemptive real-time system running under a single processor and a task set of n hard real-time tasks, denoted by τ 1 ...τ n , and m soft real-time tasks, denoted by j 1 ...j m . Each hard real-time task τ i has a known worst-case execution time C i , a relative deadline D i and a period T i , having 0 ≤ C i ≤ D i and D i ≤ T i . Hard real-time tasks are also independent and directly scheduled by the EDF policy. Conversely, all soft tasks are executed through one or more CBSs (thus being assigned the absolute deadline d i of the server) and feature arbitrary execution times and arrival periods.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. CBS rules</head><p>The values of maximum budget Q i and period P i are determined off-line by the system designer, keeping a good balance between the task execution times and the system overall utilization. Previous work on finding optimal values for the period has been conducted in <ref type="bibr" target="#b4">[5]</ref>. The state variables maintained for each server i at runtime are the absolute deadline d i and the budget value q i . At the beginning, d i = 0:</p><p>1) A CBS is said to be idle if it's not executing any job and there are no jobs waiting for execution. Otherwise, the server is said to be active. 2) When a new job arrives at an idle server, the following condition is verified:</p><formula xml:id="formula_3">q i ≥ (d i -r job )U i (4)</formula><p>where r job is the arrival instant of the new job. This condition verifies if the remaining server bandwidth is higher than U i , which is not allowed. So if the condition holds, the CBS will be assigned a new deadline d i = r job + P i and the budget will be replenished to q i = Q i . 3) The budget q i is consumed proportionally to the job execution. When fully exhausted, q i is automatically replenished to Q and the deadline is postponed by P i , that is,</p><formula xml:id="formula_4">d i = d i + P i .</formula><p>The CBS therefore has a deadline that recalculates on two events (job arrivals on idle servers and budget exhaustion) and which is used by the EDF scheduler to decide which task or server must be running at any given moment. It should be noted that on budget exhaustion events the execution will resume normally afterwards if even with the postponed deadline the CBS keeps the earliest absolute value of all. This feature makes the CBS a work conserving algorithm that differentiates it from other real-time servers such as the Polling Server <ref type="bibr" target="#b1">[2]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Simple example</head><p>For a better understanding of how the CBS works, we proceed with the example of a standalone server dealing with a sequence of aperiodic jobs as showcased in Figure <ref type="figure" target="#fig_1">2</ref>. In this example, jobs A (C = 2) and B (C = 3) arrive one right after the other at t = 1, followed by job C (C = 1.3) at t = 8 and job D (C = 1) at t = 16. The CBS has a budget Q i of 3 time units and a period P i of 7 time units, resulting in a bandwidth U i of approximately 0.43.  <ref type="formula">4</ref>) is verified and true, so d i is updated to t + P i = 8. As there is no other contending task in the system, the CBS starts executing job A immediately. 2) At instant t = 3, job A finishes execution. The remaining budget is of 1 time unit, since job A spent 2 units with its own execution. Job B, the next one in line, starts. 3) At instant t = 4, the budget q i runs out. This triggers the scheduler to replenish q i at the cost of postponing the CBS deadline d i by 7 time units. So the new deadline is (8 + 7) = 15. Since there is no other contending task with an earliest deadline, the CBS resumes execution of job B. 4) At instant t = 6, job B is completed. The remaining budget q i is of 1 time unit. As there are no other jobs in the queue, the CBS becomes idle again. 5) At instant t = 8, job C arrives. The CBS was idle, so the scheduler applies the condition (Equation <ref type="formula">4</ref>) once again to verify if the available bandwidth of the server -that is, the budget left (1) divided by the current time until the deadline (7, since at this point the deadline is set at t=15) -is greater or equal than the configured server bandwidth (0.43). Since (1/7) = 0.14, the current bandwidth is lower than configured. Thus, job C is served with the current budget and deadline. 6) At instant t = 9, the budget runs out. The kernel then replenishes the budget and postpones the deadline in 7 time units, leading to a new value of</p><formula xml:id="formula_5">d i = (15+7) = 22.</formula><p>As there are no other contending tasks, job C resumes execution. 7) At instant t = 9.3, job C is completed. The remaining budget q i is 2.7 time units. The server becomes idle again. 8) At instant t = 16, job D arrives. The CBS condition is once again verified, and since q i = 2.7 and d i = 22, it holds. The deadline is recalculated to d i = (16 + 7) = 23, and q i is replenished to Q i . The CBS therefore acts as a task which is self-aware of its overruns. When the budget runs out, the server decreases its own EDF priority by postponing the deadline, but still remains able to execute in case no other contending task becomes the one with the earliest deadline. Thus, periodic tasks can make use of a CBS as a fail-safe mechanism: As long as the task's execution time doesn't exceed the configured budget, it will behave exactly like a regular EDF task. If an overrun happens, however, the task will lower its priority but keep the guaranteed bandwidth U i .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Implementations of CBS</head><p>To the best of our knowledge, CBS has been implemented with some variations on two open-source operating systems: Linux and RTEMS, as well as the PikeOS commercial operating system. Linux introduced the SCHED DEADLINE scheduler in kernel version 3.14 to handle real-time tasks with an algorithm built from EDF and CBS concepts <ref type="bibr" target="#b5">[6]</ref>. In this algorithm, operating system threads declare a maximum "runtime" Q, a relative deadline D and a period P , and whenever the thread implementing a task becomes ready for execution, the CBS condition (Equation <ref type="formula">4</ref>) is applied to calculate the absolute deadline. Then EDF proceeds with executing the ready thread with the earliest absolute deadline <ref type="bibr" target="#b6">[7]</ref>.</p><p>However, a fundamental change from the theoretical model is that the condition is applied at every moment that the thread becomes ready (e.g. resuming after a suspension) instead of just at the arrival instant. Another significative change is that, whenever the declared "runtime" is exhausted, the thread is immediately suspended until its absolute deadline (it then resumes with a replenished "runtime" and an absolute deadline postponed in P time units). A similar hard reservation approach is used in the PikeOS implementation <ref type="bibr" target="#b7">[8]</ref>, which implements hard CBS-servers, with the goal to provide protection to unbounded interference to lower-priority, but higher criticality jobs. This is based on a previous implementation in the research LitmusRT operating system, which nevertheless was never released <ref type="bibr" target="#b8">[9]</ref>.</p><p>As for RTEMS, an RTOS qualified for and widely used in the space domain, the existing CBS implementation <ref type="bibr" target="#b9">[10]</ref> targets single-core applications and each CBS can only be attached to one periodic task at time (thus, they will only execute the released jobs of this one task). There are also differences when compared to the original CBS model: when the job exceeds its allowed budget, it is removed from the scheduler (i.e. blocked until its next period, even if there is available CPU capacity) <ref type="foot" target="#foot_1">1</ref> , which requires a more complex analysis <ref type="bibr" target="#b10">[11]</ref>  <ref type="bibr" target="#b11">[12]</ref>.</p><p>Moreover, the CBS condition is only verified when the task attempts to unblock, and if satisfied, the CBS remains blocked until its next period instead of being replenished. Moreover, the budget consumption is measured with tick interrupts rather than through the usage of dedicated timers <ref type="bibr" target="#b12">[13]</ref>.</p><p>The changes applied to both implementations lose the work conserving property of the theoretical model (see <ref type="bibr" target="#b11">[12]</ref>) and are prone to greater overhead, as the CBS condition is checked more frequently in both Linux and RTEMS. The implementation for Zephyr presented on this paper, however, follows the theory in a more literal fashion: the CBS condition is only checked when a job is pushed to the server, and budget exhaustion events only postpone the deadline instead of suspending the job.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. ZEPHYR</head><p>Zephyr <ref type="bibr" target="#b3">[4]</ref> is an open-source RTOS which focuses on featuring a lightweight, yet scalable kernel that suits a myriad of devices, from embedded microcontrollers to complex multicore systems, and it is currently ported to more than 600 boards and over 10 architectures. It also includes features such as semaphores, mutexes, interrupts, timers and atomic variable operations.</p><p>As in the majority of operating systems, support to concurrent activities in Zephyr is provided using threads. Zephyr offers a handful of scheduling algorithms that can work sideby-side in a hierarchical manner, with the main adopted policy being the user-defined static priority: each thread is assigned an integer value which can be positive or negative, and the ready thread with the lowest number holds the highest priority. Positive values are meant for preemptive threads, while negative values are for cooperative threads. A cooperative thread cannot be preempted, except for the execution of interruption service routines (ISRs), and will remain in the CPU until it voluntarily yields or blocks waiting for external resources or synchronization mechanisms such as a mutex <ref type="bibr" target="#b13">[14]</ref>.</p><p>When two or more threads of the same priority level are eligible for execution, the scheduler relies on an auxiliary scheduling algorithm to determine which will take the CPU. The currently available methods are the Round-Robin (RR) scheduler, which first selects the longest awaiting thread and then assigns a time slice for each thread, successively preempting them in favor of the others at the end of each slice, and the EDF policy, where the thread with the earliest absolute deadline is chosen to execute. As for the data structure for the ready queue, the kernel can be configured at build time with one of a few implementation choices such as simple linkedlists, red/black trees and the multi-queue approach for static priority assignment.</p><p>Two important concepts in Zephyr to provide support to scheduling are timers and message queues.</p><p>A timer is a kernel object that measures the passage of time and allows the application to schedule events to happen after a minimum specified period. A timer can have two callbacks associated with it: An expiry function, which is executed within an interrupt context once the specified period has elapsed, and a stop function, which is executed within a thread context if the timer is prematurely halted while running. However, timer resolution is limited by the configured system tick, which means the specified period (e.g. 100 microseconds) will be internally rounded to an upper value if the configured resolution is coarser (e.g. 500 microseconds). Therefore timers in Zephyr only ensure that the minimum specified period will have elapsed instead of the exact values <ref type="bibr">[15]</ref>.</p><p>A message queue is a kernel object that allows threads and ISRs to asynchronously exchange information in Zephyr. The information has no predefined format imposed by the kernel and is set by the application at compile time instead. Message queues are implemented as ring buffers underneath, and all data that goes through it is fully copied instead of referenced. Any information placed in a queue is retrieved in the same order as it was sent.</p><p>By default, every read message is copied out from the message queue to the reader. However, the Zephyr Application Programming Interface (API) also allows the reader thread to just peek at incoming information without effectively removing it, therefore allowing other threads to also make use of the content. A thread that wishes to send items to a message queue can opt to wait for a specified amount of time if the queue is full. Conversely, a thread that intends to read incoming messages can be set to wait for an equally specifiable amount of time in case the queue is empty. In both cases the time can be set to infinite, meaning the thread will indefinitely await for changes in the state of the queue before proceeding. Awaiting threads are removed from the CPU, thus allowing other active tasks to execute <ref type="bibr" target="#b14">[16]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. DESIGN OF THE CBS SUPPORT MECHANISMS</head><p>We now proceed to describe a high-level overview of the CBS architecture design and the core details of its implementation in Zephyr RTOS. The original intention went through implementing it as a kernel subsystem, which is a part of the operating system that handles specific functionality or provides certain services, such as device drivers, communication protocols, and file system management, however the eventual need for interacting with low-level primitives (such as context switches) ultimately changed the scope for the CBS to be included directly within the kernel. The implementation is available as a branch of the Zephyr project and hosted on GitHub as a fork of the original repository <ref type="bibr" target="#b15">[17]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Job scope</head><p>In the described implementation, a CBS job is a regular C function to be executed within the context of a CBS thread, therefore having no timing or resource restrictions normally associated with ISRs. However, it should be possible for a job to be activated for execution from any context (thread or ISR). Furthermore, a job has no deadline, no defined execution time and no period of activation, thus needing to be executed by a CBS to ensure system schedulability when running alongside hard real-time tasks in the EDF scheduler.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Core elements</head><p>The core elements of this CBS implementation are a Job Queue, a Thread and a Timer, and as multiple servers can be created at once, each CBS will have its own group of the aforementioned elements. The Job Queue is a regular First In, First Out (FIFO) entry point where all jobs are inserted for eventual execution. The Thread is a machine-level kernel object which sole purpose is to await and execute the jobs that are pushed to it. Finally, the Timer is the element used to measure the budget consumption as the execution takes place by the Thread.</p><p>1) CBS Job Queue: The Job Queue is implemented as a regular Zephyr message queue, and thus will leverage the same features of it. However, the application will not call the message queue API directly but rather interact through an introduced k_cbs_push_job() function (see Section IV-E) that performs additional steps related to the CBS.</p><p>Figure <ref type="figure" target="#fig_2">3</ref> illustrates the execution flow within the function. It will try to push a message to the queue (the message is a struct that points to the job itself -a regular C function -and its argument) and, upon successful insertion, check if the CBS condition (explained in Section II-C) is satisfied. If it does, the budget will be restored and the server absolute deadline will be recalculated. If, however, the queue is already full by the time k_cbs_push_job is invoked by the application, it will wait for a position to be freed, returning an error in case the configured timeout is achieved.</p><p>2) CBS Thread: The CBS thread is little more than a simple wrapper for incoming jobs. It has two runtime phases: the initial setup and an infinite loop. The initial setup fills the CBS data structure with the configured values, sets the pointers to the job queue and timer, and computes runtime constants. The infinite loop, in its turn, is entered once the setup is done and simply executes the jobs as they come.</p><p>Thus, when a job is pushed through the aforementioned function, the thread wakes up and enters the scheduler run queue. When its absolute deadline becomes the earliest, it gains the CPU and executes the job. All budget consumption is kept on track with the timer, which is started just before the job is executed and stopped just as it finishes. Figure <ref type="figure" target="#fig_3">4</ref> shows the execution steps of the thread.</p><p>3) CBS Timer: The timer is the kernel object used by the CBS thread to keep track of its own budget consumption as it executes the jobs. It shares the same tick resolution as all timers in the system and is dynamically configured by the CBS thread during initial setup. When initialized, the timer is assigned a stop function and an expiry function, which runs whenever it is prematurely stopped or when it reaches the configured timeout, respectively. In the present  implementation, the timer object data is stored as part of the CBS structure.</p><p>The timer is regularly activated whenever the CBS thread is about to start the execution of the next job, and upon every activation it is assigned a period equal to the current CBS budget. When the job finishes, the timer is interrupted and the stop function is executed, which then updates the budget value by subtracting the elapsed time.</p><p>However, the timer will eventually reach the configured period and expire if any given job executes for too long. When this happens, the CBS budget has been entirely exhausted. The expiry function is then executed, replenishing the budget and calculating the new deadline following the rules listed in Section II-C. The expiry function will then restart the timer with the new budget, as the job might resume normally after an exhaustion event. Figure <ref type="figure" target="#fig_4">5</ref> illustrates the execution flow associated with a timer. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Preemptions</head><p>Although ideally a CBS might start and finish the execution of its jobs without interruptions, it should be prepared for the occurrence of preemptions at any given moment (especially when the timer expires, and therefore lowers the thread priority by postponing its absolute deadline). Under these conditions, the timer needs to be interrupted for as long as the thread remains preempted. For this effect, the proposed CBS implementation on Zephyr leverages the z_swap and set_current internal context switch functions to start and stop the timer, respectively, if the thread entering or leaving the CPU belongs to a CBS and have jobs in execution. The procedures for starting and stopping the timer on preemptions are virtually the same as when executed by the CBS thread itself (see Figure <ref type="figure" target="#fig_4">5</ref>).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Logging</head><p>The proposed implementation also provides a logging feature meant to help application developers keep track of the main events related to the CBS in runtime. The feature uses the Logging subsystem of Zephyr and can be activated by setting the macro CONFIG_CBS_LOG=y at build time. When enabled, events will be displayed on the application-defined console interface (such as UART or USB). </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Event Description</head><p>J PUSH A job has been pushed to the CBS queue.</p><p>J COMP A job has been completed.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B COND</head><p>The CBS condition for replenishing the budget was met.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B ROUT</head><p>The budget ran out mid-execution and was replenished.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>SWT TO</head><p>The CBS thread switched to the CPU for starting or resuming execution.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>SWT AY</head><p>The CBS thread switched out of the CPU due to preemption or completing a job.</p><p>Table <ref type="table" target="#tab_0">I</ref> shows the expected events and their meaning. Every event is registered synchronously, but the actual processing and sending of each log message is offloaded to a low-priority background thread in a way to minimize overheads. Such approach can lead to logged events showing up much later than the actual moment they happened, but each log also registers the timestamp of when it was created.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. API</head><p>As the CBS is meant to work autonomously throughout the lifetime of the application, the actual interaction left for the user to do with the server is reduced to the tasks of statically declaring the server existence in the code and pushing jobs for it to execute. Thus, the introduced API with this implementation consists of just one macro (K_CBS_DEFINE) and one function (k_cbs_push_job). Listing 1 shows these elements with their expected arguments. It should be noted that the static priority passed to K_CBS_DEFINE is necessary for its underlying thread declaration, as the primary scheduling algorithm in Zephyr is based on static priorities, but it is not used by the CBS during execution. The application is required to declare all EDF threads as having the same static priority as the CBS if EDF is meant to be the only scheduling algorithm.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>F. Kconfig Macros</head><p>Most of the Zephyr features can be optionally included, adjusted or removed at build time through a set of Kconfig macros; for example, the inclusion of the EDF scheduler can be done by defining CONFIG_SCHED_DEADLINE=y in the project settings file. Following this pattern, the current CBS contribution introduces a few new macros to enable static customization and set predefined values for most of its constants.</p><p>Table <ref type="table" target="#tab_0">II</ref> shows the main configuration options. The only mandatory inclusion among the introduced set is CONFIG_CBS=y for the CBS to be available, with the remaining macros having default reasonable values and therefore being targeted for advanced customization of this feature. Enabling the CBS in the application implicitly enables the EDF scheduler as well (i.e. automatically selects CONFIG_SCHED_DEADLINE).   <ref type="bibr" target="#b1">[2]</ref> and are available on GitHub as a sample code <ref type="bibr" target="#b15">[17]</ref>. The defined values of C were implemented as calls to the k_busy_wait() Zephyr API function, which allows a thread to remain in CPU for the approximate time passed to it. The tracing events were recorded synchronously as each task was triggered, started and finished, but only logged after a predefined amount of time to decrease the overhead.</p><p>For each test case the timer tick resolution was fixed at 100us, and for each task set different values were selected for the time unit multiplier, being 1000ms, 100ms, 10ms and 1ms, to verify possible variations in performance caused by overheads. The average results for each end of the range can be seen in figures 6 and 7. There are noticeable differences in execution as the time unit changes, but they are far more related to divergent execution times than to the CBS. For instance, in Test Case 1, the hard task τ 1 runs for the expected 4000ms when the time unit is 1000ms, but decreases to 3.6ms (10% less than configured) when the time unit multiplier is of 1ms. Similarly, the soft task J 1 executes for 3800ms in the first time unit but only 3.4ms (10.5% less) in the latter. These differences are a known side effect of the aforementioned k_busy_wait function, which only guarantees approximate execution times.</p><p>These execution time differences are interesting for this evaluation, however, because it actually causes different CBS events to be triggered when the time unit changes, and  therefore allows one to verify how it adapts. In Test Case 1, the job J 1 starts 0.4 time units earlier when the task set is multiple of 1ms, and thus triggers the B ROUT event earlier as well. At this point, the absolute deadline d i is recalculated to 14.6 time units (vs 15 time units for the 1000ms multiplier). Since J 1 also executes for 0.4 units less, the remaining budget q i is higher (2.6) and the absolute deadline d i is earlier (14.6) by the time J 2 comes at t = 13. Thus, the CBS condition becomes true for the 1ms multiplier, while remaining false for the 1000ms multiplier.</p><p>As a consequence, the implementation behaved as expected for Test Case 1 even though the scheduling result differs across time units. The same can be said about Test Case 2: when the multiplier is at 1ms, the earlier completion of τ 1 's first job leads to τ 2 's job 0 starting before, but being preempted by, the CBS beginning J 1 at t = 2. This has a chain effect on the next steps of execution, which ultimately leads to less budget being consumed by both J 1 and J 2 completions, since they also execute for less time when the 1ms multiplier is applied (compared to 1000ms). After J 3 is completed, there is still some budget left for the CBS and therefore it never fires the third B ROUT event. So once again the scheduling result differs, but the CBS maintains the expected behavior.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Overheads</head><p>The proposed implementation was also submitted to an overhead analysis of the CBS events that are expected to happen more frequently during execution. These are the "switched in" (SWT TO) and "switched out" (SWT AY) events, which are fundamental for the budget timer to start and stop when a preemption occurs, and the "budget run out" (B ROUT) event, which postpones the server deadline upon exhaustion of its budget. The assessment was built from the same test cases as described in Section V, but with a small change in the CBS jobs so that they attempt to execute forever instead of for a finite amount of time, to generate more events. All remaining conditions were kept identical. The sample size was of at least 1000 records per configuration. Data was collected synchronously, but only batch processed at every 100 samples to mitigate the sampling overhead itself. As it can be seen in Figure <ref type="figure" target="#fig_10">8</ref>, which shows the average overhead and standard deviation for each test case and time unit, the SWT TO event has the highest overhead for any configuration, peaking at 110.92 clock cycles in Test Case 2 when the set is multiple of 1ms. Conversely, the "switched out" event is the lowest of all, with an average overhead that peaks at 90.94 clock cycles also in Test Case 2 but with a 10ms multiplier for the task set. In seconds, that is equivalent to 0.693 and 0.568 microseconds, respectively, given the ESP32C3's clock speed of 160MHz. Moreover, the calculated standard deviation was never above 31 clock cycles for any configuration, and went as low as 0.5079 clock cycles for the B ROUT event under the 100ms multiplier.</p><p>Moreover, Table <ref type="table" target="#tab_0">III</ref> complements Figure <ref type="figure" target="#fig_10">8</ref> by showcasing the worst observed overheads for each event and test case. As the data was batch processed every 100 collected samples, the local maximum of each batch was registered and further Thus, assuming the worst-case scenario of a system where the three events happen sequentially (which could be due to one CBS running out of budget and switching away from the CPU in favor of another CBS), the total overhead would be at maximum 421 clock cycles, or 2.63 microseconds considering the ESP32C3´s 160MHz clock speed. It should be noted that, although the Zephyr kernel is tickless by default, all timing events (such as timers and function timeouts) have the resolution defined by the macro CONFIG_SYS_CLOCK_TICKS_PER_SEC, which is usually set as 10kHz at most (yielding a period of 100 microseconds). Thus, we consider this implementation's maximum overhead of 2.63 microseconds to be acceptable.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. CONCLUSION</head><p>This paper provided a proposal to extend the Zephyr operating system with support to Constant Bandwidth Servers (CBS), presenting the design and implementation of CBS support as an integral part of the Zephyr kernel. An evaluation was conducted with two task sets and a variety of time units regarding execution times and periods. The results showcase that, although notable differences occurred, the implementation was indeed successful and correctly matched the expected behavior for the theoretical model. For future work, the plan is to extend the approach for a multiprocessor model, as well as to support bandwidth inheritance.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 .</head><label>1</label><figDesc>Fig. 1. Fixed and Lower Priority (FLP) vs CBS.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 .</head><label>2</label><figDesc>Fig. 2. A standalone CBS. 1) At instant t = 1, jobs A and B are pushed. The server was idle and d i = 0. The CBS condition (Equation4) is verified and true, so d i is updated to t + P i = 8. As there is no other contending task in the system, the CBS starts executing job A immediately. 2) At instant t = 3, job A finishes execution. The remaining budget is of 1 time unit, since job A spent 2 units with its own execution. Job B, the next one in line, starts. 3) At instant t = 4, the budget q i runs out. This triggers the scheduler to replenish q i at the cost of postponing the CBS deadline d i by 7 time units. So the new deadline is (8 + 7) = 15. Since there is no other contending task with an earliest deadline, the CBS resumes execution of job B. 4) At instant t = 6, job B is completed. The remaining budget q i is of 1 time unit. As there are no other jobs in the queue, the CBS becomes idle again. 5) At instant t = 8, job C arrives. The CBS was idle, so the scheduler applies the condition (Equation4) once again to verify if the available bandwidth of the server -that is, the budget left (1) divided by the current time until the deadline (7, since at this point the deadline is set at t=15) -is greater or equal than the configured server bandwidth (0.43). Since (1/7) = 0.14, the current bandwidth is lower than configured. Thus, job C is served with the current budget and deadline. 6) At instant t = 9, the budget runs out. The kernel then replenishes the budget and postpones the deadline in 7</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 3 .</head><label>3</label><figDesc>Fig. 3. CBS Job queue flow.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 4 .</head><label>4</label><figDesc>Fig. 4. CBS thread flow.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 5 .</head><label>5</label><figDesc>Fig. 5. CBS timer flow.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head></head><label></label><figDesc>t i c a l l y d e f i n e s a CBS . * / K CBS DEFINE ( name , b u d g e t , p e r i o d , s t a t i c p r i o r i t y ) ; / * d i n a m i c a l l y p u s h e s a j o b t o t h e CBS * / i n t k c b s p u s h j o b ( c b s t * cbs , c b s c a l l b a c k t j o b f u n c t i o n , v o i d * j o b a r g , k t i m e o u t t t i m e o u t ) ;</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head></head><label></label><figDesc>V. EVALUATIONIn order to assess the CBS implementation, two test cases were executed on a Seeed Studio XIAO ESP32C3, a 32-bits RISC-V microcontroller officially supported by Zephyr. They were: • Test Case 1: A simple combination of one hard task with (C 1 , T 1 ) = (4, 7) time units and one CBS with (Q, T ) = (3, 8) time units, yielding a combined utilization factor of approximately 0.95. The hard task begins its periodic releases at t = 0. Two jobs are pushed to the CBS: J 1 (C = 4) at instant t = 3 and J 2 (C = 3) at t = 13. • Test Case 2: A combination of two hard tasks with (C 1 , T 1 ) = (2, 6) and (C 2 , T 2 ) = (3, 9) time units, respectively, and one CBS with (Q, T ) = (2, 6) time units, yielding a combined utilization factor of 1. Both hard tasks begin their periodic releases at t = 0. Three jobs are pushed to the CBS: J 1 (C = 3) at instant t = 2, J 2 (C = 3) at t = 12 and J 3 (C = 1) at t = 20. Both tests cases are based off examples provided by one of the CBS authors</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 6 .</head><label>6</label><figDesc>Fig. 6. Test Case 1.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>37</head><label></label><figDesc>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 13,2026 at 01:07:34 UTC from IEEE Xplore. Restrictions apply.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Fig. 7 .</head><label>7</label><figDesc>Fig. 7. Test Case 2.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Fig. 8 .</head><label>8</label><figDesc>Fig. 8. Average Overheads and Deviations, in Clock Cycles.</figDesc><graphic coords="8,308.93,215.30,228.46,248.20" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>TABLE I CBS</head><label>I</label><figDesc>LOGGING EVENTS.</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head></head><label></label><figDesc>Constant Bandwidth Server. CONFIG CBS LOG enables the logging feature of the CBS. CONFIG CBS THREAD STACK SIZE sets the amount of memory of the CBS thread. CONFIG CBS QUEUE LENGTH sets the length of the CBS job queue. CONFIG CBS INITIAL DELAY sets the scheduling delay for the CBS thread.</figDesc><table><row><cell>TABLE II</cell></row><row><cell>MAIN CBS MACROS.</cell></row><row><cell>Kconfig Macros</cell></row><row><cell>CONFIG CBS</cell></row><row><cell>enables the</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head></head><label></label><figDesc>for the absolute highest value. O f shows the most frequent value throughout the local maximums, while O max shows the absolute maximum recorded overhead in the entire set. The number of samples collected for each event and test case is denoted by n.</figDesc><table><row><cell></cell><cell></cell><cell cols="3">TABLE III</cell><cell></cell><cell></cell></row><row><cell cols="7">HIGHEST MEASURED OVERHEADS, IN CLOCK CYCLES</cell></row><row><cell>Event</cell><cell>O f</cell><cell cols="2">Test Case 1 Omax</cell><cell>n</cell><cell>O f</cell><cell cols="2">Test Case 2 Omax</cell><cell>n</cell></row><row><cell>SWT TO</cell><cell>128</cell><cell>128</cell><cell cols="2">55500</cell><cell>128</cell><cell>128</cell><cell>54500</cell></row><row><cell>SWT AWAY</cell><cell>93</cell><cell>133</cell><cell cols="2">55500</cell><cell>93</cell><cell>139</cell><cell>54500</cell></row><row><cell>B ROUT</cell><cell>75</cell><cell>153</cell><cell cols="2">28800</cell><cell>154</cell><cell>154</cell><cell>36700</cell></row><row><cell cols="2">compared in search</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 13,2026 at 01:07:34 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_1"><p>Note that the RTEMS documentation refers to this suspension as pulled to "background" until the next period, which can be misleading, as background execution is sometimes used to denote execution when the core is free and no other task is ready.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENTS</head><p>The authors would like to thank the anonymous reviewers for their helpful comments and feedback. The work is cofunded by the <rs type="funder">Portuguese Innovation Agency (ANI)</rs> through the <rs type="programName">COMPETE 2030 Programme</rs>, with the support of the <rs type="funder">European Regional Development Fund (ERDF)</rs>, <rs type="projectName">within project GenerIoT</rs> (<rs type="grantNumber">COMPETE2030-FEDER-00355700</rs>),</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_Xn7EBYF">
+					<orgName type="program" subtype="full">COMPETE 2030 Programme</orgName>
+				</org>
+				<org type="funded-project" xml:id="_hZjuFNR">
+					<idno type="grant-number">COMPETE2030-FEDER-00355700</idno>
+					<orgName type="project" subtype="full">within project GenerIoT</orgName>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Integrating multimedia applications in hard real-time systems</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Albeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 19th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 19th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+			<biblScope unit="page" from="4" to="13" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<title level="m" type="main">Hard Real-Time Computing Systems: Predictable Scheduling Algorithms and Applications</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<publisher>Springer Science</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Mcti: mixed-criticality task-based isolation</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Hoornaert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Ghaemi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bastoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Mancuso</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Corradi</surname></persName>
+		</author>
+		<idno type="DOI">10.1007/s11241-024-09425-5</idno>
+		<ptr target="https://doi.org/10.1007/s11241-024-09425-5" />
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Syst</title>
+		<imprint>
+			<biblScope unit="volume">60</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="328" to="365" />
+			<date type="published" when="2024-07">Jul. 2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<title level="m" type="main">Zephyr real-time operating system</title>
+		<author>
+			<persName><forename type="first">Zephyr</forename><surname>Project</surname></persName>
+		</author>
+		<ptr target="https://www.zephyrproject.org/" />
+		<imprint>
+			<date type="published" when="2024-09-11">September 11th, 2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Optimal dimensioning of a constant bandwidth server</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bini</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2006 27th IEEE International Real-Time Systems Symposium (RTSS&apos;06)</title>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+			<biblScope unit="page" from="169" to="177" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Deadline scheduling in the linux kernel</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lelli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Scordino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+		<idno type="DOI">10.1002/spe.2335</idno>
+		<ptr target="https://onlinelibrary.wiley.com/doi/abs/10.1002/spe.2335" />
+	</analytic>
+	<monogr>
+		<title level="j">Software: Practice and Experience</title>
+		<imprint>
+			<biblScope unit="volume">46</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="821" to="839" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">The linux kernel -deadline task scheduling</title>
+		<ptr target="https://docs.kernel.org/scheduler/sched-deadline.html" />
+	</analytic>
+	<monogr>
+		<title level="m">Linux Kernel Development Community</title>
+		<imprint>
+			<date type="published" when="2024-09-11">September 11th, 2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Supporting low-latency, low-criticality tasks in a certified mixed-criticality os</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Vanga</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bastoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Theiling</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<idno type="DOI">10.1145/3139258.3139274</idno>
+		<ptr target="https://doi.org/10.1145/3139258.3139274" />
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th International Conference on Real-Time Networks and Systems, ser. RTNS &apos;17</title>
+		<meeting>the 25th International Conference on Real-Time Networks and Systems, ser. RTNS &apos;17<address><addrLine>New York, NY, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>Association for Computing Machinery</publisher>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="227" to="236" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title level="m" type="main">A tour of litmusrt -reservation types</title>
+		<author>
+			<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mahircan</forename><surname>Gül</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Manohar</forename><surname>Vanga</surname></persName>
+		</author>
+		<ptr target="https://www.litmus-rt.org/tutorial/manual.html#reservationtypes" />
+		<imprint>
+			<date type="published" when="2024-09-11">September 11th, 2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Scheduling and thread management with rtems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Bloom</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sherrill</surname></persName>
+		</author>
+		<idno type="DOI">10.1145/2597457.2597459</idno>
+		<ptr target="https://doi.org/10.1145/2597457.2597459" />
+	</analytic>
+	<monogr>
+		<title level="j">SIGBED Rev</title>
+		<imprint>
+			<biblScope unit="volume">11</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="20" to="25" />
+			<date type="published" when="2014-02">Feb. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">Porting of resource reservation framework to rtems executive</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Benes</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011-09-11">2011. September 11th, 2024</date>
+		</imprint>
+		<respStmt>
+			<orgName>Czech Technical University</orgName>
+		</respStmt>
+	</monogr>
+	<note>Master&apos;s thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Hard constant bandwidth server: Comprehensive formulation and critical scenarios</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Melani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 9th IEEE International Symposium on Industrial Embedded Systems (SIES 2014)</title>
+		<meeting>the 9th IEEE International Symposium on Industrial Embedded Systems (SIES 2014)</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="29" to="37" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Rtems source files</title>
+		<ptr target="https://gitlab.rtems.org/rtems/rtos/rtems/-/tree/main?reftype=heads" />
+	</analytic>
+	<monogr>
+		<title level="m">RTEMS Project</title>
+		<imprint>
+			<date type="published" when="2024-09-11">September 11th, 2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Zephyr 3.7.99 scheduling documentation</title>
+		<author>
+			<persName><forename type="first">Zephyr</forename><surname>Project</surname></persName>
+		</author>
+		<ptr target="https://docs.zephyrproject.org/latest/kernel/services/scheduling/index.html" />
+		<imprint>
+			<date type="published" when="2024-09-11">September 11th, 2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<monogr>
+		<title level="m" type="main">99 message queues documentation</title>
+		<ptr target="https://docs.zephyrproject.org/latest/kernel/services/datapassing/messagequeues.html" />
+		<imprint>
+			<date type="published" when="2024-09-11">September 11th, 2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title level="m" type="main">Cbs implementation on zephyr</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Paschoaletto</surname></persName>
+		</author>
+		<ptr target="https://github.com/alexpaschoaletto/zephyr/tree/cbs" />
+		<imprint>
+			<date type="published" when="2025-03-12">March 12th, 2025</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

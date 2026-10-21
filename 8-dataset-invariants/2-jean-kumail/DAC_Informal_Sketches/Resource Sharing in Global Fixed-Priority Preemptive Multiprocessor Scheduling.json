@@ -1,0 +1,246 @@
+{
+    "paper_name": "Resource Sharing in Global Fixed-Priority Preemptive Multiprocessor Scheduling",
+    "paper_description": "Develops a novel resource-sharing protocol P-PCP and corresponding schedulability tests for global fixed-priority preemptive multiprocessor scheduling of constrained-deadline sporadic tasks with non-nested resource sharing, along with the first schedulability analysis for PIP in this setting, demonstrating efficiency under reasonable priority assignments.",
+    "results": [
+        {
+            "type": "definition",
+            "identifier": "Task Model",
+            "formal_description": {
+                "statement": "Each sporadic task tau_i (1 <= i <= n) is characterized as (T_i, C_i, D_i), where T_i denotes the minimum inter-arrival time, C_i the worst-case execution time, and D_i the relative deadline. Each job of task tau_i requires C_i units of processing capacity within D_i time units from its release, supplied sequentially.",
+                "variables": {
+                    "tau_i": "sporadic task i",
+                    "T_i": "minimum inter-arrival time of tau_i",
+                    "C_i": "worst-case execution time of tau_i",
+                    "D_i": "relative deadline of tau_i"
+                },
+                "assumptions": ["Sporadic task model", "Sequential execution on multiprocessor"],
+                "conclusion": "Defines the parameters for modeling real-time tasks in the system"
+            },
+            "informal_sketch": {
+                "intuition": "Tasks generate jobs sporadically with guaranteed minimum separation, each needing a fixed amount of sequential CPU time to meet a deadline relative to release.",
+                "steps": [
+                    "For each task tau_i, specify T_i as min time between job releases",
+                    "Specify C_i as max execution needed per job",
+                    "Specify D_i as deadline from job release",
+                    "Ensure jobs do not overlap in execution on multiple cores"
+                ],
+                "pseudocode": "class Task:\n    def __init__(self, i, T, C, D):\n        self.i = i  # task index\n        self.T = T  # period/inter-arrival\n        self.C = C  # execution time\n        self.D = D  # deadline\n\ntask_set = [Task(i, T_i, C_i, D_i) for i in range(1, n+1)]",
+                "key_insights": ["Models uncertainty in arrivals via minimum separation", "Sequential execution prevents parallelism within a job"]
+            },
+            "dependencies": []
+        },
+        {
+            "type": "definition",
+            "identifier": "Constrained-Deadline Tasks",
+            "formal_description": {
+                "statement": "forall i: D_i <= T_i",
+                "variables": {
+                    "D_i": "relative deadline of task tau_i",
+                    "T_i": "minimum inter-arrival time of task tau_i"
+                },
+                "assumptions": ["Sporadic task model"],
+                "conclusion": "Tasks have deadlines no later than their minimum inter-arrival times"
+            },
+            "informal_sketch": {
+                "intuition": "Deadlines arrive at least as frequently as new jobs, ensuring no implicit overlap in requirements.",
+                "steps": [
+                    "Check for every task if deadline D_i <= inter-arrival T_i",
+                    "This bounds the density of demand from each task"
+                ],
+                "pseudocode": "def is_constrained_deadline(task_set):\n    for task in task_set:\n        if task.D > task.T:\n            return False\n    return True",
+                "key_insights": ["Prevents backlog accumulation by aligning deadlines with arrivals"]
+            },
+            "dependencies": ["Task Model"]
+        },
+        {
+            "type": "definition",
+            "identifier": "Direct Blocking",
+            "formal_description": {
+                "statement": "A job J of task tau_i is directly blocked at time t on request for resource R_k if: (1) J is one of the m highest effective-priority jobs with remaining execution; (2) R_k is locked by a job with lower base-priority than J; (3) J's request for R_k is ungranted until t.",
+                "variables": {
+                    "J": "job of task tau_i",
+                    "t": "time instant",
+                    "R_k": "requested shared resource",
+                    "m": "number of processors"
+                },
+                "assumptions": ["Global fixed-priority preemptive scheduling", "Non-nested accesses"],
+                "conclusion": "Defines priority inversion blocking excluding higher-priority holders"
+            },
+            "informal_sketch": {
+                "intuition": "Blocking occurs only from lower-priority jobs holding needed resources, when the blocked job would otherwise run on an available processor.",
+                "steps": [
+                    "Check if J has top-m effective priority at t",
+                    "Verify R_k held by lower base-priority job",
+                    "Confirm request pending and unfulfilled"
+                ],
+                "pseudocode": "def is_directly_blocked(J, t, R_k, schedule):\n    if J not in top_m_effective_priorities(schedule, t):\n        return False\n    holder = get_holder(R_k, t)\n    if holder.base_priority >= J.base_priority:\n        return False\n    if J.request_time[R_k] < t and not J.granted[R_k]:\n        return True\n    return False",
+                "key_insights": ["Excludes natural preemption by higher priorities", "Focuses on inversion for analysis"]
+            },
+            "dependencies": ["Task Model"]
+        },
+        {
+            "type": "definition",
+            "identifier": "Workload Functions",
+            "formal_description": {
+                "statement": "N_l(t, x) = floor( (t - x + D_l) / T_l ); W_l(t, x) = x * N_l(t, x) + min(x, t - x + D_l - T_l * N_l(t, x)) for t >= 0, else 0.",
+                "variables": {
+                    "N_l": "number of jobs of tau_l with x relevant units in interval t",
+                    "W_l": "total workload of tau_l considering x relevant units in interval t",
+                    "t": "interval length",
+                    "x": "relevant execution units (e.g., resource usage)"
+                },
+                "assumptions": ["Constrained-deadline tasks"],
+                "conclusion": "Bounds the maximum execution from a task in a time interval, prioritizing relevant portions"
+            },
+            "informal_sketch": {
+                "intuition": "Counts how many full 'relevant' executions fit in the interval, plus partial for carry-in, to maximize overlap.",
+                "steps": [
+                    "Compute number of full jobs: floor( (t - x + D_l)/T_l )",
+                    "Add partial carry-in: min(x, remainder after full jobs)",
+                    "Scale by x for relevant part"
+                ],
+                "pseudocode": "def N_l(t, x, D_l, T_l):\n    if t < 0:\n        return 0\n    return math.floor((t - x + D_l) / T_l)\n\ndef W_l(t, x, D_l, T_l):\n    if t < 0:\n        return 0\n    n = N_l(t, x, D_l, T_l)\n    remainder = t - x + D_l - T_l * n\n    return x * n + min(x, remainder)",
+                "key_insights": ["As-late-as-possible for carry-in maximizes overlap", "Relevant x allows focusing on resource-critical parts"]
+            },
+            "dependencies": ["Constrained-Deadline Tasks"]
+        },
+        {
+            "type": "definition",
+            "identifier": "Reasonable Priority Assignment",
+            "identifier": "Definition 1",
+            "formal_description": {
+                "statement": "A priority-assignment is reasonable if D_i <= D_j for every pair (tau_i, tau_j) such that tau_i and tau_j are among the n - m lowest base-priority tasks and tau_i has higher base-priority than tau_j.",
+                "variables": {
+                    "D_i": "deadline of tau_i",
+                    "D_j": "deadline of tau_j",
+                    "n": "number of tasks",
+                    "m": "number of processors"
+                },
+                "assumptions": ["Constrained-deadline tasks", "Unique base priorities"],
+                "conclusion": "Higher priority among low-priority tasks have earlier or equal deadlines, including DM, RM-US(X), DM-US(X)"
+            },
+            "informal_sketch": {
+                "intuition": "Among tasks that might not always run immediately, tighter deadlines get higher priority to prevent excessive interference.",
+                "steps": [
+                    "Identify the n - m lowest priority tasks",
+                    "For each pair where tau_i > tau_j (higher base prio), check D_i <= D_j",
+                    "Ensures reasonable ordering for analysis"
+                ],
+                "pseudocode": "def is_reasonable_priority(task_set, m):\n    low_prio_tasks = sorted(task_set, key=lambda t: t.base_prio)[- (len(task_set) - m):]\n    for i in range(len(low_prio_tasks)):\n        for j in range(i+1, len(low_prio_tasks)):\n            if low_prio_tasks[i].base_prio < low_prio_tasks[j].base_prio and low_prio_tasks[i].D > low_prio_tasks[j].D:\n                return False\n    return True",
+                "key_insights": ["Reduces multi-interference from single low-prio job to at most 2 per resource", "Compatible with proven good assignments"]
+            },
+            "dependencies": ["Constrained-Deadline Tasks"]
+        },
+        {
+            "type": "lemma",
+            "identifier": "Lemma 1",
+            "formal_description": {
+                "statement": "For reasonable priority-assignment, I_lpi = sum_{l > i} sum_{x: (R_x in RS_l and |R_x| < i)} 2 * CT_l_x / m",
+                "variables": {
+                    "I_lpi": "lower priority interference bound for tau_i",
+                    "RS_l": "resources accessed by tau_l",
+                    "|R_x|": "highest base priority accessing R_x (lowest index)",
+                    "CT_l_x": "total usage of R_x by job of tau_l",
+                    "m": "number of processors"
+                },
+                "assumptions": ["Reasonable priority assignment", "RT_i <= D_i", "Constrained deadlines"],
+                "conclusion": "Limits interference from each lower-priority task to at most two resource holdings per shared resource"
+            },
+            "informal_sketch": {
+                "intuition": "Under reasonable priorities, response time bounds ensure low-prio jobs don't overlap more than twice with higher ones per resource.",
+                "steps": [
+                    "Assume RT_i <= D_i for schedulability",
+                    "For each lower tau_l, D_i <= D_l <= T_l implies RT_i <= T_l",
+                    "Thus W_l(RT_i, CT_l_x) <= 2 * CT_l_x",
+                    "Sum over relevant resources and tasks, divide by m for parallelism"
+                ],
+                "pseudocode": "def compute_I_lpi(task_i, task_set, m):\n    I = 0\n    for task_l in [t for t in task_set if t.base_prio > task_i.base_prio]:\n        for R_x in task_l.RS:\n            if |R_x| < task_i.base_prio:\n                I += 2 * task_l.CT[R_x] / m\n    return I",
+                "key_insights": ["RT_i <= T_l caps job count to 2", "Enables tighter bounds than general case"]
+            },
+            "dependencies": ["Reasonable Priority Assignment", "Workload Functions"]
+        },
+        {
+            "type": "lemma",
+            "identifier": "Lemma 2",
+            "formal_description": {
+                "statement": "At every time instant and for each task tau_i, POPUP_i <= alpha_i",
+                "variables": {
+                    "POPUP_i": "number of lower base-prio jobs with pseudo effective-prio > i",
+                    "alpha_i": "tuning parameter for tau_i"
+                },
+                "assumptions": ["P-PCP protocol with decreasing alphas: alpha_1 >= ... >= alpha_n >= 0"],
+                "conclusion": "P-PCP invariant bounds concurrent low-prio high-pseudo-prio jobs"
+            },
+            "informal_sketch": {
+                "intuition": "Protocol suspends requests to cap low-prio jobs that could elevate to block higher ones.",
+                "steps": [
+                    "Assume violation at t, trace back to last grant at t_f",
+                    "At t_f-, POPUP_i >= alpha_i, but grant should have checked HPR_z + POPUP_z >= alpha_z for granter z > i",
+                    "Contradiction since alpha_z <= alpha_i and HPR_z + POPUP_z >= alpha_i"
+                ],
+                "pseudocode": "def maintain_popup_invariant(schedule, alphas):\n    for t in schedule.times:\n        for i in range(1, len(alphas)+1):\n            assert count_popup_i(t, i) <= alphas[i-1]",
+                "key_insights": ["Proof by contradiction on grant events", "Decreasing alphas ensure propagation"]
+            },
+            "dependencies": ["Task Model"]
+        },
+        {
+            "type": "theorem",
+            "identifier": "Theorem 1",
+            "formal_description": {
+                "statement": "For PIP, if i <= m then RT_i = C_i + DB_i + I_hp_ds(RT_i); else RT_i = C_i + DB_i + I_hp_ds(RT_i) + I_hp_os(RT_i) + I_hp_ns(RT_i) + I_lp_i; where terms from Eqs (6)-(10).",
+                "variables": {
+                    "RT_i": "response time upper bound for tau_i",
+                    "C_i": "execution time of tau_i",
+                    "DB_i": "direct blocking bound (Eq 6)",
+                    "I_hp_ds": "higher prio direct shared resource interference (Eq 7)",
+                    "I_hp_os": "higher prio other shared resource (Eq 8)",
+                    "I_hp_ns": "higher prio no shared resource (Eq 9)",
+                    "I_lp_i": "lower prio interference (Eq 10)"
+                },
+                "assumptions": ["Constrained deadline sporadic tasks", "Global fixed-prio preemptive on m procs", "Non-nested resources", "Unique base prios"],
+                "conclusion": "Provides response-time bound; schedulable if forall i, RT_i <= D_i"
+            },
+            "informal_sketch": {
+                "intuition": "Accounts for self-execution, blocking/wait for resources, and higher effective-prio interference, divided by m for parallelism; high-prio tasks avoid low-prio interference.",
+                "steps": [
+                    "Initialize RT_i = C_i",
+                    "Add blocking/wait: DB_i + I_hp_ds(RT_i)",
+                    "If i > m, add remaining higher interferences and low-prio I_lp_i",
+                    "Solve fixed-point iteratively since recursive",
+                    "Check RT_i <= D_i for all i"
+                ],
+                "pseudocode": "def compute_RT_PIP(task_set, m):\n    RT = {task.i: task.C for task in task_set}\n    converged = False\n    while not converged:\n        converged = True\n        for task_i in task_set:\n            i = task_i.i\n            db = compute_DB_i(task_i)\n            ihp_ds = compute_I_hp_ds(task_i, RT[i])\n            if i <= m:\n                new_rt = task_i.C + db + ihp_ds\n            else:\n                ihp_os = compute_I_hp_os(task_i, RT[i])\n                ihp_ns = compute_I_hp_ns(task_i, RT[i])\n                ilp = compute_I_lpi(task_i, task_set, m)\n                new_rt = task_i.C + db + ihp_ds + ihp_os + ihp_ns + ilp\n            if abs(new_rt - RT[i]) > 1e-6:\n                converged = False\n            RT[i] = new_rt\n    return RT",
+                "key_insights": ["For top-m tasks, no low-prio interference due to processor slack", "Fixed-point solution handles recursion"]
+            },
+            "dependencies": ["Workload Functions", "Direct Blocking", "Reasonable Priority Assignment"]
+        },
+        {
+            "type": "theorem",
+            "identifier": "Theorem 2",
+            "formal_description": {
+                "statement": "For P-PCP, RT_i = C_i + DB_i + SUS_i + I_hp_ds(RT_i) + I_hp_os(RT_i) + I_hp_ns(RT_i) + I_lp_i; where SUS_i from (14), I_hp_os from (15), I_lp_i from (16) if reasonable and D= T else (10).",
+                "variables": {
+                    "RT_i": "response time upper bound for tau_i",
+                    "SUS_i": "suspension bound (Eq 14)",
+                    "I_hp_os": "higher prio other shared (Eq 15)",
+                    "I_lp_i": "lower prio interference (Eq 16 or 10)"
+                },
+                "assumptions": ["P-PCP with tuning alphas", "Constrained deadline, D_i = T_i for tight bound", "Reasonable priority optional for tighter I_lp_i"],
+                "conclusion": "Extends PIP bound with suspension; schedulable if forall i, RT_i <= D_i"
+            },
+            "informal_sketch": {
+                "intuition": "Adds suspension from protocol invariants to PIP terms; tunes alpha_i to trade suspension for reduced low-prio interference.",
+                "steps": [
+                    "Compute base as in Theorem 1: C_i + DB_i + interferences",
+                    "Add SUS_i: sum over requests N_i_k * sum top-alpha_i other C_l_k",
+                    "For I_hp_os: divide higher osr by min(m, alpha_i)",
+                    "For I_lp_i: hybrid of top-alpha_i full W_l + remainder capped at 2*CT",
+                    "Fixed-point solve and check <= D_i"
+                ],
+                "pseudocode": "def compute_RT_PPCP(task_set, m, alphas):\n    RT = {task.i: task.C for task in task_set}\n    converged = False\n    while not converged:\n        converged = True\n        for task_i in task_set:\n            i = task_i.i\n            db = compute_DB_i(task_i)\n            sus = compute_SUS_i(task_i, task_set, alphas[i-1])\n            ihp_ds = compute_I_hp_ds(task_i, RT[i])\n            ihp_os = compute_I_hp_os_ppcp(task_i, RT[i], m, alphas[i-1])\n            ihp_ns = compute_I_hp_ns(task_i, RT[i])\n            ilp = compute_I_lpi_ppcp(task_i, task_set, m, alphas[i-1], reasonable=True)\n            new_rt = task_i.C + db + sus + ihp_ds + ihp_os + ihp_ns + ilp\n            if abs(new_rt - RT[i]) > 1e-6:\n                converged = False\n            RT[i] = new_rt\n    return RT",
+                "key_insights": ["Alpha_i = m often optimal for low prio tasks", "Tighter I_lp_i via partial shift in arrivals"]
+            },
+            "dependencies": ["Lemma 2", "Theorem 1", "Reasonable Priority Assignment"]
+        }
+    ]
+}

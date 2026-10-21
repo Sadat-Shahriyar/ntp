@@ -1,0 +1,871 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Real-time Scheduling of I/O Transfers for Massively Parallel Processor Arrays</title>
+				<funder ref="#_g2as8BB">
+					<orgName type="full">Deutsche Forschungsgemeinschaft (DFG, German Research Foundation</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Dominik</forename><surname>Walter</surname></persName>
+							<email>dominik.l.walter@fau.de</email>
+						</author>
+						<author>
+							<persName><forename type="first">Michael</forename><surname>Witterauf</surname></persName>
+							<email>michael.witterauf@fau.de</email>
+						</author>
+						<author>
+							<persName><forename type="first">Jürgen</forename><surname>Teich</surname></persName>
+							<email>juergen.teich@fau.de</email>
+						</author>
+						<author>
+							<affiliation key="aff0">
+								<orgName type="department" key="dep1">Hardware/Software Co-Design</orgName>
+								<orgName type="department" key="dep2">Department of Computer Science</orgName>
+								<orgName type="institution">Friedrich-Alexander-Universität Erlangen-Nürnberg (FAU)</orgName>
+								<address>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<affiliation key="aff1">
+								<address>
+									<addrLine>1 PE 1, 1 PE 2, 1 PE 0, 2 PE 1, 2 PE 2, 2 PE 0, 3 PE 1, 3 PE 2</addrLine>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Real-time Scheduling of I/O Transfers for Massively Parallel Processor Arrays</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">70C1DE3DB477C0A69279AFCF3288D5B2</idno>
+					<idno type="DOI">10.1109/MEMOCODE51338.2020.9315179</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-18T18:42+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>A fundamental problem of massively parallel accelerator architectures is the management of typically small peripheral I/O buffers that decouple the accelerator from an external memory. Very often, these buffers cannot store the entire input and output data of one execution and must be updated, i.e., filled or drained, frequently. Moreover, if a processor array performs either a read on an empty bank or a write on a full bank, it must interrupt its execution immediately until the corresponding data transfer between the accelerator and an external memory has been carried out. As a consequence, the timing predictability of the array execution might be impaired. Therefore, a precise analysis of a schedule for all data transfers is inevitable. Moreover, as it is prohibitive to store all data transfers entirely within the accelerator itself, we must determine and schedule all necessary data transfers dynamically at runtime. In this paper, we present an approach to characterize all necessary data transfers and to issue them in time so that the peripheral I/O buffers never run full or empty. Here, it is shown first that a deadline for each data transfer can be derived from a given loop schedule resulting in a traditional task scheduling problem. Unfortunately, however, standard real-time scheduling techniques such as earliest deadline first (EDF) cannot be applied here, as each data transfer must not be interrupted and even existing non-preemptive variants of EDF are known to be prone to timing anomalies. As a solution, we present a strictly non-workconserving variant of EDF together with an efficient schedulability test for periodic loop executions. In an experimental section, the scheduling approach is applied to a randomly generated set of loop programs observing that our algorithm is able to feasibly schedule 95% of the theoretically schedulable problem instances. Altogether, we provide a fully timing-predictable buffer management for massively parallel processor arrays that avoids any I/O related stalls of a processor array by construction.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. FUNDAMENTALS</head><p>In this section, we briefly introduce TCPAs and explain the underlying algorithmic model of the loop nest representation</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>As the ever-growing need for faster computation continues, traditional processors cannot cope with the required throughput anymore. Especially with the rise of machine learning, the usage of external accelerators like GPUs became more and more widespread. Especially in the context of embedded hard real-time applications, emerging trends like autonomous driving lead to the need for fast, but energy efficient and timing predictable accelerator architectures. However, as GPUs are known to be inefficient regarding their energy consumption and unpredictable in terms of their execution time, a variety of commercial and research accelerator architectures are recently developed <ref type="bibr" target="#b19">[20]</ref>. Those accelerators are typically highly optimized towards a very specific type of application like the inference of CNNs. More generally usable are so-called loop accelerators, which are a perfect match for massively parallel execution due to their exploitation of parallelism on all levels including the instruction level, iteration level, loop level and task level <ref type="bibr" target="#b0">[1]</ref>. However, any massively parallel accelerator architecture faces the same fundamental problem: Local memory storage is expensive, while frequent data transfers to a rather slow external main memory might reduce the achievable speed-up significantly. Hence, the performance of an accelerator is very often limited by the latency or rate of delivery of input and/or output data. Further, in hard real-time critical applications, the timely scheduling of data transfers is also a must in order not to stall an accelerator. To avoid any such stalls and to guarantee an uninterrupted execution, we propose an approach for hard real-time scheduling of data transfers regarding a class of loop accelerators called Tightly Coupled Processor Arrays <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b6">[7]</ref>. The main contributions of this paper are:</p><p>• In Section II, we briefly introduce TCPAs consisting of an array of weakly programmable processing elements (PEs) and explain how loop nests can be systematically mapped and scheduled on such TCPAs. We then present an analysis of the I/O behaviour of loop programs and compute the exact time when specific data must have been transferred to or from the main memory. • In Section III, we propose a tiling of the input and output spaces of loop variables. Each of these tiles relates to a continuous block inside the external memory, which allows the exploitation of burst transfers. As a result, each data tile can be represented as a job instance of a transfer task that must be compatible with a given loop schedule. • In Section IV, we present an algorithmic solution to the resulting transfer scheduling problem by proposing a strictly non-preemptive non-work-conserving EDF, a variant of the well-known EDF algorithm, for which we show a time-predictable behaviour due to the absence of timing anomalies. Finally, we derive a schedulability test, which allows the verification of the I/O schedule for a given a loop schedule.</p><formula xml:id="formula_0">A B b C A b C A b C A b C A b C A C Figure 1.</formula><p>The mapping of a matrix-vector multiplication C = A × B onto a Tightly-Coupled Processor Array (TCPA), which is surrounded by a total of 28 I/O buffers of memory banks. An external memory serves as the data source or sink and is connected by a bus, which is controlled by an I/O controller. The upper right corner shows a given loop nest. b, t and u are internal variables, while A, B and C mark input and output variables. The lower right corner shows a corresponding tiled iteration space for N = 6, M = 11. Each tile is assigned to one processing element (PE) shown on the left with same coordinate (k 0 , k 1 ) T . Input data elements are marked in green and output data elements in red. The brown boxes group these data elements into tiles, which mark blocks of data that need to be transferred either from memory to a buffer bank or vice versa. In this example, note that M = 11 cannot be tiled perfectly onto 4 PEs, thus the rightmost tile contains empty iterations. called piecewise linear algorithms (PLAs) and the steps of mapping them onto a TCPA. This background will provide us with the knowledge of when and where a specific data element will be read or written by a TCPA.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Tightly Coupled Processor Arrays</head><p>A TCPA <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b6">[7]</ref> consists of a two-dimensional array of processing elements (PE) of size K 0 × K 1 , which communicates over bi-directional communication links as displayed in Fig. <ref type="figure">1</ref> for an K 0 = 3 × K 1 = 4 array. The processing elements (PEs) are identified by their coordinate (k 0 , k 1 ), and the array is surrounded by multiple I/O buffers (memory banks) from which the connected PEs can read from and write to. Each PE is connected to a distinct set of H K ∈ N 0 accessible banks. These buffers serve as an intermediate memory between the processing array and the memory. In this paper, we assume the I/O buffers can be accessed from the memory by a bus, which is managed by an I/O controller.</p><p>Running example: Fig. <ref type="figure">1</ref> also shows a matrix-vector multiplication of two matrices A and B in the form of a loop specification (top right). Below, its iteration spaces and map-ping of iterations to PEs is explained. Throughout this paper, we will use this loop program as a running example.</p><p>For comprehensiveness, the class of loop programs that can be systematically mapped to TCPAs as shown in Fig. <ref type="figure">1</ref> will be explained in the following in more detail.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Piecewise Linear Algorithms</head><p>A piecewise linear algorithm (PLA) <ref type="bibr" target="#b26">[27]</ref> or program <ref type="bibr" target="#b21">[22]</ref>, is defined as a set of Z equations S 1 [I], . . . , S Z [I], where each equation S i [I] has the form</p><formula xml:id="formula_1">∀I ∈ I i : x i [P i I + f i ] = F i (. . . , x j [Q j I -d ji ], . . . ) (1)</formula><p>The equation defines how a variable x i depends on other variables x j by a function F i . I ∈ Z n denotes the n-dimensional iteration vector and I i the iteration space where a variable x i in Eq. ( <ref type="formula">1</ref>) is defined. W.l.o.g., we define the global iteration space I of a PLA as the rectangular hull of the union of all iteration spaces I i . Each iteration space I i can be expressed as a system of z i linear inequalities</p><formula xml:id="formula_2">A i I ≥ b i with A i ∈ Z zi×n , b i ∈ Z n .</formula><p>Each row describes one separating hyperplane determining which iteration vectors belong to the iteration space and which not. Finally, in a PLA, each k idimensional variable x i is indexed by an affine indexing function</p><formula xml:id="formula_3">P i I + f i with P i ∈ Z ki×n , f i ∈ Z ki respectively Q j I -d ji with Q j ∈ Z ki×n , d ji ∈ Z ki .</formula><p>If a variable appears only on the right-hand side of an equation, it is considered an input variable, whereas a variable, that appears only on the lefthand side of an equation corresponds to an output variable. Otherwise, a variable is called internal in the following. In case all matrices of indexing functions P i and Q j are identity, a piecewise linear algorithm <ref type="bibr" target="#b25">[26]</ref> or program <ref type="bibr" target="#b21">[22]</ref> is called piecewise regular (PRA). In a PRA, all data dependencies d ji are thus uniform. <ref type="foot" target="#foot_1">1</ref> In the following, we assume a PRA given w.l.o.g. Thus, we only allow the indexing functions of input and output variables to contain affine indexing functions. Finally, we define as input space, respectively output space I j of an input variable x j the union of those I i where the corresponding equation S i reads, respectively writes x j .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. External Memory</head><p>The data of all internal data dependencies will be stored locally inside the PEs. Thus, only input and output data must be fetched from or to the surrounding I/O buffer. But since the cardinality of the input and output spaces of a loop program may easily exceed the capacity of the I/Os buffers of a TCPA, these buffers must be filled or drained multiple times during the parallel execution of a loop nest on the processor array. This involves transferring data from and to external memory, which typically has a linear address space. However, an indexed input or output variable x i of a PRA is k i -dimensional-its indexing Q i I -d ji respectively P i I + f i must therefore be mapped to a scalar address a ∈ N 0 as follows:</p><formula xml:id="formula_4">a = s i (Q i I -d ji ) + α i ,</formula><p>where α i ∈ Z is an offset and s i ∈ Z ki describes the storage layout of x i in memory. The most common two storage layouts are row-major, where the data is stored in ascending order of the dimensions, and column-major, where the data is stored in descending order of the dimensions. For consistency in the following analyses, we describe the address linearization for both in-and output variables in the same way:</p><formula xml:id="formula_5">a = m i I + µ i m i , µ i := s i Q i , -s i d ji + α i if x i is input s i P i , s i f i + α i if x i is output</formula><p>Moreover, to prevent malicious overwrites, we assume this mapping to be chosen so that no address will be written twice.</p><p>Running example: For the input matrix A accessed in Fig. <ref type="figure">1</ref>, we find Q the identity matrix and d the zero vector. Assuming N = 6 and M = 11, the input space is given by {(i 0 , i 1 ) T | 0 ≤ i 0 &lt; 6 ∧ 0 ≤ i 1 &lt; 11}. Its cardinality is therefore 6 × 11 = 66 data elements. Further assume A is stored rowmajor starting at address 25. Then s A = (11, 1) and α A = 25, resulting in m A = s A and µ A = α A . Analogously, for columnmajor storage, we would obtain m A = (1, 6) and µ A = 25.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Symbolic Tiling</head><p>To map a PRA onto an array of processing elements of given dimension and size, the global iteration space I must be divided into congruent tiles, each of which will be subsequently assigned one to each PE for execution, see, e.g., <ref type="bibr" target="#b24">[25]</ref>. The tiling can be done symbolically, which means that the actual number of PEs and the problem size may still be unknown at compile time <ref type="bibr" target="#b22">[23]</ref>. In the case of orthogonal tiling, we decompose the global iteration space I into t 0 × t 1 × . . . t n-1 rectangular tiles of size p 0 × p 1 × . . . p n-1 . The resulting intratile space J contains all iterations that will be executed by a single PE, and the inter-tile space K describes the set of tiles, together forming the tiled iteration space I *<ref type="foot" target="#foot_2">2</ref> :</p><formula xml:id="formula_6">J = J = (j 0 , j 1 , . . . , j n-1 ) T 0 ≤ j i &lt; p i K = K = (k 0 , k 1 , . . . , k n-1 ) T 0 ≤ k i &lt; t i I * = J ⊕ K = (J, K) T J ∈ J , K ∈ K</formula><p>In order to map an n-dimensional iteration space onto a 2dimensional processor array, the tile size must be chosen such that the global iteration space is covered in full by all except of two of n dimensions. Thus, the resulting inter-tile space has constant values in all except of two dimensions k 0 and k 1 . These coordinates correspond to the PE coordinates.</p><p>Running example: For the matrix-vector multiplication in Fig. <ref type="figure">1</ref>, the global iteration space is described as</p><formula xml:id="formula_7">I = I = (i 0 , i 1 ) T 0 ≤ i 0 &lt; N ∧ 0 ≤ i 1 &lt; M</formula><p>Not knowing N and M , this iteration space is symbolically tiled into the intra-tile space</p><formula xml:id="formula_8">J = J = (j 0 , j 1 ) T 0 ≤ j 0 &lt; N t0 ∧ 0 ≤ j 1 &lt; M t1</formula><p>and the inter-tile space</p><formula xml:id="formula_9">K = K = (k 0 , k 1 ) T 0 ≤ k 0 &lt; t 0 ∧ 0 ≤ k 1 &lt; t 1</formula><p>The iteration space of the matrix-vector multiplication loop nest is shown in Fig. <ref type="figure">1</ref> for N = 6 and M = 11. If we want to map the loop nest to an array of size 1 × 4, we find with t 0 = 1 and t 1 = 4 the size of a tile p 0 = N t0 = 6 and p 1 = M t1 = 3. In <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b24">[25]</ref>, it has been shown that the tiling of a PRA with iteration space dimension n in general leads to a transformed PRA with iteration space dimension 2n. Therefore, also the calculation of the memory addresses of external variables x i needs to be transformed into a function m : Z 2n → Z as follows: With I = diag(p 0 , . . . , p n-1 ) • K + J, we obtain m i I = m i • diag(p 0 , . . . , p n-1 ) • K + m i • J and thus:</p><formula xml:id="formula_10">m i I = (m J i , m K i ) • J K with m J i = m i and m K i = m i • diag(p 0 , . . . , p n-1</formula><p>). Running example: From m A = (11, 1) in the untiled case, we derive m J A = (11, 1) and m K A = (66, 3). Hence, the PE at location K = (0, 3) T when executing the iteration J = (1, 2) T must read the matrix element A[i 0 , i 1 ] with i 0 = 1 and i 1 = 11 at address a = (11, 1, 66, 3) • (1, 2, 0, 3) T + µ A = 22 + 25 = 47.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Loop Schedule</head><p>Apart from mapping loop iterations I to PEs, their execution needs to be scheduled. Here, we utilize a linear loop scheduling λ paired with a constant offset δ i to determine the start time t i of an iteration for both intra-tile space J and inter-tile space K. Thus, we can compute the start time t i of equation i at iteration I * ∈ I * for a loop schedule λ = (λ J , λ K ) as</p><formula xml:id="formula_11">t i = λ • I * + δ i</formula><p>Obviously, all iterations J inside a tile K must be executed sequentially. In <ref type="bibr" target="#b24">[25]</ref>, it is shown how to determine linear schedule vectors that describe scanning orders of a tile. A schedule λ must also satisfy each data dependence d of a PRA, in particular: λd ≥ 0</p><p>Running example: In our example, there exist two dependence vectors d 1 = (1, 0) T and d 2 = (0, 1) T . By tiling the iteration space symbolically according to <ref type="bibr" target="#b22">[23]</ref>, <ref type="bibr" target="#b28">[29]</ref>, additional parametric data dependencies are introduced in the 2n-dimensional space between the tiles. In order to satisfy these, resulting schedule vectors are also parametric. For our running example, a feasible overall symbolic or parametric schedule that is sequentializing the execution of the iterations with a tile and that satisfies the above inequality for all data dependencies is λ J = ( M/t 1 , 1) and λ K = (0, M/t 1 ).</p><p>Note that the loop schedule itself relates only to a single execution of a PLA. But in the following, we not only allow the overlapped execution of multiple iterations of one loop, but even the overlapped periodic execution of two or more successive loops with a period P . This is typically the case in stream processing applications.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>F. Bank mapping</head><p>As the PEs cannot access the main memory directly, we have to allocate and assign for each I/O variable name accessed by a PE one (or multiple) memory bank(s) from the pool of surrounding I/O buffers. This assignment can be described by a function β(x j , K), which returns the index b ∈ N 0 of the bank that will be used for the variable x j at the PE with index K. A feasible mapping must satisfy the following two constraints:</p><p>First, in case the tile J mapped onto PE K for execution contains at least one instance of an I/O variable x j , it must be assigned a bank b = β(x j , K) &lt; H K . This is the case, if the projected subspace I K j = J (J, K) T ∈ I * j of the tiled input respectively output space I * j of a given variable x j on the PE with index K is non-empty. Second, a mapping of multiple I/O variables to the same memory bank must be prevented. Both constraints can be formally summarized as follows: If these constraints are fulfilled, we can subsequently define for every bank b the subspace I b ⊆ J in which the assigned I/O variable x j will be accessed on PE K:</p><formula xml:id="formula_12">∀x j : ∀K ∈ K : I K j = ∅ =⇒ 0 ≤ β(x j , K) &lt; H K β(x j , K) = β(x j , K ) =⇒ x j = x j ∨ K = K t: A: a: 3 (0,</formula><formula xml:id="formula_13">I b = I K j</formula><p>Thus, we can describe a fundamental constraint that needs to be satisfied by the bank b = β(x j , K) in order not to stall the execution. For input data, it is necessary that for all J ∈ I b the value at address a = m J j J + m K j K + µ j has to be loaded into the bank b no later than time t = λ J J + λ K K + δ i . Similarly, for output data, it must be guaranteed that there exists a free entry inside the buffer at cycle t = λ J J + λ K K + δ i . The resulting value should then be stored at memory address a = m J j J + m K j K + µ j . Running example: Consider the bank mapping shown in Fig. <ref type="figure">1</ref>. Bank b = β(A, (0, 1) T ) = 1 has been assigned to the input variable A of the PE at location (0, 1) T and the corresponding subspace is</p><formula xml:id="formula_14">I b = J = (j 0 , j 1 ) T 0 ≤ j 0 &lt; p 0 ∧ 0 ≤ j 1 &lt; p 1 .</formula><p>Hence, the access pattern over time of data elements and corresponding memory address can be precisely computed (see Fig. <ref type="figure" target="#fig_0">2</ref>).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. DATA BLOCKS</head><p>To guarantee that a given loop schedule can be executed on a processor array without any stalls due to either empty or full peripheral I/O buffers, data transfers from external memory must readily (re-)fill all input banks with input data and drain all output banks from previously written output data. In the following, we formalize the problem of determining individual block transfers for a given loop program and loop schedule.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Elementwise Memory Access</head><p>In Section II-F, we already showed that a given loop schedule dictates when a data element will be read or written by a PE. Therefore, we could in principle schedule a distinct transport for each single data word. However, as element-wise reads and writes to external memory are inefficient in almost all memory architectures (for example, DDR), we want to avoid any single access in favor of burst transfers of multiple consecutively stored data words. Thus, we rather want to identify suitable blocks of data in the external memory, which will then be transferred between the TCPA and external memory in a single burst. Since the individual data words inside such a transfer must arrive in time, each data transfer inherits a deadline at which it must be completed. As can be imagined, the size of such groups or blocks of data to be fetched together must be done carefully in order to achieve a high transfer rate on the one hand while avoiding any deadline misses in the problem of block transfer scheduling (Section IV) that would stall the loop execution on the processor array. In the following, we introduce that the problem of properly grouping data into burst transfers can be described also as another problem of tiling.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Data Tiling</head><p>We divide the input, respectively output space I b assigned to each bank b into multiple congruent subspaces, whereby each subspace corresponds to a block and therefore to a single data transfer. Similar to Section II-D, we perform an orthogonal tiling <ref type="foot" target="#foot_4">3</ref> resulting in an intra-tile space</p><formula xml:id="formula_15">J B b of size p B 0 × p B 1 × . . . p B n-1 and an inter-tile space K B b of size t B 0 × t B 0 × . . . t B n-1 . Each point K B in K B</formula><p>b corresponds to a single and distinct block transfer, which contains the data of all reads, respectively writes inside J B b . After tiling, we must also respect the given loop schedule. Thus,</p><formula xml:id="formula_16">λ J B b = λ J , λ K B b = λ J • diag(p B 0 , . . . , p B n-1 )</formula><p>This also results in an adjusted address function to memory:</p><formula xml:id="formula_17">m J B b = m J j , m K B b = m J j • diag(p B 0 , . . . , p B n-1 )</formula><p>Finally, we determine for every block K B ∈ K B b the time t, referring to the very first access to any data element in the block <ref type="foot" target="#foot_5">4</ref> , the minimum address a that will be accessed inside a block, and the size B b of the block, which equals the distance between the minimal (l b ) and maximal (r b ) address inside J B b .</p><formula xml:id="formula_18">t = (λ K B b , λ K ) • K B K + min({λ J B b J B | J B ∈ J B b }) + δ i l b = min({m J B b J B | J B ∈ J B b }) r b = max({m J B b J B | J B ∈ J B b }) a = (m K B b , m K j ) • K B K + l b + µ j B b = r b -l b + 1</formula><p>Summarizing, for all K B ∈ K B b , the corresponding transfer of size B b between external memory at address a and bank b must be completed by cycle t. Hence, there exist strict timing requirements for each block transfer, which we will explore in Section IV.</p><p>Running example: Consider again the bank b = 1 attached to the PE at coordinate K = (0, 1) T . Assuming a data block size of 1 × 3, we obtain the intra-tile space J B b , the inter-tile space K B b and the block size B b . </p><formula xml:id="formula_19">J B b = J B = (j B 0 , j B 1 ) T 0 ≤ j B 0 &lt; 1 ∧ 0 ≤ j B 1 &lt; 3 K B b = K B = (k B 0 , k B 1 ) T 0 ≤ k B 0 &lt; 6 ∧ 0 ≤ k B 1 &lt; 1</formula><formula xml:id="formula_20">1 × 3 1 × 3 1 × 3 2 × 3 2 × 3 3 × 3 Figure 3.</formula><p>Block size for three different tiles sizes and data elements read (green boxes) in-between the memory range <ref type="bibr" target="#b27">[28,</ref><ref type="bibr">54]</ref> (refer to Fig. <ref type="figure" target="#fig_0">2</ref>).</p><formula xml:id="formula_21">B b = (11, 1) • (0, 2) T -(11, 1) • (0, 0) T + 1 = 3</formula><p>In Fig. <ref type="figure">3</ref>, these numbers are illustrated also for these but also some other data block sizes.</p><p>Although the above tiling works for any tile sizes that partition a given tiled iteration space, the choice of the parameters has an obvious influence on the number of blocks that need to be transferred and their size. Also, the I/O controller overhead of a buffer may be reduced in case data elements in blocks would be successively been read or written. In the following, we therefore propose a method to find suitable choices of data block sizes, e.g., in terms of the number of required block transfers.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Constrained Tiling</head><p>First of all, every blocking scheme should comply with the fundamental principle of locality <ref type="bibr" target="#b2">[3]</ref>. If we want to minimize the number of block-transfers, a block should contain data, which will be used in a relatively short time period (temporal locality) and originates from a relatively small memory region (spatial locality). Note that if the access pattern of a loop program breaks the principle of locality, an efficient tiling might be impossible 5 . The easiest way to enforce temporal locality is to restrict the blocking scheme in such a way, that all data elements in J B b will be read or written successively and thus no data from other blocks being accessed in-between. In this scheme, each block would be fully read, respectively written before the next block will be accessed. This can be achieved by restricting the tile size p B 0 × p B 1 × . . . p B n-1 of J B b as follows: Consider the lexicographical modulo scheduling as presented in <ref type="bibr" target="#b28">[29]</ref> in which the intra-tile schedule λ J = (λ 0 , . . . , λ n-1 ) scans through the subspace I b of a buffer bank b in a order, which is given by a permutation σ. Let v 0 × v 1 × . . . v n-1 denote the size of this subspace. Now, if two iterations are mapped into the same data block, all iterations that will be executed in-between must also be mapped to the same block. Therefore, if p B i &gt; 1 for any dimension i, we must map all iterations that only differ in prior scanned dimensions j to the same block and thus p B j = v j . Moreover, if two iterations are not mapped into the same data block K B , also all later iterations cannot be mapped on the same K B again. Hence, if p B i &lt; v i for any dimension i, all iterations that differ in later scanned dimensions j must be mapped to different data blocks and thus p B j = 1. Formally, we can express this constraint as follows:</p><formula xml:id="formula_22">∃i : ∀j = i : p B j = v j if σ(j) &lt; σ(i) p B j = 1 if σ(j) &gt; σ(i)<label>(2)</label></formula><p>5 Consider a column-major scanning of a matrix stored in row-major.</p><p>As a side-effect of such a tiling, the bookkeeping-logic inside the buffers can be drastically reduced as no more than one block must be considered at a time. Hence, we can first update, i.e., fill or clear, half of the available memory bank and subsequently update the other half while the PE has access to the previous block. This allows a simple implementation of socalled double buffering without too expensive bookmarking. Spatial locality can be expressed by the utilization U b of a block, which is defined as the ratio between the cardinality of J B b and B b . Thus,</p><formula xml:id="formula_23">U b = |J B b | B b with |J B b | = j p B j .</formula><p>The utilization provides a metric to detect and avoid inefficient block sizes, as for instance the 3 × 3 mapping shown in Fig. <ref type="figure">3</ref>.</p><p>Note that also in case of imperfect tiling, e.g., in case the input or output space of an I/O variable not being rectangular, a block may contain some unused data. For input data, fetching such superfluous data inside a block is unproblematic as fetched data simply will not be read by the PE attached to the corresponding buffer. In contrast, writing superfluous data to the external memory might cause erroneous overwrites. This can be avoided, however, by allowing only tilings where the resulting address function</p><formula xml:id="formula_24">m J B b : Z n → [l b , r b ] ⊂ Z is surjective.</formula><p>In the following, this is respected by construction of only feasible block sizes for output data.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Optimal tile size</head><p>Unlike the tiling of the global iteration space, the size of the data block is not directly given by the number of PEs, but restricted by the size of a memory bank. As a bank of size W must be capable of storing at least two blocks assuming the above double buffering management, the block size B b should not exceed B max = W 2 . Additionally, the tile size must met Eq. (2) while the utilization shall not be too low as it would make the data transfers inefficient. Hence, we find in general the computation of an optimal tile size to be an optimization problem with two objectives being the tile size p B 0 × p B 1 × . . . p B n-1 and the resulting utilization U b . However, since the constraint from the previous Section III-C limits the number of possible tile sizes to v i , we can compute all possible design points and select an optimal instance afterwards. Note that we may use techniques like binary search to reduce the computational overhead significantly.</p><p>Running example: Consider the bank b = 1 of PE at location K = (0, 1) T . For N = 11 and M = 6, the size of the subspace I b containing all data elements of matrix A mapped to this bank is v 0 × v 1 with v 0 = 6, v 1 = 3. Additionally, let B max = 20 and the minimal allowed utilization be U min = 0.5. Then, we obtain p B 0 = 1, p B 1 = 3 as the largest possible tile size which satisfies both constraints.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Dynamic execution</head><p>With the inter-tile space K B b , loop schedule λ K B b , memory function m K B b and block size B b we could now compute the full sequence of required data transfers for each bank b. However, this approach is simply infeasible since the memory overhead for storing all buffer transfer requests in a list, resp. memory inside the I/O controller is too expensive as the following example shows.</p><p>Running example: Consider the mapping of a matrix-vector multiplication with N = 600, M = 1200 onto an array of 1 × 10 PEs. Here, each PE will access a 600 × 120 submatrix of A during execution. If we assume a bank capacity of W 2 = 128 data elements, we need to refill each of the 10 corresponding banks at least 600 times, resulting in a total of 6,000 job instances of data transfers. In order to store a corresponding sequence of job instances, we would therefore need 60 KByte of memory (assuming just 10 Bytes to identify one job instance), thus an equivalent of the memory size of 60 banks. Therefore, pre-computing, pre-ordering, and storing all data transfers in a local memory is not a feasible solution.</p><p>As a result of these memory requirements of the job queue growing exponentially in the problem size, it is mandatory to investigate a dynamic approach which generates and schedules job instances for each buffer at runtime.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. I/O SCHEDULE</head><p>What is still unclear is in which order such data transfers should be scheduled. As we can transfer only one block of data on a memory bus at a time, it is also still unclear at this point, if -given a loop schedule of the accelerator-all data transfers can be accomplished in time at all and which scheduling techniques may be appropriate to perform this task.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Scheduling Problem</head><p>In the following, we show how the I/O problem can be modeled as a task scheduling problem Ψ = (τ 1 , τ 2 , . . . , τ q ) with a one-to-one relation between a task τ i and a buffer bank b. Here, the corresponding data transfers K B ∈ K B b can be represented as job instances τ K B i of a task τ i . As introduced earlier, each data transfer has a given strict deadline for its termination, hence providing a deadline D(τ K B i , k) for each job. As the loop application itself is assumed to be invoked periodically with period P , we are given periodic deadlines as well as release times:</p><formula xml:id="formula_25">D(τ K B i , k + 1) = D(τ K B i , k) + P R(τ K B i , k + 1) = R(τ K B i , k) + P</formula><p>As for the execution time E(τ K B i , k) of each job instance or data transfer, we assume it can vary as traditional memory is prone to jitter. For our analysis, we only assume the transfer latency of a non-interrupted data transfer τ K B i related to a task τ i to be bounded. Hence, we can assume a worst-case transfer execution time WCET(τ i ) such that for each transfer execution time E(τ</p><formula xml:id="formula_26">K B i , k) holds: E(τ K B i , k) ≤WCET(τ i ).</formula><p>In contrast, the earliest possible start times R(τ K B i , k) of the tasks are not only related to the loop schedule, but also dependent on the bookkeeping technique of the memory banks. By constraining the construction of data blocks fetched in one transfer as illustrated in Section III-C, we guarantee that each data element of a fetched block will be accessed before any data element of a subsequent block. By organizing each memory bank as a double-buffered FIFOs, thus two entriesone block can be currently accessed (either read or written) by the PE attached to it while the subsequently accessed block potentially being involved in a transfer from or to memory over the bus. Thus, the time instance when one block has been fully read or written marks the release time R(τ K B i , k) of the next job instance to be executed. Note that the difference between input and output variables is marginal as the process of transferring a written block can be seen as logically equivalent as fetching one. Thus, the only difference is the initial filling of input and the final clearing of output blocks.</p><p>Running example: The resulting I/O transfer scheduling problem of the running matrix-vector multiplication example is shown in Fig. <ref type="figure" target="#fig_2">4</ref>. Each line represents a single task τ i with multiple job instances τ K B i which deadlines are marked by the arrows.</p><p>In the following, we present a new scheduling algorithm called strict EDF which is a non-preemptive non-workconserving variant of the well-known EDF algorithm to solve the introduced I/O transfer scheduling problem.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Scheduling Algorithm</head><p>In order to schedule a given data transfer task set Ψ, each individual job τ K B i of each period k needs to be assigned a start time S(τ K B i , k) in such a way that release time and deadline satisfy R(τ</p><formula xml:id="formula_27">K B i , k) ≤ S(τ K B i , k) and S(τ K B i , k) + E(τ K B i , k) &lt; D(τ K B i</formula><p>, k), respectively. In the following, we assume that all data transfers must be executed sequentially, because they take place over a bus (single resource). Moreover, we assume that the individual transfers cannot be interrupted, hence a non-preemptive schedule is required. This is crucial as the absence of preemptions complicates the problem drastically. For example, a well-known problem in non-preemptive scheduling is the existence of so-called timing anomalies. In fact, most approaches in real-time analysis are based on the assumption that the local worst-case leads eventually to the global worst-case. Hence, assuming that if a feasible schedule may be proven to exist under worst-case execution time (WCET) assumptions of the tasks, then feasibility will also hold for shorter observable execution times. However, it is known that in a variety of scenarios, this is not the case, see, e.g., <ref type="bibr" target="#b11">[12]</ref>. In our context of scheduling I/O transfers for massively parallel processor arrays, we need to find a suitable transfer scheduling algorithm that will provably satisfy all transfer deadlines of related uninterrupted task job instances for worst-case as well relaxed execution time assumptions.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Strictly non-preemptive non-work-conserving EDF</head><p>In order to satisfy the above requirements, we suggest the application of a non-work-conserving (i.e., the scheduled resource is not required to be fully utilized) approach. For this purpose, we propose the following non-preemptive non-workconserving EDF variant, which strictly follows the sequence of occurring deadlines, in the following called strict EDF:</p><p>At every time step where an uninterruptible job instance can be planned, the algorithm selects the job instance with the lowest deadline for execution. But contradictory to the wellknown EDF algorithm that only considers already released job instances, strict EDF is also aware of all unreleased next job instances of each periodic task τ i and may therefore select a job instance that has not been released yet, if it is the one with the smallest deadline. In this case, the scheduler will insert idle time until this job instance gets released <ref type="foot" target="#foot_6">6</ref> . Strict EDF is thus a non-work-conserving algorithm. Its big advantage lies in its simplicity, making it possible to be efficiently implemented in hardware. The management of arriving transfer requests could be achieved using a simple priority queue containing the deadlines of the next job instance of each task, being already released or not. Contrary to a pre-computed schedule of transfers (= job instances) which typically grows exponentially with the problem size (i.e., the product of loop bounds), our dynamic scheduler queue must only manage one transfer request per buffer at a time, thus is independent of the problem size. However, please note that design and implementation issues of such an I/O controller is out of the scope of this paper.</p><p>Running example: Consider again the scheduling problem shown in Fig. <ref type="figure" target="#fig_2">4</ref>. Besides the deadlines, the colored boxes mark the time at which strict EDF plans the execution of the corresponding job instance. As can be seen, the schedule plans all executions in the order of their deadline.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Schedulability Test</head><p>If a transfer deadline should not be met, a TCPA would immediately stall its execution. This must be avoided as it would unnecessarily degrade the overall performance and might be even a no-go for hard real-time applications. In the following, we provide a schedulability test, which checks the feasibility of the I/O scheduling problem, given a loop program, its mapping, loop schedule, data tiling and periodicity P . It is therefore possible to statically verify whether a loop program can be executed on a given TCPA without any stalls due to empty or full I/O buffers. Moreover, the test is efficient, as will be shown.</p><p>First, we must assure that we can safely assume the WCET for all executions. For this purpose, we must show the nonexistence of timing anomalies in the following informal prove.</p><p>Theorem 1 (Freeness of Timing Anomalies): Strict EDF is a non-work-conserving EDF variant free of timing anomalies.</p><p>Sketch of Proof: The deadlines D of all job instances are statically known and are independent of the actual execution times E. Therefore, the priority and thus order in which the job instances are scheduled is not affected if execution times are shorter than in the worst case (WCET). Moreover, an earlier completion time of a job instance may only lead to an earlier start time of the consecutive job instance, unless the job has not been released yet. But in that case, the scheduler will insert additional idle time.  Every line PE K 0 , K 1 X shows all job instances (colored boxed) involved in transferring data for variable X to the bank connected to PE (K 0 , K 1 ) T and their corresponding deadline (black arrows). Transfer tasks in each color belong to one matrix-vector multiplication run. For sake of clarity, all data transfers are assumed to have the same execution time. We observe that with P = 18 not all deadlines can be met while for P = 36, no deadlines will be missed.</p><p>In the following, we derive conditions on the feasibility of scheduling an I/O scheduling problem using strict EDF for a given period P .</p><p>Theorem 2 (Schedulability): Given a set of job instances to be scheduled in a time interval of period P with release times R(τ K B i , k * ) and deadlines D(τ K B i , k * ) for some iteration k * . Assume the worst case execution times WCET(τ i ) for each job instance of task τ i . Then, all job instances τ K B i can be periodically scheduled with period P even under non-worst case execution times, if strict EDF is able to schedule all job instances in less or equal to P time steps.</p><p>Sketch of Proof: Given a strict EDF schedule for a given set of job instances. Let t s be the start time of the very first executed job instance and let t e be the completion time of the last executed job instance. Obviously, we can conclude schedulability with period P , if the total execution took not longer than the period P and thus t e ≤ t s + P . Since strict EDF has been proven to be free of timing anomalies, we may conclude that all consecutive periodic windows of length P with the same set of job instances will satisfy their deadlines with release times and deadlines just shifted by P no matter if some job instances would have smaller execution times than assuming their worst case based on Theorem 1.</p><p>With this result, we can now formulate a schedulability test, which consists of the following three steps:</p><p>1) Find all jobs instances inside a window of length P : First, we need to find all job instances that need to be scheduled in a window of length P . For this purpose, we choose an arbitrary time t and select all job instances τ K B j of period k with deadline t ≤ D(τ K B j , k ) &lt; t + P . If all of these job instances can be feasibly planned inside a window of length P , i.e., t e ≤ t s + P , the periodic execution is also feasible as shown in Theorem 2.</p><p>2) Determining a schedule: For the above set of job instances, determine the job instance τ K B i of period k * with the smallest deadline and set t s = S(τ</p><formula xml:id="formula_28">K B i , k * ) = R(τ K B i , k * ).</formula><p>Starting from t s , proceed by scheduling all other instances using strict EDF. In case there is at least one job instance that violates its deadline, the I/O schedule is infeasible. Else, we may conclude the periodic schedulability with period P , if for the completion time t e holds t e ≤ t s + P and thus S(τ K B i , k * + 1) = t s + P .</p><p>3) Adapt start time: In the previously determined schedule, we assumed that the first job instance starts at its release time. But even if t e &gt; t s + P in step 2, there might still exist a feasible periodic schedule that starts the first job instances at a later time t s as shown in Fig. <ref type="figure">5</ref>. However, this is only the case if the determined schedule contains at least t idle ≥ t e -t s -P steps of idle time since otherwise the sum of all job instance execution times t exec would exceed P<ref type="foot" target="#foot_7">7</ref> . Thus, in order to find a feasible schedule that satisfies t e ≤ t s + P , we must reduce t idle by at least t e -t s -P time steps. Given we plan using strict EDF, this can only be achieved by adjusting t s , since the order, in which the job instances belonging to a window of length P will be planned, is statically determined by strict EDF. Note also that a later start time t s &gt; t s will</p><formula xml:id="formula_29">τ K B x τ K B y τ K B z (a) ts t te &gt; P τ K B x τ K B y τ K B z (b) t s t t e P Figure 5</formula><p>. The schedulability test for three job instances and given period P = 6. All jobs with a deadline in-between [t, t + P ) are planned between ts and te, respectively t s and t e . In (a), the first job instance is started at its release time leading to an infeasible schedule. However, a feasible schedule exists when planning τ K B</p><p>x at time t s = te -P as shown in (b).  result in the same completion time t e = t e , if the delayed start by t s -t s time steps can fully remove t e -t s -P idle time steps. Thus, there must exist a feasible schedule starting at t s = t s + (t e -t s -P ) = t e -P and ending at t e = t e . To test this, we set the start time S(τ K B i , k * ) to t s = t e -P and repeat scheduling again using strict EDF until time t e , at which the last job instance completes its execution. If now t e ≤ t s + P , we have found a feasible P -periodic schedule.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Timing verification</head><p>With the schedulability test, we can now validate whether for a given loop schedule and mapping, also a feasible I/O transfer schedule of input and output data can be found. In the following, we want to show this for the running matrix-vector multiplication case study. First, we created a test set by varying the sizes of the matrices and in varying the number of PEs. In the following, we assume a 4-word-wide bus having an initial delay of 10 cycles and a buffer bank capacity of W = 256 words. For each of the following settings, the minimal period P with which new problems can be started is determined as follows. Independent of the matrix size N × M of A and size K 0 × K 1 of the processor array, a symbolic loop schedule is determined using symbolic loop scheduling <ref type="bibr" target="#b22">[23]</ref>, <ref type="bibr" target="#b28">[29]</ref>. For each concrete setting of N × M and K 0 × K 1 , we then find the initiation interval II which is the number of cycles between two successive loop iterations and the period P for which a feasible transfer schedule exists by executing MIN_II_P (see Fig. <ref type="figure" target="#fig_4">7</ref>). In Line 1, we determine and set the period P min to the minimal distance two successive loop nests can be</p><formula xml:id="formula_30">0 : f u n c t i o n MIN II P ( N × M , K0 × K1 , J , K , λ ) { 1 : Pmin = max ( {λJ J|J ∈ J } ) + min ( {λK K|K ∈ K} ) + 1 2 : f o r II ← 1 t o ∞ do 3 : f o r Pact i n II • Pmin t o (II + 1) • Pmin -1 do 4 : i f c h e c k ( N × M , K0 × K1 , II • λ , Pact ) t h e n 5 :</formula><p>r e t u r n {II , Pact} 6 :</p><p>end i f 7 :</p><p>end f o r 8 : end f o r 9 : } started given a latency-optimal loop schedule λ = (λ J , λ K ) <ref type="foot" target="#foot_8">8</ref> . Subsequently, we gradually increase the initiation interval II and with this the period P min until the first time, a feasible transfer schedule is found. The result of this exploration is shown in Fig. <ref type="figure">6</ref>. Note that a further increase of the period may break again the feasibility, unless the ratio between the period P and the latency L remains the same.</p><p>Running example: Consider again the matrix-vector multiplication and its transfer schedule. For N = 6, M = 11, K 0 = 1, K 1 = 4, we obtain P min = 18. But with this period and II = 1, the transfer schedule using strict EDF is infeasible as shown in Fig. <ref type="figure" target="#fig_2">4</ref>. Also an increase of the period from 18 to 35 leads to no success. But when increasing II to 2 and thus P = 36, we find a feasible schedule, which is also shown in Fig. <ref type="figure" target="#fig_2">4</ref>. Thus, every P = 36 time steps, a new matrix multiplication execution can be started to be processed on the processor array.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. RELATED WORK</head><p>While there exists to the best of our knowledge no other work for timing-predictable scheduling of data transfers, the underlying techniques like loop tiling or task scheduling have been investigated thoroughly in previous works. In the following, we discuss these topics in more detail.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Loop tiling</head><p>Tiling of iteration spaces is a common strategy that was first investigated in the late 80s, e.g., <ref type="bibr" target="#b29">[30]</ref> for memory hierarchies, and <ref type="bibr" target="#b12">[13]</ref>, <ref type="bibr" target="#b15">[16]</ref> for mapping loop nests to processor arrays of fixed or reduced size or for balancing local memory, and computation rate <ref type="bibr" target="#b14">[15]</ref>. It is still heavily used in compilers, design tools and application designs for a variety of architectures including COTS processors <ref type="bibr" target="#b9">[10]</ref>, GPUs <ref type="bibr" target="#b18">[19]</ref> or FPGAs <ref type="bibr" target="#b1">[2]</ref>. Moreover, many variants, e.g., to handle the partitioning of algorithms with affine data dependencies such as PLAs, see, e.g., <ref type="bibr" target="#b23">[24]</ref>, have been proposed. Most closely related to our problem of analysing the problem of I/O scheduling for affine dependence algorithms is <ref type="bibr" target="#b16">[17]</ref>. There, the authors present an approach for automatically deriving a lower bound for the data that must be transferred between an accelerator executing an affine program and an external memory. However, no related scheduling problem is solved.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Task scheduling</head><p>Scheduling theory is one of the oldest fields in computer science and thus contributes a large variety of studies about different scheduling algorithms. In the context of real-time systems, the concept of the earliest deadline first schedule dates back to 1973 <ref type="bibr" target="#b10">[11]</ref> and was extensively studied in the following decades. Most work focuses on preemptive schedules, but preemptions are generally speaking costly and not always an option. Therefore, the case of non-preemptive scheduling has gained recently more interest in the research community. An overview of different solutions and policies for nonpreemptive scheduling problems is given in <ref type="bibr" target="#b13">[14]</ref>. Moreover, there exist several EDF-inspired variants, i.e., non-preemptive ones. But different from strict EDF, these use other strategies for inserting idle times. For instance, the algorithm proposed in <ref type="bibr" target="#b3">[4]</ref> reduces idle times by executing already released but non-critical tasks, which do not have the minimal deadline. In addition, most of the above scheduling algorithms are designed for software-based task-scheduling as we see, for instance, in operating systems. Here, the computational overhead is in general relatively low compared to the granularity of the scheduling problem. For example, if the scheduling decision, i.e., the computation which task should be executed next, takes 1 ms while the following task will then be executed for 100 ms, the computational overhead is negligible. But if the execution of a task takes just a few hundred clock cycles, thus rather the order of a microsecond for a system with a 1 GHz clock rate, as for instance in the case of data transfers, most of the above scheduling algorithms cannot be used efficiently. Solutions for this problem have been provided by studies in the area of low-latency scheduling, where the computational overhead must be very low. We see such concepts mostly in the networking domain and especially in the context of 5G <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b27">[28]</ref>, <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b7">[8]</ref>, but also in other fields like, for instance, in large data centers <ref type="bibr" target="#b17">[18]</ref>. The scheduling of network packages is more closely related to our problem of scheduling data transfers. However also here, there are fundamental differences. For instance, there exists no knowledge about the actual workload at design time, whereas in the context of TCPAs and a given loop schedule for the array, all data transfers are known at runtime.</p><p>In summary, we are therefore not aware of any work proposing negligible overhead and problem-size independent scheduling algorithms such as strict EDF for solving the I/O transfer scheduling problem of polyhedral domains of input and output variables as typical for loop programs executed in parallel.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. RESULTS</head><p>In this section, we present experimental results to judge the efficiency of our I/O transfer scheduling algorithm. We applied the approach to a test set of randomly generated generic loop programs. Each of these was generated as follows: We selected a K × K PE array with K ∈ <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b7">8]</ref> and assigned each PE the same n ∈ <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b3">4]</ref> dimensional iteration space, where each dimension has the size s/n with s ∈ <ref type="bibr" target="#b9">[10,</ref><ref type="bibr">200]</ref>. Subsequently, we chose λ J and λ K with II ∈ [1, 2] and placed v ∈ [4, 10] I/O variables at random subspaces of the iteration space. For each variable, we selected a random memory function m = (m 0 , . . . , m n-1 ) with m i ∈ [0, 100]. However, m i is always 1 for the first dimension to be scanned. Finally, we applied our data tiling approach on one million loop programs obtaining a corresponding I/O transfer scheduling task set, which was then scheduled by strict EDF, preemptive EDF and a roundrobin approach. We observed that in total 94.77% of the loop programs for which a feasible preemptive EDF schedule was known to exist, could be also scheduled with strict EDF while only 67.54% were feasible when using the much simpler round-robin schedule.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. SUMMARY</head><p>In this paper, we studied the problem of managing peripheral I/O buffers that decouple a massively parallel processor array, particularly a TPCA, from external memory. First, we provided the mathematical relation of when and where a certain data element will be read or written by a PE inside a TCPA. To avoid elementwise transfers for such data elements, we grouped multiple iterations into tiles. Each tile relates to a block inside the external memory, which will be transferred by a single data transfer. However, if such a data transfer is not completed in time, the accelerator would need to stall its execution. Thus, a precise scheduling of data transfers is crucial in order to avoid unnecessary stalls and to guarantee a timing-predictable execution. Unfortunately, storing a statically pre-computed sequence of transfers is not scaling and therefore infeasible, as the number of these transfers (job instances) typically grows exponentially (i.e., with the product of the loop bounds). Therefore, we proposed to compute and schedule all necessary data transfers dynamically at runtime. Here, we reduced the transfer scheduling problem to a task scheduling problem where each buffer corresponds to a task consisting of multiple job-instances -one for each data transfer to or from the related buffer. With deadlines computed as the time a data element inside a block transfer will be first needed, we proposed a strict non-work-conserving nonpreemptive variant of the well-known EDF algorithm, which strictly executes all jobs in the order of their deadlines. Furthermore, we developed a schedulability test, which verifies if this scheduling algorithm can feasibly schedule all data transfers in time given a periodic program execution on a given TCPA. Experimentally, we showed that our transfer scheduling algorithm could successfully schedule 95% of a randomly generated set of loop programs and schedules for which a feasible I/O transfer schedule was known to exist.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Figure 2 .</head><label>2</label><figDesc>Figure2. Memory access pattern for variable A over time t of the bank b = 1 of PE at location K = (0, 1) T (see Fig.1). The second row indicates the accessed matrix elements.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Figure 4 .</head><label>4</label><figDesc>Figure 4. I/O schedule of five overlapped matrix-vector multiplication executions according to Fig. 1 with period P = 18 (top) and period P = 36 (bottom).Every line PE K 0 , K 1 X shows all job instances (colored boxed) involved in transferring data for variable X to the bank connected to PE (K 0 , K 1 ) T and their corresponding deadline (black arrows). Transfer tasks in each color belong to one matrix-vector multiplication run. For sake of clarity, all data transfers are assumed to have the same execution time. We observe that with P = 18 not all deadlines can be met while for P = 36, no deadlines will be missed.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>10 8 MFigure 6 .</head><label>1086</label><figDesc>Figure 6. Minimal period P for which a feasible I/O schedule was found for instances of matrix-vector multiplication varying in problem size (matrix size N × M ) and array size (K 0 × K 1 ).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Figure 7 .</head><label>7</label><figDesc>Figure 7. Algorithm searching for a minimal initiation interval II and period P for which the I/O transfer problem is schedulable. check(N × M , K 0 × K 1 , λ, P ) returns true if the loop schedule λ and period P lead to a feasible I/O transfer schedule for a N × M matrix and a K 0 × K 1 PE array.</figDesc></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 11,2026 at 02:30:24 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_1"><p>A PLA can be systematically transformed into an equivalent PRA through techniques of localization, see, e.g.,<ref type="bibr" target="#b20">[21]</ref>.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_2"><p>This includes also imperfect tilings as shown in Fig.1for the tile (k 0 , k 1 ) T = (0,</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_3"><p>3) T , thus w.l.o.g.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_4"><p>Note that similar to iteration space tiling, the tiling of input and output spaces into blocks for transfer is also allowed to be imperfect. We will discuss the implications in Section III-C in more detail.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_5"><p>This will determine the deadline of a corresponding block transfer task from memory to the respective bank. For output variables, it marks the deadline at which a previously written block must have been transferred to the main memory in order to reuse its buffer location.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="6" xml:id="foot_6"><p>Adapted to our case of data transfer scheduling, the bus would idle until this job instance becomes executable.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="7" xml:id="foot_7"><p>Let te = ts + t idle + texec. With t idle &lt; te -ts -P , we conclude P &lt; texec. Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 11,2026 at 02:30:24 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="8" xml:id="foot_8"><p>This value P min is obviously obtained when starting a next loop program already at the finishing time of those PEs that finish their last loop iterations of the current loop nest execution first. Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 11,2026 at 02:30:24 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENT</head><p>This work was funded by the <rs type="funder">Deutsche Forschungsgemeinschaft (DFG, German Research Foundation</rs>) -Project number <rs type="grantNumber">146371743 -TRR 89</rs>: <rs type="person">Invasive Computing</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_g2as8BB">
+					<idno type="grant-number">146371743 -TRR 89</idno>
+				</org>
+			</listOrg>
+			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B C I/O controller</head></div>			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">Algorithmic synthesis using pico an integrated framework for application engine synthesis and verification from high level c algorithms</title>
+		<author>
+			<persName><forename type="first">Shail</forename><surname>Aditya</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Vinod</forename><surname>Kathail</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="volume">01</biblScope>
+			<biblScope unit="page" from="53" to="74" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Optimizing remote accesses for offloaded kernels: Application to high-level synthesis for FPGA</title>
+		<author>
+			<persName><forename type="first">Christophe</forename><surname>Alias</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alain</forename><surname>Darte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alexandru</forename><surname>Plesco</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2013 Design, Automation Test in Europe Conference Exhibition (DATE)</title>
+		<imprint>
+			<date type="published" when="2013-03">March 2013</date>
+			<biblScope unit="page" from="575" to="580" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">The locality principle</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Peter</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Denning</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Commun. ACM</title>
+		<imprint>
+			<biblScope unit="volume">48</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<biblScope unit="page" from="19" to="24" />
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Clairvoyant non-preemptive EDF scheduling</title>
+		<author>
+			<persName><forename type="first">Cecilia</forename><surname>Ekelin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">18th Euromicro Conference on Real-Time Systems, ECRTS&apos;06</title>
+		<meeting><address><addrLine>Dresden, Germany, Proceedings</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2006-07-07">5-7 July 2006. 2006</date>
+			<biblScope unit="page" from="23" to="32" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Achieving ultra-low latency in 5G millimeter wave cellular networks</title>
+		<author>
+			<persName><forename type="first">Russell</forename><surname>Ford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Menglei</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Marco</forename><surname>Mezzavilla</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sourjya</forename><surname>Dutta</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sundeep</forename><surname>Rangan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Michele</forename><surname>Zorzi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Communications Magazine</title>
+		<imprint>
+			<biblScope unit="volume">55</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="196" to="203" />
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Scheduling for 5G cellular networks with priority and deadline constraints</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Hadar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Raviv</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Leshem</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 IEEE International Conference on the Science of Electrical Engineering in Israel (ICSEE)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="1" to="5" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Invasive tightly-coupled processor arrays: A domain-specific architecture/compiler co-design approach</title>
+		<author>
+			<persName><forename type="first">Frank</forename><surname>Hannig</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Vahid</forename><surname>Lari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Srinivas</forename><surname>Boppu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alexandru</forename><surname>Tanase</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Oliver</forename><surname>Reiche</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Embed. Comput. Syst</title>
+		<imprint>
+			<biblScope unit="volume">13</biblScope>
+			<biblScope unit="issue">4s</biblScope>
+			<date type="published" when="2014-04">April 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Low-latency scheduling in MPTCP</title>
+		<author>
+			<persName><forename type="first">Per</forename><surname>Hurtig</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Karl-Johan</forename><surname>Grinnemo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Anna</forename><surname>Brunström</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Simone</forename><surname>Ferlin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ozgu</forename><surname>Alay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nicolas</forename><surname>Kuhn</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE/ACM Trans. Netw</title>
+		<imprint>
+			<biblScope unit="volume">27</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="302" to="315" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">A highly parameterizable parallel processor array architecture</title>
+		<author>
+			<persName><forename type="first">Dmitrij</forename><surname>Kissler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Frank</forename><surname>Hannig</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alexey</forename><surname>Kupriyanov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jürgen</forename><surname>Teich</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2006 IEEE International Conference on Field Programmable Technology, FPT 2006</title>
+		<meeting><address><addrLine>Bangkok, Thailand</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2006">December 13-15, 2006. 2006</date>
+			<biblScope unit="page" from="105" to="112" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Analytical cache modeling and tilesize optimization for tensor contractions</title>
+		<author>
+			<persName><forename type="first">Rui</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Aravind</forename><surname>Sukumaran-Rajam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Richard</forename><surname>Veras</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Meng</forename><surname>Tze</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Fabrice</forename><surname>Low</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Atanas</forename><surname>Rastello</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Rountev</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Sadayappan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis</title>
+		<meeting>the International Conference for High Performance Computing, Networking, Storage and Analysis<address><addrLine>SC; Denver, Colorado, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2019-11-17">2019. November 17-19, 2019. 2019</date>
+			<biblScope unit="volume">74</biblScope>
+			<biblScope unit="page">13</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">W</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973">1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Timing anomalies in dynamically scheduled microprocessors</title>
+		<author>
+			<persName><forename type="first">Thomas</forename><surname>Lundqvist</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Per</forename><surname>Stenström</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 20th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 20th IEEE Real-Time Systems Symposium<address><addrLine>Phoenix, AZ, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1999">December 1-3, 1999. 1999</date>
+			<biblScope unit="page" from="12" to="21" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Partitioning and mapping algorithms into fixed size systolic arrays</title>
+		<author>
+			<persName><forename type="first">Dan</forename><forename type="middle">I</forename><surname>Moldovan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">B</forename><surname>José</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Fortes</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Computers</title>
+		<imprint>
+			<biblScope unit="volume">35</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="1" to="12" />
+			<date type="published" when="1986">1986</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">An exact and sustainable analysis of non-preemptive scheduling</title>
+		<author>
+			<persName><forename type="first">Mitra</forename><surname>Nasri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2017 IEEE Real-Time Systems Symposium, RTSS 2017</title>
+		<meeting><address><addrLine>Paris, France</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2017">December 5-8, 2017. 2017</date>
+			<biblScope unit="page" from="12" to="23" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Partitioning: An essential step in mapping algorithms into systolic array processors</title>
+		<author>
+			<persName><forename type="first">Llaberia</forename><surname>Navarro</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Valero</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Computer</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<biblScope unit="page" from="77" to="89" />
+			<date type="published" when="1987">1987</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title level="m" type="main">Automatic design and partitioning of VLSI systolic/wavefront arrays</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Nelis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Deprettere</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bu</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1987">1987</date>
+			<biblScope unit="volume">827</biblScope>
+			<biblScope unit="page" from="15" to="26" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<title level="m" type="main">Automated derivation of parametric data movement lower bounds for affine programs</title>
+		<author>
+			<persName><forename type="first">Auguste</forename><surname>Olivry</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Julien</forename><surname>Langou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Louis-Noël</forename><surname>Pouchet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Sadayappan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Fabrice</forename><surname>Rastello</surname></persName>
+		</author>
+		<idno>CoRR, abs/1911.06664</idno>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Sparrow: distributed, low latency scheduling</title>
+		<author>
+			<persName><forename type="first">Kay</forename><surname>Ousterhout</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Patrick</forename><surname>Wendell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Matei</forename><surname>Zaharia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ion</forename><surname>Stoica</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM SIGOPS 24th Symposium on Operating Systems Principles, SOSP &apos;13</title>
+		<editor>
+			<persName><forename type="first">Michael</forename><surname>Kaminsky</surname></persName>
+		</editor>
+		<editor>
+			<persName><forename type="first">Mike</forename><surname>Dahlin</surname></persName>
+		</editor>
+		<meeting><address><addrLine>Farmington, PA, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2013">November 3-6, 2013. 2013</date>
+			<biblScope unit="page" from="69" to="84" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Energy modeling and optimization for tiled nested-loop codes</title>
+		<author>
+			<persName><forename type="first">Nirmal</forename><surname>Prajapati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Waruna</forename><surname>Ranasinghe</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Vamshi</forename><surname>Tandrapati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Rumen</forename><surname>Andonov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hristo</forename><surname>Djidjev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sanjay</forename><forename type="middle">V</forename><surname>Rajopadhye</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2015 IEEE International Parallel and Distributed Processing Symposium Workshop</title>
+		<meeting><address><addrLine>Hyderabad, India</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2015-05-25">2015. May 25-29, 2015. 2015</date>
+			<biblScope unit="page" from="888" to="895" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Survey and benchmarking of machine learning accelerators</title>
+		<author>
+			<persName><forename type="first">Albert</forename><surname>Reuther</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Peter</forename><surname>Michaleas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Michael</forename><surname>Jones</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Vijay</forename><surname>Gadepally</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Siddharth</forename><surname>Samsi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jeremy</forename><surname>Kepner</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2019 IEEE High Performance Extreme Computing Conference</title>
+		<meeting><address><addrLine>Waltham, MA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2019-09-24">2019. September 24-26, 2019. 2019</date>
+			<biblScope unit="page" from="1" to="9" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">On the localization of algorithms for VLSI processor arrays</title>
+		<author>
+			<persName><surname>Vwani Roychowdhury</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Sailesh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Lothar</forename><surname>Rao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Thomas</forename><surname>Thiele</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Kailath</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Int. Conference on Systolic Arrays</title>
+		<meeting><address><addrLine>San Diego</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="1988">1988</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<monogr>
+		<title level="m" type="main">A compiler for application specific processor arrays</title>
+		<author>
+			<persName><forename type="first">Jürgen</forename><surname>Teich</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1993">1993</date>
+			<biblScope unit="page" from="1" to="230" />
+			<pubPlace>Germany, Shaker</pubPlace>
+		</imprint>
+		<respStmt>
+			<orgName>Saarland University</orgName>
+		</respStmt>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Symbolic parallelization of loop programs for massively parallel processor arrays</title>
+		<author>
+			<persName><forename type="first">Jürgen</forename><surname>Teich</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alexandru</forename><surname>Tanase</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Frank</forename><surname>Hannig</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">24th International Conference on Application-Specific Systems, Architectures and Processors</title>
+		<meeting><address><addrLine>Washington, DC, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2013-06-05">2013. June 5-7, 2013. 2013</date>
+			<biblScope unit="page" from="1" to="9" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Exact partitioning of affine dependence algorithms</title>
+		<author>
+			<persName><forename type="first">Jürgen</forename><surname>Teich</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Lothar</forename><surname>Thiele</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Embedded Processor Design Challenges: Systems, Architectures, Modeling, and Simulation -SAMOS</title>
+		<title level="s">Lecture Notes in Computer Science</title>
+		<editor>
+			<persName><forename type="first">F</forename><surname>Deprettere</surname></persName>
+		</editor>
+		<editor>
+			<persName><forename type="first">Jürgen</forename><surname>Teich</surname></persName>
+		</editor>
+		<editor>
+			<persName><forename type="first">Stamatis</forename><surname>Vassiliadis</surname></persName>
+		</editor>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="2002">2002</date>
+			<biblScope unit="volume">2268</biblScope>
+			<biblScope unit="page" from="135" to="153" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Scheduling of partitioned regular algorithms on processor arrays with constrained resources</title>
+		<author>
+			<persName><forename type="first">Jürgen</forename><surname>Teich</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Lothar</forename><surname>Thiele</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Li</forename><surname>Zhang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">1996 International Conference on Application-Specific Systems, Architectures, and Processors (ASAP &apos;96)</title>
+		<meeting><address><addrLine>Chicago, IL, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="1996">August 19-23, 1996. 1996</date>
+			<biblScope unit="page" from="131" to="144" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">On the hierarchical design of VLSI processor arrays</title>
+		<author>
+			<persName><forename type="first">Lothar</forename><surname>Thiele</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Symposium on Circuits and Systems</title>
+		<imprint>
+			<date type="published" when="1988-06">1988. June 1988</date>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="page" from="2517" to="2520" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<monogr>
+		<author>
+			<persName><forename type="first">Lothar</forename><surname>Thiele</surname></persName>
+		</author>
+		<title level="m">Compiler Techniques for Massive Parallel Architectures</title>
+		<meeting><address><addrLine>Boston, MA</addrLine></address></meeting>
+		<imprint>
+			<publisher>Springer US</publisher>
+			<date type="published" when="1992">1992</date>
+			<biblScope unit="page" from="101" to="150" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">A priority-based EDF scheduling algorithm for H.264 video transmission over wimax network</title>
+		<author>
+			<persName><forename type="first">Qinli</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Guizhong</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2011 IEEE International Conference on Multimedia and Expo, ICME</title>
+		<meeting>the 2011 IEEE International Conference on Multimedia and Expo, ICME<address><addrLine>Barcelona, Catalonia, Spain</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE Computer Society</publisher>
+			<date type="published" when="2011-07-15">2011, 11-15 July, 2011. 2011</date>
+			<biblScope unit="page" from="1" to="6" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Modulo scheduling of symbolically tiled loops for tightly coupled processor arrays</title>
+		<author>
+			<persName><forename type="first">Michael</forename><surname>Witterauf</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alexandru</forename><surname>Tanase</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Frank</forename><surname>Hannig</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jürgen</forename><surname>Teich</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">27th IEEE International Conference on Applicationspecific Systems, Architectures and Processors</title>
+		<meeting><address><addrLine>London, United Kingdom</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2016-07-06">2016. July 6-8, 2016. 2016</date>
+			<biblScope unit="page" from="58" to="66" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Iteration space tiling for memory hierarchies</title>
+		<author>
+			<persName><forename type="first">Michael</forename><surname>Wolfe</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the Third SIAM Conference on Parallel Processing for Scientific Computing</title>
+		<editor>
+			<persName><forename type="first">H</forename><surname>Garry</surname></persName>
+		</editor>
+		<editor>
+			<persName><surname>Rodrigue</surname></persName>
+		</editor>
+		<meeting>the Third SIAM Conference on Parallel Processing for Scientific Computing<address><addrLine>Los Angeles, California, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>SIAM</publisher>
+			<date type="published" when="1987">December 1-4, 1987. 1987</date>
+			<biblScope unit="page" from="357" to="361" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

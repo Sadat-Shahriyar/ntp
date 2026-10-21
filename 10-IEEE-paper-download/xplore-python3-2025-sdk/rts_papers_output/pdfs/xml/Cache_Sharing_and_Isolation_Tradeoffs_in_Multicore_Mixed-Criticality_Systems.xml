@@ -1,0 +1,563 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Cache Sharing and Isolation Tradeoffs in Multicore Mixed-Criticality Systems *</title>
+				<funder ref="#_BdFegMm">
+					<orgName type="full">AFOSR</orgName>
+				</funder>
+				<funder>
+					<orgName type="full">General Motors</orgName>
+				</funder>
+				<funder ref="#_8tUKWPa">
+					<orgName type="full">ARO</orgName>
+				</funder>
+				<funder ref="#_67XkbQk #_BKDSbEz #_BRk6ptc #_Cp2Qtma #_BeqrVC3">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Micaiah</forename><surname>Chisholm</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Bryan</forename><forename type="middle">C</forename><surname>Ward</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Namhoon</forename><surname>Kim</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Cache Sharing and Isolation Tradeoffs in Multicore Mixed-Criticality Systems *</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">9720C57E28A63CC52679B9A6A255A544</idno>
+					<idno type="DOI">10.1109/RTSS.2015.36</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T01:02+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>In mixed-critical applications, tension exists between sharing and isolation with respect to hardware resources: while strong isolation might be required for highly critical tasks, somewhat permissive sharing might be reasonable for less critical tasks to improve throughput or average-case performance. In this paper, this tension is examined as it pertains to shared last-level caches (LLCs) on multicore platforms. In particular, criticality-aware optimization techniques based on linear programming are presented for allocating LLC areas in the context of the previously proposed MC 2 (mixed-criticality on multicore) framework. Experiments are also presented that show that these techniques can result in significant schedulability improvements.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1">Introduction</head><p>The adoption of multicore machines in safety-critical domains is being hampered by aspects of such machines that reflect a throughput-oriented design philosophy. For example, it is common practice today to allow hardware components such as last-level caches (LLCs) and memory controllers to be shared across cores; this can be beneficial as long as any detrimental effects due to sharing are not typically seen on average. Unfortunately, such sharing can result in timing behaviors that are exceedingly difficult to characterize in the worst case without excessive pessimism. This is problematic for safety-critical domains, where correct execution must be validated even in worst-case scenarios.</p><p>Excessive pessimism due to shared hardware is a key contributing factor to a problem termed here the "one-outof-m" problem: when checking real-time constraints on a multicore platform with m cores, analysis pessimism can easily negate the processing capacity of the additional m-1 cores. In effect, only "one core's worth" of capacity can be utilized even though m cores are available. In domains such as avionics, this problem has led to the common practice of simply disabling all but one core. 1 This problem is the most serious unresolved obstacle in work on real-time multicore resource allocation today.</p><p>The desire to reduce the pessimism caused by unmanaged shared hardware has led to intense recent interest in hardware management techniques <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b10">11,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b15">16,</ref><ref type="bibr" target="#b19">20,</ref><ref type="bibr" target="#b20">21]</ref>. A common goal here is to provide isolation by partitioning hardware resources among cores and/or tasks to eliminate sharing altogether. However, this can be an overly strong solution in many contexts: even safety-critical applications often have system components that are not highly critical and that could therefore benefit from less constrained sharing. A better way forward might be to achieve some appropriate balance between sharing and isolation based on the criticalities of the software components involved. In this paper, we investigate this issue of balance as it relates to shared LLCs. Mixed-criticality systems. Our work fits within the larger body of research on mixed-criticality (MC) resource allocation spawned by a seminal paper of Vestal <ref type="bibr" target="#b18">[19]</ref>. He proposed analyzing the real-time requirements of less critical tasks under less pessimistic analysis assumptions. Specifically, to analyze a system with L criticality levels, he proposed specifying a provisioned execution time (PET) for each task at every level and analyzing L different system variants: in the Level-variant, the real-time requirements of all Level-tasks are verified with Level-PETs assumed for all tasks (at any level). The degree of pessimism in determining PETs is level-dependent: if Level is of higher criticality than Level , then Level-PETs will generally be greater than Level-PETs. Vestal's work led to approximately 200 follow-up papers on MC scheduling by a variety of authors. An excellent survey of this work has been prepared by Davis and Burns <ref type="bibr" target="#b3">[4]</ref>. They note that the fundamental research question in this area as "reconcil[ing] the conflicting requirements of partitioning for (safety) assurance and sharing for efficient resource usage." This is the very issue investigated herein (as it relates to shared LLCs). Cache partitioning. Under cache partitioning, designated cache areas are assigned to certain tasks, sets of tasks, or cores. Assuming a set associative cache, this can be achieved through some combination of page coloring, to provide set-based partitioning, or the use of hardware support in the form of lockdown registers, to provide way-based partitioning. These alternatives are illustrated in Fig. <ref type="figure" target="#fig_1">1</ref> with respect to a quad-core ARM Cortex A9 machine, which is  the canonical hardware platform considered herein. As seen in inset (a), each core on this machine has a lockdown register, the bits of which can be cleared to steer LLC accesses from this core to certain ways of the LLC. Under page coloring, pages of physical memory are assigned colors, and sets of the LLC are colored corresponding to how such pages map to them. As seen in inset (b), this technique ensures that differently colored pages do not conflict in the LLC. MC 2 . Our examination of LLC allocation tradeoffs in MC systems is based upon the MC 2 (mixed-criticality on multicore) framework <ref type="bibr" target="#b9">[10,</ref><ref type="bibr" target="#b17">18,</ref><ref type="bibr" target="#b19">20]</ref>, which has been the subject of continuing research by our group. 2 In MC 2 , four criticality levels exist, denoted A (highest) through D (lowest), as shown in Fig. <ref type="figure" target="#fig_2">2</ref>. Higher-criticality tasks are statically prioritized over lower-criticality ones. Level-A tasks are partitioned and scheduled on each core using a timetriggered table-driven cyclic executive. 3 Level-B tasks are also partitioned but are scheduled using a rate-monotonic 2 MC 2 should not be confused with a similarly named European project that began several years after work on MC 2 commenced. 3 A RM (EDF) scheduler can be optionally used at Level A (B). Additionally, any G-EDF-like (GEL) scheduler <ref type="bibr" target="#b7">[8]</ref> can be used at Level C. Furthermore, Level-C tasks can be defined according to the sporadic task model. For simplicity, we do not consider these options further herein. Other facets of MC 2 , such as slack reallocation, schedulability conditions, and execution-time budgeting are discussed in prior papers <ref type="bibr" target="#b9">[10,</ref><ref type="bibr" target="#b17">18,</ref><ref type="bibr" target="#b19">20]</ref>. (RM) scheduler on each core. 3 On each core, the Level-A and -B tasks are required to be simply periodic (all tasks commence execution at time 0 and periods are harmonic), with the Level-B task periods being integer multiples of the Level-A hyper-period. These tasks have hard real-time (HRT) constraints. Level-C tasks have soft real-time (SRT) constraints and are scheduled via a global earliest-deadlinefirst (G-EDF) scheduler; 3 the considered SRT constraint is that deadline tardiness is provably bounded. Level-D tasks are scheduled with no real-time guarantees (so we do not consider them further). MC 2 is a flexible framework from a research point-of-view. For example, it can be configured to have only two HRT criticality levels (as in most theoretical work on MC scheduling) or to fully assign the Level-A and -B subsystems to distinct, dedicated cores.</p><p>In recent work, we extended MC 2 to support partitioning with respect to the LLC and DRAM banks and to isolate the operating system from application tasks. In a related manuscript <ref type="bibr" target="#b13">[14]</ref>, we describe how these features were implemented and present experiments that demonstrate the virtues of the supported isolation mechanisms in MC systems. In that effort, we considered a single generic LLC allocation strategy. Contributions. In this paper, we consider the problem of optimizing LLC allocations in the context of MC 2 for the considered task system. We consider a general criticalityaware LLC allocation framework that allows leeway in precisely determining allocated LLC areas for the considered task system. We study the problem of determining such allocations formally. We first discuss how to model the impacts of a given allocation strategy on LLC-related overheads and task execution times. We then adopt a particular model that allows us to determine LLC allocations by solving a linear program (LP). To analyze the effectiveness of this approach, we present a schedulability study involving randomly generated task systems where generated task execution times were based on measurement data. In this study, the usage of our techniques enabled schedulability improvements of up to 100% for some task-system categories in comparison to two generic task-system-oblivious LLC allocation strategies, including that considered in <ref type="bibr" target="#b13">[14]</ref>. The presented LP can be solved as either an ordinary LP or a mixed-integer LP (MILP). In our experiments, both variants exhibited similar runtime performance, both often yielded nearly identical schedulability results, but for some task systems, schedulability was noticeably better under the MILP variant.</p><p>To our knowledge, LLC allocation strategies for MC systems have not been considered before, particularly in a context with as many interesting tradeoffs as MC 2 . Nonetheless, there has been much prior work on cache partitioning. We review this work later in Sec. 2 to more properly position our contributions. Organization. In the remainder of the paper, we provide relevant background (Sec. 2), describe our LLC allocation techniques (Secs. 3 and 4), present our experimental evaluation (Sec. 5), and conclude (Sec. 6).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2">Background</head><p>In this section, we present relevant notation, formally define the problem solved in this paper, and discuss related work. Task model. We consider a set of implicit-deadline periodic tasks Γ ≡ {τ 1 , τ 2 , τ 3 , ..., τ N } to be scheduled under the MC 2 framework on m cores. We only consider Levels A-C in MC 2 , as Level D is non-real-time. Each task τ i has a period T i , and three PETs, e A i , e B i , and e C i , where e i denotes its Level-PET (recall the discussion concerning MC schedulability analysis in Sec. 1). We let Γ A , Γ B , and Γ C denote the subset of tasks in Γ at Levels A, B, and C, respectively. Also, we let Γ A,p and Γ B,p denote the subset of tasks in Γ A and Γ B , respectively, that are assigned to core p. We denote the total utilization of all Level-tasks assuming Level-execution times as U ≡ τi∈Γ e i Ti . We denote the total utilization of all Level-A or -B tasks assigned to core p assuming Level-execution times as</p><formula xml:id="formula_0">U A,p ≡ τi∈Γ A,p e i</formula><p>Ti and U B,p ≡ τi∈Γ B,p e i Ti , respectively. The schedulability condition for Level C is dependent on the largest utilization of any task at Level C, which we denote as h, and the sum of the m-1 largest task utilizations at Level C, which we denote as H. The following are sufficient conditions for ensuring schedulability at all three criticality levels <ref type="bibr" target="#b17">[18]</ref>.</p><formula xml:id="formula_1">∀p :: U A A,p ≤ 1 ∧ (1)</formula><p>∀p ::</p><formula xml:id="formula_2">U B A,p + U B B,p ≤ 1 ∧ (2) U C A + U C B + U C C ≤ m ∧ (3) U C A + U C B + (m -1)h + H &lt; m (4)</formula><p>We assume that PETs are determined through a measurement process, as often done in practice (indeed, on multicore platforms adequate static timing-analysis tools do not yet exist). Specifically, we assume that Level-C PETs reflect measured average-case execution times <ref type="foot" target="#foot_1">4</ref> (since Level C is SRT) and that Level-B PETs reflect measured worstcase execution times (since Level B is HRT). Further, we assume that Level-A PETs are defined by inflating Level- B PETs by 50% (since Level A is of highest criticality). Such an inflation is in keeping with inflation factors derived from industrial use cases considered by Vestal <ref type="bibr" target="#b18">[19]</ref>. These measurement-based PETs will generally depend on allocated LLC areas. <ref type="foot" target="#foot_2">5</ref> We denote the Level-PET of task τ i when its allocated LLC area consists of W ways and S colors (refer to Fig. <ref type="figure" target="#fig_1">1</ref>) as e i (W, S). (We use "S" in denoting colors because colors determine LLC sets, and the term "C" has a predefined meaning in the context of MC 2 .) Canonical LLC allocation and problem to be solved. We consider a canonical LLC allocation, which is illustrated in Fig. <ref type="figure" target="#fig_3">3</ref> with respect to our quad-core ARM platform, the LLC of which has 16 colors and 16 ways. Assuming an LLC with W max ways in total, all Level-C tasks together are allocated an LLC area that consists of all colors (sets) associated with ways W C through W max -1 for some W C . All LLC areas for Level-A and -B tasks are taken from the colors (sets) associated with ways 0 through W C -1. The Level-A and -B tasks on each core use an LLC area consisting of 1/m (m = 4 on our platform) of the colors (sets) associated with these ways, as depicted. Each per-core Level-A and -B LLC area is subdivided into potentially overlapping Level-A and -B areas. This allocation scheme provides the following notions of spatial and temporal isolation with respect to the LLC (spatial isolation is guaranteed when access to common LLC areas is categorically prevented, and temporal isolation is guaranteed when a task's lines in a common LLC area cannot be evicted while it is using them).</p><p>• Level-C tasks are spatially isolated from Level-A and -B tasks.</p><p>• Level-A and -B tasks on one core are spatially isolated from Level-A and -B tasks on other cores.</p><p>• Level-A and -B tasks on the same core are spatially isolated with respect to the ways that they do not share. Additionally, Level-A tasks are temporally isolated from Level-B tasks with respect to the ways they share because Level-A tasks have higher priority.</p><p>This general allocation strategy reflects two assumptions: Level-C tasks, being SRT and provisioned on the average case, might benefit from rather unrestricted LLC sharing;  Level-A and -B tasks, being HRT and more critical, might require stronger LLC isolation guarantees. With regard to the latter, note that the set of Level-A tasks on one core is completely isolated (either spatially or temporally) from all other tasks in the system with respect to the LLC.</p><p>The technical problem considered in this paper is to determine how to precisely size these LLC areas so as to enhance schedulability given the characteristics of the task system in question. That is, we seek to determine how the bold lines in Fig. <ref type="figure" target="#fig_3">3</ref> should be set. In addressing this problem, we assume that an assignment of all Level-A and -B tasks to cores has already been determined. Overhead accounting. Depending on how task systems are analyzed, execution times and schedulability conditions may not include the impact of system overheads. In this paper, we consider one such overhead, cache-related preemption delays (CRPDs), and how this overhead is affected by our LLC allocation methods. CRPDs are delays a task may incur to reload lines evicted from the LLC (and other caches) due to a preemption. We discuss how to quantify CRPDs with respect to LLC allocation sizes, so that these delays can be integrated into schedulability analysis.</p><p>There are two basic ways to account for CRPD costs, as shown in Fig. <ref type="figure" target="#fig_5">4</ref>. Under task-centric accounting, the execution time of the preempted job is inflated to account for the preemption. Under preemption-centric accounting, the execution time of the preempting job is inflated to "pay" for the CPRD cost of any preempted job that resumes execution when the preempting job completes. We consider preemption-centric accounting here, because it usually introduces less pessimism in schedulability analysis, and because it can be linearly modeled by simply adding an inflation term to each execution cost. (Task-centric accounting entails the introduction of non-linear ceiling and/or floor operators.) Related work. Having fully specified the problem to be solved in this paper, and some of the assumptions we make in solving it, we now discuss related work.</p><p>The use of cache partitioning in real-time systems has been investigated before. A good overview of early work on this topic has been given by Kirk <ref type="bibr" target="#b14">[15]</ref>. In more recent work, Kim et al. <ref type="bibr" target="#b12">[13]</ref> presented a cache-partitioning scheme that allows multiple tasks to share the same cache partition on a single processor (as we do for Level-A and -B tasks), but they did not consider MC systems. Altmeyer et al. <ref type="bibr" target="#b0">[1]</ref> considered uniprocessor scheduling on a system with a direct-mapped cache and examined worst-case execution time (WCET) estimates as a function of cache size. They also presented a cache-partitioning algorithm that is optimal under certain cache-modeling assumptions. As an alternative to cache partitioning, a technique called cache lockdown can be used that prevents designated cached data or instructions from being evicted <ref type="bibr" target="#b4">[5]</ref>. Also, it is possible to redesign the cache allocator itself to provide a replacement policy that enables greater predictability <ref type="bibr" target="#b10">[11]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3">MC 2 LLC-Managed Overhead Accounting</head><p>In Sec. 2, we discussed preemption-centric CRPD accounting. In this section, we discuss our methods for determining required overhead inflations for task execution times under a managed LLC. These methods for overhead accounting ensure the task execution-time properties used by our LP programs, discussed in Sec. 4, hold for both inflated and non-inflated execution times.</p><p>The inflation term we add is generally a function of a task's allocated LLC area size. For example, we can inflate the Level-execution time of any Level-B or -C task that has an LLC area consisting of W ways and S colors as follows:</p><formula xml:id="formula_3">∀i : τ i ∈ Γ B ∪ Γ C :: e i (W, S) ≡ e i (W, S) + E (W, S),</formula><p>(5) where E (W, S) is the time required, according to Levelanalysis, to reload all cache lines within a region of the LLC consisting of W ways and S colors. Note that this is the LLC area of both the preempting and preempted task: for preemptions of Level-B tasks by Level-B tasks (or Level-C tasks by Level-C tasks), the preempting job shares the same LLC area as the preempted job. We denote b as an upper-bound on the worst-case time required under Levelanalysis assumptions to load the lines within an LLC area consisting of only one way and one color. Under this assumption, our inflation term is</p><formula xml:id="formula_4">E (W, S) = W • S • b . (<label>6</label></formula><formula xml:id="formula_5">)</formula><p>CRPD bounds may be tightened further by considering additional aspects of task memory access behavior. However, tighter bounds can produce non-linear relationships between task execution times and LLC allocation that cannot be expressed in the linear program model presented in Sec. 4. Determining linear expressions for tighter CRPD bounds is left for future work.</p><p>We now explain how to introduce inflations into the  schedulability conditions (1)-( <ref type="formula">4</ref>) discussed earlier. To do so, we can substitute for each utilization term a corresponding inflated utilization term. We denote the inflated Level-utilizations of each task τ i as u i ≡ e i Ti . We can then define inflated Level-B and -C utilizations as follows.</p><formula xml:id="formula_6">∀p :: U B B,p ≡ τi∈Γ B,p u B i ∀p :: U C B,p ≡ τi∈Γ B,p u C i U C C ≡ τi∈Γ C u C i</formula><p>We also replace h and H in condition (4) with inflated terms h and H . h is the highest inflated Level-C utilization of any Level-C task, and H is the sum of the m -1 highest inflated Level-C utilizations at Level C.</p><p>Note that we do not apply the inflation described in Equation ( <ref type="formula">5</ref>) to Level-A jobs. That is, we have ∀i : τ i ∈ Γ A :: e i (W, S) ≡ e i (W, S), ∀p ::</p><formula xml:id="formula_7">U A A,p = U A A,p .</formula><p>Under the cyclic-executive model <ref type="bibr" target="#b1">[2]</ref>, scheduling is based on fixed-length frames. Each Level-A job runs nonpreemptively within a frame unless it is sliced. Job slicing allocates different portions of a job (job slices) to different frames. We assume the execution time of each job slice is measured independently of other slices when PETs are initially determined. This ensures the PETs of one slice are not affected by cache lines loaded by other job slices.</p><p>Level-A jobs may still produce other CRPD overheads. In the event that the LLC areas for Levels A and B on core p overlap, the Level-A tasks on core p may evict all of the cache lines of Level-B tasks within the overlap. This might suggest that the Level-B execution time of each Level-A job requires inflation. However, the required inflation can be less pessimistically determined. As shown in Fig. <ref type="figure" target="#fig_7">5</ref>, Level-A jobs allocated to a frame f run sequentially at the beginning of each frame. In this scenario, Level B is only preempted by Level A at most once per frame. While some CRPDs incurred by Level B are applied to Level A, we emphasize that this preemption-centric modeling does not negatively impact the schedulability of the higher criticality Level-A tasks. These CRPD penalties are only considered when analyzing the schedulability of Levels B and C.</p><p>Depending on the replacement policy of the cache, evictions by Level-A tasks within overlapping sets may cause Level-B tasks to evict additional lines throughout the ways allocated to Level-B in the overlapping sets. Altmeyer et al. <ref type="bibr" target="#b0">[1]</ref> note this behavior for caches that evict the least recently used (LRU) cache block in a set when evicting from a set. A single eviction in an LRU cache can cause all remaining cache blocks in the set to suffer an eviction. This "cache-pollution inflation" can also occur under the pseudorandom eviction policy of the Cortex A9's LLC. For Level B, we make the pessimistic assumption that the number of evictions directly or indirectly caused by a Level-A task is equal to the area allocated to Level B in sets it shares with Level A. For Level-C, we make the more optimistic assumption that, on average, the number of evicted cache blocks is equal to the size of the overlap.</p><p>The frame size for the cyclic executive of Level-A tasks on core p is equal to the smallest period of any task in Γ A,p , which we denote T min A,p . If the overlap on core p consists of W O p ways and S O p colors and Level-B is allocated W B,p ways, we can model the overhead associated with reloading cache lines allocated to Level-B once per frame by inflating the Level-B and -C utilizations of Level A.</p><formula xml:id="formula_8">∀p :: U B A,p = U B A,p + E B (W B,p , S O p ) T min A,p ∀p :: U C A,p = U C A,p + E C (W O p , S O p ) T min A,p</formula><p>Our schedulability conditions with CRPD overheads accounted for are the following.</p><formula xml:id="formula_9">∀p :: U A A,p ≤ 1<label>(7)</label></formula><p>∀p ::</p><formula xml:id="formula_10">U B A,p + U B B,p ≤ 1 (8) m p=1 U C A,p + U C B,p + U C C ≤ m (9) m p=1 U C A,p + U C B,p + (m -1)h + H &lt; m (<label>10</label></formula><formula xml:id="formula_11">)</formula><p>4 Linear Programming</p><p>In this section, we show how to solve the canonical LLC allocation problem described in Sec. 2 via a linear program (LP). The LP we obtain determines a choice of ways for each allocated LLC area such that the schedulability conditions ( <ref type="formula" target="#formula_9">7</ref>)- <ref type="bibr" target="#b9">(10)</ref> are maintained. This requires treating ways as continuous variables. We explain later how to ultimately obtain an integral solution. We now describe the various sets of constraints in our final LP.</p><p>LLC size constraints. The simplest constraint set ensures that there is no overlap between Level C's partition and any allocated LLC areas at higher criticality levels. We let ŴA,p and ŴB,p denote LP variables indicating the number of ways allocated to Levels A and B, respectively, on core p. We let ŴC denote an LP variable indicating the number of ways allocated to Level C. Depending on whether we are formulating a mixed-integer or non-integer linear program, we can treat these LP variables as either continuous or integer. Later in this section, we discuss in more detail the tradeoffs between continuous and integer modeling of ways.</p><p>LLC size constraints also determine the overlap between Levels-A and -B LLC areas. Ŵ O p denotes an LP variable modeling the overlap on core p. Recall that W max is the total number of ways in the considered LLC cache. If Level-A and -B LLC areas overlap on core p, the overlap is</p><formula xml:id="formula_12">W O p = W A,p + W B,p + W C -W max .</formula><p>Constraint Set 1. The LLC size constraints are as follows.</p><p>∀p :: ŴA,p + ŴC ≤ W max ∀p :: ŴB,p + ŴC ≤ W max Ŵ O p ≥ ŴA,p + ŴB,p + ŴC -W max . Modeling execution times. The manner in which we model the impact of allocated LLC area sizes on execution times affects the choice of algorithms that can be applied to determine such sizes. Without a clear relationship between execution times and area sizes, there may be no way to determine how adjustments to such sizes impact schedulability except through brute force trial and error. Given the manner in which tasks are prioritized in MC 2 , and the canonical LLC allocation framework described above, we require both worst-and average-case execution-time measurements of Level-A and -B tasks, and average-case measurements for Level-C tasks. The Level-A and -B measurements may be taken in a system under load but with isolation provided with respect to the LLC, as described above. The Level-C measurements also need to be taken in a system under load to account for the impact of concurrent evictions and memory-bus contention at Level-C (although it may be appropriate to obtain average-case measurements under a less heavy load than for worst-case measurements).</p><p>Such execution-time measurements often exhibit a property we will exploit: Execution Time Assumption. The derivative of a task's execution time (at any level) with respect to its allocated LLC area size is non-increasing. That is, the execution time function is non-convex.</p><p>Bui et al. <ref type="bibr" target="#b2">[3]</ref> presented graphs for execution times of several avionics applications that approximately meet this condition, suggesting that this behavior is not uncommon. Our measurements for several benchmark programs on our Cor-tex A9 platform exhibit similar behavior <ref type="bibr" target="#b13">[14]</ref>. We note three properties that directly follow from this assumption.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 1. The derivative of a task's inflated execution time (at any level) with respect to its allocated LLC area size is non-increasing.</head><p>Proof: For our LLC allocation problem, colors are fixed at each level, such that the execution time function for each task τ i is a function over the number of ways allocated to τ i . By <ref type="bibr" target="#b5">(6)</ref>, the inflation function E varies linearly with allocated ways, and is thus non-convex. The sum of two nonconvex functions is non-convex.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 2. The derivative of a task's inflated utilization (at any level) with respect to its allocated LLC area size is nonincreasing.</head><p>Proof: This follows from the fact that task utilizations are directly proportional to task execution times.</p><p>We could proceed with the construction of our LP by treating individual task utilizations as variables, but this would entail having O(N ) variables. We can limit the number of variables to O(m) by instead considering the combined utilizations of sets of tasks. This is supported by one final property.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 3. The derivative of the inflated utilizations (at any level) of a set of tasks with respect to their allocated LLC area size is non-increasing.</head><p>Proof: As stated earlier, the sum of non-convex functions is non-convex.</p><p>While some of the assumptions made here concerning execution times may result in over-approximations of such execution times so that these assumptions are met, we show later via a schedulability study that our LLC allocation methods yield substantial schedulability improvements. PET-and overhead-based constraints. Consider the hypothetical utilization plot shown in Fig. <ref type="figure" target="#fig_8">6</ref> for U C C with respect to some integer number of allocated LLC ways W . We can construct such a plot from execution-time measurements, known task periods, and known values for b B and b C . In Fig. <ref type="figure" target="#fig_8">6</ref>, we create a set of lines from each pair of adjacent data points, using the standard two-point line formula f (x) = f (x 0 )+(x-x 0 )(f (x 0 +1)-f (x 0 )). This is the formula for the line that contains the points (x 0 +1, f(x 0 +1)) and (x 0 , f(x 0 )). We can describe the value of f over a continuous domain with LP variables f and x constrained by such lines. Let x max denote the maximum value of x for which we have a data point for f (x). A value can be determined for f by solving the following LP. minimize f If this LP produces an integer value for x, then f will equal f (x). In the case considered in Fig. <ref type="figure" target="#fig_8">6</ref>, our discrete function is U C C (W ), for which we define the LP variable</p><formula xml:id="formula_13">subject to: ∀x ∈ {0, 1, ..., x max -1} : f ≥ f (x) + (x -x)(f (x + 1) -f (x)) f ≥ 0 0 ≤ x ≤ x max</formula><formula xml:id="formula_14">Û C C to describe U C C (W ) over a continuous domain. Û C C ≥ U C C (W ) + ( ŴC -W )(U C C (W + 1) -U C C (W ))</formula><p>Note that ŴC is the only variable in the right-hand-side expression above, i.e., this is a linear expression. We define similar LP variables Û A A,p , Û B A,p , Û C A,p , Û B B,p , and Û C B,p for the inflated utilizations of Levels A and B for each core p. To simplify the constraints presented for these variables, we introduce the following shorthand functions for lines constructed from data points for utilizations.</p><formula xml:id="formula_15">U A,p ( ŴA,p , W ) ≡ U A,p (W ) + ( ŴA,p -W )(U A,p (W + 1) -U A,p (W )) U B,p ( ŴB,p , W ) ≡ U B,p (W ) + ( ŴB,p -W )(U B,p (W + 1) -U B,p (W )) U C C ( ŴC , W ) ≡ U C C (W ) + ( ŴC -W )(U C C (W + 1) -U C C (W ))</formula><p>Note that U B,p ( ŴB,p , W ) and U C C ( ŴC , W ) depend on inflated utilizations, while U A,p ( ŴA,p , W ) does not. This is because of the different manner in which CRPDs are dealt with at Level A, as discussed earlier.</p><p>To handle Level-A inflations, we incorporate them into the constraints for utilization variables separately from data points, as shown in the following constraint set. Letting S max denote the total number of colors of the considered LLC (S max = 16 on our ARM platform), we let I B A,p and I C A,p denote the needed Level-A inflations on core p at Levels B and C, respectively, with respect to our LP variables for ways.</p><formula xml:id="formula_16">I B A,p ≡ E B ( ŴB,p , S max /m) T min A,p I C A,p ≡ E C ( Ŵ O p , S max /m) T min A,p</formula><p>S max /m gives the total number of colors allocated to Levels A and B on each core. Note, that at Level B, an inflation is applied even without overlap. This conservatively models Level-A inflations at Level B to avoid non-linear constraints. This completes the LP variable relations needed to describe constraints derived from measured execution times.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Constraint Set 2. The linear constraints for utilization variables based on task execution-time data with CRPD overheads added are as follows.</head><p>∀W ∈ {0, 1, ..., W max -1} ::</p><formula xml:id="formula_17">Û C C ≥ U C C ( ŴC , W ) ∀p ∈ {1, ..., m} :: Û B B,p ≥ U B B,p ( ŴB,p , W ) Û C B,p ≥ U C B,p ( ŴB,p , W ) Û A A,p ≥ U A A,p ( ŴA,p , W ) Û B A,p ≥ U B A,p ( ŴA,p , W ) + I B A,p Û C A,p ≥ U C A,p ( ŴA,p , W ) + I C A,p</formula><p>Modeling h and H. To construct an LP that applies all schedulability conditions to task systems, linear constraints are also required for quantities specific to Expression <ref type="bibr" target="#b9">(10)</ref>.</p><p>We let ĥ and Ĥ be our LP variables for h (W ) and H (W ), respectively. Our constraints for these variables are constructed in a similar fashion to the constraints for utilization variables. Values for h (W ) and H (W ) are determined from measured execution times for each integer number of ways W allocated to Level C after inflation. Linear constraints are then constructed from adjacent data points. This requires h (W ) and H (W ) to be non-convex as well. These data functions, in fact, are non-convex under our Execution Time Assumption. Let τ h (W ) denote the Level-C task with highest inflated utilization when W ways are allocated to Level C. If τ h (W ) does not change with W , then the non-convexity of h (W ) follows trivially, because the utilizaton of τ h is non-convex. Non-convexity still holds if τ h (W ) changes with W . Consider way values W and W + 1 such that τ h (W ) = τ h (W + 1). This implies that the derivative of τ h (W + 1)'s utilization is greater than the derivative of τ h (W )'s utilization at W . Hence, the derivative of h is greater at W + 1 than W , and h remains nonconvex at W + 1. By similar logic, H (W ) is guaranteed to be non-convex.</p><p>Constraint Set 3. The linear constraints for ĥ and Ĥ based on measured task-set utilizations with CRPD overheads are as follows.</p><p>∀W ∈ {0, 1, ..., W max -1} ::</p><formula xml:id="formula_18">Ĥ ≥ h (W ) + ( ŴC -W )(h (W + 1) -h (W )) ĥ ≥ H (W ) + ( ŴC -W )(H (W + 1) -H (W ))</formula><p>Schedulability constraints. To fully characterize all constraints on utilizations and ways, we must include the schedulability constraints based on Expressions ( <ref type="formula" target="#formula_9">7</ref>)- <ref type="bibr" target="#b9">(10)</ref>. Expression ( <ref type="formula" target="#formula_10">10</ref>) is a strict inequality. We apply a small decrease, = 10 -6 , to its right-hand side to change this. Constraint Set 4. The linear constraints based on the schedulability conditions ( <ref type="formula" target="#formula_9">7</ref>)-( <ref type="formula" target="#formula_10">10</ref>) are as follows.</p><formula xml:id="formula_19">∀p :: Û A A,p ≤ 1 ∀p :: Û B A,p + Û B B,p ≤ 1 m p=1 Û C A,p + Û C B,p + Û C C ≤ m m p=1 Û C A,p + Û C B,p + (m -1) ĥ + Ĥ ≤ m -</formula><p>Linear program for LLC allocation. From Lemmas 1-3 and the discussion above, we have the following. LP Allocation Theorem. An allocation scheme that produces the minimum Level-C utilization for a task set while maintaining all schedulability conditions can be determined by solving the following LP. The objective of minimizing total Level-C utilization is used here as a greedy heuristic because this reduces tardiness bounds for Level-C tasks <ref type="bibr" target="#b6">[7]</ref>. However, this objective function serves a secondary purpose. Recall from our discussion of the LP variable f that if f is minimized, then it will equal f (x) at integer values of x. Minimizing total Level-C utilization ensures that utilization variables reflect actual system utilization values determined from PETs when LLC area variables are at integer values. Approximations. Under certain scenarios, the LP above will converge to integer way values for many task systems. Consider the LP with Constraint Set 4 removed. The remaining constraints on Level-C utilizations from Constraint Set 2 intersect at integer way values. Level-C utilization is minimized at the intersection of linear constraints, and the LP will thus converge to integer values. However, the wayparameter values that minimize Level-C utilization may violate schedulability conditions ( <ref type="formula" target="#formula_9">7</ref>), <ref type="bibr" target="#b7">(8)</ref>, or <ref type="bibr" target="#b9">(10)</ref>. In this sce-nario, the LP with Constraint Set 4 may not converge to integer way values.</p><p>If the program solution does not return integer values, we can round way values, or convert the LP to a mixedinteger LP (MILP). In Sec. 5, we compare schedulability for rounded LP-based LLC allocation sizes to schedulability for MILP-based LLC allocation sizes. Note that nonintegral LP-based LLC allocation sizes are not necessarily guaranteed to be nearest to integral LLC allocations that are schedulable when schedulable allocations exist. As shown in Sec. 5, however, the schedulability loss due to rounded LP-based programming is fairly small in many cases.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5">Evaluation</head><p>We now discuss experiments we conducted to assess the impact of our LP-based LLC allocation approach on task-set schedulability. Experimental framework. We randomly generated task sets and determined the fraction that were schedulable on our target hardware platform, the quad-core ARM Cortex A9 machine mentioned earlier, the LLC of which has 16 ways and 16 colors. To determine the benefit of LP-based LLC allocation relative to other alternatives, we compared our approach to two fixed LLC allocation schemes. We call the first alternative the default scheme because it is the one considered in the manuscript mentioned earlier <ref type="bibr" target="#b13">[14]</ref>. For any task set, it allocates eight ways and 16 colors (half the LLC space) to Level C, and splits the remaining LLC space evenly into per-core areas; core p's area consists of four colors and four ways (1/8 the LLC space) and is shared by all Level-A and -B tasks on core p. We call the second alternative the bypass scheme. Under it, all Level-A and -B tasks bypass the LLC entirely (they have a zero-area LLC allocation), and the Level-C tasks share the entire LLC without restriction. This scheme is reflective of the intuition that the provisioning of Level-A and -B tasks might be so conservative that they derive almost no benefit from the LLC.</p><p>We consider both the original LP formulation of our approach, where the returned ways must be rounded if nonintegral, and the corresponding MILP formulation. Each LP formulation for each task set was solved using Gurobi <ref type="bibr" target="#b8">[9]</ref>, a mathematical-programming solver library, on a single core of an Intel Xeon L7455 2.13 GHz processor. We compare these two formulations both in terms of accuracy and runtime performance. Task-set categories. Our schedulability study consisted of 81 separate experiments, each pertaining to a distinct category of task sets. For each experiment, task sets were generated first for the bypass scheme and then per-task execution times were altered to obtain corresponding task sets for the other considered schemes. Task sets were generated for the bypass scheme by first selecting the distributions to use in generating task parameters. These distribution choices, which are listed in Table <ref type="table">1</ref>, are as follows.</p><p>Our process for generating each tested task was as follows:</p><p>Step 1. For each task, randomly select relevant parameters using the distributions chosen from Table <ref type="table">1</ref>. If a given task is a Level-A (Level-B) task, then it also requires a Level-A and -B (Level-B) utilization.</p><p>Step 2. For each Level-A or -B task, determine a Level-B bypass scheme utilization. For each Level-A task, determine a Level-A bypass scheme utilizations. A task's Level-B utilization (if required) was defined to be s times its Level-C utilization, where the scaling factor s ranges uniformly within <ref type="bibr">[10/3, 20/3]</ref>. This choice of scaling factor was based on measurement data from our ARM platform. A task's Level-A utilization (if required) was defined to be 1.5 times its Level-B utilization. This reflects the previously mentioned 50% inflating of Level-B PETs to obtain Level-A PETs.</p><p>Step 3. For each task, determine a WS size (WSS) based on the chosen task parameters and assumed ARM platform. Each task's per-level PETs are implicitly determined by its period and per-level utilizations. Given these PETs, and the WS load times selected using the distribution discussed under Selection 4 above, we determined a task's actual WSS using documented memory-access latencies for our ARM machine. WSSs affect how PETs vary with LLC-allocation schemes, which we discuss next.</p><p>The above process yields a task set for the bypass scheme. To obtain a corresponding task set for the other schemes, we merely have to scale PETs (and hence utilizations) to reflect allocated LLC areas.</p><p>Step 4. For each task Level-B or -C utilization, generate an LLC area-dependent scaling factor. The scaling factors we used in determining PETs for the non-bypass schemes were based on measurement data obtained from our ARM platform, with an adjustment applied for WSS-related reasons. In particular, a task's WSS determines the maximum amount of cache space it uses. As we allocate additional LLC space for a task beyond its WSS, its execution time should not change significantly. We account for this when determining scaled PETs. Fig. <ref type="figure" target="#fig_11">7</ref>(a) shows some of the measured Level-B PET data we collected on our ARM platform, and Fig. <ref type="figure" target="#fig_11">7(b)</ref> shows some of the PETs obtained via our generation process. Note that our generated PETs are only approximately non-convex. To apply our LP techniques, any non-convexity must be masked by upper bounding. Such upper bounding introduces pessimism in the analysis.</p><p>Step 5. Assign Level-A and -B tasks to cores. We obtained such an assignment by using the worst-fit-decreasing binpacking heuristic to first assign Level-A tasks, based on their Level-A utilizations under the bypass scheme, and then to assign Level-B tasks using the remaining capacities, based on the Level-B utilizations under the bypass scheme. This heuristic may not be appropriate if task utilizations vary significantly with changes in the LLC-allocation  scheme. However, addressing this concern requires approaching two inter-dependent optimization problems. Optimization of both task assignment and LLC allocation simultaneously is left for future work. Once Level-A and -B tasks are assigned to core, our task-set specifications are completed.</p><p>This concludes our overview of the task-set generation process we used. This process is described in much greater detail in an appendix. Results. Our study resulted in 81 schedulability plots. Due to space constraints, we discuss only the plots shown in Fig. <ref type="figure" target="#fig_13">8</ref>, which reflect generally seen trends across all plots; the other plots can be found in an online appendix (available at http://www.cs.unc.edu/ ˜anderson/papers.html). In insets (a)-(c) of Fig. <ref type="figure" target="#fig_13">8</ref>, schedulability plots are given for three categories of task systems; these plots depict the fraction of the generated task systems deemed schedulable, as a function of overall Level-C utilization under the bypass scheme, for each considered LLC allocation method. Insets (d)-(f) give corresponding probability distributions for the number of allocated ways at each level under a MILP-based allocation. For example, inset (f) indicates that for the task-system category considered in inset (c), 10-14 ways tended to be allocated to Level C, 3-7 to Level B, and 3-7 to Level A. We make the following observations from this data. Obs. 1. Using MILP-and LP-based LLC allocations significantly improved schedulability in approximately a third of the tested task-system categories, increasing schedulability by 20-50% in some cases, and by a factor of two in others. For the other categories, only moderate improvements resulted.</p><p>Fig. <ref type="figure" target="#fig_13">8</ref>(a) depicts one of several categories that exhibited significant improvements. Fig. <ref type="figure" target="#fig_13">8</ref>(d) suggests that, for this category, the usage of LP techniques adapts LLC allocations to account for the high CPRD overheads expected in this case. As seen, little to no LLC cache space is given to any level, suggesting that CRPD overheads outweigh any performance gains provided by the LLC. Fig. <ref type="figure" target="#fig_13">8</ref>(b) depicts one of several categories that yielded only mild improvements. Fig. <ref type="figure" target="#fig_13">8</ref>(e) suggests that, for this category, the usage of LP techniques results in LLC allocations that vary dramatically. The low impact of LLC allocation choice on schedulability is not surprising, since this is a light memory utilization task set, and therefore task utilizations are not very sensitive to LLC area size. Obs. 2. The usage of LP-based allocations resulted in little to no degradation in schedulability in comparison to MILPbased allocations in all tested task-system categories.</p><p>Insets (a)-(c) of Fig. <ref type="figure" target="#fig_13">8</ref> show very little difference in schedulability results for these two algorithms. Due to the similarities of the LP and MILP algorithms, both produce similar LLC-allocation schemes for each task set. These schemes have similar effects on schedulability as a result. Obs. 3. While MILPs have exponential time complexity, the actual runtime performance of our MILP allocation scheme was roughly equivalent to that of our LP scheme.</p><p>Across all task systems in all experiments, our MILP scheme took 151 ms on average and 1377 ms in the worst case, while or LP scheme took 148 ms on average and 315 ms in the worst case.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="6">Conclusion</head><p>To our knowledge, this is the first paper to consider the optimization problem of allocating LLC areas among tasks of different criticality levels in a mixed-criticality multicore system. We addressed this problem in the context of MC 2 through the use of LP techniques that take into account both schedulability and CRPD overheads. We demonstrated the efficacy of these techniques by presenting an experimental evaluation that shows that their usage can have significant benefits from a schedulability viewpoint. Our LP techniques achieved similar schedulability improvements as our MILP variant. In our experiments, the LP and MILP variants proved to have similar runtime overheads. Future work. In the LLC allocation problem considered herein, only the number of allocated ways is viewed as a variable. The number of allocated colors (which determine the allocated sets) can be varied as well. However, varying both parameters creates an optimization problem that is difficult to address using LP techniques. Nonetheless, this more general optimization problem warrants further study.</p><p>The overlap between Level-A and -B LLC areas provides more flexibility in the types of allocation schemes that are possible. However, this requires additional pessimism in the Level-B CRPD overhead model. To avoid non-linear constraints, Level-A tasks are assumed to evict Level-B cache  blocks even when no LLC areas overlap. We can eliminate this pessimism by solving two variants of the LP program: one version with LLC-area constraints that allow overlap, and one version with LLC-area constraints that do not allow overlap. In the latter variant, Level A does not impose CRPDs on Level B. Future work may examine how schedulability is improved by solving both LP variants.</p><p>We also have an upper-bounding function F i (W ) ≥ F i (W ) that is non-convex. This upper-bounding function is used for our linear programs. Task execution times may have varying sensitivities to LLC area size based on a task's memory use behavior. To describe more precisely different categories of LLC area size dependencies, we must first describe how the function F i (W ) was generated. We start by generating a non-convex function F i (W ) for each task τ i at criticality level , where F i (0) = 1.0 and is Level B or C. The Level-A function is generated last using our Level-B function, since Level-A utilizations should be 50% greater than Level-B costs for each number of ways W .</p><p>To constrain the initial decrease in the function from ways 0 to 1, we define parameters Ď ≤ 1 and D &lt; Ď for each criticality level . Letting rand(x, y) denote a function that returns a random value in the interval [x, y], we define</p><formula xml:id="formula_20">F i (1) = rand( D , Ď ).</formula><p>We assume that, prior to overhead inflation, task execution times should not increase as LLC-allocation size increases. Hence, we ensure F i is non-increasing by upper-bounding each value F i (W ) where W &gt; 1 by F i (W ), defined as follows:</p><p>F i (W ) ≡ F i (W -1).</p><p>For the function to be non-convex, each value F i (W ) where W &gt; 2 must be lower-bounded by another function F i (W ). This function is determined by taking the decrease in function value from W -2 to W -1, that is, F i (W -2) -F i (W -1), and ensuring that the decrease from W -1 to W is not greater:</p><formula xml:id="formula_21">F i (W ) ≡ F i (W -1) -(F i (W -2) -F i (W -1)).</formula><p>We may additionally want to limit these bounds further such that the function "flattens out" slower or faster. We use parameters ω ≤ 1 and ω &lt; ω to define more restricted bounds F i (W ) and F i (W ). The parameters ω and ω are used to calculate interpolations between the values of F i (W ) and F i (W )</p><formula xml:id="formula_22">F i (W ) ≡ F i (W ) + ω (F i (W ) -F i (W )), F i (W ) ≡ F i (W ) + ω (F i (W ) -F i (W )</formula><p>). We now define all remaining values of F i (W ) as follows:</p><formula xml:id="formula_23">F i (W ) = rand( F i (W ), F i (W )), W &gt; 1.</formula><p>F i (W ) is derived from F i (W ) by considering two modifications to the curves generated so far. Modificaton 1. These curves have no lower bound. Our scaling function for a task's utilization should have a lower bound (we would not expect the LLC to ever reduce utilizations by 95%, for instance). For each criticality level, we define a lower bound on utilization scaling F min . Modification 2. Each task τ has a WSS τ.wss. As stated in Sec. 5, we expect execution times, and thus utilizations, to not decrease significantly as a task is allocated addition LLC space beyond its WSS. We denote W wss i to be the least number of ways required for a task to fit its entire WS into the allocated area. This completes the functions and parameters we need to derive a non-convex function with which to upper-bound task utilizations. For Level B, we define At each level, we want τ .cost for τ ∈ Γ to represent the bypass-scheme utilization at level . Recall that, in this scheme, Level B is given 0 ways on all cores and Level C is given W max ways. Hence, for τ i ∈ Γ B , F B i (0) should be 1.0, but for τ i ∈ Γ C , F C i (W max ) should be 1.0. For Level C, we first define a helper function M C i (W ) derived in a similar fashion as F B i (W ) and then normalize this function with respect to M C i (W max ).</p><formula xml:id="formula_24">M C i (W ) = max(F C i (W ), F C min ), for W ≤ W wss i M C i (W ) = max(F C i (W ), F C min ), for W &gt; W wss i F C i (W ) = M C i (W ) M C i (W max )</formula><p>F i (W ) is derived by applying slight variations to values of F i (W ) for some way values. We determine the range R ≡ F i (0) -F i <ref type="bibr" target="#b15">(16)</ref> over which the non-convex function varies, and for up to eight randomly chosen way values, we assign F i (W ) the following: to produce utilizations that initially declined steadily as ways increase from 0. We chose ω and ω in the range [0, 0.15) to ensure initially steady declines in utilization tend to not flatten out as way sizes increase.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head></head><label></label><figDesc>(a) Way-based partitioning. (b) Set-based partitioning. (c) Combined approach.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Figure 1 :</head><label>1</label><figDesc>Figure 1: Allocating LLC areas by way, or set, or both. On this machine, the LLC is an L2 cache shared by four cores.</figDesc><graphic coords="2,89.92,309.12,173.78,66.62" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Figure 2 :</head><label>2</label><figDesc>Figure 2: Scheduling in MC 2 on a quad-core machine.</figDesc><graphic coords="2,342.58,65.22,144.38,101.66" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Figure 3 :</head><label>3</label><figDesc>Figure 3: Canonical LLC allocation.</figDesc><graphic coords="3,335.39,72.82,142.46,128.18" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head></head><label></label><figDesc>Task-centric accounting. (b) Preemption-centric accounting.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Figure 4 :</head><label>4</label><figDesc>Figure 4: Forms of overhead accounting.</figDesc><graphic coords="4,80.59,174.61,190.10,85.34" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Figure 5 :</head><label>5</label><figDesc>Figure 5: Per-frame Level-B inflation for Level A.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Figure 6 :</head><label>6</label><figDesc>Figure 6: Converting utilizations derived from execution-time data to linear constraints. The shaded region is the continuous region in which utilization will be constrained in our LP.</figDesc><graphic coords="7,91.12,72.24,174.38,128.18" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head></head><label></label><figDesc>+ Û C B,p + Û C C subject to: Constraint Sets 1-4Non-negativity constraints on all variables.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_11"><head>Figure 7 :</head><label>7</label><figDesc>Figure 7: Measured vs. generated PETs with respect to ways.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_12"><head></head><label></label><figDesc>(a) C-Heavy, Contrasting, Light, Light. (b) AB-Moderate, Long, Medium, Light. (c) C-Heavy, Long, Medium, Medium. (d) Figure (a) allocation. (e) Figure (b) allocation. (f) Figure (c) allocation.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_13"><head>Figure 8 :</head><label>8</label><figDesc>Figure 8: Schedulability and LP-based LLC allocation results for three categories of task sets. Category choices are listed in order of categories.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_14"><head>FBi</head><label></label><figDesc>(W ) = max(F B i (W ), F B min ), for W ≤ W wss i</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_15"><head>F</head><label></label><figDesc>i (W ) = F i (W )rand(0, 0.05) • R For all other way values, F i (W ) = F i (W ).At this point, we have a unique set of parametersP B ≡ { DB , ĎB , ωB , ωB , Fmin B }for generating worst-case execution time behavior at Level B and a similar set of parametersP C ≡ { DC , ĎC , ωC , ωC , Fmin C }for describing average-case execution time behavior at Level C. We chose D and Ď values in the range [0.9,0.97)</figDesc></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 22:43:25 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_1"><p>In MC 2 , a Level-task's Level-PET is treated as an enforced execution budget. As explained in<ref type="bibr" target="#b16">[17]</ref>, tardiness bounds with respect to deterministic budget allocations at Level C can be used to bound tardiness in expectation when average-case task execution times are assumed.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_2"><p>We often use the term "area" instead of "partition" because we allow for the possibility that such areas overlap.</p></note>
+		</body>
+		<back>
+
+			<div type="funding">
+<div><p>* Work supported by <rs type="funder">NSF</rs> grants <rs type="grantNumber">CNS 1115284</rs>, <rs type="grantNumber">CNS 1218693</rs>, <rs type="grantNumber">CPS 1239135</rs>, <rs type="grantNumber">CNS 1409175</rs>, and <rs type="grantNumber">CPS 1446631</rs>, <rs type="funder">AFOSR</rs> grant <rs type="grantNumber">FA9550-14-1-0161</rs>, <rs type="funder">ARO</rs> grant <rs type="grantNumber">W911NF-14-1-0499</rs>, and a grant from <rs type="funder">General Motors</rs>. The second author was also supported by an <rs type="funder">NSF</rs> graduate fellowship. 1 <rs type="institution">The U.S. Federal Aviation Administration</rs> has released a position paper that discusses the impact of shared hardware on the certification of avionics systems in some detail [6].</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_67XkbQk">
+					<idno type="grant-number">CNS 1115284</idno>
+				</org>
+				<org type="funding" xml:id="_BKDSbEz">
+					<idno type="grant-number">CNS 1218693</idno>
+				</org>
+				<org type="funding" xml:id="_BRk6ptc">
+					<idno type="grant-number">CPS 1239135</idno>
+				</org>
+				<org type="funding" xml:id="_Cp2Qtma">
+					<idno type="grant-number">CNS 1409175</idno>
+				</org>
+				<org type="funding" xml:id="_BeqrVC3">
+					<idno type="grant-number">CPS 1446631</idno>
+				</org>
+				<org type="funding" xml:id="_BdFegMm">
+					<idno type="grant-number">FA9550-14-1-0161</idno>
+				</org>
+				<org type="funding" xml:id="_8tUKWPa">
+					<idno type="grant-number">W911NF-14-1-0499</idno>
+				</org>
+			</listOrg>
+			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>• Selection 1: Choose the distributions to use in determining the fraction of the overall Level-C utilization that is consumed at each criticality level. There are three overall choices here, as shown in Table <ref type="table">1</ref>. For example, under the C-heavy choice, the Level-C utilization of each of Levels A and B will be between 10% and 30% (exclusive) of the total Level-C utilization, with the remainder going to Level C.</p><p>• Selection 2: Choose the distributions to use in generating task periods. Again, there are three overall choices here, as shown in the table.</p><p>• Selection 3: Choose the distributions to use in generating Level-C utilizations for individual tasks. Again, there are three overall choices.</p><p>• Selection 4: Choose the distributions to use in determining the time required to load a task's working set (WS) from memory. The load time is expressed as a percentage of the task's Level-C execution time. As before, there are three overall choices, as shown in the table. For example, under the Light choice, the load time for any task will be between 1% and 10% (exclusive) of its overall Level-C execution time.</p><p>Generating task sets. In generating task sets for the bypass scheme, we allowed the total Level-C utilization to vary from 0.1 to 6.1 in steps of 0.2 (we checked schedulability for task systems with bypass-scheme utilizations greater than m, since these task sets may have utilizations less than m under other schemes). For each total Level-C utilization in this range, we evaluated between 100 and 2,000 randomly generated task sets to estimate mean schedulability with 95% confidence to within a confidence interval of 0.05. In order to generate tasks that reflect execution-time behavior on the ARM platform, we performed execution-time measurements of benchmark programs on the Cortex A9 to answer the following questions:</p><p>• How do tasks' average execution times vary relative to worst-case execution times?</p><p>• How do tasks' average and worst-case execution times vary with LLC allocation sizes?</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Appendix A</head><p>In this appendix we describe our process for generating LLC-area dependencies for task utilization at each criticality level. We start by generating task systems with a single execution time cost, τ .cost, for each task. To simulate LLCarea dependencies, we applied a separate non-increasing, non-concave function, F i (W ), over the number of allocated ways W to task τ 's utilization for criticality level :</p></div>			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Evaluation of cache partitioning for hard real-time systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Altmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Douma</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Lunniss</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS &apos;14</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">The cyclic executive model and ada</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Shaw</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS &apos;88</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<title level="m" type="main">Impact of cache partitioning on multi-tasking real time embedded systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Bui</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Martinez</surname></persName>
+		</author>
+		<idno>RTCSA &apos;08</idno>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<title level="m" type="main">Mixed criticality systems -a review</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+		<respStmt>
+			<orgName>Department of Computer Science, University of York</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical report</note>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Static use of locking caches in multitask preemptive real-time systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Campoy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Ivars</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mataix</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Embedded Sys</title>
+		<imprint>
+			<biblScope unit="page">1</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Position paper CAST-32 multicore processors</title>
+		<ptr target="http://www.faa.gov/aircraft/aircert/designapprovals/airsoftware/cast/castpapers/media/cast-32.pdf" />
+	</analytic>
+	<monogr>
+		<title level="m">Certification Authorities Software Team (CAST)</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Tardiness bounds under global EDF scheduling on a multiprocessor</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">The Journal of Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">38</biblScope>
+			<biblScope unit="page" from="133" to="189" />
+			<date type="published" when="2008-02">Feb. 2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Fair lateness scheduling: Reducing maximum lateness in G-EDF-like scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">50</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="5" to="47" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title level="m" type="main">Gurobi Optimization. Gurobi optimizer reference manual</title>
+		<author>
+			<persName><surname>Inc</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">RTOS support for multicore mixed-criticality systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Herman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Kenna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Mollison</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Johnson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS &apos;12</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">CAMA: A predictable cache-aware memory allocator</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Herter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Backes</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Haupenthal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Reineke</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS &apos;11</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Page placement algorithms for large realindexed caches</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Kessler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. on Comp. Sys</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="page" from="338" to="359" />
+			<date type="published" when="1992">1992</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">A coordinated approach for practical OS-level cache management in multi-core real-time systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kandhalu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS &apos;13</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Attacking the one-out-of-m multicore problem by combining hardware management with mixed-criticality provisioning</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Chisholm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C.-Y</forename><surname>Fu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+		<ptr target="http://www.cs.unc.edu/ander-son/papers.html" />
+		<imprint/>
+	</monogr>
+	<note>Unpublished manuscript</note>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">SMART (strategic memory allocation for real-time) cache design</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Kirk</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<biblScope unit="page">89</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title level="m" type="main">A software memory partition approach for eliminating bank-level interference in multicore systems</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Cui</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Xing</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Bao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Wu</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>In ICPACT &apos;12</note>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<title level="m" type="main">A multiprocessor server-based scheduler for soft real-time tasks with stochastic execution demand</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Mills</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<idno>RTCSA &apos;11</idno>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">Scoredos. Mixed criticality real-time scheduling for multicore systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Mollison</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename></persName>
+		</author>
+		<idno>ICESS &apos;10</idno>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Preemptive scheduling of multi-criticality systems with varying degrees of execution time assurance</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Vestal</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS &apos;07</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Making shared caches more predictable on multicore platforms</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Herman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Kenna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS &apos;13</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title level="m" type="main">PALLOC: DRAM bank-aware memory allocator for performance isolation on multicoore platforms</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Mancuso</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Wu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>In RTAS &apos;14</note>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

@@ -1,0 +1,1482 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">RT-Gang: Real-Time Gang Scheduling Framework for Safety-Critical Systems</title>
+				<funder ref="#_2e4HxE4 #_hMnkzMq">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+				<funder ref="#_M9QhHs8">
+					<orgName type="full">NSA Science of Security</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Waqar</forename><surname>Ali</surname></persName>
+							<email>wali@ku.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">University of Kansas</orgName>
+								<address>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Heechul</forename><surname>Yun</surname></persName>
+							<email>heechul.yun@ku.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">University of Kansas</orgName>
+								<address>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">RT-Gang: Real-Time Gang Scheduling Framework for Safety-Critical Systems</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">2B08AEF631AC1ADEE41CBAE4973729D4</idno>
+					<idno type="DOI">10.1109/RTAS.2019.00020</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T02:47+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>gang-scheduling</term>
+					<term>response-time analysis</term>
+					<term>safety critical system</term>
+					<term>resource contention</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>In this paper, we present RT-Gang: a novel realtime gang scheduling framework that enforces a one-gang-at-atime policy. We find that, in a multicore platform, co-scheduling multiple parallel real-time tasks would require highly pessimistic worst-case execution time (WCET) and schedulability analysiseven when there are enough cores-due to contention in shared hardware resources such as cache and DRAM controller.</p><p>In RT-Gang, all threads of a parallel real-time task form a real-time gang and the scheduler globally enforces the one-gangat-a-time scheduling policy to guarantee tight and accurate task WCET. To minimize under-utilization, we integrate a state-ofthe-art memory bandwidth throttling framework to allow safe execution of best-effort tasks. Specifically, any idle cores, if exist, are used to schedule best-effort tasks but their maximum memory bandwidth usages are strictly throttled to tightly bound interference to real-time gang tasks.</p><p>We implement RT-Gang in the Linux kernel and evaluate it on two representative embedded multicore platforms using both synthetic and real-world DNN workloads. The results show that RT-Gang dramatically improves system predictability and the overhead is negligible.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Safety-critical embedded real-time systems in automotive and aviation industries increasingly demand efficient, highperformance computing platforms to execute compute and data intensive workloads (e.g., deep neural networks) in real-time, while meeting size, weight, power and cost constraints <ref type="bibr" target="#b26">[28]</ref>. However, engineers and researchers developing and studying these safety-critical systems have had troubles to deal with modern high-performance computer architectures because of their unpredictable and extremely poor worst-case timing behaviors that are too complex to understand and analyze <ref type="bibr" target="#b3">[5]</ref>.</p><p>In a safety-critical real-time system, the use of highperformance multicore platforms is challenging because shared hardware resources, such as cache and memory controllers, can cause extremely high timing variations <ref type="bibr" target="#b47">[49]</ref>, <ref type="bibr" target="#b53">[55]</ref>. The timing unpredictability is a serious problem in both automotive and aviation industries. For example, Bosch, a major automotive supplier, recently announced "predictability on high-performance platforms" as a major industrial challenge for which the industry is actively seeking solutions from the research community <ref type="bibr" target="#b18">[20]</ref>. In aviation, the problem was dubbed as "one-out-of-m" problem <ref type="bibr" target="#b22">[24]</ref> because the current industry practice is to disable all but one core as recommended by the Federal Aviation Administration (FAA) for certification, which requires evidence of bounded interference <ref type="bibr" target="#b10">[12]</ref>.</p><p>Prior efforts to address the timing predictability problem have been largely based on the two basic ideas: (1) designing simpler time-predictable architectures and (2) partitioning shared resources. Unfortunately, simpler architectures tend to trade-off too much performance in favor of predictability, which we can no longer afford. Partitioning shared resources improves predictability but cannot guarantee tight worst-case timing in high-performance multicore architectures because there are too many important but unpartitionable shared resources <ref type="bibr" target="#b47">[49]</ref>. Moreover, not only partitioning generally reduces efficiency and maximum achievable performance, but also it is very difficult to partition properly for parallel tasks, while many emerging real-time workloads, such as deep neural network (DNN) <ref type="bibr" target="#b7">[9]</ref>, <ref type="bibr" target="#b33">[35]</ref>, are highly parallel.</p><p>In this paper, we present RT-Gang: a novel real-time gang scheduling framework that can efficiently and predictably utilize modern high-performance multicore architectures for safety-critical real-time systems. We focus on supporting emerging parallel real-time workloads, such as DNN-based real-time sensing and control tasks <ref type="bibr" target="#b7">[9]</ref>, <ref type="bibr" target="#b33">[35]</ref>, while also supporting legacy single-threaded real-time applications. Our key observation is that, from the worst-case execution time (WCET) standpoint, scheduling one parallel real-time task at a time is better than co-scheduling multiple parallel real-time tasks, because the latter case must assume highly pessimistic WCETs on multicore architecture (see Section II).</p><p>In RT-Gang, all threads of a parallel real-time task form a real-time gang and the scheduler globally enforces a one-gangat-a-time scheduling policy to guarantee tight and accurate task WCET. Assuming all real-time tasks are parallelized and each parallel task can fully take advantage of all the available computing resources on the platform, this one-gang-at-a-time approach essentially renders parallel real-time task scheduling on multicore into the well-understood single-core real-time scheduling problem <ref type="bibr" target="#b39">[41]</ref>. The most significant benefit of this transformation is that we no longer need to worry about shared resource interference because all scheduled threads are part of a single real-time task and that resource sharing is constructive rather than destructive in this setting. Assuming the WCET of a parallel real-time task is estimated in isolation, RT-Gang guarantees that the WCET will be respected regardless of other tasks on the system. Furthermore, we can apply wellunderstood single-core based real-time task scheduling poli-cies and analysis methodologies <ref type="bibr" target="#b2">[4]</ref>, <ref type="bibr" target="#b25">[27]</ref>, <ref type="bibr" target="#b43">[45]</ref> without making strong assumptions on the underlying multicore architectures. Assuming all real-time tasks are perfectly parallelized is, however, unrealistic. Many real-time tasks are difficult or impossible to parallelize. Also, parallelized code often does not scale well. Therefore, our one-gang-at-a-time policy can significantly under-utilize computing resources when imperfectly parallelized or single-threaded real-time tasks are scheduled one-at-a-time. We address the potential resource underutilization problem in the following two ways.</p><p>First, we introduce the notion of a virtual gang. We define a virtual gang task as a group of real-time tasks that are explicitly linked and scheduled together as if they are threads of a single parallel real-time task under our gang scheduler. Although real-time tasks in a virtual gang could interfere with each other, because the members of a gang are statically determined at design time, analyzing their WCET impacts, while not the focus of this paper, is easier under RT-Gang (e.g., via measurement).</p><p>Second, we allow co-scheduling of best-effort tasks on any of the available idle system cores but with a condition that the cores are strictly regulated by a memory bandwidth throttling mechanism <ref type="bibr" target="#b51">[53]</ref>. Each real-time gang defines its tolerable maximum memory bandwidth, which is then strictly enforced by the throttling mechanism to ensure bounded interference to the real-time gang task.</p><p>We implement RT-Gang in Linux kernel and evaluate it on two representative embedded multicore platforms, NVIDIA Jetson TX-2 and Raspberry Pi 3, using both synthetic and realworld workloads. The results show that RT-Gang dramatically improves system predictability while the measured overhead is negligible.</p><p>In summary, we make the following contributions:</p><p>• We propose RT-Gang, a novel gang scheduling framework that enables analyzable parallel real-time scheduling on multicore platforms. • We introduce the virtual gang concept to minimize resource utilization by statically grouping multiple realtime tasks as a single schedulable real-time gang. • We further improve efficiency by integrating a state-ofthe-art memory bandwidth throttling framework to enable safe best-effort task execution on any existing idle cores. • We implement RT-Gang in Linux kernel and present its evaluation results on two different embedded platforms using both synthetic and real-world workloads. We also provide RT-Gang as open-source <ref type="bibr" target="#b0">[2]</ref>.</p><p>The rest of this paper is organized as follows: We present a motivating case-study in Section II. In Section III, we present the design of RT-Gang, and in Section IV, we describe its implementation details in Linux. In Section V, we present our evaluation results. After discussing potential use-cases and related work in Section VI and Section VII, respectively, we conclude in Section VIII. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. MOTIVATION</head><p>In this section, we provide evidence that shows why scheduling one real-time gang at a time can be better from the perspective of task WCETs through a case-study.</p><p>In this case-study, we use a deep neural network (DNN) based real-time control task of DeepPicar <ref type="bibr" target="#b5">[7]</ref> as our workload. The control loop uses a single deep neural network (DNN) to produce the car's steering angle control output from raw images of the car's front-facing camera in real-time. Importantly, its DNN architecture is the same as the one used in NVIDIA's real self-driving car called DAVE-2 <ref type="bibr" target="#b7">[9]</ref>.</p><p>Note that DNN processing is highly compute and data intensive, which is thus often parallelized to improve performance. Figure <ref type="figure">1</ref>(a) shows the average execution times of the control loop while varying the number of CPU cores used on a quadcore embedded platform (Raspberry Pi 3). It can be seen that as we assign more cores for DNN processing, the performance improves-from 46.30 ms on a single core to 22.86 ms on four cores. If the real-time requirement is 30Hz, one might want to parallelize the DNN using two cores, while co-scheduling other tasks on the other two remaining cores.  The interesting, and troubling, observation is that the two tasks experience dramatically different timing impact: the DNN control task suffers 10.33X slowdown, while the memory benchmark suffers only 1.05X slowdown.</p><p>For safety-critical real-time systems, this means that extremely pessimistic task WCETs must be assumed to be safe. The potential timing impact of interference highly depends on task's memory access patterns and the underlying hardware. For example, we observed more than 100X slowdown (two orders of magnitudes) using a linked-list iteration task on the same computing platform used above, even after we partition core as well as the shared cache among the tasks. Similar degrees of timing impacts of interference have been reported in recent empirical studies on contemporary embedded multicore platforms <ref type="bibr" target="#b5">[7]</ref>, <ref type="bibr" target="#b6">[8]</ref>, <ref type="bibr" target="#b47">[49]</ref>, <ref type="bibr" target="#b48">[50]</ref>, <ref type="bibr" target="#b53">[55]</ref>.</p><p>When a task's WCET has to be assumed 10X or 100X its solo execution time, we can see why in aviation industry, it makes perfect sense to disable all but one core <ref type="bibr" target="#b22">[24]</ref> and why the certification authorities in US and Europe recommend it for certification <ref type="bibr" target="#b9">[11]</ref>, <ref type="bibr" target="#b10">[12]</ref>. However, disabling cores obviously defeats the purpose of using multicore platforms in the first place-the need of more performance.</p><p>In our DNN control-task case-study above, a better approach is to use all four cores just for the parallelized DNN processing task-without co-scheduling-which would result in quicker completion of the control task. More importantly, because there would be no other competing co-scheduled tasks, there's no need to pessimistically estimate the task's WCET. This, in turn, will achieve better overall schedulability.</p><p>In this sense, from the WCET standpoint, scheduling fully parallelized tasks one-at-a-time might be better than coscheduling multiple of them at the same time. Generally applying this approach, however, has two major issues. First, not all real-time tasks can be easily parallelized. Second, parallelization often does not scale due to synchronization and other overheads. Therefore, the danger is that some cores may be under-utilized under the one-at-a-time scheduling policy.</p><p>In summary, we have made a case why, from the WCET standpoint, scheduling one parallel real-time task at a time can be better than co-scheduling multiple parallel tasks simultaneously, although possible under-utilization of the computing resources is a concern.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. RT-GANG</head><p>In this section, we describe the design of RT-Gang.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Assumptions and Objectives</head><p>We consider a shared memory based multicore processor. We assume a hierarchical OS scheduling framework in which real-time tasks are strictly prioritized over best-effort tasks (e.g., Linux). We assume that each task is composed of one or more threads. We assume that the thread to core assignment of each parallel real-time task, but not best-effort ones, is given and fixed (i.e., no migration). We assume that the WCET of each real-time task is either experimentally measured or analytically computed (e.g., <ref type="bibr" target="#b40">[42]</ref>) in isolation.</p><p>Our objective is to eliminate the need to analyze interference between the real-time tasks on a multicore platform by turning multicore parallel real-time scheduling into an equivalent of single-core real-time task scheduling, while minimizing potential utilization loss.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Design Overview</head><p>RT-Gang is based on a simple idea: schedule one real-time task-parallel or not-at a time. When a real-time task is released, all of its threads, called a gang, shall be scheduled all at once-if the task is the highest priority one-or not at all-if the task's priority is lower than the currently scheduled real-time task-even if there exist some idle cores. In other words, we implement a version of gang scheduler, but unlike prior gang scheduler designs <ref type="bibr" target="#b15">[17]</ref>, <ref type="bibr" target="#b17">[19]</ref>, <ref type="bibr" target="#b20">[22]</ref>, we do not allow co-scheduling of other real-time tasks even when there are available idle cores. We do allow, however, co-scheduling besteffort tasks with strictly imposed limits on their allowed memory access rates by integrating an existing memory bandwidth throttling mechanism <ref type="bibr" target="#b1">[3]</ref>, <ref type="bibr" target="#b51">[53]</ref>.</p><p>In our approach, each real-time task declares its maximum allowed interfering memory traffic from the best-effort tasks on different cores, which is then enforced by the OS at runtime for the cores that schedule best-effort tasks, if such cores exist. In this way, the parallel real-time task, a real-time gang, is  guaranteed to be able to use all available computing resources, and the maximum interference is strictly limited to a certain threshold value, determined by the task itself in advance. If the real-time gang needs maximum isolation, it can set its interference threshold value to be zero, preventing any coscheduling of best-effort tasks. Figure <ref type="figure" target="#fig_1">2</ref> shows an example schedule under RT-Gang framework. In this example, three real-time tasks t 1 , t 2 , and t 3 (in increasing priority) are scheduled. The task t 1 has four threads, while t 2 and t 3 have three threads and one thread, respectively.</p><p>At first, t 1 is scheduled. When t 2 is released, it preempts t 1 because it has higher priority. Note that even if Core 3 and 4 are idle at the time, t 1 cannot use the cores. When t 3 , a single-threaded task, becomes ready, all cores except Core 3 become idle to guarantee that t 3 is the only real-time task in the entire system. In this way, our real-time gang scheduler strictly enforces the one real-time gang at a time policy.</p><p>Note that the dot-filled rectangles are slack-durations during which best-effort tasks can be scheduled, using a general purpose scheduler, such as Linux's Completely Fair Scheduler (CFS) <ref type="bibr" target="#b31">[33]</ref>, but they will be throttled based on each real-time task's declared tolerable threshold value.</p><p>RT-Gang's design approach offers several major benefits. First, by scheduling one real-time gang at a time, we no longer need to worry about interference from other real-time tasks. Possible interference from best-effort tasks is strictly regulated by the threshold value determined by the task itself. Thus, we can obtain accurate WCET of a real-time task (e.g., measure the timing while injecting the threshold amount of memory traffic). Also, as shown in <ref type="bibr" target="#b35">[37]</ref>, we can obtain better analytic memory interference bounds when we control the amount of competing memory traffic. In other words, we no longer need to deal with highly pessimistic 10X or 100X WCETs. An equally desirable aspect of this approach is that it renders the problem of scheduling parallel real-time tasks on multicore as the simple, well-understood classical real-time scheduling problem on single-core systems <ref type="bibr" target="#b25">[27]</ref>, <ref type="bibr" target="#b43">[45]</ref>. Thus, we can directly apply classical single-core analysis methods <ref type="bibr" target="#b2">[4]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Virtual Gang</head><p>Our basic real-time gang scheduling approach described above would work well when all real-time tasks are perfectly parallelized, but it may under-utilize the system if real-time tasks are single-threaded and best-effort tasks are not available. Furthermore, some of them may miss the deadlines, while they might be schedulable if all cores are used.</p><p>We propose the virtual gang concept to mitigate the resource under-utilization problem of imperfectly parallelized real-time tasks under our gang scheduling policy. We define a virtual gang as a group of real-time tasks that are explicitly linked and scheduled together as if they are threads of a single real-time task under our gang scheduler. A virtual gang task has a fixed priority value that applies to all of its members. From the gang scheduler's point of view, a virtual gang is just like a normal real-time task, except the scheduled threads are not from the same task but from multiple different tasks. The composition of a virtual gang must be explicitly determined by the system designer at design time. Once a real-time task becomes a member of a virtual gang, all of its threads are scheduled simultaneously with the threads of the other member real-time tasks of the virtual gang. Figure <ref type="figure" target="#fig_2">3</ref> shows two example schedules involving a virtual gang t g , which consists of three separate real-time tasks: t 1 , t 2 and t 3 . Note that t 1 and t 2 are single-threaded while t 3 is multi-threaded but only two threads are used. All real-time tasks in the virtual gang t g share the same priority. Therefore, from the scheduler's point-of-view, all threads of the three tasks are treated as a single (virtual) real-time task t g , the virtual gang task. For instance, in inset (a) of Figure <ref type="figure" target="#fig_2">3</ref>, a newly arrived task t 4 cannot be scheduled until t 1 's last thread is completed because t g 's priority is higher than t 4 . In inset (b), on the other hand, t 4 immediately preempts all active threads of the virtual gang t g , because t g 's priority is lower than t 4 's.</p><p>Although the real-time tasks in a virtual gang can destructively interfere with each other, their membership is explicitly determined at the design time. Therefore, the effect of shared  </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Safe Best-Effort Task Co-Scheduling</head><p>Because our real-time gang scheduling approach strictly disallows concurrent real-time tasks, which are not part of the currently scheduled real-time gang, it is possible that some cores may be idle. As we discussed earlier, we allow scheduling of best-effort tasks on those idle cores with a condition that their interference is strictly bounded by integrating a memory bandwidth throttling mechanism as found in <ref type="bibr" target="#b51">[53]</ref>.</p><p>The throttling mechanism in <ref type="bibr" target="#b51">[53]</ref> uses per-core hardware performance counters to bound the maximum number of memory transactions within a given time interval (e.g., 1-msec period) to a certain programmable threshold (budget). When the core reaches the programmed threshold, the hardware counter generates an overflow interrupt, which is then handled by the OS to stop the core until the next time period begins.</p><p>Assuming that the currently scheduled real-time gang is actively using k cores out of m cores (k ≤ m), there are m-k idle cores on which we can schedule best-effort tasksi.e., those that do not have hard real-time requirements. The best-effort tasks scheduled on the idle cores are given strict limits in terms of their memory bandwidth usage so that their impact to the real-time gang is bounded. The bandwidth limit of the best-effort tasks is determined by the currently scheduled real-time gang in the system. When the real-time gang is being scheduled on k cores, all the mk cores are throttled according to the bandwidth threshold of the gang.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Illustrative Example</head><p>In this subsection, we provide an illustrative example to compare scheduling under RT-Gang with a traditional coscheduling approach.</p><p>Let us consider a multicore system with four homogeneous CPU cores. We want to schedule a parallel taskset, shown in Table I, in the system. τ RT 1 and τ RT 2 are real-time tasks. τ BE 3 is a best-effort task, which is scheduled under the default CFS scheduler. For the sake of simplicity, we assume that all threads of a task have the same compute time and are released simultaneously at the start of the period. We assume that all threads are statically pinned to specific CPU cores and they do not migrate during their execution. The OS scheduler tick interval is assumed to be 1-msec.</p><p>Figure <ref type="figure" target="#fig_4">4</ref>(a) shows the scheduling timeline under a traditional co-scheduling approach. For this figure, we assume completes its execution at 2-msec. This leaves 8-msec slack duration on the two cores on which this task was executing. Similarly, τ RT 2 leaves a slack duration of 6-msec on its cores. Considering the system as a whole, the total slack duration left in this schedule is 28-msec. The slack duration can be used to schedule the best-effort task τ BE 3 . Figure <ref type="figure" target="#fig_4">4</ref> finishes its execution at 2-msec mark, τ RT 2 starts executing and completes at 6-msec mark. Under this scheme, the total slack duration left in the system is again 28-msec, assuming that τ BE 3 is not throttled (i.e., its memory bandwidth usage is less than the allowed threshold). Now we consider the case where the real-time tasks can destructively interfere with each other due to resource contention. Borrowing from the DNN case-study introduced in Section II, we assume that the execution time of τ RT 1 increases 10X, when it is co-scheduled with τ RT 2 . τ RT 2 , on the other hand, stays unaffected under co-scheduling. Figure <ref type="figure" target="#fig_4">4</ref>(c) shows the scheduling timeline for this case under co-scheduling scheme.</p><p>As can be seen from the figure, while τ RT 2 is executing, the progress of τ RT 1 would be slowed due to interference. At 4-msec mark when τ RT 2 finishes its execution, τ RT 1 has only made 20% progress and it still has 1.6-msec of its original compute time left. For this reason, τ RT 1 completes its execution at 5.6-msec. In this case, the total slack duration for besteffort tasks is 20.8-msec.</p><p>Under RT-Gang, the scheduling timeline of the real-time tasks remains the same as the one shown in Figure <ref type="figure" target="#fig_4">4</ref>(b) because τ RT 1 and τ RT   2   can never run at the same time. In other words, regardless of task and hardware characteristics, realtime tasks' execution times would remain the same. The slack duration remains unchanged as well, which can be utilized for scheduling best-effort tasks although they are strictly regulated with a memory bandwidth throttling mechanism, shown as the "locked" duration in Figure <ref type="figure" target="#fig_7">4(b)</ref>.</p><p>In summary, the major benefits of RT-Gang are: (1) Parallel real-time tasks enjoy highly predictable task WCETs regardless of the characteristics of scheduled tasks and the underlying hardware because only one real-time task is scheduled at a time; (2) Best-effort tasks can be safely scheduled on any idle cores because the integrated throttling mechanism guarantees bounded interference.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. IMPLEMENTATION</head><p>In this section, we describe the implementation details of RT-Gang in Linux kernel.</p><p>Algorithm 1 shows the high-level pseudo-code of RT-Gang. The implementation revolves around a data-structure struct glock declared in Line-2 of the algorithm. This data-structure is used for the following main purposes:</p><p>• Quickly check whether the gang scheduling lock is currently being held (held flag) • Track the cores, which are currently running real-time threads using a bitmask (locked cores) • Track the blocked cores, which have real-time tasks in their queues but cannot execute them due to the gang scheduling policy (blocked cores) To simplify the implementation complexity, we assume that each real-time gang in our system has a distinct real-time priority value. In the following sections, we explain the main parts of the algorithm in detail.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Gang Lock Acquisition</head><p>Before a real-time task can get scheduled, it needs to acquire the gang scheduling lock. Algorithm 2 shows the pseudo-code of the lock acquisition function. In this function, the gangscheduling lock is marked as held by setting the flag in the global glock data-structure. The CPU core on which this function is invoked, is marked "locked" by setting its bit inside the locked_cores bitmask. The task that acquires the gang lock is marked as the gang-leader and its task pointer is tracked inside an array, which is later used at the time of lock release. condition is true, the current CPU core is marked as unlocked, by clearing its bit from the locked_cores bitmask.</p><p>The next condition checked in this function is to make sure if all of the threads belonging to current gang have finished their execution, which would imply that the gang-lock is now free. This is done by checking if the locked_cores bitmask is zero. If this is the case, the gang-scheduling lock is marked free and rescheduling inter-processor interrupt (IPI) is sent to the CPU cores, which have blocked real-time tasks in their ready queues by using the blocked_cores bitmask. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Gang Preemption</head><p>The purpose of this function is to preempt all threads, which are part of the currently running gang, so that a new higher priority gang may start its execution. The pseudo-code of this function is shown in Algorithm 4. In this function, the locked_cores bitmask is traversed to send rescheduling IPIs to all the cores, which are currently marked as locked. Once this is done, the locked_cores bitmask is cleared and the threads being tracked in the gthreads array are removed. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Main Gang Scheduling Algorithm</head><p>The gang-scheduling algorithm resides in the critical path of the main scheduler entry point function (__schedule) in Linux and it works by modifying the task selection heuristics of the real-time scheduling class.</p><p>Algorithm 1 shows the main scheduling function of RT-Gang. The algorithm starts by checking whether gangscheduling lock is currently being held by any real-time task.</p><p>If that is the case, the algorithm tries to release the gangscheduling lock on behalf of the prev task which is going out of schedule (Line-11).</p><p>If the gang-scheduling lock is currently free, the algorithm acquires the lock on the current core on behalf of the next real-time task (Line-13).</p><p>If the lock is currently not free, the algorithm checks whether the next real-time task on this CPU core belongs to the same gang that is holding the gang-scheduling lock (Line-14). Here, we exploit the fact that each real-time gang has a distinct priority as mentioned earlier this section. Hence, if the next task and the gang leader task have the same real-time priority value, they are considered a part of the same gang. In this case, the current core is marked "locked" by setting its bit in the locked_cores bitmask (Line-15).</p><p>If the lock is not free and the next real-time task does not belong to the currently executing gang, it is checked whether this task has a higher priority than the gang in execution (Line-16). If that is the case, the currently executing gang is preempted and the gang-scheduling lock is acquired on behalf of the next task (Line-17).</p><p>If all of the above conditions fail-i.e., the gang-scheduling lock is not free, the next real-time task does not belong to the currently executing gang, and it is of lower priority, then the next task is deemed ineligible for scheduling. In this case, the current CPU core is marked as blocked by setting its bit in the blocked_cores bitmask (Line-19) and the next task pointer is set to null so that no real-time task is returned to the scheduler by the real-time scheduling class.</p><p>Finally, the spinlock is released (Line-20) and control is returned to the scheduler (Line-21); to either schedule the next real-time task (if any) or go to the next scheduling class (CFS) to pick a best-effort task.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Creation of Virtual Gangs</head><p>In our implementation of RT-Gang in Linux, creation of virtual gang tasks is straight-forward. Because each real-time gang task has a distinct real-time priority in our system, the only thing that a system programmer has to do to mark different real-time tasks as part of the same virtual gang, is to assign them the same real-time priority value under Linux. Once this is done, RT-Gang framework allows simultaneous execution of such tasks just like real gangs.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>F. Memory Bandwidth Throttling of Best-Effort Tasks</head><p>We incorporated a memory bandwidth throttling framework based on <ref type="bibr" target="#b51">[53]</ref> in RT-Gang. This framework provides system programmers with a system-call; to mark the entire duration of a real-time application as memory bandwidth sensitive (i.e., Coarse-Lock). We update this system call such that instead of providing a binary value to start/stop throttling, the caller provides the acceptable memory threshold value for the realtime gang in execution. This value is stored in the task structure of the RT-Gang leader as an integer. We also modify the framework in <ref type="bibr" target="#b51">[53]</ref> such that in every regulated interval, the memory bandwidth threshold value of the executing gang is automatically enforced on all CPU cores executing best-effort tasks. In this manner, we ensure that the real-time gang is protected from unbounded interference from best-effort tasks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EVALUATION</head><p>In this section, we present the evaluation results of RT-Gang.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Setup</head><p>We evaluate RT-Gang on two embedded platforms: Raspberry Pi3 and NVIDIA Jetson TX2. Raspberry Pi3 is equipped with a Cortex-A53 based quad-core CPU, which is representative of an energy efficient low-cost embedded multicore processor, while NVIDIA Jetson TX2 is equipped with a sixcore heterogeneous CPU (4X Cortex-A57 and 2X Denver<ref type="foot" target="#foot_2">1</ref> ), which is representative of a high-end embedded processor.</p><p>On both platforms, we use Linux 4.4 kernel and implement RT-Gang by modifying its real-time scheduler (kernel/sched/rt.c). Our modification is about 500 lines of architecture neutral C code.</p><p>In all our experiments, we place the platform in the maximum performance mode and disable the dynamic frequency scaling of CPU cores. We also shutdown the graphical user interface and disable networking to minimize run to run variation in the experiments.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Synthetic Workload</head><p>In this experiment, we show the benefits of RT-Gang using a synthetic taskset on Raspberry Pi3. The taskset is composed of two periodic multi-threaded real-time tasks (τ 1 and τ 2 ) and two single-threaded best-effort tasks (τ BE mem and τ BE cpu ). Using this taskset, we explore task execution time impacts to the realtime tasks and throughput impacts to the best-effort tasks.</p><p>We use a modified version of the BwRead benchmarkwhich sequentially accesses a 1-D array of a chosen sizefrom the IsolBench <ref type="bibr" target="#b47">[49]</ref> benchmark suite to construct the taskset<ref type="foot" target="#foot_3">2</ref> . Concretely, τ 1 creates two threads and is configured to use three quarters of the last-level cache size (384KB out of 512KB L2 cache of the Pi 3) as its working-set (which is shared between the two threads). It is periodically released at a 20ms interval and each job takes about 3.5ms in isolation. Similarly, τ 2 is also a dual-threaded periodic real-time task with the same working-set size (384KB), but differs in its period (30 ms) and job execution times (6.5ms in isolation). We set the priority of τ 1 higher than that of τ 2 , and schedule τ 1 on Core 0,1 and τ 2 on Core 2,3 (pinned using CPUSET interface).</p><p>Note that τ 1 and τ 2 are scheduled by SCHED FIFO realtime scheduler with and without RT-Gang enabled<ref type="foot" target="#foot_4">3</ref> . On the other hand, τ BE mem and τ BE cpu are both single-threaded besteffort tasks, which are scheduled by the CFS scheduler <ref type="bibr" target="#b31">[33]</ref>; they differ in that τ BE mem 's working-set size is two times bigger than the L2 cache size, while τ BE cpu 's working-set is smaller than the core's private L1 cache size. Thus, τ BE mem may cause interference to co-scheduled real-time tasks (if any) on different cores, due to contention in the shared L2 cache, while τ BE cpu may not. We collect the execution traces of the taskset without and with RT-Gang for a duration of 10 seconds using the trace-cmd and KernelShark <ref type="bibr" target="#b36">[38]</ref>.</p><p>Figure <ref type="figure" target="#fig_8">5</ref> shows the execution traces. In inset (a), during the first 20 msec duration, τ 1 and τ 2 were overlapped with each other, which resulted in significant job execution time increase for both tasks because their working-sets could not fit into the shared L2 cache simultaneously. During the next 20 msec duration, although τ 1 and τ 2 did not overlap, τ 1 was overlapped with the two best-effort tasks, τ BE mem and τ BE cpu , which also resulted in a significant increase in τ 1 's job execution time (albeit to a lesser degree).</p><p>In inset (b), on the other hand, RT-Gang almost completely eliminates job execution time variance. In the first 20 msec duration, τ 1 is overlapped with the two best-effort tasks. However, τ BE mem (the memory intensive one) was throttled most of the time, which protected the execution time of τ 1 . At around 40ms in the timeline, τ 1 preempted τ 2 , the real-time task. In place of τ 2 , two best-effort tasks were scheduled, of which τ BE mem was again throttled as per τ 1 's specified memory bandwidth threshold setting.</p><p>Note that in RT-Gang, the execution times of τ 1 is deterministic. Furthermore, τ 2 is also highly predictable as we only need to consider the preemption by the higher priority τ 1 , according to the classic response time analysis (RTA) <ref type="bibr" target="#b2">[4]</ref>. Furthermore, because the two real-time tasks do not experience significant execution time increases, there are more "slacks" left for the best-effort tasks-compared to without using RT-Gang in inset (a)-which improves throughput of the besteffort tasks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. DNN Workload</head><p>To establish the practicality of RT-Gang for real-world safety critical applications, we used the DNN workload introduced in Section II and executed it under different configurations on Raspberry Pi3 and NVIDIA Jetson TX2, with and without RT-Gang. The Cortex-A53 cores in Raspberry Pi-3 are much less capable than the four Cortex-A57 cores in Jetson TX2 platform. Moreover, the memory system in Raspberry Pi3 offers significantly less bandwidth than the one in Jetson TX2. Consequently, co-scheduled workloads in Raspberry Pi-3 are much more prone to the negative effects of resource contention. By evaluating RT-Gang on these two disparate platforms, we demonstrate its applicability to the range of embedded devices available today.</p><p>The taskset parameters for this experiment are shown in Table <ref type="table" target="#tab_5">II</ref>. First, we use a multi-threaded DNN application as the high priority periodic real-time task (τ RT dnn(c) where c denotes the number of cores used). The period of DNN inference operation is selected to keep the per-core utilization of DNN threads close to 45%. Second, as a lower priority real-time task, we use a periodic multi-threaded BwWrite benchmark (τ RT bww ). The working set size of BwWrite was chosen to be twice the size of LLC in each platform so as to stress memory subsystem (due to cache misses). The compute time (C) of BwWrite is selected to keep its per-core utilization less  than 50% in all experiments. Lastly, we use two benchmarks from Parboil suite <ref type="bibr" target="#b44">[46]</ref>, lbm (τ BE lbm ) and cutcp, (τ BE cutcp )) as best-effort tasks, which represent memory and CPU intensive parallel OpenMP applications respectively.</p><p>We vary the thread count (= # of assigned CPU cores) of the DNN task while keeping the thread count of τ RT bww and the best-effort tasks (τ BE lbm and τ BE cutcp ) fixed at four. For the experiment, we first measure the performance of τ RT dnn(c) in isolation, then co-scheduled with the rest of the taskset on baseline Linux, and finally using RT-Gang.</p><p>Figure <ref type="figure" target="#fig_9">6</ref> shows the cumulative distribution function (CDF) of the per-frame DNN inference time in each configuration (Solo: alone in isolation, Co-Sched: co-scheduled under baseline Linux, RT-Gang: co-scheduled under RT-Gang enabled Linux). Note first that execution times of the DNN task vary significantly under the co-scheduling scheme (Co-Sched). On Raspberry Pi3, the WCET across all configurations is more than 2X of its solo WCET. On TX2, the co-scheduling graphs again show deteriorated performance, albeit to a lesser extent than Raspberry Pi3.</p><p>Under RT-Gang, on the other hand, the execution times of the DNN workload are highly deterministic and match closely with its solo execution times in all tested configurations on both platforms. On Raspberry Pi3, however, although DNN's performance is deterministic (i.e., low variance), noticeable performance constant increase is observed under RT-Gang when compared to the solo execution of the DNN task. We believe that this is caused by Cache Related Preemption Delay (CRPD) <ref type="bibr" target="#b24">[26]</ref>, as the memory system of Raspberry Pi3 is significantly less powerful than that of Jetson TX2.</p><p>Note that taking CRPD into analysis is well known in the context of single-core processors, but its applications have been difficult in multicore due to cache contention among the co-scheduled tasks on different cores, as shown in the CDF plots of Co-Sched. The determinism that RT-Gang brings thus make CRPD analysis valid on multicore processors again, enabling effective timing analysis.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Overhead</head><p>There are two main sources of overhead in our implementation of RT-Gang: 1) The serialization overhead associated with the critical section of our gang scheduling algorithm in selecting next real-time task. 2) The overhead involved in sending cross-core interrupts (IPIs) and acquiring ready-queue locks for gang preemption.</p><p>The serialization overhead of RT-Gang is only incurred during the selection of real-time tasks due to the use of a spinlock. However, the length of the critical section of RT-Gang is small-comparable to existing spinlocks used in the various parts of the Linux kernel scheduler. On the other hand, the overhead associated with gang-preemption due to the IPIs can pose a scalability problem as the number of necessary IPIs can be as many as all the rest of the cores.</p><p>In order to estimate both these overheads, we conducted an experiment on the NVIDIA Jetson TX2 platform in which a high priority real-time gang preempts a multi-threaded low priority real-time gang, a fixed number of times (100000), with and without RT-Gang. We also varied the number of threads of the low priority gang to see the effect of gang size on the gang preemption overhead. The result from this experiment is shown in Table <ref type="table" target="#tab_7">III</ref>  As can been seen from the table, RT-Gang adds very small overhead to the overall cost of a context-switch under Linux; considering the fact that for a well-designed system, a context-switch is not supposed to happen too frequently. The findings from this experiment also match the results seen during evaluation with DNN workloads; in which, we saw that the performance of these workloads remain completely unaffected under RT-Gang.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. DISCUSSION</head><p>In this section, we briefly discuss potential use-cases of RT-Gang. We believe that our simple design and practical implementation leveraging existing real-time scheduler in Linux offer broader practical use-cases in many application domains that concern timing predictability and need to run parallelized multi-thread applications. Time critical parallel real-time applications in automotive and aviation domains (e.g., perception and control applications in a self-driving car) are our main target use-cases. Also, barrier based scientific applications in high-performance computing (HPC) can potentially benefit from using RT-Gang as they are sensitive to thread imbalance, and thus motivated original gang scheduling research <ref type="bibr" target="#b16">[18]</ref> in the first place. Although we mainly target embedded multicore processors (typically having 4-8 cores) in this work, we recently were able to apply our RT-Gang kernel patch on a 12 hardware thread (6 core) x86 PC, successfully performing gang scheduling across the 12 hardware threads. Effectiveness and scalability of RT-Gang in other application domains, such as HPC, is left as future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. RELATED WORK</head><p>Parallel Real-Time Scheduling. Parallel real-time tasks are generally modeled using one of following three models: Forkjoin model <ref type="bibr" target="#b11">[13]</ref>, <ref type="bibr" target="#b23">[25]</ref>, <ref type="bibr" target="#b32">[34]</ref>, <ref type="bibr" target="#b38">[40]</ref>, dag model <ref type="bibr" target="#b4">[6]</ref>, <ref type="bibr" target="#b37">[39]</ref> and gang task model <ref type="bibr" target="#b15">[17]</ref>, <ref type="bibr" target="#b17">[19]</ref>, <ref type="bibr" target="#b20">[22]</ref>. In the fork-join model, a task alternates parallel (fork) and sequential (join) phases over time. In the dag model, a task is represented as a directed acyclic graph with a set of associated precedence constraints, which allows more flexible scheduling as long as the constraints are satisfied. Lastly, in the gang model, a task is simply represented with an execution time e and a number of cores k it needs to run. While most simple among the three, it matches well with real-world parallel applications where users or scheduler selects the number of threads an application might use at the start time, which is also the case in DNN workload we used in Section II.</p><p>Our one-gang-at-a-time scheduling policy is essentially a restrictive form of gang scheduling <ref type="bibr" target="#b16">[18]</ref>. In traditional gang scheduling, all threads of an application are scheduled simultaneously, and more than one application is allowed to be scheduled as long as there are available cores. In contrast, our approach is restrictive in the sense that such co-scheduling is not allowed. Gang scheduling was originally studied in highperformance computing as a way to maximize performance of parallel applications <ref type="bibr" target="#b16">[18]</ref> or virtual machine scheduling <ref type="bibr" target="#b12">[14]</ref>. More recently, gang scheduling was investigated as a way to improve security <ref type="bibr" target="#b42">[44]</ref>, by preventing simultaneously coscheduling different security domains, similar to our onegang-at-a-time policy, but it was implemented in Linux's CFS scheduler and thus does not support real-time task scheduling.</p><p>In the real-time systems community, fixed-priority and dynamic priority real-time versions of gang scheduling policies, namely Gang FTP and Gang EDF, respectively, are studied and analyzed <ref type="bibr" target="#b15">[17]</ref>, <ref type="bibr" target="#b17">[19]</ref>, <ref type="bibr" target="#b20">[22]</ref>. However, these prior real-time gang scheduling policies also allow co-scheduling of multiple gangs as long as there exist available cores because they mainly focus on CPU utilization, without considering the negative WCET impact of co-scheduling on shared memory multicore platforms. Also, to the best of our knowledge, these real-time gang scheduling policies were not implemented in Linux (or in any other commercial OSes). Our work is, to the best of our knowledge, the first real-time gang scheduler implementation in Linux, which implements a fixed-priority real-time gang scheduling, enforcing the one-gang-at-a-time policy. Furthermore, we enable safely co-scheduling best-effort tasks, by integrating an OS-level throttling mechanism <ref type="bibr" target="#b51">[53]</ref>, to improve system utilization when there are best-effort tasks-a common situation in practice.</p><p>Real-Time Scheduling in Linux. A number of efforts in the real-time systems community have been aimed at improving real-time scheduling in Linux. For example, LIT M U S RT <ref type="bibr" target="#b8">[10]</ref> developed a set of global, partitioned, and semi-partitioned real-time schedulers, outside of the existing Linux's real-time scheduler; ChronOS Linux developed global and local scheduling layers built on top of Linux's O(1) scheduler <ref type="bibr" target="#b13">[15]</ref>. In contrast, RT-Gang is developed as an extension (a feature) of Linux's default real-time scheduler that enforces a simple invariant-one real-time gang across all cores-otherwise respecting standard fixed-priority realtime scheduling, and does not maintain its own scheduling queues, unlike the aforementioned two prior implementations. We believe our design is simpler and easier to maintain in the face of rapid change in Linux kernel.</p><p>OS-level Shared Resource Partitioning. Many researchers have attempted to make COTS multicore platforms to be more predictable with OS-level techniques. A majority of prior works focused on partitioning of shared resources among the tasks and cores to improve predictability. Page coloring has long been studied to partition shared cache <ref type="bibr" target="#b14">[16]</ref>, <ref type="bibr" target="#b21">[23]</ref>, <ref type="bibr" target="#b27">[29]</ref>, <ref type="bibr" target="#b28">[30]</ref>, <ref type="bibr" target="#b41">[43]</ref>, <ref type="bibr" target="#b49">[51]</ref>, <ref type="bibr" target="#b50">[52]</ref>, <ref type="bibr" target="#b54">[56]</ref>, DRAM banks <ref type="bibr" target="#b29">[31]</ref>, <ref type="bibr" target="#b46">[48]</ref>, <ref type="bibr" target="#b52">[54]</ref>, and TLB <ref type="bibr" target="#b34">[36]</ref>. Some COTS processors <ref type="bibr" target="#b19">[21]</ref>, <ref type="bibr" target="#b30">[32]</ref> support cache-way partitioning <ref type="bibr" target="#b45">[47]</ref>. Mancuso et al. <ref type="bibr" target="#b30">[32]</ref> and Kim et al. <ref type="bibr" target="#b22">[24]</ref>, used both coloring and cache way partitioning for fine-grained cache partitioning. While these shared resource partitioning techniques can reduce space conflicts of some shared resources, hence beneficial for predictability, but they are not enough to guarantee strong time predictability on COTS multicore platforms because there are too many hardware resources (e.g., cache MSHRs, DRAM controller buffers, etc.) that have profound impact on task timing <ref type="bibr" target="#b47">[49]</ref>, but are unpartitionable and out of control of software. Moreover, majority of them are mainly aimed at partitioning between single-threaded real-time tasks. When multiple parallel tasks are co-scheduled, however, finding a right partitioning strategy is challenging due to the differing effects of resource sharing depending on the nature of the co-scheduled threads.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. CONCLUSION</head><p>We presented RT-Gang: a novel real-time gang scheduling framework for predictable and efficient parallel real-time scheduling on multicore.</p><p>RT-Gang implements a novel gang scheduling policy that eliminates inter-task interference by enforcing an invariant that only one (parallel) real-time task (gang) can be scheduled at any given time. This enables tighter task WCET estimation and simpler schedulability analysis. RT-Gang also provides additional mechanisms, namely virtual gang and best-effort task throttling, which can help maximize system utilization while providing strong time predictability to real-time tasks.</p><p>We implemented RT-Gang in Linux and evaluated it on two embedded multicore platforms. The evaluation results show the predictability and efficiency benefits of RT-Gang. In future, we plan to extend our RT-Gang approach to heterogeneous multicore platforms.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head></head><label></label><figDesc>Fig. 1: (a) Average control loop execution time vs. #of CPU cores; (b) performance impact of co-scheduling (DNN on Core 0,1; BwWrite, a memory benchmark [49], on Core 2,3)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Proposed real-time gang scheduling approach</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: Virtual gang scheduling example</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: Example schedules under different scheduling schemes</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head></head><label></label><figDesc>(b) shows the scheduling timeline under RT-Gang. Under this schedule, τ RT 1 gets to run first. While τ RT 1 is executing, τ RT 2 is blocked thanks to our one-gang-at-a-time policy. Once τ RT 1</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Algorithm 3 :</head><label>3</label><figDesc>Gang Scheduling: Lock Release 1 function try_glock_release(task struct t * prev) 2 for each locked core (cpu, glock→locked cores) 3 if (gthreads [cpu] == prev) then 4 clear bit (cpu, glock→locked cores); gthreads [cpu] = null; if (mask is zero (glock→locked cores)) then 5 glock→held flag = false; reschedule cpus (glock→blocked cores); clear mask (glock→blocked cores); 6 return</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Algorithm 4 :</head><label>4</label><figDesc>Gang Scheduling: Gang Preemption 1 function do_gang_preemption() 2 for each locked core (cpu, glock→locked cores) 3 gthreads [cpu] = null; 4 reschedule cpus (glock→locked cores); clear mask (glock→locked cores); 5 return</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: Task execution traces. τ 1 (C 1 = 3.5, P 1 = 20), τ 2 (C 2 = 6.5, P 2 = 30): parallel RT tasks (2 threads / task); τ BE mem , τ BE cpu : memory and cpu intensive best-effort tasks respectively; kthrottle: injected kernel thread for throttling</figDesc><graphic coords="8,102.46,212.81,447.93,89.17" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Fig. 6 :</head><label>6</label><figDesc>Fig. 6: Performance of DNN inference loop under different scheduling schemes</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head>TABLE I :</head><label>I</label><figDesc></figDesc><table /><note><p>Taskset parameters of the illustrative example resource interference among the tasks in a virtual gang can be carefully analyzed, either empirically or analytically, and taken into account for system-level schedulability analysis.</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>TABLE II :</head><label>II</label><figDesc>Taskset parameters for the DNN experiment.</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_6"><head></head><label></label><figDesc>.</figDesc><table><row><cell>Scenario</cell><cell>Context Switch Cost (usec)</cell></row><row><cell>1-Thread-Lowprio (Linux)</cell><cell>6.81</cell></row><row><cell>1-Thread-Lowprio (RT-Gang)</cell><cell>7.19</cell></row><row><cell>2-Thread-Lowprio (RT-Gang)</cell><cell>7.37</cell></row><row><cell>3-Thread-Lowprio (RT-Gang)</cell><cell>7.55</cell></row><row><cell>4-Thread-Lowprio (RT-Gang)</cell><cell>7.72</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_7"><head>TABLE III :</head><label>III</label><figDesc>RT-Gang Overhead in Linux</figDesc><table /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 01:31:02 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_1"><p>return</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_2"><p>We do not use the Denver complex in our experiments due to its lack of hardware counter support needed to implement throttling mechanism<ref type="bibr" target="#b1">[3]</ref> </p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_3"><p>Our additions include support for multi-threaded and periodic task invocation. The code can be found in the IsolBench repository[1].</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_4"><p><ref type="bibr" target="#b1">3</ref> RT-Gang can be enabled or disabled at runtime via: /sys/kernel/debug/sched_features</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGEMENTS</head><p>This research is supported by <rs type="funder">NSF</rs> <rs type="grantNumber">CNS 1718880</rs>, <rs type="grantNumber">CNS 1815959</rs>, and <rs type="funder">NSA Science of Security</rs> initiative contract #<rs type="grantNumber">H98230-18-D-0009</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_2e4HxE4">
+					<idno type="grant-number">CNS 1718880</idno>
+				</org>
+				<org type="funding" xml:id="_hMnkzMq">
+					<idno type="grant-number">CNS 1815959</idno>
+				</org>
+				<org type="funding" xml:id="_M9QhHs8">
+					<idno type="grant-number">H98230-18-D-0009</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<ptr target="https://github.com/CSL-KU/RT-Gang" />
+		<title level="m">RT-Gang code repository</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Protecting Real-Time GPU Kernels on Integrated CPU-GPU SoC Platforms</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Ali</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Applying new scheduling theory to static priority preemptive scheduling</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Audsley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Richardson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wellings</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software Engineering Journal</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="284" to="292" />
+			<date type="published" when="1993">1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Building timing predictable embedded systems</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Axer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Falk</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Girault</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Grund</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Jonsson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Marwedel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Reineke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Rochange</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sebastian</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">V</forename><surname>Hanxleden</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Wilhelm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Embedded Computing Systems (TECS)</title>
+		<imprint>
+			<biblScope unit="volume">13</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="1" to="82" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">A generalized parallel task model for recurrent real-time processes</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Stougie</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wiese</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="63" to="72" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Deeppicar: A low-cost deep neural network-based autonomous car</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">G</forename><surname>Bechtel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Mcellhiney</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Denial-of-service attacks on shared cache in multicore: Analysis and prevention</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">G</forename><surname>Bechtel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">End to End Learning for Self-Driving Cars</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bojarski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">D</forename><surname>Testa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dworakowski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Firner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Flepp</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Goyal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">D</forename><surname>Jackel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Monfort</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Muller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Zieba</surname></persName>
+		</author>
+		<idno>CoRR, abs/1604.07316</idno>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">LITMUSˆRT: A Testbed for Empirically Comparing Real-Time Multiprocessor Schedulers</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">M</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><forename type="middle">C</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium, 2006. RTSS&apos;06. 27th IEEE International</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2006">2006</date>
+			<biblScope unit="page" from="111" to="126" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">CAST-32: Multi-core Processors (Rev 0)</title>
+		<author>
+			<orgName type="collaboration">Certification Authorities Software Team</orgName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Federal Aviation Administration (FAA)</title>
+		<imprint>
+			<date type="published" when="2014-05">May 2014</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Technical report</note>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">CAST-32A: Multi-core Processors</title>
+	</analytic>
+	<monogr>
+		<title level="m">Certification Authorities Software Team</title>
+		<imprint>
+			<date type="published" when="2016-11">November 2016</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Technical report</note>
+	<note>Federal Aviation Administration (FAA)</note>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Global edf schedulability analysis for synchronous parallel tasks on multicore platforms</title>
+		<author>
+			<persName><forename type="first">H</forename><forename type="middle">S</forename><surname>Chwa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K.-M</forename><surname>Phan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Easwaran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="25" to="34" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">Gang scheduling in CFS</title>
+		<author>
+			<persName><forename type="first">N</forename><forename type="middle">A</forename><surname>Dadhania</surname></persName>
+		</author>
+		<ptr target="https://lwn.net/Articles/472797/" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">ChronOS Linux: a besteffort real-time multiprocessor Linux kernel</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Dellinger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Garyali</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ravindran</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 48th Design Automation Conference</title>
+		<meeting>the 48th Design Automation Conference</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="474" to="479" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Srm-buffer: An os buffer management technique to prevent last level cache from thrashing in multicores</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Ding</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Zhang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the Sixth Conference on Computer Systems, EuroSys</title>
+		<meeting>the Sixth Conference on Computer Systems, EuroSys</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="243" to="256" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Analysis Techniques for Supporting Hard Real-Time Sporadic Gang Task Systems</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Dong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="128" to="138" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Gang scheduling performance benefits for fine-grain synchronization</title>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">G</forename><surname>Feitelson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Rudolph</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Parallel and distributed Computing</title>
+		<imprint>
+			<biblScope unit="volume">16</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="306" to="318" />
+			<date type="published" when="1992">1992</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Gang FTP scheduling of periodic and parallel rigid real-time tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Berten</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Real-Time Networks and Systems (RTNS)</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="189" to="196" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Industrial challenges: Moving from classical to high performance real-time systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Workshop on Analysis Tools and Methodologies for Embedded and Real-time Systems (WATERS)</title>
+		<imprint>
+			<date type="published" when="2018-07">July 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">Improving real-time performance by utilizing cache allocation technology</title>
+		<author>
+			<persName><surname>Intel</surname></persName>
+		</author>
+		<ptr target="https://software.intel.com/en-us/articles/introduction-to-cache-allocation-technology" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Gang EDF scheduling of parallel task systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="459" to="468" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">A coordinated approach for practical os-level cache management in multi-core real-time systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kandhalu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="80" to="89" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Attacking the one-out-of-m multicore problem by combining hardware management with mixed-criticality provisioning</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">C</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Chisholm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">53</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="709" to="759" />
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Scheduling parallel realtime tasks on multi-core processors</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="259" to="268" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Analysis of cache-related preemption delay in fixed-priority preemptive scheduling</title>
+		<author>
+			<persName><forename type="first">C.-G</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Hahn</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y.-M</forename><surname>Seo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">L</forename><surname>Min</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Hong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">Y</forename><surname>Park</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">S</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE transactions on computers</title>
+		<imprint>
+			<biblScope unit="volume">47</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="700" to="713" />
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">The rate monotonic scheduling algorithm: exact characterization and average case behavior</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ding</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium</title>
+		<imprint>
+			<date type="published" when="1989">1989</date>
+			<biblScope unit="page" from="166" to="171" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Software Architectures for Advanced Driver Assistance Systems (ADAS)</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Leibinger</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Workshop on Operating Systems Platforms for Embedded Real-Time Applications (OSPERT)</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Os-controlled cache predictability for real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Liedtke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Hartig</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hohmuth</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="1997">1997</date>
+			<biblScope unit="page" from="213" to="224" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Gaining insights into multicore cache partitioning: Bridging the gap between simulation and real systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Ding</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Sadayappan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Symposium on High Performance Computer Architecture (HPCA)</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="367" to="378" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">A software memory partition approach for eliminating bank-level interference in multicore systems</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Cui</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Xing</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Bao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Wu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Parallel Architectures and Compilation Techniques (PACT)</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="367" to="375" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Real-time cache management framework for multi-core architectures</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Mancuso</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Dudko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Betti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cesati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="45" to="54" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<monogr>
+		<title level="m" type="main">Cfs scheduler</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Molnar</surname></persName>
+		</author>
+		<ptr target="https://www.kernel.org/doc/Documentation/scheduler/sched-design-CFS.txt" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Techniques optimizing the number of processors to schedule multi-threaded tasks</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Berten</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Milojevic</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="321" to="330" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<monogr>
+		<title level="m" type="main">NVIDIA BB8 Self-Driving Car</title>
+		<author>
+			<persName><surname>Nvidia</surname></persName>
+		</author>
+		<ptr target="https://blogs.nvidia.com/blog/2017/01/04/bb8-ces/" />
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">Providing task isolation via tlb coloring</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">A</forename><surname>Panchamukhi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Mueller</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+			<biblScope unit="page" from="3" to="13" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">Memory servers for multicore systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="1" to="12" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<monogr>
+		<title/>
+		<author>
+			<persName><forename type="first">S</forename><surname>Rostedt</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Kernelshark</surname></persName>
+		</author>
+		<ptr target="http://rostedt.homelinux.com/kernelshark/" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Parallel real-time scheduling of DAGs. Parallel and Distributed Systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ferry</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">D</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="issue">12</biblScope>
+			<biblScope unit="page" from="3242" to="3252" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">Multi-core real-time scheduling for generalized parallel task models</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">49</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="404" to="435" />
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Abdelzaher</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K.-E</forename><surname>Aarzen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Cervin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">K</forename><surname>Mok</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real time scheduling theory: A historical perspective</title>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+			<biblScope unit="volume">28</biblScope>
+			<biblScope unit="page" from="101" to="155" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<analytic>
+		<title level="a" type="main">Safe and efficient deployment of data-parallelizable applications on many-core platforms: Theory and practice</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Skalistis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Angiolini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">De</forename><surname>Micheli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Simalatsar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Design &amp; Test</title>
+		<imprint>
+			<biblScope unit="volume">35</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="7" to="15" />
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<analytic>
+		<title level="a" type="main">Reducing the harmful effects of last-level cache polluters with an os-level, software-only pollute buffer</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Soares</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Tam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Stumm</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE/ACM International Symposium on Microarchitecture (MICRO)</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="258" to="269" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">Scheduling, isolation, and cache allocation: A side-channel defense</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Sprabery</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Evchenko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Raj</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">B</forename><surname>Bobba</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Mohan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Campbell</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Cloud Engineering (IC2E), International Conference on</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="34" to="40" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<monogr>
+		<title level="m" type="main">Aperiodic Task Scheduling for Real-time Systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Sprunt</surname></persName>
+		</author>
+		<idno>AAI9107570</idno>
+		<imprint>
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">PhD thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b44">
+	<monogr>
+		<title level="m" type="main">Parboil: A revised benchmark suite for scientific and commercial throughput computing</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">A</forename><surname>Stratton</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Rodrigues</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I.-J</forename><surname>Sung</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Obeid</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L.-W</forename><surname>Chang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Anssari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">D</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">W</forename><surname>Mei</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Hwu</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+		<respStmt>
+			<orgName>University of Illinois at Urbana-Champaign</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical report</note>
+</biblStruct>
+
+<biblStruct xml:id="b45">
+	<analytic>
+		<title level="a" type="main">A new memory monitoring scheme for memory-aware scheduling and partitioning</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">E</forename><surname>Suh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Devadas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Rudolph</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Symposium on High Performance Computer Architecture</title>
+		<imprint>
+			<date type="published" when="2002">2002</date>
+			<biblScope unit="page" from="117" to="128" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b46">
+	<analytic>
+		<title level="a" type="main">Coordinated bank and cache coloring for temporal protection of memory accesses</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Suzuki</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">D</forename><surname>Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Wrage</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Conference on Computational Science and Engineering (CSE)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="685" to="692" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b47">
+	<analytic>
+		<title level="a" type="main">Taming non-blocking caches to improve isolation in multicore real-time systems</title>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">K</forename><surname>Valsan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Farshchi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b48">
+	<analytic>
+		<title level="a" type="main">Addressing isolation challenges of non-blocking caches for multicore real-time systems</title>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">K</forename><surname>Valsan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Farshchi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">53</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="673" to="708" />
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b49">
+	<analytic>
+		<title level="a" type="main">Making shared caches more predictable on multicore platforms</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">C</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">L</forename><surname>Herman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">J</forename><surname>Kenna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="157" to="167" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b50">
+	<analytic>
+		<title level="a" type="main">Coloris: A dynamic cache partitioning system using page coloring</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ye</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Cheng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Li</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Parallel Architecture and Compilation Techniques (PACT)</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="381" to="392" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b51">
+	<analytic>
+		<title level="a" type="main">BWLOCK: A Dynamic Memory Access Control Framework for Soft Real-Time Applications on Multicore Platforms</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Ali</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Gondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Biswas</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers (TC)</title>
+		<imprint>
+			<biblScope unit="issue">99</biblScope>
+			<biblScope unit="page" from="1" to="1" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+	<note>PP</note>
+</biblStruct>
+
+<biblStruct xml:id="b52">
+	<analytic>
+		<title level="a" type="main">PALLOC: DRAM bank-aware memory allocator for performance isolation on multicore platforms</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Mancuso</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Wu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="155" to="166" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b53">
+	<analytic>
+		<title level="a" type="main">Evaluating the isolation effect of cache partitioning on cots multicore platforms</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">K</forename><surname>Valsan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Workshop on Operating Systems Platforms for Embedded Real-Time Applications (OSPERT)</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b54">
+	<analytic>
+		<title level="a" type="main">Towards practical page coloringbased multicore cache management</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Dwarkadas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Shen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 4th ACM European Conference on Computer Systems, EuroSys &apos;09</title>
+		<meeting>the 4th ACM European Conference on Computer Systems, EuroSys &apos;09</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="89" to="102" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

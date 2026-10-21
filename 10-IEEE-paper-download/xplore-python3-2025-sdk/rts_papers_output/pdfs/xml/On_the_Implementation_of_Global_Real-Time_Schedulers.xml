@@ -1,0 +1,546 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">On the Implementation of Global Real-Time Schedulers *</title>
+				<funder>
+					<orgName type="full">IBM</orgName>
+				</funder>
+				<funder ref="#_gdwRNqD #_utXxBNb">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+				<funder ref="#_3f6GNVR">
+					<orgName type="full">ARO</orgName>
+				</funder>
+				<funder>
+					<orgName type="full">Intel</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">On the Implementation of Global Real-Time Schedulers *</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">FA3E0760D396A39D12323796A079735B</idno>
+					<idno type="DOI">10.1109/RTSS.2009.23</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-13T23:08+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>An empirical study of implementation tradeoffs (choice of ready queue implementation, quantum-driven vs. eventdriven scheduling, and interrupt handling strategy) affecting global real-time schedulers, and in particular global EDF, is presented. This study, conducted using UNC's Linux-based LITMUS RT on Sun's Niagara platform, suggests that implementation tradeoffs can impact schedulability as profoundly as scheduling-theoretic tradeoffs. For most of the considered workloads, implementation scalability proved to not be a key limitation of global EDF on the considered platform. Further, a combination of a parallel heap, event-driven scheduling, and dedicated interrupt handling performed best for most workloads.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1">Introduction</head><p>The advent of multicore systems has resulted in renewed interest in real-time multiprocessor scheduling algorithms. In work on this topic, scheduling-theoretic issues have received the greatest attention. By comparison, only little attention has been devoted to the actual implementation of such algorithms within real OSs on real hardware, and consequently, only little is known about how implementation tradeoffs impact schedulability. This is surprising, as it is well established that such tradeoffs play a crucial role in real-time performance on uniprocessors <ref type="bibr" target="#b21">[16]</ref>.</p><p>In light of recent algorithmic research, a particularly relevant case in point is global scheduling algorithms, which use a single shared ready queue. Very little guidance can be found in the literature concerning how to best implement such algorithms. Should ready queues be implemented as lists or heaps? Should sequential queues with coarse-grained locking or parallel data structures be used? Should the scheduler rely on periodic timer ticks or follow an event-driven approach? On the surface, it may seem that any of these choices are viable. However, is this really true?</p><p>In this paper, we present an evaluation of these and other implementation tradeoffs as they arise in the implementation of a global earliest-deadline-first (G-EDF) scheduler. We show that different implementation choices-all seem-ingly plausible "in theory"-can have dramatically different effects on real-time schedulability.</p><p>Prior work. This is the third in a series of papers by our group investigating fundamental questions concerning the viability of supporting sporadic real-time workloads on SMP and multicore platforms under consideration of real-world overheads. To facilitate this line of research, our research group developed a Linux extension called LITMUS RT (LInux Testbed for MUltiprocessor Scheduling in Real-Time systems), which allows different (multiprocessor) scheduling algorithms to be implemented as plugin components <ref type="bibr" target="#b14">[9,</ref><ref type="bibr" target="#b18">13]</ref>. To the best of our knowledge, LITMUS RT is the only (published) real-time OS in which global real-time schedulers are supported.</p><p>In the initial study <ref type="bibr" target="#b14">[9]</ref>, Calandrino et al. evaluated several well-known multiprocessor real-time scheduling algorithms on a four-processor 2.7 GHz Intel Xeon SMP (not multicore) platform. On this platform with few and fast processors, relatively large, private L2 caches, and fast memory, each tested algorithm was found to be a viable choice in some of the tested scenarios, and global algorithms excelled at supporting soft real-time workloads.</p><p>In the second study <ref type="bibr" target="#b12">[7]</ref>, Brandenburg et al. explored the relative scalability of different real-time schedulers as implemented in LITMUS RT . To do so, they ported LITMUS RT to a radically different, and much larger, multicore platform: a Sun Niagara with 32 logical processors, each with an effective speed well below 1 GHz. <ref type="foot" target="#foot_0">1</ref> On this platform with many slow processors, a relatively small, shared L2 cache, and slower memory, a decrease in the competitiveness of G-EDF was noted, especially in the presence of many tasks. Clearly, this study had uncovered scalability limitations in that particular implementation of G-EDF, but does this imply that G-EDF-like algorithms are a "lost cause" on large multicore platforms? Could the G-EDF plugin be significantly improved, and, in terms of schedulability, would overhead reductions even matter? Contributions. Both preceding studies <ref type="bibr" target="#b12">[7,</ref><ref type="bibr" target="#b14">9]</ref> considered several scheduling algorithms, but only one implementation per algorithm. In stark contrast, the study presented in this paper considers only one scheduling algorithm, G-EDF, but twelve possible realizations of it, seven of which were implemented and evaluated in LITMUS RT . The objective of this study was to determine which of these implementations are viable. Our major findings are as follows: (i) implementation tradeoffs in global real-time schedulers such as G-EDF affect schedulability significantly; (ii) there is a "best" way to implement G-EDF that outperforms other approaches in most cases; (iii) on our Niagara, which is a large multicore platform by today's standards, implementation scalability is not a key limitation of G-EDF.</p><p>In the sections that follow, we provide needed background (Sec. 2), describe the various implementation alternatives that we considered (Sec. 3), present our study and findings (Sec. 4), and conclude (Sec. 5).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2">Background</head><p>We consider the problem of scheduling n independent 2 real-time tasks T 1 , . . . , T n on m identical processors P 1 , . . . , P m . LITMUS RT supports sporadic tasks with implicit deadlines, 3 wherein each task T i is specified by its worst-case execution time e i and its period p i . The j th job of T i , denoted T j i and released at r j i (where r j i ≥ r j-1 i +p i ), should complete by its deadline r j i + p i , otherwise it is tardy. Note that T j i being tardy does not alter r j+1 i , but T j+1 i cannot execute until T j i completes (tasks are sequential). T i 's utilization u i is given by e i /p i ; the sum n i=1 u i ≤ m denotes the system's total utilization. A job is pending after its release until it completes.</p><p>To avoid confusion, we use the term "task" exclusively to refer to sporadic tasks, and use the term "process" when discussing OS implementation issues. In LITMUS RT , sporadic tasks are implemented as processes, and jobs are an accounting abstraction managed by the kernel. Scheduling. A hard real-time (HRT) system is considered to be schedulable iff it can be shown that no job is ever tardy. A soft real-time (SRT) system is considered (in this paper) to be schedulable iff it can be shown that tardiness is bounded.</p><p>We investigate G-EDF as a representative of the class of global, preemptive, priority-driven, work-conserving scheduling policies, i.e., all processors use a single shared ready queue sorted by non-decreasing deadlines and jobs (but not necessarily the OS!) can be preempted.</p><p>There are two fundamental ways to realize schedulers (see <ref type="bibr">[10,</ref><ref type="bibr" target="#b21">16]</ref> for overviews):</p><p>S1 event-driven scheduling, wherein a job is scheduled 2 While LITMUS RT supports real-time synchronization among tasks, this study is focussed on synchronization requirements within the kernel. 3 We expect the reader to be familiar with the sporadic task model; see <ref type="bibr">[10,</ref><ref type="bibr" target="#b21">16]</ref> for an overview and relevant citations.</p><p>immediately when there are fewer than m higherpriority <ref type="foot" target="#foot_1">4</ref> jobs pending (either upon release or when a higher-priority job completes); S2 quantum-driven scheduling, wherein real-time jobs are only scheduled at integer multiples of a scheduling quantum Q (hence, a job may be delayed by up to Q time units before being scheduled).</p><p>Both approaches are illustrated in Fig. <ref type="figure" target="#fig_1">1</ref>. Inset (a) shows an ideal, event-driven schedule of three jobs on two processors. The schedule is "ideal" in the sense that releases and completions are processed immediately (and require no processing time), and preemptions are enacted in zero time across processors. For example, at time 6.5, T x 1 is released on P 1 and immediately scheduled on P 2 without incurring any delay. While unattainable in practice, most G-EDF analysis assumes ideal, event-driven scheduling.</p><p>The same scenario in the ideal, quantum-driven case for Q = 1 is shown in Fig. <ref type="figure" target="#fig_1">1(b)</ref>. Again, the system does not incur overhead, but jobs are delayed when awaiting the next quantum boundary. For example, T z 3 is released at r z 3 = 1.5, but not scheduled until time 2 when the next quantum starts. Similarly, the preemption on P 2 due to T x 1 's arrival at r x 1 = 6.5 does not take place until the start of the next quantum at time 7. Note that some quanta may only be partially used if jobs complete during a quantum (e.g., P 1 is partially idle for this reason in quantum <ref type="bibr" target="#b13">[8,</ref><ref type="bibr" target="#b14">9)</ref>). Analysis assuming ideal, event-driven G-EDF scheduling can be applied to ideal, quantum-driven scheduling by shortening periods by one quantum (to account for delays upon release) and by rounding execution times up to a quantum multiple (to account for partially-idle quanta) <ref type="bibr">[10]</ref>.</p><p>Historically, OSs have employed quantum-driven (or hybrid) designs to facilitate time keeping and reduce overhead <ref type="bibr" target="#b21">[16]</ref>; the first version of LITMUS RT also followed this approach <ref type="bibr" target="#b14">[9]</ref>. The current version supports both eventdriven and quantum-driven scheduling. LITMUS RT . As mentioned in Sec. 1, LITMUS RT is a real-time extension of the Linux kernel. <ref type="foot" target="#foot_2">5</ref> The stock Linux scheduler is organized as a static hierarchy of scheduling classes: when the scheduler is invoked, each scheduling class is queried in top-down order until a process to service next is found. LITMUS RT installs its scheduling class at the top of the hierarchy and hence overrides the stock Linux scheduler whenever real-time work is pending.</p><p>The LITMUS RT scheduling class does not implement any particular scheduling policy; instead it allows scheduling policy plugins to be activated at runtime. All scheduling decisions are delegated by invoking plugin-provided event  handlers, prominently among them the tick and schedule handlers. The tick handler is invoked, on each processor, each time a periodic timer interrupt occurs; this allows quantum-driven polices to be implemented. A typical tick period (i.e., quantum length) is one millisecond. The schedule handler is invoked when traversing the scheduler class hierarchy to select the next process. Note that a quantum-driven plugin will make use of both the tick and schedule handlers-the tick handler assigns processes to processors and determines if preemptions are required, and the schedule handler, on each processor, enacts the desired changes. This split is required because the schedule handler, for technical reasons, must execute on the processor on which the preemption is to occur. In LITMUS RT 's event-driven plugins, the tick handler is usually only used for bookkeeping and overrun detection.</p><formula xml:id="formula_0">P 1 P 2 T x 1 T y 2 T z 3 T y 2 (a)</formula><p>As a boot-time option, LITMUS RT supports both aligned and staggered quanta. With aligned quanta, the per-processor tick interrupts are programmed to occur at the same time on all processors, whereas with staggered quanta, tick interrupts are spread out evenly across a full quantum. Staggering quanta may reduce bus and lock contention, but also delays job completions by up to Q • (m-1) m time units. This can be accounted for by shortening periods.</p><p>Overheads. In LITMUS RT , processes are delayed by six major sources of overhead, four of which are illustrated in Fig. <ref type="figure" target="#fig_1">1(c</ref>). Release overhead is incurred while handling an interrupt that releases a real-time job and involves making the corresponding process available for execution. If a preemption is required, then scheduling overhead is incurred while selecting the next process to execute and re-queueing the previously-scheduled process (which may be a background or the idle process). Context-switching overhead is incurred while switching the execution stack and processor registers. All three overhead sources occur in sequence in Fig. <ref type="figure" target="#fig_1">1</ref>(c) on processor P 1 at time 1.5 when T z 3 is released, and again on P 2 at time 3.9 when T y 2 is released. A different scenario occurs at time 6.5 when T x 1 is released on P 1 : release overhead is incurred on P 1 (where the interrupt occurred), but scheduling and context-switching overhead are incurred on P 2 where T x 1 preempts T y 2 (the lowestpriority scheduled job). To initiate the required preemption, P 1 sends an inter-processor interrupt (IPI) to P 2 . Since IPIs are not delivered instantly, T x 1 incurs additional IPI latency. For the sake of clarity, Fig. <ref type="figure" target="#fig_1">1(c</ref>) omits the two additional sources of overhead. At the beginning of each quantum, tick overhead is incurred on each processor when the periodic timer interrupt is handled. Note that tick overhead also occurs, but to a lesser extent, under purely event-driven plugins as the periodic tick can currently not be disabled in Linux (while a process is executing). Preemption and migration overhead account for any costs due to a loss of cache affinity. Preemption (resp., migration) overhead is incurred when a preempted job later resumes execution on the same (resp., a different) processor. Analysis that assumes ideal (i.e., overhead-free), eventdriven scheduling can be applied to real, overheadimpacted systems by inflating per-task worst-case execution costs. Accounting for overheads that only occur exactly before or after a job is scheduled is trivial as they are, from an analysis point of view, equivalent to extended execution: each job causes scheduling and contextswitching overhead exactly twice <ref type="bibr" target="#b21">[16]</ref>, and causes preemp-tion/migration overhead at most once. <ref type="foot" target="#foot_4">6</ref> Similarly, a job's completion time may be delayed by IPI latency and its own release overhead.</p><p>However, accounting for release overhead due to other jobs and tick overhead is more problematic as their occurrence is interrupt-based and hence not subject to G-EDF scheduling <ref type="bibr" target="#b13">[8]</ref>. For example, in Fig. <ref type="figure" target="#fig_1">1(c),</ref><ref type="figure">T z</ref> 3 is delayed by release overhead at time 6.5 due to T x 1 's release even though T z 3 has higher priority than T x 1 . As the techniques for multiprocessor interrupt accounting are somewhat involved, a detailed discussion is unfortunately beyond the scope of this paper; the interested reader is referred to <ref type="bibr" target="#b13">[8]</ref>.</p><p>Given the preceding discussion, we can now refine the focus of this paper: we seek to understand how differences in the implementation of global policy plugins affect runtime overheads, and hence, after accounting for overheads, real-time performance (in terms of "schedulability"-see Sec. 4).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3">Plugin Implementation</head><p>Conceptually, a global scheduling policy implementation consists of three main components: a release queue holds not yet released jobs; a one-to-one processor mapping associates each of the currently-scheduled jobs with a processor; and pending jobs that are not currently scheduled are kept, sorted by descending priority, in a shared ready queue. Since these components are shared by all processors, the way in which synchronization is provided strongly impacts overheads. Next, we briefly describe some implementation and synchronization choices for these components. Release queue. A release queue is required for two reasons: time-driven tasks (e.g., video display) require job releases to occur at particular times, and interrupt-driven tasks (e.g., sensor data acquisition) may have jobs triggered "too early" after the last job release, i.e., the minimum job separation may have to be enforced by the OS. In both cases, a job must be made available for execution at a future point in time. In a quantum-driven implementation, the release queue can be implemented as a priority queue or timer wheel <ref type="bibr" target="#b23">[18]</ref> that is polled by the tick handler to transfer all jobs with release times in the preceding quantum to the ready queue. Alternatively, hardware timers can be programmed to trigger future job releases with interrupts if sufficiently high-resolution hardware timers are available.</p><p>As our test machines have such timers, LITMUS RT follows the latter approach. However, instead of using a timer for every job, our implementation uses a timer per release time to avoid unnecessary overhead, i.e., if multiple job releases coincide (e.g., on a hyperperiod boundary), then only cesses must be synchronized through the use of a lock, which is likely to incur high contention; and, second, accesses are likely to cause significant cache-coherency traffic due to cache lines "bouncing" among processors.</p><p>To investigate the impact (if any) of these shortcomings, we consider two alternate priority-queue designs in this paper. With regard to lock contention, we implemented Hunt et al.'s concurrent heap <ref type="bibr" target="#b19">[14,</ref><ref type="bibr" target="#b20">15]</ref>, which relies on fine-grained locking to increase parallelism. To address "cache line bouncing," we implemented a simple hierarchical priority queue that relies on (mostly) local per-processor queues to increase cache locality. The local queues contain the bulk of the jobs, and the global queue only consists of the highest-priority job on each processor (illustrated in Fig. <ref type="figure" target="#fig_2">2</ref>). Under this scheme, insertion and merge operations are always performed on the cache-local queue, and an update of the global queue is only required if the highest-priority job changes in the local queue. However, removal of the highest-priority job from the global queue may require non-cache-local updates. Obviously, this algorithm is closely tied to the assumption that insertion and merge operations are evenly distributed across processors. (We used binomial heaps for both local and global queues.)</p><p>Another approach to avoiding lock contention is to employ non-blocking data structures, which allow accesses to occur concurrently (see <ref type="bibr" target="#b19">[14]</ref> for an overview and relevant citations). We did not implement non-blocking priority queues for this study since, to the best of our knowledge, all such published algorithms only support bounded priority ranges (G-EDF requires unbounded priorities) or rely on problematic techniques such as multi-word compareand-swap instructions (not supported by our hardware), frequent copying (excessive overheads), and probabilistic algorithms (ill-suited to real-time computing).</p><p>To summarize, the three ready-queue choices considered in this paper are: R1 a sequential binomial heap (coarse-grained locking); R2 Hunt et al.'s fine-grained heap <ref type="bibr" target="#b20">[15]</ref>; R3 a simple, hierarchical "queue of queues" scheme (twolevel locking with cache-local insertions).</p><p>Synchronization. In the latest publicly-available LITMUS RT version (2008.2), implementation R1 is used. In this version, the processor mapping is protected by a lock that serves a dual purpose: it protects the (sequen-tial) heap against concurrent updates, and it serves as the linearization point (see <ref type="bibr" target="#b19">[14]</ref>) for the scheduler. Hence, it is acquired when the processor mapping itself is modified and whenever process state is observed or changed (e.g., on process self-suspension, on job completions, and when comparing job priorities). This strategy also indirectly supports R1: all ready-queue accesses occur together with preemption checks, which require the processor mapping lock to be held.</p><p>However, to support R2 and R3, significant changes were required, as the processor mapping lock must be released before performing queue operations under these schemes. In making these changes, various complex race conditions had to be addressed. For example, both the ready queue and processor mapping must be locked to check whether a preemption is required. If a preemption is indeed required, then the processor mapping lock must be dropped before dequeuing the preempting job under R2 and R3. However, this allows the set of scheduled jobs to change while the preempting job is dequeued, which might lead to conflicts with other updates. To avoid this, the processor to be updated is temporarily removed from the processor mapping. Priorities are checked again upon re-insertion, otherwise, preemptions could be missed.</p><p>Ideally, the processor mapping lock should be held as little as possible to reduce contention. Unfortunately, the need to serialize (complex) process state updates makes a switch to fine-grained locking or non-blocking solutions non-trivial.</p><p>The release queue is also protected by a lock. However, contention for it is infrequent (it is only held briefly during job releases, after job completions, and possibly when a process resumes). Interrupt handling. Two interrupt handling choices are considered in this paper:</p><p>I1 global interrupt handling, wherein each processor both handles interrupts and schedules jobs, and I2 dedicated interrupt handling, wherein a single processor is reserved for interrupt processing <ref type="bibr" target="#b22">[17]</ref>.</p><p>By default, interrupts may occur on all processors in Linux.</p><p>In fact, an even distribution of interrupts can help to improve throughput in non-real-time workloads. However, this implies that all real-time tasks are subject to release overhead (and delays by other interrupt sources, such as I/O devices). Since interrupt accounting can be severely pessimistic <ref type="bibr" target="#b13">[8]</ref>, it may be desirable to shield tasks from interrupts by dedicating a processor that does not serve tasks to handling job releases (and other interrupts).</p><p>While simple in concept, this approach can be difficult to implement if some hardware is only accessible from a particular processor. For example, in our test platform (see </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4">Experiments</head><p>To evaluate the implemented approaches, we conducted extensive schedulability experiments under consideration of runtime overheads as incurred in LITMUS RT on a Sun UltraSPARC T1 "Niagara" multicore platform. The Niagara is a 64-bit machine containing eight cores on one chip running at 1.2 GHz. Each core supports four hardware threads, <ref type="foot" target="#foot_6">8</ref> for a total of 32 logical processors. On-chip caches include a 16K (resp., 8K) four-way set associative L1 instruction (resp., data) cache per core, and a shared, unified 3 MB 12-way set associative L2 cache. Our test system is configured with 16 GB of off-chip main memory. In contrast to Sun's proposed Niagara-successor "Rock," our first-generation Niagara does not employ advanced cacheprefetching technology. While the Niagara is clearly not an embedded systems processor, it is nonetheless an attractive platform for forward-looking real-time systems research. Its power-friendly combination of many simple and slow cores, predictable hardware multi-threading, and a small shared cache is likely indicative of future processor designs targeting computationally-demanding embedded systems. <ref type="foot" target="#foot_7">9</ref> Thus, we believe any limitations exposed on the enterprise-class Niagara today to be of value as guidance to future embedded system designs. However, note that specific results, as with all implementation-based studies, only apply directly to the tested configuration.</p><p>Next, we briefly discuss how we measured overheads, and then present our study in detail.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.1">Runtime Overheads</head><p>We used the same methodology to determine overheads as in earlier LITMUS RT -based studies (e.g., <ref type="bibr" target="#b12">[7]</ref>). Runtime overheads were obtained by enabling aligned quanta and measuring the system's behavior for periodic task sets consisting of between 50 and 450 tasks in steps of 50. For each plugin and task-set size, we measured ten task sets generated randomly (with uniform light utilizations and moderate periods; see Sec. 4.2 below), for a total of 90 task sets per scheduling algorithm. Each task set was traced for 30 seconds. We repeated the same experiments with staggered quanta. In total, more than 100 GB of trace data and 640 million individual overhead measurements were obtained during more than ten hours of tracing. After removing outliers, we computed for each plugin average and worst-case overheads as a function of task set size (for both aligned and staggered quanta), which resulted in 20 graphs. Due to space constraints, we only discuss the three representative graphs shown in Fig. <ref type="figure" target="#fig_3">3</ref> here; all graphs and per-plugin overheads are provided in an extended version of this paper <ref type="bibr">[6]</ref>.</p><p>Fig. <ref type="figure" target="#fig_3">3</ref>(a) shows average release overhead under staggered quanta. One can clearly distinguish between the quantum-driven plugins CQm and CQ1, which incur only very little, constant overhead, and the other event-driven plugins, which suffer the effects of increasing contention and ready-queue lengths. Releases encounter less contention in quantum-driven plugins because released jobs are placed in a temporary queue that is merged at the next quantum boundary by the tick handler <ref type="bibr">[10]</ref>. Note that the FEm and FE1 plugins incur significantly higher release overhead than the CEm and CE1 plugins. This is likely due to Hunt et al.'s fine-grained heap not supporting efficient queue-merge operations (i.e., merges require O(n log n) time), increased cache protocol traffic (as queue elements are being accessed concurrently), and frequent locking operations. Similar reasoning applies to the HEm plugin.</p><p>Fig. <ref type="figure" target="#fig_3">3</ref>(b) shows average scheduling overhead under stag-gered quanta. Again, quantum-driven plugins incur only little overhead because staggering helps to avoid contention, and because jobs are assigned to processors in the tick, and not the schedule, handler. Staggering does not affect when event-driven plugins schedule, so contention remains high. Note that the FEm, FE1, and HEm plugins incur only a fraction of the CEm plugin's average scheduling overhead because the processor mapping lock is relinquished during queue operations. The trends are reversed in Fig. <ref type="figure" target="#fig_3">3</ref>(c), which depicts average tick overhead under staggered quanta: event-driven plugins only perform bookkeeping activities in the tick handler and hence incur only little overhead, whereas the CQm and CQ1 curves reveal that job scheduling costs increase with the number of tasks. We used monotonic piece-wise linear interpolation to derive upper-bounds for each plugin and each overhead as a function of task set size. These upper bounds were used in the schedulability experiments described next.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.2">Experimental Setup</head><p>To assess schedulability trends, we generated random task sets (similarly to <ref type="bibr" target="#b12">[7,</ref><ref type="bibr" target="#b14">9]</ref>) using three period and six utilization distributions similar to those proposed by Baker <ref type="bibr" target="#b7">[2]</ref>, for a total of 18 scenarios. Task utilizations were distributed differently for each experiment using three uniform and three bimodal distributions. The ranges for the uniform distributions were [0.001, 0.1] (light), [0.1, 0.4] (medium), and [0.5, 0.9] (heavy). In the three bimodal distributions, utilizations were distributed uniformly over either [0.001, 0.5) or [0.5, 0.9] with respective probabilities of 8/9 and 1/9 (light), 6/9 and 3/9 (medium), and 4/9 and 5/9 (heavy). Similarly, we considered three uniform task period distributions with ranges [3ms, 33ms] (short), [10ms, 100ms] (moderate), and [50ms, 250ms] (long). Note that all periods were chosen to be integral.</p><p>Task execution costs excluding overheads were calculated from periods and utilizations (and may be nonintegral). Each task set was created by generating tasks until a specified cap on total utilization (that varied between 1 and 32) was reached and by then discarding the last-added task, thereby allowing some slack for overheads. Sampling points were chosen such that sampling density is high in areas where curves change rapidly. For each scenario and each sampling point, we generated 1,000 task sets, for a total of over 5.5 million task sets.</p><p>Schedulability tests. After a task system was generated, its schedulability under each of the plugins listed in Table <ref type="table" target="#tab_0">1</ref> was tested as follows.</p><p>Prior to testing schedulability, we adjusted task parameters to account for overheads and quantum-driven scheduling as described in Sec. 2. Given Linux's roots as a generalpurpose OS and our use of measured overheads (which are unlikely to capture true worst-case behavior), we interpret task execution costs in a way that is reasonable for a Linuxbased system. Our main concern here (since this is not a paper on timing-analysis tools for determining execution costs) is to capture major differences in plugin implementations. Thus, in reality, we interpret "hard real-time" to mean deadlines should almost never be missed and "soft realtime" to mean that deadline tardiness on average remains bounded. Consequently, we assumed worst-case overheads and aligned quanta when testing HRT schedulability and average-case overheads and staggered quanta when testing SRT schedulability. Additionally, we also considered HRT schedulability under the CQm and CQ1 plugins assuming worst-case overheads under staggered quanta; those two cases are denoted S-CQm and S-CQ1 respectively. 10  (Note that periods are not modified in the SRT case under quantum-driven scheduling as quantum-based delays cause only constant tardiness.)</p><p>We used all major published sufficient (but not necessary) HRT schedulability tests for G-EDF <ref type="bibr">[1,</ref><ref type="bibr" target="#b8">3,</ref><ref type="bibr">4,</ref><ref type="bibr" target="#b10">5,</ref><ref type="bibr" target="#b17">12]</ref> and deemed a task set schedulable if it passed at least one of these five tests. A notable exception is the light uniform utilization distribution: we had to disable Baruah's test <ref type="bibr" target="#b8">[3]</ref> for these scenarios since it failed to terminate in reasonable time due to the large number of tasks involved and the test's pseudo-polynomial nature. 11  For SRT schedulability, since G-EDF can guarantee bounded deadline tardiness if the system is not overloaded <ref type="bibr" target="#b16">[11]</ref>, only a check that total utilization (after inflation for overheads) is at most m is required.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.3">Results</head><p>HRT schedulability results for the moderate period distribution are shown in Fig. <ref type="figure" target="#fig_8">4</ref>. The first column of the figure (insets (a,c,e)) gives results for the three uniform distributions (light, medium, heavy) and the second column (insets (b,d,f)) gives results for the three bimodal distributions. The plots indicate the fraction of the generated task sets each plugin successfully scheduled, as a function of total utilization. Schedulability results for the SRT case are shown in Fig. <ref type="figure" target="#fig_10">5</ref>, which is organized similarly to Fig. <ref type="figure" target="#fig_8">4</ref>. Due to space constraints, other graphs (over 300) are not shown here but can be found in the extended version of the paper. <ref type="bibr">[6]</ref> The results clearly show that differences in plugin implementation and hence overheads can have a very significant impact on real-time performance. For example, in Fig. <ref type="figure" target="#fig_10">5</ref>(a), the best-performing plugin (FE1) supports task systems of total utilization up to 26, whereas the worst-performing plugin (HEm) fails even for task systems with total utilization less than 5! Note that it is nearly impossible to predict such outcomes purely based on theoretical considerations. In fact, our initial assumption was that a hierarchical queue design should outperform any dedicated-interrupt schemesurprisingly, the HEm plugin was consistently among the poorest-performing plugins. We will discuss this and other notable trends next. Dedicated vs. global interrupt handling. The most remarkable trend is the superiority of dedicated interrupt 10 Only quantum-driven plugins were considered under staggering in the HRT case since neither overheads nor analysis are affected significantly by staggering under event-driven plugins. 11 Regular compute jobs on UNC's research cluster are limited to 48 hours runtime. With, on average, over 150 sampling points per graph, 1,000 task sets per point, and 10 curves per HRT graph, all five HRT G-EDF schedulability tests must complete in ≈ 0.11 seconds per task set.</p><p>handling. In virtually all tested scenarios, global interrupt handling is inferior in spite of its nominally larger system capacity, i.e., CE1 outperforms CEm, FE1 outperforms FEm, and CQ1 outperforms CQm, in both the HRT and SRT cases, and usually by a significant margin (e.g., Figs. <ref type="figure" target="#fig_8">4(a,</ref><ref type="figure">c,</ref><ref type="figure">e</ref>) and 5(a-f)). Differences are less pronounced if periods are long (since overheads are proportionally small), or if performance is indistinguishably bad (e.g., CQm/CQ1 for short periods).</p><p>Long periods with heavy, uniform utilizations is the only scenario in which global interrupt handling is consistently preferable-here, tasks are so few in number, periods so long, and overheads so low that release overhead becomes insignificant and system capacity is the deciding factor. Staggered vs. aligned quanta. Another clear trend in the HRT results is that staggered quanta are generally preferable to aligned quanta, i.e., S-CQm outperforms CQm and S-CQ1 outperforms CQ1 in most cases, as can be seen in Figs. <ref type="figure" target="#fig_8">4(a,</ref><ref type="figure">c,</ref><ref type="figure">e</ref>). (This matches similar trends observed in the preceding scalability study <ref type="bibr" target="#b12">[7]</ref>.) Again, differences are less pronounced for high task count / short period scenarios (both plugins perform equally badly), and for heavy bimodal utilization / long periods (both plugins nearly reach the ideal G-EDF limit). As S-CQ1 is generally preferable to S-CQm (see above), the S-CQ1 plugin is the bestperforming quantum-driven plugin in this study. Quantum-vs. event-driven scheduling. In the HRT case, event-driven scheduling is mostly preferable. CQm outperforms CEm only in the cases of uniform light utilizations and moderate or long periods (Fig. <ref type="figure" target="#fig_8">4(a)</ref>), and medium utilizations with moderate periods (Fig. <ref type="figure" target="#fig_8">4(c)</ref>). Similarly, CQ1 is never preferable to CE1, though differences are small for some scenarios involving long periods. Further, S-CQm and S-CQ1 are inferior to CEm except for scenarios with many light tasks and long periods. Surprisingly, the trend is reversed in the SRT case. In Fig. <ref type="figure" target="#fig_10">5</ref>, CQm is clearly preferable to CEm in every inset but (b), and similar findings apply to the case of short periods, too (but CEm remains superior for long periods). However, CE1 remains preferable to CQ1 for all period and utilization distributions, even in the SRT case. Hence, event-driven scheduling was found in our experiments to be the better choice for both HRT and SRT if (and only if) used in conjunction with a dedicated interrupt processor. Fine-grained vs. coarse-grained vs. hierarchical queues. As mentioned above, hierarchical queues exhibited surprisingly poor performance in our experiments. In fact, in the SRT case, HEm is the worst-performing plugin in all tested scenarios, as can be readily seen in Fig. <ref type="figure" target="#fig_10">5</ref>. It performs better in the HRT case (e.g., Fig. <ref type="figure" target="#fig_8">4(f)</ref>), but it is never preferable to the CEm plugin.</p><p>The FEm plugin is never preferable to the CEm plugin     In each graph, the curve labeled " <ref type="bibr">[1]</ref> G-EDF" indicates schedulability under an ideal event-driven system (zero overheads), the curves numbered 2-8 correspond to the plugins listed in Table <ref type="table" target="#tab_0">1</ref>, and the curves 9-10 correspond to curves 7-8 but assume staggered quanta. Recall from Sec. 4.2 that a task set is HRT schedulable if it can be shown to have zero tardiness under assumption of worst-case overheads.</p><p>in any of the tested scenarios. In the SRT case, the CEm plugin performs better by a significant margin in all scenarios, as is apparent in Fig. <ref type="figure" target="#fig_10">5</ref>; in the HRT case, the difference is often less pronounced but still clear (e.g., Fig. <ref type="figure" target="#fig_8">4</ref>(f)). Interestingly, the FE1 plugin is very competitive-it never performs worse than the CE1 plugin, and in some scenarios marginally better. This highlights two points: reducing contention for the processor mapping lock is highly beneficial, but the lack of an efficient queue-merge operation penalizes FEm (see Fig. <ref type="figure" target="#fig_3">3(a)</ref>).</p><p>Further observations. Overall, the FE1 and CE1 plugins performed best in our study. Their performance is promising in two regards. First, the disappointing G-EDF performance in <ref type="bibr" target="#b12">[7]</ref> was shown here to be a correctable implementation artifact. Second, in many scenarios, FE1 and CE1 performance comes close to the limit imposed by current G-EDF schedulability analysis (e.g., Fig. <ref type="figure" target="#fig_8">4</ref>(b,d,e,f), and similarly Fig. <ref type="figure" target="#fig_10">5(b-f</ref>)). This indicates that G-EDF in particular, and global scheduling in general, can be implemented efficiently on current multicore platforms.   In each graph, the curve labeled " <ref type="bibr">[1]</ref> G-EDF" indicates schedulability under an ideal event-driven system (zero overheads) and the curves numbered 2-8 correspond to the plugins listed in Table <ref type="table" target="#tab_0">1</ref>. Recall from Sec. 4.2 that a task set is SRT schedulable if it can be shown to have bounded tardiness under assumption of average-case overheads.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5">Conclusion</head><p>In this work, we explored several alternatives for implementing global real-time schedulers and conducted a largescale implementation-based study. Our results indicate that implementation tradeoffs can impact schedulability as profoundly as scheduling-theoretic tradeoffs. On our test platform, the best performance was achieved in the majority of the tested scenarios by the combination of Hunt et al.'s fine-grained heap <ref type="bibr" target="#b20">[15]</ref>, event-driven scheduling, and dedicated interrupt handling (the FE1 plugin). In contrast, the simple hierarchical queue (the HEm plugin) performed sig-nificantly below expectation-this partially due to cacheaffinity issues, which warrant further investigation generally. Additionally, we found that the scalability of global real-time scheduler implementations is not the key limiting factor in supporting sporadic real-time workloads on ourfairly large-multicore platform unless task counts are extremely high or most periods short.</p><p>Prior studies. Given this paper's conclusion that implementation choices can have a strong impact on schedulability, it is appropriate to re-visit the conclusions of the two preceding studies <ref type="bibr" target="#b12">[7,</ref><ref type="bibr" target="#b14">9]</ref>. Since the first study <ref type="bibr" target="#b14">[9]</ref> was con-ducted on a radically different hardware platform, its results are not directly comparable to this paper. However, its main conclusion that "for each tested scheme, scenarios exist in which it is a viable choice" <ref type="bibr" target="#b14">[9]</ref> remains valid even with the improvements presented in this paper-while significantly better, G-EDF's HRT performance is still limited by pessimistic schedulability tests and contention under high task counts. Further, note that dedicated interrupt handling is likely less competitive on platforms with fewer processors.</p><p>The second study <ref type="bibr" target="#b12">[7]</ref> is Niagara-based and hence readily comparable; the interested reader is encouraged to compare Figs. 4 and 5 above with Figs. 2 and 3 in <ref type="bibr" target="#b12">[7]</ref>. As expected, the observation that "for global approaches, scheduling overheads are greatly impacted by the manner in which run queues are implemented" <ref type="bibr" target="#b12">[7]</ref>, which motivated the present study, has been validated. The relative performance of CQm vs. S-CQm (best seen in <ref type="bibr">[6]</ref>) also confirms that "quantum-staggering can be very effective in reducing [preemption and migration] costs" <ref type="bibr" target="#b12">[7]</ref>, but the benefit observed in this study is less pronounced than that in <ref type="bibr" target="#b12">[7]</ref>.</p><p>Further, as noted above, G-EDF's HRT performance is still limited, and hence the observation that "for HRT workloads on the Niagara, [staggered Pfair] and [partitioned EDF] are generally the most effective approaches" <ref type="bibr" target="#b12">[7]</ref> remains unchanged. However, <ref type="bibr" target="#b12">[7]</ref> also stated that, "for SRT workloads on the Niagara, there is no single best overall algorithm, although [staggered Pfair] and [clustered EDF] seem to be less susceptible to pathological scenarios than the other tested algorithms." This statement has to be amended to include G-EDF, as the FE1 plugin is consistently among the top-performing choices (with regard to those in <ref type="bibr" target="#b12">[7]</ref>) in the SRT case. Future work. Our implementation efforts and the results of our study reveal four major open problems. From an analysis point of view, the two most-pressing concerns are the need for improved G-EDF HRT schedulability tests (ideally, both in accuracy and runtime requirements) and improved interrupt accounting techniques. Implementation-wise, better parallel priority queues that can be implemented efficiently in a kernel environment clearly have great potential. Ideally, such queues should efficiently support queue-merge operations. Further, finegrained locking (or even non-blocking synchronization) for the processor mapping could improve performance in the presence of many tasks significantly. Especially with regard to the latter, we would like to investigate whether the hardware transactional memory support in Sun's proposed "Rock" processor can improve global schedulers.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Figure 1 :</head><label>1</label><figDesc>Figure 1: Example G-EDF schedules of three jobs (T x 1 , T y 2 , T z 3 ), where (ei, pi)i = (2.5, 8)1, (6, 11)2, (6.5, 12)3, on two processors (P1, P2) illustrating delays introduced by quantum-driven scheduling and system overheads. Large up-arrows denote interrupts, small up-arrows denote job releases, down-arrows denote job deadlines, T-shaped arrows denote job completions, and wedged boxes denote overheads (which are magnified for clarity). Job releases occur at r z 3 = 1.5, r y 2 = 3.9, and r x 1 = 6.5. (a) Event-driven schedule and (b) quantum-driven schedule without overheads. (c) Event-driven schedule with overheads.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Figure 2 :</head><label>2</label><figDesc>Figure 2: Illustration of hierarchical queues.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Figure 3 :</head><label>3</label><figDesc>Figure 3: Sample average-case overhead measurements. The graphs show average-case measured per-event execution time (in microseconds) as a function of task set size (under staggered quanta). (a) Release overhead. (b) Scheduling overhead. (c) Tick overhead. Note the different scale of the Y-axis in each inset. The complete worst-case and average-case overhead measurements are reported in [6].</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head></head><label></label><figDesc>ratio of schedulable task sets[hard]    task set utilization cap (prior to inflation) utilization uniformly in [0.001, 0.1]; period uniformly in[10, 100]    ratio of schedulable task sets[hard]    task set utilization cap (prior to inflation) util. bimodially in [0.001, 0.5] (8/9) and [0.5, 0.9] (1/9); period uniformly in[10, 100]    ratio of schedulable task sets[hard]    task set utilization cap (prior to inflation) utilization uniformly in [0.1, 0.4]; period uniformly in[10, 100]    </figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head></head><label></label><figDesc>ratio of schedulable task sets[hard]    task set utilization cap (prior to inflation) util. bimodially in [0.001, 0.5] (6/9) and [0.5, 0.9] (3/9); period uniformly in[10, 100]    </figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head></head><label></label><figDesc>16 18 20  22 24 26 28 30 32 ratio of schedulable task sets[hard]    task set utilization cap (prior to inflation) utilization uniformly in [0.5, 0.9]; period uniformly in[10, 100]    </figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head></head><label></label><figDesc>16 18 20  22 24 26 28 30 32 ratio of schedulable task sets[hard]    task set utilization cap (prior to inflation) util. bimodially in [0.001, 0.5] (4/9) and [0.5, 0.9] (5/9); period uniformly in[10, 100]    </figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Figure 4 :</head><label>4</label><figDesc>Figure 4: HRT schedulability (the fraction of generated task systems deemed HRT schedulable) for moderate periods as a function of task system utilization cap for various utilization distributions. (a) Uniform light. (c) Uniform medium. (e) Uniform heavy. (b) Bimodal light. (d) Bimodal medium. (f) Bimodal heavy.In each graph, the curve labeled "[1]  G-EDF" indicates schedulability under an ideal event-driven system (zero overheads), the curves numbered 2-8 correspond to the plugins listed in Table1, and the curves 9-10 correspond to curves 7-8 but assume staggered quanta. Recall from Sec. 4.2 that a task set is HRT schedulable if it can be shown to have zero tardiness under assumption of worst-case overheads.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head></head><label></label><figDesc>task set utilization cap (prior to inflation) util. bimodially in [0.001, 0.5] (4/9) and [0.5, 0.9] (5/9); period uniformly in[10, 100]    </figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Figure 5 :</head><label>5</label><figDesc>Figure 5: SRT schedulability (the fraction of generated task systems deemed SRT schedulable) for moderate periods as a function of task system utilization cap for various utilization distributions. (a) Uniform light. (c) Uniform medium. (e) Uniform heavy. (b) Bimodal light. (d) Bimodal medium. (f) Bimodal heavy.In each graph, the curve labeled "[1]  G-EDF" indicates schedulability under an ideal event-driven system (zero overheads) and the curves numbered 2-8 correspond to the plugins listed in Table1. Recall from Sec. 4.2 that a task set is SRT schedulable if it can be shown to have bounded tardiness under assumption of average-case overheads.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>Table 1 :</head><label>1</label><figDesc>Policy plugins evaluated in this paper. The letters of each plugin name refer to columns 2-4 in this table. An "Interrupts" value of 1 denotes the use of a dedicated interrupt processor. "Capacity" is the number of processors that schedule real-time tasks.Sec. 4), each processor has a private, integrated hardware timer that is not accessible to other processors. This is resolved by sending IPIs to the dedicated processor to initiate the programming of hardware timers. Implemented approaches. We implemented seven of the twelve possible combinations of choices S1, S2, R1-R3, I1, and I2 in LITMUS RT , as listed in Table1. Under event-driven scheduling, we considered all three queue variants with global interrupt handling (CEm, FEm, and HEm), and coarse-and fine-grained queues with dedicated</figDesc><table><row><cell cols="2">Plugin Ready Queue</cell><cell>Scheduling</cell><cell cols="2">Interrupts Capacity</cell></row><row><cell>CQm</cell><cell>coarse-grained</cell><cell>quantum-driven</cell><cell>m</cell><cell>m</cell></row><row><cell>CEm</cell><cell>coarse-grained</cell><cell>event-driven</cell><cell>m</cell><cell>m</cell></row><row><cell>FEm</cell><cell cols="2">fine-grained [15] event-driven</cell><cell>m</cell><cell>m</cell></row><row><cell>HEm</cell><cell>hierarchical</cell><cell>event-driven</cell><cell>m</cell><cell>m</cell></row><row><cell>CQ1</cell><cell>coarse-grained</cell><cell>quantum-driven</cell><cell>1</cell><cell>m -1</cell></row><row><cell>CE1</cell><cell>coarse-grained</cell><cell>event-driven</cell><cell>1</cell><cell>m -1</cell></row><row><cell>FE1</cell><cell cols="2">fine-grained [15] event-driven</cell><cell>1</cell><cell>m -1</cell></row></table><note><p>interrupt handling (CE1 and FE1). Hierarchical queues were not considered in combination with dedicated interrupt handling since they rely on insertions occurring on all processors. Only coarse-grained queues were considered under quantum-driven scheduling (CQm and CQ1) because quantum boundaries act as implicit barriers and ready queues are only accessed at quantum boundaries. Hence, parallel access would only yield minimal gains (if any).</p></note></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>Eight 1.2 GHz cores with four hardware threads per core. A core's cycles are distributed among its hardware threads in a round-robin manner.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_1"><p>We assume that priorities are unique, i.e., that deadline ties are broken arbitrarily but consistently. LITMUS RT tie-breaks by lower task index.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_2"><p>The current base version is Linux 2.6.24. We plan to rebase LITMUS RT to the latest kernel version in the near future.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_3"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 02:08:57 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="6" xml:id="foot_4"><p>Since jobs starting to execute do not have cache affinity, only the preempted job (if any) must be considered. one timer interrupt is required. Efficient timer sharing is accomplished by looking up future release times in a hash table. As a side effect, timer sharing enables the use of mergeable queues (see below). Processor mapping. Since scheduling and switching between processes takes time, the notion of when a job is "scheduled" is not clear-cut. For example, consider a scenario in which a job T j i is one of the m highest-priority jobs when released, but a higher-priority job T l k arrives before the context switch to T j i 's implementing process is complete. Now suppose that a third job T yx with priority less than T l k 's but higher than T j i 's arrives concurrently on another processor. Which job is "scheduled?" Is a preemption required? Should an IPI be sent?In our experience, relying on the OS's notion of whether a particular process is scheduled (i.e., is its stack in use?) for assigning jobs to processors is both difficult and errorprone, and tends to lead to priority inversions due to unanticipated corner cases and</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="7" xml:id="foot_5"><p>race conditions.<ref type="bibr" target="#b12">7</ref> Instead, in LITMUS RT , we use the processor mapping to split job scheduling, which is at the level of the sporadic model and is only concerned with assigning abstract jobs to abstract processors, from process scheduling, which is concerned with address spaces, stacks, register sets, and other hardware peculiarities. This simplifies the real-time scheduling logic since any processor's job assignment can be updated on any processor by any event handler (in contrast to performing context switches, which can be only done in one specific code path on the target processor). Process scheduling is then reduced to tracking which process should be executing based on the current job-to-processor mapping; any delay in tracking is captured by the various overhead terms.Since the most common operation involving the processor mapping is to check whether a preemption is required, which requires identifying the lowest-priority scheduled job, the processor mapping is realized as a min-heap with processors ordered by the priority of their assigned jobs (if any-idle processors have the lowest priority). Ready queue. In earlier versions of LITMUS RT , ready queues were realized as ordered linked lists. Not surprisingly, this simple approach did not scale well, and binomial heaps were employed instead<ref type="bibr" target="#b12">[7]</ref>. Binomial heaps were chosen since they, together with timer sharing, support releasing jobs with coinciding release times in O(log n) time by means of a queue-merge operation.However, since a binomial heap is a sequential data structure, it suffers from two inherent weaknesses when used as a shared queue on a multiprocessor: first, all ac-7 This is especially true when jobs may self-suspend for short durations (due to blocking on semaphores or page faults, library loading, etc.). However, handling self-suspensions is beyond the scope of this paper.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="8" xml:id="foot_6"><p>The Niagara's hardware threads are real-time-friendly because each core distributes cycles in a round-robin manner-in the worst case, a hardware thread can utilize every fourth cycle.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="9" xml:id="foot_7"><p>Similarly, 32-bit processors with L2 caches and speeds in excess of</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="100" xml:id="foot_8"><p>MHz, once firmly associated with enterprise-class servers, are now routinely deployed in embedded systems.</p></note>
+		</body>
+		<back>
+
+			<div type="funding">
+<div><p>* Work supported by <rs type="funder">IBM</rs>, <rs type="funder">Intel</rs>, and <rs type="person">Sun Corps</rs>., <rs type="funder">NSF</rs> grants <rs type="grantNumber">CCF 0541056</rs>, and <rs type="grantNumber">CNS 0615197</rs>, and <rs type="funder">ARO</rs> grant <rs type="grantNumber">W911NF-06-1-0425</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_gdwRNqD">
+					<idno type="grant-number">CCF 0541056</idno>
+				</org>
+				<org type="funding" xml:id="_utXxBNb">
+					<idno type="grant-number">CNS 0615197</idno>
+				</org>
+				<org type="funding" xml:id="_3f6GNVR">
+					<idno type="grant-number">W911NF-06-1-0425</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Fem</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<title/>
+		<author>
+			<persName><forename type="first">G-Edf</forename></persName>
+		</author>
+		<idno>3] CE1 [5] FE1 [7] CQm [8] CQ1</idno>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<title/>
+		<author>
+			<persName><forename type="first">S-Cq</forename></persName>
+		</author>
+		<imprint>
+			<biblScope unit="volume">1</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Fem</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title/>
+		<author>
+			<persName><forename type="first">G-Edf</forename></persName>
+		</author>
+		<idno>3] CE1 [5] FE1 [7] CQm [8] CQ1</idno>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<monogr>
+		<title/>
+		<author>
+			<persName><surname>Hem</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Multiprocessor EDF and deadline monotonic schedulability analysis</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 24th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 24th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+			<biblScope unit="page" from="120" to="129" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">A comparison of global and partitioned EDF schedulability tests for multiprocessors</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+		<idno>TR-051101</idno>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+		<respStmt>
+			<orgName>Florida State University</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Techniques for multiprocessor global schedulability analysis</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 28th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 28th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="119" to="128" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Improved schedulability analysis of EDF on multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cirinei</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 17th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 17th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+			<biblScope unit="page" from="209" to="218" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of global scheduling algorithms on multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cirinei</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="553" to="566" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<monogr>
+		<title level="m" type="main">On the implementation of global real-time schedulers</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<ptr target="http://www.cs.unc.edu/˜anderson/papers.html" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">On the scalability of real-time scheduling algorithms on multicore platforms: A case study</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 29th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 29th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="157" to="169" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Accounting for interrupts in multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 15th International Conference on Embedded and Real-Time Computing Systems and Applications</title>
+		<meeting>the 15th International Conference on Embedded and Real-Time Computing Systems and Applications</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="273" to="283" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">LITMUS RT : A testbed for empirically comparing real-time multiprocessor schedulers</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 27th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 27th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+			<biblScope unit="page" from="111" to="123" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title level="m" type="main">Soft Real-Time Scheduling on Multiprocessors</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+			<pubPlace>Chapel Hill, North Carolina</pubPlace>
+		</imprint>
+		<respStmt>
+			<orgName>University of North Carolina</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">PhD thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Tardiness bounds under global EDF scheduling on a multiprocessor</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">38</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="133" to="189" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Priority-driven scheduling of periodic task systems on multiprocessors</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Funk</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="issue">2-3</biblScope>
+			<biblScope unit="page" from="187" to="205" />
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<monogr>
+		<ptr target="http://www.cs.unc.edu/˜anderson/litmus-rt" />
+		<title level="m">LITMUS RT homepage</title>
+		<imprint>
+			<publisher>UNC Real-Time Group</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">The Art of Multiprocessor Programming</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Herlihy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Shavit</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<publisher>Morgan Kaufmann Publishers</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">An efficient algorithm for concurrent priority queue heaps</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Hunt</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Michael</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Parthasarathy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Scott</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Information Processing Letters</title>
+		<imprint>
+			<biblScope unit="volume">60</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="151" to="157" />
+			<date type="published" when="1996">1996</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<monogr>
+		<title level="m" type="main">Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Liu</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+			<publisher>Prentice Hall</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">The Spring kernel: A new paradigm for real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">A</forename><surname>Stankovic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Ramamritham</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Software</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="62" to="72" />
+			<date type="published" when="1991">1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Hashed and hierarchical timing wheels: data structures for the efficient implementation of a timer facility</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Varghese</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Lauck</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIGOPS Operating Systems Review</title>
+		<imprint>
+			<biblScope unit="volume">21</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="25" to="38" />
+			<date type="published" when="1987">1987</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

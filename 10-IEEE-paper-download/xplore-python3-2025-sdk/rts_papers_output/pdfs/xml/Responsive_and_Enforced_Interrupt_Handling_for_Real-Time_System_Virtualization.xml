@@ -1,0 +1,805 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Responsive and Enforced Interrupt Handling for Real-Time System Virtualization</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Hyoseung</forename><surname>Kim</surname></persName>
+							<email>hyoseung@cmu.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Carnegie Mellon University</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Shige</forename><surname>Wang</surname></persName>
+							<email>shige.wang@gm.com</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Carnegie Mellon University</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Raj</forename><surname>Rajkumar</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">Carnegie Mellon University</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Responsive and Enforced Interrupt Handling for Real-Time System Virtualization</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">6CF619EC8992B0738B223F961F58BB89</idno>
+					<idno type="DOI">10.1109/RTCSA.2015.15</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T23:12+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract/>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Abstract-The increasing performance of modern processors makes virtualization a viable solution for consolidating realtime systems into a single hardware platform. Although realtime task scheduling in a virtual machine can benefit from hierarchical scheduling, unbounded interrupt handling time and vulnerability to interrupt storms make practitioners hesitant to virtualize interrupt-driven real-time applications. In this paper, we propose vINT, an interrupt handling scheme designed for real-time system virtualization. vINT provides a pseudo-VCPU abstraction dedicated for interrupt handling, which overcomes the limits imposed by the timing parameters of virtual CPUs in an analyzable way. vINT also accounts for and enforces interrupt handling and resulting execution flows within a guest virtual machine. vINT does not require any change to the guest OS code, so it can be used for virtualizing proprietary, closed-source OSs. We analyze interrupt handling time as well as VCPU and task schedulability, with and without vINT. Our experimental results indicate that vINT achieves timely interrupt handling while providing as good task schedulability as when it is not used. Our case study based on a prototype implementation on the KVM hypervisor shows that vINT yields significant benefits in reducing interrupt handling time and in protecting real-time tasks against interrupt storms permeating into the virtual machine.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Virtualization has gained significant interest as an appealing solution for the consolidation of individually-developed, complex real-time embedded systems into a single hardware platform. Each system to be consolidated is provided a virtual machine (VM) that can maintain its own software infrastructure, such as an OS, middleware and libraries, logically isolated from other VMs. Many legacy real-time applications can be reused without porting them to a new OS by using virtualization. The flexibility of hosting multiple OSs under virtualization allows real-time OSs to co-exist with generalpurpose OSs on the same hardware platform.</p><p>In general, virtualization has a two-level hierarchical scheduling structure. Each guest VM has one or more virtual CPUs (VCPUs). The tasks of a VM are scheduled on the VCPUs of that VM by the guest OS scheduler. Each VCPU is a schedulable entity in the hypervisor, analogous to a thread in a non-virtualized OS. Hence, the hypervisor schedules VCPUs on physical CPUs. The scheduling of real-time tasks in a hierarchical structure has been extensively studied in the context of real-time systems <ref type="bibr" target="#b10">[12,</ref><ref type="bibr" target="#b28">30,</ref><ref type="bibr" target="#b29">31,</ref><ref type="bibr" target="#b30">32]</ref>. These realtime hierarchical scheduling theories have also been applied to many open-source virtualization platforms, e.g., Xen <ref type="bibr" target="#b35">[37,</ref><ref type="bibr" target="#b36">38]</ref>, KVM <ref type="bibr" target="#b8">[10,</ref><ref type="bibr" target="#b15">17]</ref>, and L4/Fiasco <ref type="bibr" target="#b37">[39]</ref>.</p><p>Interrupt handling and resulting execution flows are indispensable for many real-time systems that interact with the physical environment in a lower latency compared to polling. In a virtualized system, a physical interrupt generated by a sensor or network interface is first handled by the interrupt service routine (ISR) of the hypervisor, and then delivered to the corresponding VCPU in the form of a virtual interrupt. Once that VCPU is scheduled, the virtual interrupt is handled by the ISR of the guest OS while consuming the VCPU's budget. Finally, the interrupt triggers the execution of any task responsible for reacting to that interrupt.</p><p>We have identified three strong requirements for the interrupt handling scheme of real-time system virtualization: R1. Providing responsive and bounded interrupt handling time while ensuring task schedulability: Under virtualization, interrupt handling time may become excessively long due to the preemption and budget depletion of a VCPU. Arbitrarily increasing VCPU priority or budget is not a good option, since it may adversely affect the schedulability of tasks in other VCPUs. R2. Enforcing virtual interrupts to protect real-time tasks from interrupt storms 1 : Unlike a native system, a virtualized system may suffer from virtual interrupt storms. The negative impact of virtual interrupt storms can be much significant than that of physical interrupt storms because a VCPU typically has a fraction of physical CPU time as its budget when hosted together with other VMs. R3. Supporting unmodified guest OSs: One of the primary purposes of using virtualization is to co-host multiple VMs using different OSs. If an interrupt handling scheme requires modifications to a guest OS, its applicability is limited to only VMs using OSs that are open-source, which is not the case for many commercial real-time OSs. However, previous work on interrupt handling in virtualization <ref type="bibr" target="#b4">[6,</ref><ref type="bibr" target="#b16">18,</ref><ref type="bibr" target="#b18">20,</ref><ref type="bibr" target="#b22">24]</ref> does not satisfy all these requirements. Table <ref type="table" target="#tab_0">I</ref> gives a comparative summary of previous work.</p><p>In this paper, we propose vINT, an analyzable interrupt handling scheme to address the aforementioned requirements in real-time system virtualization. vINT provides responsive, bounded, and enforced interrupt handling without making any change to the guest OS code. Hence, it can be easily applicable to full virtualization scenarios hosting unmodified, proprietary guest OSs. 2 We analyze interrupt handling time in a virtualized environment with and without vINT. We also provide analyses on the schedulability of VCPUs and tasks in the presence 1 An interrupt storm is a condition where a system receives interrupts at an unexpectedly high rate and the processing of those interrupts takes the majority of the CPU time. It is also known as the receive livelock problem <ref type="bibr" target="#b24">[26]</ref>. 2 Full virtualization is a technique to host an unmodified guest OS in a privilege level lower than the hypervisor. Under full virtualization, any privileged instruction in the guest OS, such as disabling interrupts, is trapped and emulated by the hypervisor to protect the hypervisor itself and other VMs. </p><formula xml:id="formula_0">[6] X X X [18] X X [20] X X [24] X X Our work X X X X X X</formula><p>of physical and virtual interrupts. Our experimental results indicate that vINT achieves timely interrupt handling while providing as good task schedulability as when it is not used.</p><p>We have implemented a prototype of vINT on the KVM hypervisor (chosen for convenience). Our case study using this implementation shows the benefits of vINT in providing responsive interrupt handling times and protecting real-time tasks against virtual interrupt storms. The rest of this paper is organized as follows. Section II reviews related work. Section III describes the system model used. Section IV explains the problems with interrupt handling in virtualization. Section V presents our proposed vINT scheme. Section VI shows our analyses on interrupt handling time, and VCPU and task schedulability. Section VII provides detailed evaluation, and Section VIII concludes the paper.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. RELATED WORK</head><p>The issues of responsive and enforced interrupt handling have been intensively studied in the context of non-virtualized systems. Previous work commonly uses a split interrupt handling model to execute deferrable work within a task context <ref type="bibr" target="#b19">[21,</ref><ref type="bibr" target="#b23">25,</ref><ref type="bibr" target="#b32">34]</ref>. Specifically, Zhang and West <ref type="bibr" target="#b38">[40]</ref> proposed the Process-Aware Interrupt (PAI) mechanism that schedules and accounts Linux bottom halves with the highest priority of the tasks waiting on the corresponding interrupt. Palmer and West <ref type="bibr" target="#b26">[28]</ref> proposed to use deferrable servers to handle interrupts in order to minimize the receive livelock problem <ref type="bibr" target="#b24">[26]</ref>. Danish et al. <ref type="bibr" target="#b9">[11]</ref> proposed a Priority Inheritance Bandwidth-Preserving (PIBP) policy to handle interrupts and I/O requests with the budget and priority of the associated task. All these schemes, however, are designed for a non-virtualized system and cannot address the problems of virtual interrupt handling in a virtualized system, which will be discussed in Section IV.</p><p>There also exist many research efforts attempting to address other aspects of interrupts in a non-virtualized system. Leyvadel-Foyo et al. <ref type="bibr" target="#b20">[22]</ref> proposed an integrated task and interrupt management model. By using a very short ISR that only activates a task corresponding to the interrupt, the proposed model could reduce the interference from interrupts associated with lower-priority tasks. Elliott and Anderson <ref type="bibr" target="#b11">[13]</ref> focused on the priority inversion problem caused by the interrupts of GPU asynchronous I/O in a multi-core system using global scheduling. Brandenburg et al. <ref type="bibr" target="#b6">[8]</ref> investigated various interrupt accounting mechanisms for multi-core systems using global EDF scheduling.</p><p>The virtualization of real-time systems has gained much attention recently. RT-Xen <ref type="bibr" target="#b35">[37,</ref><ref type="bibr" target="#b36">38]</ref> provides a hierarchical scheduling framework in the Xen hypervisor. The latest version of RT-Xen supports both partitioned and global scheduling at the hypervisor and provides a deferrabler server and a periodic server for the VCPU budget replenishment policy. Yang et al. <ref type="bibr" target="#b37">[39]</ref> implemented a hierarchical scheduling  To overcome the limitations of hierarchical scheduling in real-time virtualization, approaches based on paravirtualized scheduling <ref type="bibr" target="#b16">[18,</ref><ref type="bibr" target="#b18">20,</ref><ref type="bibr" target="#b22">24]</ref> have been studied. All of these approaches require modifications to the scheduler of a guest OS to let the hypervisor know the currently-executing task within the VM. Using this information, the hypervisor increases the priority of the corresponding VCPU so that the VCPU is not preempted by other VMs executing lower-priority tasks. However, none of these approaches bounds the worst-case interrupt handling time. They also do not enforce virtual interrupt handling. Specifically, the work in <ref type="bibr" target="#b18">[20]</ref> proposes to assign a separate budget and priority to a subset of tasks and interrupts of a VCPU, but does not consider virtual interrupt storms and does not show how the separate budget and priority values can be determined.</p><p>Beckert et al. <ref type="bibr" target="#b4">[6]</ref> proposed an interrupt handling scheme that can be implemented without guest OS modifications. However, their approach has several limitations: (i) the hypervisor is assumed to use TDMA to schedule VCPUs, which does not conform to the latest research efforts on real-time system virtualization, (ii) virtual interrupts may be handled while consuming the budgets of unrelated other VCPUs, meaning that each VCPU is not guaranteed to use its assigned budget for its own purpose, and (iii) task schedulability in the presence of virtual interrupts is not considered. In this paper, we have addressed these limitations.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. SYSTEM MODEL</head><p>We consider a system that has one or more physical CPU cores (PCPUs), each running at the same fixed clock frequency. The system runs a hypervisor capable of hosting guest VMs in full-virtualization mode. Each VM has one or more VCPUs, each of which appears as a processing core in the VM. The system has a two-level hierarchical scheduling structure, as shown in Figure <ref type="figure" target="#fig_0">1</ref>. The tasks of each VM are scheduled on these VCPUs by the guest OS of the VM. The VCPUs are scheduled on PCPUs by the hypervisor. In this work, we focus on partitioned fixed-priority preemptive scheduling for both the hypervisor and the VMs due to its wide support in realtime hypervisors and OSs, such as OKL4 <ref type="bibr" target="#b2">[4]</ref> and PikeOS <ref type="bibr" target="#b3">[5]</ref>. Therefore, each VCPU is statically assigned to a single PCPU and each task is statically assigned to a single VCPU. Any fixed-priority assignment, such as Rate-Monotonic <ref type="bibr" target="#b21">[23]</ref>, can be used for both VCPUs and tasks. </p><formula xml:id="formula_1">v i := (C v i , T v i ) where, • C v i : the maximum execution budget of VCPU v i • T v i :</formula><p>the budget replenishment period of VCPU v i Any application task or OS code can execute only if the corresponding VCPU has a non-zero remaining budget. For the VCPU budget replenishment policies, we consider the deferrable server <ref type="bibr" target="#b33">[35]</ref> and sporadic server <ref type="bibr" target="#b31">[33]</ref> variants, because they have been extensively studied in the literature on real-time hierarchical scheduling <ref type="bibr" target="#b10">[12,</ref><ref type="bibr" target="#b28">30,</ref><ref type="bibr" target="#b30">32]</ref> and virtualization <ref type="bibr" target="#b15">[17,</ref><ref type="bibr" target="#b35">37,</ref><ref type="bibr" target="#b36">38]</ref>. Specifically, under the deferrable server policy, the budget of a VCPU is fully replenished at the start of every replenishment period, resulting in a release jitter equal to T v i -C v i <ref type="bibr" target="#b5">[7]</ref>. Under the sporadic server policy, only the amount of budget used is replenished T v i units after the start of the use of that amount, yielding zero release jitter.</p><p>We assume sporadic tasks with implicit deadlines. Each task has a unique priority within its VCPU, which can be easily achieved by an arbitrarily tie-breaking rule. Task τ i is represented as follows:</p><formula xml:id="formula_2">τ i := (C i , T i ) where,</formula><p>• C i : the worst-case execution time (WCET) of task τ i • T i : the minimum inter-arrival time of task τ i Interrupts: We consider two types of interrupts: physical and virtual. A physical interrupt I pi i is a signal issued from a hardware device to a PCPU. Each physical interrupt is assumed to be statically pinned to one PCPU, which can be easily done in software with the support of a programmable interrupt controller (PIC). When a PCPU receives a physical interrupt, the currently executing VCPU on that PCPU is halted and the corresponding ISR of the hypervisor is executed (Step 1 in Figure <ref type="figure">2</ref>). The CPU time usage of the ISR of a physical interrupt is accounted for as the hypervisor's usage, not as the halted VCPU's usage. Each physical interrupt has a unique priority π pi i determined by the PIC. The ISR of a lower-priority physical interrupt can be preempted by that of a higher-priority physical interrupt. The ISRs of physical interrupts are not preemptible by VCPUs. Therefore, a VCPU preempted by an ISR can only resume its execution when all ISRs have been completed. A physical interrupt I pi i is represented as follows:</p><formula xml:id="formula_3">I pi i := (C pi i , T pi i ) where, • C pi i : the WCET of the ISR of I pi i • T pi i : the minimum inter-arrival time 3 of I pi i</formula><p>The response time of a physical interrupt (or physical interrupt handling time) is the time from the arrival of the physical interrupt signal to the completion of the corresponding ISR. A virtual interrupt I vi i is a software signal from the hypervisor to a guest VM, issued upon the completion of the ISR of a physical interrupt. <ref type="foot" target="#foot_2">4</ref> Each virtual interrupt is assumed to be statically pinned to one VCPU of a VM. If a target VCPU is located on a PCPU different from that of a physical ISR, e.g., a physical interrupt shared among multiple VCPUs, the delivery of a virtual interrupt from a physical ISR to the VCPU causes an inter-processor interrupt (IPI) that is an additional physical interrupt to notify a state change to the VCPU running on a different PCPU (Steps 1' and 2 in Figure <ref type="figure">2(b)</ref>). Otherwise, a virtual interrupt is immediately delivered to the corresponding VCPU (Step 2 in Figure <ref type="figure">2(a)</ref>). When a VCPU receives a virtual interrupt, the currently executing task in that VCPU is halted and the corresponding ISR of the guest OS is executed. Each virtual interrupt has a unique priority π vi i given by the emulated PIC. Within each VCPU, the ISRs of lower-priority virtual interrupts can be preempted by those of higher-priority virtual interrupts, and virtual ISRs are not preemptible by tasks. As in most CPU architectures, each ISR executes an End-Of-Interrupt (EOI) instruction at the end to notify the completion of the ISR to the PIC. As the EOI is a privileged instruction called by the guest OS, it is trapped and emulated by the hypervisor while consuming the budget of the corresponding VCPU (Step<ref type="foot" target="#foot_1">3</ref> in Figure <ref type="figure">2</ref>). A virtual interrupt is pending if it has been injected to the corresponding VCPU but its ISR has not yet been completed. A virtual interrupt I vi i is represented as follows:</p><formula xml:id="formula_4">I vi i := (C vi i , T vi i ) where, • C vi i : the WCET of the ISR of I vi i • T vi i : the minimum inter-arrival time of I vi i</formula><p>We assume that a split interrupt handling model is used by the guest OS due to its the wide acceptance in both real-time and non-real-time OSs. Under split interrupt handling, the ISR of a virtual interrupt performs the minimum amount of work and activates zero or more tasks to execute a deferred service routine (DSR) in the task context (Step 4 in Figure <ref type="figure">2</ref>). Hence, the priorities of DSRs can be easily configured in contrast to ISRs, and the majority of interrupt handling can be done with desired priorities. We use D(I vi i ) to denote the set of DSR tasks triggered by the ISR of a virtual interrupt I vi i . The minimum inter-arrival time of any task in D(I vi i ) is therefore equal to or greater than T vi i . The response time of a virtual interrupt (or virtual interrupt handling time) is the time from the arrival of the virtual interrupt to the completion of the corresponding ISR and DSR. Lastly, we denote the sum of the WCETs of the ISR and DSR of a virtual interrupt I vi i as:</p><formula xml:id="formula_5">C vi i = C vi i + τj ∈D(I vi i ) C j Definition 1.</formula><p>An interrupt-triggered execution flow in a virtualized environment is the sequence of executions from the arrival of a physical interrupt to the completion of the ISR and DSR of the corresponding virtual interrupt.</p><p>Definition 2. The total interrupt handling time is the amount of time to complete the corresponding interrupt-triggered execution flow.</p><p>Definition 3. An interrupt-triggered execution flow is serviceable, if its total interrupt handling time does not exceed the minimum inter-arrival times of the corresponding physical and virtual interrupts.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. PROBLEMS WITH VIRTUAL INTERRUPTS</head><p>The main difference between interrupt handling in virtualized and non-virtualized environments is the presence of virtual interrupts. In this section, we detail two major problems associated with virtual interrupts.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Timing Penalties to Virtual Interrupt Handling</head><p>Once a virtual interrupt is injected into a VCPU, it is handled by using the priority and budget of the VCPU. Virtual interrupt handling time is thus affected by the followings:</p><p>• VCPU budget depletion: When a virtual interrupt I vi i is delivered to a VCPU v j , the budget of v j might have been completely consumed by other tasks within v j . Hence, the handling of I vi i may be delayed until the start of the next replenishment period of v j .</p><p>• VCPU preemption: Although a VCPU v j has an enough budget to handle a virtual interrupt I vi i , the handling of I vi i may be delayed by the execution of any task on higherpriority VCPUs that can preempt v j .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Virtual Interrupt Storms</head><p>Previous work proposed to address interrupt storms in the context of non-virtualized systems <ref type="bibr" target="#b9">[11,</ref><ref type="bibr" target="#b19">21,</ref><ref type="bibr" target="#b26">28]</ref> uses a dedicated aperiodic server, e.g., a deferrable server or a sporadic server, for interrupt handling. When the server budget is depleted, the associated interrupt is not handled until the start of the next replenish period of the server. By doing so, the impact of an interrupt storm on CPU time is limited to the amount of the budget assigned to the associated server.</p><p>While previous work can be applied to the hypervisor to address physical interrupt storms, it may not be used for virtual interrupt storms in a full-virtualization scenario, where an unmodified guest OS is used and it is unaware of being virtualized. In general, OSs measure the passage of time by reading and comparing two clock values, e.g., t 1 -t 0 = elapsed time from t 0 to t 1 . Under full virtualization, an unmodified guest OS can check the passage of physical time in this manner. However, the guest OS cannot use the same manner to check the passage of virtual time, which is the actual CPU time used by the guest VCPU. This is because the guest OS is unaware of when and how much VCPU-level preemptions are caused. In other words, when previous work is used for virtual interrupts under full virtualization, it may result in significant errors in the accounting of virtual interrupt handling. Goals: In this work, our goals are twofold: (i) minimize and bound interrupt handling time in a virtualized environment, and (ii) account for virtual interrupt handling and protect real-time tasks from virtual interrupt storms without any modifications to the guest OS.</p><p>V. VINT SCHEME The problems with virtual interrupt handling described in Section IV are caused by the fact that a virtual interrupt is handled by the same VCPU as the one used by other regular tasks. Motivated by this, we propose vINT that can conceptually split virtual interrupt handling from the VCPU of regular tasks in an analyzable way, without modifying the guest OS code. vINT can be selectively used for a subset of virtual interrupts that cannot be serviced within their minimal inter-arrival times by default, or have a possibility of causing virtual interrupt storms. For convenience of explanation, we assume that all virtual interrupts are managed by vINT in Section V-A and V-B. In Section V-C we relax this assumption.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Pseudo-VCPU Resource Abstraction</head><p>vINT uses a pseudo-VCPU resource abstraction to represent the resource requirement of the ISR and DSR of a virtual interrupt as a separate VCPU to the hypervisor. The pseudo-VCPU differs from its original VCPU in that it does not have an execution context. In other words, the use of the pseudo-VCPU introduces no additional processing core visible to the guest VM, which is typically a high demand to host legacy guest OSs that may support only uniprocessors.</p><p>Each virtual interrupt can be exclusively associated with one pseudo-VCPU that is located on the same PCPU as its original VCPU. A pseudo-VCPU v p is described by the same types of parameters as a regular VCPU: C v p and T v p . The replenishment period of a pseudo-VCPU v p is equal to or greater than the minimum inter-arrival time of the associated virtual interrupt I vi i , i.e., T v p ≥ T vi i . The budget C v p of a pseudo-VCPU v p associated with a virtual interrupt I vi i is assigned as follows:</p><formula xml:id="formula_6">C v p = T v p T vi i C vi i (1)</formula><p>It is worth noting that, once a virtual interrupt is assigned its pseudo-VCPU, the budget of its original VCPU can be reduced because the virtual interrupt will be handled by using the budget of the pseudo-VCPU.</p><p>Prioritization of pseudo-VCPUs: One of our goals is to provide responsive interrupt handling time, which is challenging due to the VCPU-level preemption while handling a virtual interrupt. To achieve this goal, vINT prioritizes pseudo-VCPUs over regular VCPUs. The priority of a pseudo-VCPU v p associated with a virtual interrupt</p><formula xml:id="formula_7">I vi i is assigned a priority of π v B + (π v o -1) • L o + π D (I vi i )</formula><p>, where π v B is a base VCPUpriority level greater than that of any regular VCPU on the same PCPU, π v o is the priority of the original VCPU of I vi i , L o is the number of priority levels for all DSR tasks in the original VCPU, and π D (I vi i ) is the priority difference between the highest-priority DSR task of I vi i and the highest-priority DSR task among all DSR tasks in the original VCPU. With this approach, the pseudo-VCPU v p is not preempted by any regular VCPU, and the relative priority ordering of DSRs within the same original VCPU are preserved.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Pseudo-VCPU Realization</head><p>As a pseudo-VCPU does not have an execution context, in its realization, the actual execution of the ISR and DSR of a virtual interrupt still happens within the execution context of their original VCPU. We now explain how vINT handles a virtual interrupt as if it was handled in its pseudo-VCPU. DSR task priority adjustment: Since pseudo-VCPUs are assigned higher priorities than regular VCPUs, the executions of DSRs should not be preempted by regular tasks in the realization. vINT therefore statically adjusts the priority of each DSR task τ j to π B,vo + π j , where π B,vo is a base task-priority level greater than any regular task in the task τ j 's original VCPU v o , and π j is the original priority of τ j . Note that this priority adjustment is not needed if the priorities of DSR tasks are already higher than those of regular tasks in the original VCPU. In addition, since even closedsource, proprietary OSs provide an interface to configure task priorities, the priority adjustment does not violate the requirement of full virtualization. Virtual interrupt injection: vINT maintains a counter for each pseudo-VCPU to indicate the number of virtual interrupts that can be handled by the pseudo-VCPU at that moment. The maximum possible value of the counter for a pseudo-VCPU v p associated with a virtual interrupt I vi i is given by</p><formula xml:id="formula_8">T v p /T vi i .</formula><p>When a virtual interrupt is generated, vINT checks the counter value of the corresponding pseudo-VCPU. If the counter is greater than zero, the counter is decremented by one and the virtual interrupt is injected into its original VCPU. Otherwise, the injection of the virtual interrupt is delayed until the counter becomes greater than zero. The replenishment rule of the counter is similar to that of the VCPU budget. Under the deferrable server policy, the counter is fully replenished at the start of every replenishment period of the pseudo-VCPU. Under the sporadic server policy, the counter is replenished by one at the time when the budget is replenished. Virtual interrupt handling: We first consider a non-nested interrupt handling scenario. When a virtual interrupt I vi i is injected, the original VCPU v o should handle the ISR and DSR of I vi i by using the priority and budget of the corresponding pseudo-VCPU v p . Hence, vINT immediately raises the priority</p><formula xml:id="formula_9">WƐĞƵĚŽͲs Wh ‫ݒ‬ ଷ ;ĨŽƌ ‫ܫ‬ ଵ ௩ Ϳ WƐĞƵĚŽͲs Wh ‫ݒ‬ ଶ ;ĨŽƌ ‫ܫ‬ ଷ ௩ Ϳ KƌŝŐ͘ s Wh ‫ݒ‬ ଵ ;ĨŽƌ ߬ ଵ Ϳ s Wh ďƵĚŐĞƚ ‫ݐ‬ ‫ݐ‬ ଵ ‫ݐ‬ ଶ ‫ݐ‬ ଷ ‫ݐ‬ ସ ‫ݐ‬ ହ ‫ݐ‬ sŝƌƚƵĂů ƚŝŵĞ ‫ݐ‬ /^Z ŽĨ ‫ܫ‬ ଶ ‫݅ݒ‬ /^Z ŽĨ ‫ܫ‬ ଵ ௩ dĂƐŬ ߬ ଷ ; ^Z ŽĨ ‫ܫ‬ ଵ ௩ Ϳ dĂƐŬ ߬ ଶ ; ^Z ŽĨ ‫ܫ‬ ଶ ௩ Ϳ dĂƐŬ ߬ ଵ ;ZĞŐ͘ ƚĂƐŬͿ ‫ܫ‬ ଵ ௩ ‫ܫ‬ ଶ ௩ K/ K/ ǆĞĐƵƚŝŽŶ ĨůŽǁ ŝŶ s Wh ƵĚŐĞƚ ŽĨ ‫ݒ‬ ଷ ƵĚŐĞƚ ŽĨ ‫ݒ‬ ଶ</formula><p>ƵĚŐĞƚ ŽĨ ‫ݒ‬ ଵ Fig. <ref type="figure">3</ref>: vINT nested interrupt handling of v o to that of v p , and let v o use the budget of v p for the amount of C vi i . As the DSR tasks of I vi i have higher priorities than regular tasks, they are guaranteed to be executed as soon as the corresponding ISR finishes. When the VCPU v o has consumed C vi i units of the budget of v p , vINT restores the priority of v o and lets v o use its own budget afterwards. The ISR and DSR of I vi i may be finished earlier than C vi i and regular tasks may be executed while their VCPU is still using the budget and priority of the pseudo-VCPU of I vi i . However, this does not change the worst-case interference that can be imposed on other VCPUs.</p><p>We next consider a nested interrupt handling scenario. vINT exploits the following two factors to support nested interrupt handling with pseudo-VCPUs: (i) the hypervisor is aware of the set of all pending virtual interrupts in each VCPU, and (ii) the hypervisor traps an EOI instruction called at the end of each virtual ISR. When a new virtual interrupt is injected into a VCPU v o , vINT lets v o use the budget and priority of the pseudo-VCPU that is associated with the highest-priority virtual interrupt among all pending interrupts. This is because the VCPU executes the ISR of the highest-priority pending interrupt first. When the hypervisor catches an EOI from v o , vINT checks if there is another pending interrupt. If so, vINT lets v o use the budget and priority of the pseudo-VCPU of the higher-priority pending interrupt, and repeats this until there is no pending interrupt. If there is no pending interrupt, vINT now lets v o use the budget and priority of the highest-priority pseudo-VCPU, the budget of which has not yet been used for the amount of C vi i by v o to handle the injected interrupt I vi i . As the relative priorities of pseudo-VCPU follow those of DSR tasks, this approach makes the sequence of the pseudo-VCPU usage correspond to that of the DSR task executions. Figure <ref type="figure">3</ref> shows an example of nested interrupt handling with vINT. In this figure, the x-axis represents the passage of virtual time so the activities of the hypervisor and other VCPUs are omitted.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Selective Use of vINT</head><p>We now relax our assumption that all virtual interrupts are managed by vINT. If a virtual interrupt is not managed by vINT, it is not associated with a pseudo-VCPU. The priorities of its DSR tasks remain unchanged. However, the presence of such an unmanaged virtual interrupt affects the pseudo-VCPU budgets of virtual interrupts managed by vINT. Consider a virtual interrupt I vi i associated with a pseudo-VCPU v p . If there is any virtual interrupt not managed by vINT in the original VCPU of I vi i , the budget C v p of v p is assigned by:</p><formula xml:id="formula_10">C v p = T v p T vi i C vi i + I vi j ∈V(I vi i )∧ pseudo(I vi j )=∅ T vi i T vi j C vi j (2)</formula><p>where, V(I vi i ) is the original VCPU of I vi i , and pseudo(I vi j ) is a function returning the pseudo-VCPU of I vi j if exists, and ∅ otherwise. The second term in the parenthesis of Eq. ( <ref type="formula">2</ref>) is an extra budget for the executions of the ISRs of virtual interrupts not managed by vINT. Since those ISRs may block the handling of I vi i in the realization, the extra budget allows the ISRs to be executed with the budget and priority of I vi i 's pseudo-VCPU. Therefore, when an instance of I vi i is injected into its original VCPU v o , vINT lets v o use the budget and priority of the pseudo-VCPU v p for the sum of the terms in the parenthesis of Eq. ( <ref type="formula">2</ref>), instead of only C vi i .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. ANALYSIS</head><p>In this section, we first analyze VCPU and task schedulability in the presence of physical and virtual interrupts. Then, we analyze interrupt handling time with and without vINT. For convenience, we use the following notation in this section:</p><p>• P(v i ) and P(I pi j ): PCPUs for a VCPU v i and for a physical interrupt I pi j , respectively • V(τ i ) and V(I vi j ): Original VCPUs for task τ i and for a virtual interrupt I vi j , respectively • pseudo(τ i ) and pseudo(I vi j ): Pseudo VCPUs for task τ i and for a virtual interrupt I vi j , respectively, if exist; ∅ otherwise.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. VCPU and Task Schedulability</head><p>The schedulability of a VCPU v i can be determined by the following recurrence equation:</p><formula xml:id="formula_11">W v,n+1 i = C v i + I pi u ∈P(vi) W v,n i T pi u C pi u + v h ∈P(vi)∧π v h &gt;π v i W v,n i + J v h T v h C v h (3) where, W v,n i is the worst-case response time (WCRT) of a VCPU v i at the n th iteration (W v,0 i = C v i ), π v i is the priority of a VCPU v i , and J v h is a release jitter (J v h = T v h -C v h</formula><p>for the deferrable server policy and J v h = 0 for the sporadic server policy). Eq. ( <ref type="formula">3</ref>) is based on the iterative response time test in <ref type="bibr" target="#b12">[14]</ref>. It terminates when W v,n+1 i = W v,n i , and the VCPU v i is schedulable if its WCRT does not exceed its period, i.e., W v,n i &lt;= T v i . In this equation, the second term represents the interference from the ISRs of physical interrupts during the execution of v i .</p><p>For task schedulability, we need to consider virtual interrupts. If a virtual interrupt is managed by vINT, regular tasks do not experience any direct interference from that virtual interrupt because it is handled by using the budget of its pseudo-VCPU. On the other hand, if a virtual interrupt is not managed by vINT, it may be handled by the budget of the same VCPU as regular tasks. Hence, we can extend the task response-time test under hierarchical scheduling given in <ref type="bibr" target="#b28">[30]</ref> as follows to check the schedulability of a regular task τ i in a VCPU v k :</p><formula xml:id="formula_12">W n+1 i = C i + τ h ∈V(τi)∧π h &gt;πi ∧pseudo(τi)=∅ W n i +J h T h C h + W n i + C v k T v k (T v k -C v k ) + I vi u ∈V(τi)∧ pseudo(I vi u )=∅ W n i + J vi u T vi u C vi u (4)</formula><p>where, W n i is the WCRT of task τ i at the n th iteration (W 0 i = C i ), π i is the priority of τ i , and J h and J vi u are the release jitters of a task τ h and a virtual interrupt</p><formula xml:id="formula_13">I vi u , respectively (J h = J vi u = T v k -C v k ). It terminates when W n+1 i = W n i ,</formula><p>and the task τ i is schedulable if its WCRT does not exceed its implicit deadline, i.e., W n i &lt;= T i . Note that the schedulability result for a task from Eq. ( <ref type="formula">4</ref>) is valid only if the task's VCPU passes the VCPU schedulability test given in Eq. (3). The last summing term of Eq. ( <ref type="formula">4</ref>) captures the interference from the ISRs of virtual interrupts that are not managed by vINT. In addition, since Eq. ( <ref type="formula">4</ref>) conservatively assumes that the budget of the task's VCPU is available at the latest time possible within each period (T v k -C v k ), the interference from physical interrupts does not need to be considered in Eq. ( <ref type="formula">4</ref>).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Interrupt Handling Time</head><p>The total interrupt handling time can be bounded by the sum of (i) the WCRT of the ISR of a physical interrupt, (ii) the WCRT of the ISR of a physical IPI if the target VCPU is on a different PCPU, and (iii) the WCRT of the ISR and DSR of the corresponding virtual interrupt. For factors (i) and (ii), the WCRT of the ISR of a physical interrupt I pi i is bounded by the following recurrence equation:</p><formula xml:id="formula_14">W pi,n+1 i = C pi i + I pi h ∈P(I pi i )∧π pi h &gt;π pi i W pi,n i T pi h C pi h (5)</formula><p>where, W pi,n i is the WCRT of a physical interrupt I pi i at the n th iteration (W pi,0 i = C pi i ), and π pi i is the priority of I pi i . We now consider the last factor. When vINT is used, as shown in Figure <ref type="figure">3</ref>, the ISR and DSR of a virtual interrupt may be blocked by the ISRs of virtual interrupts that are associated with lower-priority pseudo-VCPUs and executed in the execution context of the same original VCPU. The virtual interrupt may also be blocked by other virtual interrupts that are not managed by vINT. For a virtual interrupt I vi j associated with a pseudo-VCPU v p , the maximum blocking time from such virtual interrupts during a time interval t is given by: B p,j (t) =</p><formula xml:id="formula_15">I vi u ∈V(I vi j )∧(pseudo(I vi u )=∅ ∨π p pseudo(I vi u ) &lt;π p j ) t T vi u C vi u (6)</formula><p>where, π p pseudo(I vi u ) is the priority of I vi u 's pseudo-VCPU. In addition, the worst case happens when all physical interrupts on the same PCPU arrive with their minimum inter-arrival times and all higher-priority VCPUs fully consume their budgets. The WCRT of a virtual interrupt I vi j associated with a pseudo-VCPU v p is therefore bounded by:</p><formula xml:id="formula_16">W vi,n+1 j = C vi j + B p,j (W vi,n j )+ I pi u ∈P(vp) W vi,n j T pi u C pi u + v h ∈P(vp)∧π v h &gt;π v p W vi,n j + J v h T v h C v h (7)</formula><p>where, W vi,n j is the WCRT of a virtual interrupt I vi j (W vi,0 j = C vi j ). Note that Eq. ( <ref type="formula">7</ref>) is similar to the VCPU schedulability test given in Eq. (3), except the blocking term. This is because the pseudo-VCPU of a virtual interrupt is guaranteed to have enough budget to handle one instance of a virtual interrupt, and there is no other task interfering with the execution of the ISR and DSR of the virtual interrupt in the pseudo-VCPU.</p><p>When vINT is not used, the response time of a virtual interrupt should be captured by considering the executions of other tasks within the same VCPU. Therefore, the WCRT of a virtual interrupt I vi j in a VCPU v k is bounded by:</p><formula xml:id="formula_17">W vi,n+1 j = C vi j + τ h ∈V(I vi j )∧π h &gt;πD ∧pseudo(τ h )=∅ W vi,n j +J h T h C h + W vi,n j +C v k T v k (T v k -C v k ) + I vi u ∈V(I vi j )∧u =j pseudo(I vi u )=∅ W vi,n j +J vi u T vi u C vi u (8)</formula><p>where, πD is the priority of the lowest-priority task in D(I vi j ). Note that this equation is similar to Eq. ( <ref type="formula">4</ref>) which captures the WCRT of a task.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. EVALUATION</head><p>In this section, we first empirically investigate the performance characteristics and benefits of vINT, and then show its effects on a real hardware platform.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Experimental Setup</head><p>We consider the following schemes in our experiments: deferrable server without vINT (DSbase), sporadic server without vINT (SSbase), deferrable server with vINT (DSvINT), and sporadic server with vINT (SSvINT). We use randomlygenerated task sets and interrupt sets to compare these schemes on how many task sets could be schedulable and how many interrupt sets could be serviced on a timely basis.</p><p>Since, in practice, vINT can be selectively applied to a subset of virtual interrupts that cannot be serviced within their  Fig. <ref type="figure">4</ref>: Results with short interrupt inter-arrival time virtual interrupt times by the baseline scheme, our experiments only focus on interrupts with short inter-arrival times. Table <ref type="table" target="#tab_3">II</ref> lists the base parameters we use for our experiments. For each experimental setting, we first generate PCPUs, VCPUs, physical interrupts, and tasks and virtual interrupts for each VCPU based on the defined parameters. Each virtual interrupt is exclusively associated with one physical interrupt in a random manner, and the minimum inter-arrival time of each virtual interrupt is set equal to that of its associated physical interrupt. For each VCPU, the task set utilization per VCPU is split into k random-sized pieces, where k is the number of tasks per VCPU. The size of each piece becomes the utilization of the corresponding task, and the WCET of each task is calculated by dividing its utilization by its minimum inter-arrival time. For DSvINT and SSvINT, we create a pseudo-VCPU for each virtual interrupt with a period equal to the minimum interarrival time of the corresponding virtual interrupt and with a budget determined by Eq. (2). VCPUs and tasks are assigned unique priorities by using the Rate-Monotonic approach <ref type="bibr" target="#b21">[23]</ref>, with an arbitrary tie-breaking rule. The priorities of physical and virtual interrupts are assigned randomly. Once this is done, we finally determine the VCPU budget value for each scheme. Starting from a value equal to the VCPU period, the VCPU budget for each scheme is decreased by 1 μsec until all VCPUs pass the VCPU schedulability test given in Eq. (3). <ref type="foot" target="#foot_3">5</ref>We generate 10,000 task sets and 10,000 interrupt sets for each experimental setting. The metrics used are: (i) the percentage of schedulable task sets where all tasks pass the schedulability test given in Eq. ( <ref type="formula">4</ref>), and (ii) the percentage of serviceable interrupt sets where all interrupt-triggered execution flows are serviceable, checked by Eq. ( <ref type="formula">5</ref>), ( <ref type="formula">7</ref>) and (8).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Results</head><p>We explore three main factors that affect task schedulability and interrupt serviceability in a virtualized environment: (i) the minimum inter-arrival time of interrupts, (ii) the VCPU period, and (iii) the WCET of interrupt handlers. Minimum inter-arrival time of interrupts: Figure <ref type="figure">4</ref> shows the percentages of schedulable task sets and serviceable in- In general, the sporadic server policy (SS) performs better than the deferrable server policy (DS). This is because SS has zero release jitter and allows assigning larger budget values to VCPUs than DS. vINT has benefits in both task scheduling and interrupt handling. DSvINT and SSvINT schedule more task sets than DSbase and SSbase, respectively. Especially, when the range is [0.6, 1.1] msec, DSvINT schedules 67% more task sets than DSbase. The benefit is more significant in interrupt handling. the schemes without vINT service 0% of interrupt sets in all cases, the schemes with vINT service more than 99% of interrupt sets until the range reaches [0.8, 1.3] msec.</p><p>When vINT is not used, only the interrupts with slightly longer inter-arrival times can be serviced. Figure <ref type="figure">5</ref> depicts the results. In this figure, each point k on the x-axis represents the minimum inter-arrival time of each interrupt in the range of [k, k + 5] msec. As all the schemes schedule 100% of task sets in all cases, we only display the percentage of serviceable interrupt sets in this figure. When the range reaches <ref type="bibr" target="#b11">[13,</ref><ref type="bibr" target="#b16">18]</ref> msec, DSbase services less than 1% of interrupt sets. SSbase performs better than DSbase, but services less than 2% of interrupt sets when the range becomes <ref type="bibr" target="#b9">[11,</ref><ref type="bibr" target="#b14">16]</ref> msec.</p><p>VCPU periods: Since the interrupt handling time is largely affected by the VCPU period when vINT is not used, we compare in Figure <ref type="figure">6</ref> the percentage of serviceable interrupt sets as the VCPU period increases. All the schemes could schedule 100% of task sets with all VCPU period values depicted in this figure. The schemes with vINT also show 100% of serviceable interrupt sets in all cases. However, without vINT, the percentage drops significantly when the VCPU period is longer than 3.5 msec.</p><p>We have also evaluated the impact of the pseudo-VCPU period. Figure <ref type="figure" target="#fig_3">7</ref> shows the percentage of schedulable task sets as the pseudo-VCPU period increases. Each number shown on the x-axis of this figure represents the ratio of the pseudo-VCPU period to the minimum inter-arrival time of interrupts. Hence, a larger value on the x-axis means a longer pseudo-  Fig. <ref type="figure">8</ref>: Results with the change of physical ISR length VCPU period. As the pseudo-VCPU period increases, task schedulability under DSvINT decreases. This is because DS has a release jitter equal to T v -C v . Since vINT assigns higher priorities to pseudo-VCPUs, the larger jitter values of pseudo-VCPUs under DS effectively reduce the amount of budget assigned to regular VCPUs. In contrast, SS shows no performance degradation because it has zero release jitter. WCET of interrupt handlers: We now evaluate the impact of the length of interrupt handlers. Figure <ref type="figure">8</ref> and Figure <ref type="figure" target="#fig_5">9</ref> show the results when the WCET of a physical ISR, and the sum of the WCETs of virtual ISR and DSR change, respectively. As the WCET increases, both the percentages of schedulable task sets and serviceable interrupt sets decrease. In case of increasing the WCETs of virtual ISRs and DSRs, the schemes with vINT show lower performance in task schedulability than the schemes without vINT, but provide significantly higher performance in interrupt handling. This is mainly due to the fact that vINT creates pseudo-VCPUs and prioritizes them over regular VCPUs in order to reduce interrupt handling time.</p><p>In summary, vINT achieves timely interrupt handling while providing as good task schedulability as when it is not used in most cases. The benefit of vINT multiplies if the inter-arrival time of interrupts is short. Especially, when the minimum inter-arrival time of interrupts is much shorter than the period of VCPUs, the system with vINT outperforms the system without vINT in both task scheduling and interrupt servicing.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. vINT on KVM Hypervisor</head><p>We present a case study demonstrating the effects of vINT by using our implementation on the KVM hypervisor. We chose KVM because it is open-source software and widely used in real-time virtualization studies <ref type="bibr" target="#b8">[10,</ref><ref type="bibr" target="#b16">18,</ref><ref type="bibr" target="#b22">24]</ref>. Also, it is useful to observe the overall performance impact of vINT, which can be applied to commercial real-time hypervisors.    Implementation: We have implemented a prototype version of vINT on the KVM hypervisor <ref type="bibr" target="#b17">[19]</ref> of the latest version of Linux/RK <ref type="bibr" target="#b25">[27,</ref><ref type="bibr" target="#b27">29]</ref>. 6 The KVM of Linux/RK allows the host machine to run multiple guest VMs with the deferrable server policy as the VCPU budget replenishment policy. We use an unmodified Linux kernel v3.10.39 as a guest OS.</p><p>We have applied vINT to the pass-through PCI device management of KVM. Note that PCI pass-through devices do not involve QEMU in interrupt handling. Hence, once a PCI device is assigned to a guest VM in pass-through mode, all physical interrupts generated by the device are handled by the interrupt handler of KVM, and then resulting virtual interrupts are delivered to the corresponding guest VM, without any intervention from QEMU.</p><p>Table <ref type="table" target="#tab_7">III</ref> lists the implementation costs of vINT. The target system used is equipped with an Intel Core i7-2600 3.4 GHz quad-core processor and a TP-Link PCI Gigabit NIC using a RTL8169 controller. To reduce measurement inaccuracies, we have disabled the simultaneous multithreading and dynamic clock frequency scaling features of the processor. Case Study: The target system hosts one guest VM, which has four VCPUs: {v 1 , v 2 , v 3 , v 4 }. Each VCPU is statically assigned to a PCPU with the same index number, i.e. v i on Core i. The Gigabit NIC of the target system is assigned to the guest VM in pass-through mode. The physical interrupt of the NIC is statically pinned to Core 1 and the corresponding virtual interrupt is pinned to the VCPU v 1 . The QEMU process is assigned the highest prioriry to prevent unexpected delays from QEMU device emulation, although it is not involved in the critical path of interrupt handling in pass-through mode. In our case study, we only focus on v 1 on Core 1 and other VCPUs on other cores are kept in idle. When vINT is not used, the VCPU v 1 is assigned 4 msec of budget and 10 msec of replenishment period (40% VCPU utilization). When vINT is used, both v 1 and a pseudo-VCPU created for 6 Linux/RK is available at https://rtml.ece.cmu.edu/redmine/projects/rk. NIC interrupts are each assigned 2 msec of budget and 10 msec of replenishment period (total 40% VCPU utilization).</p><p>We use three applications in our case study: Netperf [3], MPlayer <ref type="bibr" target="#b1">[2]</ref> and busyloop. Netperf is a network benchmark consisting of sender and receiver tasks. The Netperf sender task runs natively on a remote system, which has no other workload and is connected to the target system with a direct Ethernet connection. The Netperf receiver task runs in the VCPU v 1 . When v 1 receives a virtual interrupt of the NIC, the ISR of the virtual interrupt activates the softirq task of the guest Linux kernel, which in turn activates the Netperf receiver task. Both the softirq and Netperf receiver tasks are assigned the highest real-time priority. MPlayer is an opensource movie player. MPlayer runs in v 1 , with a real-time priority lower than the Netperf receiver task, and decodes a MPEG2 video stream with 1920x1080 (1080p) frame size and 29.97 fps. Busyloop is a background task that continuously consumes CPU time, and runs in v 1 with the lowest priority.</p><p>We first compare interrupt handling time with and without vINT. For this purpose, we use the UDP round-trip latency test of Netperf, which is highly affected by the system's interrupt handling time. Figure <ref type="figure" target="#fig_6">10</ref> shows the cumulative distribution of the Netperf UDP round-trip latency. "Baseline" and "Baseline 1ms" show the results without vINT, and "vINT" shows the results with vINT. Baseline and vINT use the aforementioned VCPU parameters for v 1 . Baseline 1ms uses 0.4 msec of budget and 1 msec of replenishment period for v 1 , which results in the same VCPU utilization as Baseline. As shown in the figure, Baseline and Baseline 1ms are significantly affected by the executions of lower-priority tasks within the same VCPU, but vINT is nearly unaffected. Especially, when both MPlayer and busyloop are running, vINT handles 95% of round-trips in less than 200 μsec, while Baseline and Baseline 1ms handle only 50% and 2% of roundtrips in 200 μsec, respectively. Interestingly, Baseline 1ms would be expected to outperform Baseline due to its shorter replenishment period, but the results are the opposite due to the higher overhead occurred.</p><p>Next, we identify the impact of vINT overhead on the throughput of NIC. Figure <ref type="figure" target="#fig_0">11</ref> shows the results of the TCP throughput test of Netperf with and without vINT as the VCPU utilization increases. The VCPU period is 10 msec in all cases. Only the budget varies from 2 msec to 6 msec. In case of vINT, each point on the x-axis represents the utilization of the pseudo-VCPU. As can be seen, there is no noticeable difference between Baseline and vINT in TCP throughput. This implies that the impact of the overhead induced by vINT is either negligible or acceptably small. Lastly, we demonstrate the effect of vINT in protecting a real-time task against a virtual interrupt storm. Figure <ref type="figure" target="#fig_0">12</ref> compares the frame rate of MPlayer with and without vINT, in the presence of a virtual interrupt storm which is generated by the TCP throughput test of Netperf. In case of vINT, each point on the x-axis represents the total utilization of original and pseudo-VCPUs. Hence, the budget of the original VCPU varies from 4 msec to 8 msec for Baseline, and from 2 msec to 6 msec for vINT (the pseudo-VCPU budget is unchanged). When vINT is not used, the frame rate of Mplayer is severely Fig. <ref type="figure" target="#fig_0">12</ref>: MPlayer fps under virtual interrupt storms degraded by a virtual interrupt storm, even when 80% of VCPU utilization is assigned. In contrast, when vINT is used, the frame rate is very close to when there is no interrupt storm. This result shows that vINT can effectively protect the execution of a real-time task against the occurrence of a virtual interrupt storm in a virtualized environment.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. CONCLUSIONS</head><p>In this paper, we have proposed vINT, an interrupt handling scheme to provide responsive and enforced interrupt handling in a virtualized environment. We have presented our analyses on interrupt handling time, and the schedulability of VCPUs and tasks with and without vINT. Experimental results show that vINT yields significant improvements in interrupt handling performance. For example, a system with vINT services 99% of interrupt sets while a system without vINT cannot service any interrupt set. Our case study on the KVM hypervisor, chosen for convenience, also shows the effects of vINT in reducing interrupt handling time and protecting against interrupt storms. For example, a system with vINT handles 95% of Ethernet round-trips in 200 μsec, and a system without vINT handles only 50% during that time. Under interrupt storms, the frame rate of MPlayer with vINT is nearly unaffected while the frame rate without vINT is dropped to one-fifth of the original one. Future work involves developing algorithms to find efficient VCPU parameters and VCPU-to-PCPU allocation, and allowing migration of tasks, VCPUs and interrupts. Addressing contention on memory resources, such as cache <ref type="bibr" target="#b13">[15]</ref> and DRAM <ref type="bibr" target="#b14">[16,</ref><ref type="bibr" target="#b34">36]</ref>, in the context of real-time virtualization is also an important topic for future work.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 :</head><label>1</label><figDesc>Fig.1: Partitioned hierarchical scheduling structure framework on the L4/Fiasco microkernel-based hypervisor<ref type="bibr" target="#b0">[1]</ref>. Bruns et al.<ref type="bibr" target="#b7">[9]</ref> evaluated the real-time properties of L4/Fiasco.To overcome the limitations of hierarchical scheduling in real-time virtualization, approaches based on paravirtualized scheduling<ref type="bibr" target="#b16">[18,</ref><ref type="bibr" target="#b18">20,</ref><ref type="bibr" target="#b22">24]</ref> have been studied. All of these approaches require modifications to the scheduler of a guest OS to let the hypervisor know the currently-executing task within the VM. Using this information, the hypervisor increases the priority of the corresponding VCPU so that the VCPU is not preempted by other VMs executing lower-priority tasks. However, none of these approaches bounds the worst-case interrupt handling time. They also do not enforce virtual interrupt handling. Specifically, the work in<ref type="bibr" target="#b18">[20]</ref> proposes to assign a separate budget and priority to a subset of tasks and interrupts of a VCPU, but does not consider virtual interrupt storms and does not show how the separate budget and priority values can be determined.Beckert et al.<ref type="bibr" target="#b4">[6]</ref> proposed an interrupt handling scheme that can be implemented without guest OS modifications. However, their approach has several limitations: (i) the hypervisor is assumed to use TDMA to schedule VCPUs, which does not conform to the latest research efforts on real-time system virtualization, (ii) virtual interrupts may be handled while consuming the budgets of unrelated other VCPUs, meaning that each VCPU is not guaranteed to use its assigned budget for its own purpose, and (iii) task schedulability in the presence of virtual interrupts is not considered. In this paper, we have addressed these limitations.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 5 :Fig. 6 :</head><label>56</label><figDesc>Fig. 5: Results with long interrupt inter-arrival time</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 7 :</head><label>7</label><figDesc>Fig. 7: Results with the change of pseudo-VCPU period</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 9 :</head><label>9</label><figDesc>Fig. 9: Results with the change of virtual ISR and DSR length</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 10 :</head><label>10</label><figDesc>Fig. 10: Cumulative distribution of Netperf UDP round-trip latency</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>TABLE I :</head><label>I</label><figDesc>Comparison with previous work</figDesc><table><row><cell></cell><cell>Priority</cell><cell>VCPU</cell><cell cols="2">Bounded Enforced</cell><cell>Task</cell><cell>Unmod.</cell></row><row><cell>Schemes</cell><cell>based</cell><cell cols="2">temporal interrupt</cell><cell>interrupt</cell><cell>sched.</cell><cell>guest</cell></row><row><cell></cell><cell>sched.</cell><cell>isolation</cell><cell>handling</cell><cell>handling</cell><cell>analysis</cell><cell>OS</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head>TABLE II :</head><label>II</label><figDesc>Base parameters for our experiments</figDesc><table><row><cell>Parameters</cell><cell>Values</cell></row><row><cell>Number of PCPUs</cell><cell>4</cell></row><row><cell>Number of VCPUs per PCPU</cell><cell>3</cell></row><row><cell>Number of physical interrupts per PCPU</cell><cell>6</cell></row><row><cell>Number of virtual interrupts per VCPU</cell><cell>2</cell></row><row><cell>VCPU replenishment period</cell><cell>10 msec</cell></row><row><cell>Minimum inter-arrival time of a physical interrupt</cell><cell>[5, 10] msec</cell></row><row><cell>Minimum inter-arrival time of a regular task</cell><cell>[100, 500] msec</cell></row><row><cell>WCET of ISR of a physical/virtual interrupt</cell><cell>[5, 10] μsec</cell></row><row><cell>WCET of DSR of a virtual interrupt</cell><cell>[10, 50] μsec</cell></row><row><cell>Number of regular tasks per VCPU</cell><cell>3</cell></row><row><cell>Number of DSR tasks per VCPU</cell><cell>2</cell></row><row><cell>Task set utilization per VCPU</cell><cell>10 %</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_7"><head>TABLE III :</head><label>III</label><figDesc>Implementation cost of vINT on KVM</figDesc><table><row><cell>Primitives</cell><cell>Avg (μsec)</cell><cell>Max (μsec)</cell></row><row><cell>Switching btw. pseudo and reg. VCPUs</cell><cell>0.703</cell><cell>1.192</cell></row><row><cell>Pseudo-VCPU budget accounting</cell><cell>0.341</cell><cell>1.265</cell></row><row><cell>Pseudo-VCPU budget replenishment</cell><cell>0.621</cell><cell>3.045</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 23:53:27 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_1"><p>Similarly to prior work<ref type="bibr" target="#b6">[8,</ref><ref type="bibr" target="#b20">22]</ref>, the minimal inter-arrival time of an interrupt refers to a value expected or identified at design time. An interrupt unexpectedly arriving faster than that value may cause an interrupt storm at runtime.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_2"><p>There might be some cases where virtual interrupts are generated as a result of polling at the hypervisor. Considering such a mixed use of interrupts and polling in real-time virtualization remains as future work.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_3"><p>Considering the time-unit granularity used in Table II, the step size of 1 μsec is fine-grained enough to find the maximum-possible VCPU budget for each scheme in our experiments.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<ptr target="https://os.inf.tu-dresden.de/fiasco" />
+		<title level="m">L4/Fiasco Microkernel</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<title level="m" type="main">MPlayer: an open-source movie player</title>
+		<ptr target="http://www.mplayerhq.hu" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<ptr target="http://www.ok-labs.com" />
+		<title level="m">OKL4 Microvisor</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<ptr target="http://sysgo.com" />
+		<title level="m">SYSGO PikeOS Embedded Virtualization</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Sufficient temporal independence and improved interrupt latencies in a real-time hypervisor</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Beckert</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">DAC</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">New results on fixed priority aperiodic servers</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Bernat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="1999">1999</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">An overview of interrupt accounting techniques for multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">57</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="638" to="654" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">An evaluation of microkernel-based virtualization for embedded real-time systems</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Bruns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Respecting temporal constraints in virtualised services</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Cucinotta</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">COMPSAC</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Virtual-CPU scheduling in the Quest operating system</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Danish</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Hierarchical fixed priority pre-emptive scheduling</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Robust real-time multiprocessor interrupt handling motivated by GPUs</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">A</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Finding response times in a real-time system</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Joseph</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">K</forename><surname>Pandya</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Comput. J</title>
+		<imprint>
+			<biblScope unit="volume">29</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="390" to="395" />
+			<date type="published" when="1986">1986</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">A coordinated approach for practical OS-level cache management in multi-core real-time systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Bounding memory interference delay in cots-based multi-core systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">vMPCP: A synchronization framework for multi-core virtual machines</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Towards Linux as a real-time hypervisor</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Kiszka</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTLWS</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">KVM: the Linux virtual machine monitor</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kivity</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Linux Symposium</title>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="page" from="225" to="230" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Flattening hierarchical scheduling</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Lackorzyński</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Warg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Völp</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Härtig</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">EMSOFT</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Modeling device driver effects in real-time schedulability analysis: Study of a network driver</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lewandowski</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Integrated task and interrupt management for real-time systems</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">E</forename><surname>Leyva-Del Foyo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Mejia-Alvarez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM TECS</title>
+		<imprint>
+			<biblScope unit="volume">11</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page">32</biblScope>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973">1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Performance tuning towards a KVM-based embedded real-time virtualization system</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ma</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. Inf. Sci. Eng</title>
+		<imprint>
+			<biblScope unit="volume">29</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="1021" to="1035" />
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Schedulable device drivers: Implementation and experimental results</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Manica</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">OSPERT</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Eliminating receive livelock in an interruptdriven kernel</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">C</forename><surname>Mogul</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Ramakrishnan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Computer Systems</title>
+		<imprint>
+			<biblScope unit="volume">15</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="217" to="252" />
+			<date type="published" when="1997">1997</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<monogr>
+		<author>
+			<persName><forename type="first">S</forename><surname>Oikawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<title level="m">Linux/RK: A portable resource kernel in Linux</title>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+	<note>RTSS Work-In-Progress</note>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Predictable interrupt management and scheduling in the Composite component-based system</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Parmer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<monogr>
+		<title level="m" type="main">Resource kernels: A resource-centric approach to real-time and multimedia systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<editor>MMCN</editor>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Analysis of hierarhical fixed-priority scheduling</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Saewong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">H</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2002">2002</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Hierarchical scheduling framework for virtual clustering of multiprocessors</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Easwaran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Compositional real-time scheduling framework with periodic model</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM TECS</title>
+		<imprint>
+			<biblScope unit="volume">7</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page">30</biblScope>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Aperiodic task scheduling for hard-real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Sprunt</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="27" to="60" />
+			<date type="published" when="1989">1989</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Fast component interaction for real-time systems</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Steinberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wolter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Hartig</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">The deferrable server algorithm for enhanced aperiodic responsiveness in hard real-time environments</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">K</forename><surname>Strosnider</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">44</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="73" to="91" />
+			<date type="published" when="1995">1995</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">Coordinated bank and cache coloring for temporal protection of memory accesses</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Suzuki</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ICESS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">RT-Xen: towards real-time hypervisor scheduling in Xen</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Xi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wilson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">EMSOFT</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">Real-time multi-core virtual machine scheduling in Xen</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Xi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Xu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Phan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Sokolsky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">EMSOFT</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Implementation of compositional scheduling framework on virtualization</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Yang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM SIGBED Review</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="30" to="37" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">Process-aware interrupt scheduling and accounting</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>West</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

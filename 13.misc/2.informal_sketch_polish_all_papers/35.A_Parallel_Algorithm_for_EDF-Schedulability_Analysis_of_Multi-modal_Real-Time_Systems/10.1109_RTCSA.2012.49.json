@@ -1,0 +1,710 @@
+{
+  "paper_name": "A Parallel Algorithm for EDF-Schedulability Analysis of Multi-Modal Real-Time Systems",
+  "paper_description": "This paper presents a parallel algorithm for determining the EDF-schedulability of uniprocessor multi-modal real-time systems. It leverages existing pseudo-polynomial schedulability conditions developed by Fisher and Ahmed [6] for systems that support both hardware and software mode changes. The main contribution is the parallelization strategy, which aims to minimize communication and synchronization overhead, achieving near-perfect speedup for efficient design-space exploration of complex multi-modal systems.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Sporadic Task Model Parameters",
+      "formal_description": {
+        "statement": "A sporadic task tau_i is characterized by e_i (worst-case execution requirement), d_i (relative deadline), and p_i (minimum inter-arrival separation/period). We consider constrained deadline tasks: d_i <= p_i. The utilization of a task tau_i is u_i = e_i / p_i. The task system utilization is U_tau = sum_{tau_i in tau} u_i.",
+        "variables": {
+          "tau_i": "A sporadic task",
+          "e_i": "Worst-case execution requirement of task tau_i",
+          "d_i": "Relative deadline of task tau_i",
+          "p_i": "Minimum inter-arrival separation (period) of task tau_i",
+          "u_i": "Utilization of task tau_i",
+          "U_tau": "Total utilization of a sporadic task system tau"
+        },
+        "assumptions": [
+          "Tasks are sporadic",
+          "Deadlines are constrained (d_i <= p_i)",
+          "System parameters are integers"
+        ],
+        "conclusion": "Defines the fundamental parameters of a sporadic task and a task system."
+      },
+      "informal_sketch": {
+        "intuition": "This defines the basic properties of a real-time task: how much work it needs, when it needs to finish, and how often it can arrive. Utilization tells us how much of the processor's time a task or a set of tasks demands.",
+        "steps": [
+          "For each task tau_i, identify its e_i, d_i, p_i.",
+          "Calculate individual task utilization u_i = e_i / p_i.",
+          "Calculate total system utilization U_tau = sum(u_i) for all tasks in the system.",
+          "Ensure d_i <= p_i for all tasks (constrained deadline)."
+        ],
+        "pseudocode": "class SporadicTask:\n    def __init__(self, e, d, p):\n        self.e = e  # worst-case execution time\n        self.d = d  # relative deadline\n        self.p = p  # minimum inter-arrival separation (period)\n        assert self.d <= self.p, \"Task must have constrained deadline\"\n\n    def get_utilization(self):\n        return self.e / self.p\n\ndef get_system_utilization(task_set):\n    U_tau = 0.0\n    for task in task_set:\n        U_tau += task.get_utilization()\n    return U_tau",
+        "key_insights": [
+          "These parameters are fundamental for any real-time schedulability analysis.",
+          "Utilization is a quick first-pass check for feasibility (must be <= 1 for uniprocessor EDF)."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Demand-Bound Function (dbf)",
+      "formal_description": {
+        "statement": "dbf(tau_i, t) = max(0, floor((t - d_i) / p_i) + 1) * e_i. \nFor a sporadic task system tau, dbf(tau, t) = sum_{tau_i in tau} dbf(tau_i, t).",
+        "variables": {
+          "tau_i": "A sporadic task",
+          "t": "Length of the interval",
+          "e_i": "Worst-case execution requirement of task tau_i",
+          "d_i": "Relative deadline of task tau_i",
+          "p_i": "Minimum inter-arrival separation (period) of task tau_i",
+          "tau": "A sporadic task system"
+        },
+        "assumptions": [
+          "Tasks are sporadic with constrained deadlines",
+          "t > 0"
+        ],
+        "conclusion": "Quantifies the maximum cumulative execution requirements of all jobs of tau_i that could have both arrival time and deadline within any interval of length t."
+      },
+      "informal_sketch": {
+        "intuition": "dbf tells us the maximum amount of work that *must* be completed by a certain time t to avoid missing deadlines, assuming the worst-case arrival pattern. It's a crucial concept for EDF schedulability.",
+        "steps": [
+          "For a single task tau_i and interval t:",
+          "Calculate num_jobs = floor((t - d_i) / p_i) + 1. This estimates the number of jobs whose arrival and deadline fall within t.",
+          "If num_jobs is negative (meaning t is too short for even one job to arrive and have its deadline within t), the demand is 0.",
+          "Otherwise, the demand is num_jobs * e_i.",
+          "For a task system tau: Sum the dbf of all individual tasks."
+        ],
+        "pseudocode": "import math\n\ndef dbf_task(task_i, t):\n    if t <= 0:\n        return 0\n    num_jobs = math.floor((t - task_i.d) / task_i.p) + 1\n    return max(0, num_jobs) * task_i.e\n\ndef dbf_system(task_set, t):\n    total_demand = 0\n    for task_i in task_set:\n        total_demand += dbf_task(task_i, t)\n    return total_demand",
+        "key_insights": [
+          "dbf represents the \"demand\" side of the schedulability equation.",
+          "It's used to check if the available \"supply\" is sufficient."
+        ]
+      },
+      "dependencies": [
+        "Sporadic Task Model Parameters"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Explicit-Deadline Periodic (EDP) Resource Model Parameters",
+      "formal_description": {
+        "statement": "An EDP resource Omega_i is represented by (Pi_i, Theta_i, Delta_i), where Pi_i is the resource period, Theta_i is the resource capacity, and Delta_i is the resource deadline. Delta_i <= Pi_i. Omega_i guarantees Theta_i units of execution over successive Pi_i-length intervals within Delta_i units of time.",
+        "variables": {
+          "Omega_i": "An EDP resource",
+          "Pi_i": "Resource period",
+          "Theta_i": "Resource capacity (execution guaranteed)",
+          "Delta_i": "Resource deadline"
+        },
+        "assumptions": [
+          "Delta_i <= Pi_i",
+          "EDF is used to schedule workload when the resource is providing execution",
+          "System parameters are integers"
+        ],
+        "conclusion": "Defines the parameters of a periodically available, non-continuously executing resource."
+      },
+      "informal_sketch": {
+        "intuition": "This models how much processor time is *actually* available to a mode. It's not always a continuous block, but rather a guaranteed amount within a certain window. Think of it as a budget (Theta_i) that must be spent within a deadline (Delta_i) every period (Pi_i).",
+        "steps": [
+          "Identify Pi_i, Theta_i, Delta_i for each resource Omega_i.",
+          "Ensure Delta_i <= Pi_i."
+        ],
+        "pseudocode": "class EDPResource:\n    def __init__(self, Pi, Theta, Delta):\n        self.Pi = Pi      # Resource period\n        self.Theta = Theta  # Resource capacity\n        self.Delta = Delta  # Resource deadline\n        assert self.Delta <= self.Pi, \"Resource deadline must be <= period\"",
+        "key_insights": [
+          "This models the \"supply\" side of the schedulability equation, especially important for systems with dynamic power management or partitioned resources."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Supply-Bound Function (sbf)",
+      "formal_description": {
+        "statement": "sbf(Omega_i, t) = y * Theta_i + max(0, t - x - y * Pi_i) if t >= Delta_i - Theta_i, and 0 otherwise. \nWhere y = floor((t - (Delta_i - Theta_i)) / Pi_i) and x = (Pi_i + Delta_i - 2 * Theta_i).",
+        "variables": {
+          "Omega_i": "An EDP resource (Pi_i, Theta_i, Delta_i)",
+          "t": "Length of the interval",
+          "Pi_i": "Resource period",
+          "Theta_i": "Resource capacity",
+          "Delta_i": "Resource deadline",
+          "y": "Number of full resource periods covered by t after initial setup",
+          "x": "A derived parameter related to the resource's \"slack\""
+        },
+        "assumptions": [
+          "t >= 0",
+          "Delta_i <= Pi_i"
+        ],
+        "conclusion": "Quantifies the minimum execution supply that a mode M_i is guaranteed to receive from Omega_i over any interval of length t."
+      },
+      "informal_sketch": {
+        "intuition": "sbf tells us the minimum amount of processor time that will be *available* to a mode over any interval of length t, assuming the worst-case alignment of resource availability. It's the \"supply\" side.",
+        "steps": [
+          "Check if t < Delta_i - Theta_i. If so, sbf is 0 (not enough time to guarantee any capacity).",
+          "Otherwise, calculate y = floor((t - (Delta_i - Theta_i)) / Pi_i). This is the number of full Pi_i periods that can be fully utilized.",
+          "Calculate x = Pi_i + Delta_i - 2 * Theta_i.",
+          "The supply is y * Theta_i (from full periods) plus max(0, t - x - y * Pi_i) (from the partial period at the end)."
+        ],
+        "pseudocode": "import math\n\ndef sbf_resource(resource_omega_i, t):\n    Pi_i = resource_omega_i.Pi\n    Theta_i = resource_omega_i.Theta\n    Delta_i = resource_omega_i.Delta\n\n    if t < Delta_i - Theta_i:\n        return 0\n    \n    y = math.floor((t - (Delta_i - Theta_i)) / Pi_i)\n    x = Pi_i + Delta_i - 2 * Theta_i\n    \n    return y * Theta_i + max(0, t - x - y * Pi_i)",
+        "key_insights": [
+          "sbf is the counterpart to dbf. Schedulability fundamentally relies on dbf <= sbf."
+        ]
+      },
+      "dependencies": [
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Real-Time Mode Change Model Parameters",
+      "formal_description": {
+        "statement": "Each mode M_i is specified by (tau_i, Omega_i, N_i). tau_i is the sporadic task system, Omega_i is the EDP resource, and N_i is the minimum mode duration in \"number of resource periods\" (N_i * Pi_i time units). A mode-change request mcr_k = (M_i, M_j, t_k) consists of transition time t_k, old mode M_i, and new mode M_j. Tasks are classified: tau_ij (unchanged), alpha_ij (aborted), tau_i \\ (alpha_ij union tau_ij) (finished). delta_ij is the transition offset. Omega_ij = (Pi_ij, Theta_ij, Delta_ij) is the resource during transition. Mode changes occur at period boundaries: delta_ij is a multiple of Pi_ij. For successive MCRs mcr_{k-1} = (M_h, M_i, t_{k-1}) and mcr_k = (M_i, M_j, t_k), t_k = t_{k-1} + delta_hi + a * Pi_i for some a >= N_i.",
+        "variables": {
+          "M_i": "Mode i",
+          "q": "Total number of modes",
+          "tau_i": "Sporadic task system for mode M_i",
+          "Omega_i": "EDP resource for mode M_i",
+          "N_i": "Minimum duration of mode M_i in Pi_i periods",
+          "mcr_k": "Mode change request k",
+          "t_k": "Time of mode change request k",
+          "tau_ij": "Set of unchanged tasks from M_i to M_j",
+          "alpha_ij": "Set of aborted tasks from M_i to M_j",
+          "delta_ij": "Offset (transition period) from M_i to M_j",
+          "Omega_ij": "EDP resource during transition from M_i to M_j",
+          "Pi_ij": "Resource period for Omega_ij",
+          "Theta_ij": "Resource capacity for Omega_ij",
+          "Delta_ij": "Resource deadline for Omega_ij"
+        },
+        "assumptions": [
+          "i, j, h are mode indices",
+          "i < j implies mcr_i occurs before mcr_j",
+          "mcr_0 is startup",
+          "delta_ij is a multiple of Pi_ij",
+          "t_k = t_{k-1} + delta_hi + a * Pi_i for a >= N_i",
+          "A non-aborted job spans at most one MCR"
+        ],
+        "conclusion": "Defines the structure and rules for multi-modal systems and mode changes."
+      },
+      "informal_sketch": {
+        "intuition": "This describes how a system switches between different operational modes, each with its own tasks and resources. It also defines how tasks behave during a transition (some continue, some are stopped, some finish). The rules for t_k ensure minimum mode durations and align changes with resource periods.",
+        "steps": [
+          "For each mode M_i, define its tau_i, Omega_i, and N_i.",
+          "For each transition (M_i, M_j), define tau_ij, alpha_ij, delta_ij, and Omega_ij.",
+          "Ensure delta_ij is a multiple of Pi_ij.",
+          "Ensure mode change times t_k adhere to the t_k = t_{k-1} + delta_hi + a * Pi_i rule."
+        ],
+        "pseudocode": "class Mode:\n    def __init__(self, mode_id, task_system, resource, min_duration_periods):\n        self.mode_id = mode_id\n        self.task_system = task_system # list of SporadicTask objects\n        self.resource = resource       # EDPResource object\n        self.N = min_duration_periods\n\nclass ModeChangeRequest:\n    def __init__(self, old_mode_id, new_mode_id, transition_time):\n        self.old_mode_id = old_mode_id\n        self.new_mode_id = new_mode_id\n        self.t_k = transition_time\n\n# Task classification for a transition (M_i to M_j)\n# tau_ij: unchanged_tasks_set\n# alpha_ij: aborted_tasks_set\n# finished_tasks_set = tau_i - (alpha_ij union tau_ij)\n\n# Transition resource and offset\n# Omega_ij: EDPResource object for transition\n# delta_ij: transition_offset",
+        "key_insights": [
+          "Mode changes introduce complexity due to tasks spanning multiple modes and the need to account for demand and supply during transitions."
+        ]
+      },
+      "dependencies": [
+        "Sporadic Task Model Parameters",
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 1 (Pre-MCR-SBF)",
+      "formal_description": {
+        "statement": "sbf_prior(M_i, t) is the minimum execution guaranteed by Omega_i prior to mcr_k over the interval [t_k - t, t_k].",
+        "variables": {
+          "M_i": "The current mode",
+          "t": "Length of the interval",
+          "Omega_i": "The EDP resource of mode M_i",
+          "mcr_k": "The upcoming mode change request",
+          "t_k": "The time of mcr_k"
+        },
+        "assumptions": [
+          "t >= 0"
+        ],
+        "conclusion": "Defines the minimum resource supply available in the interval *leading up to* a mode change."
+      },
+      "informal_sketch": {
+        "intuition": "This function calculates the minimum resource supply from the *old* mode's resource (Omega_i) for an interval ending exactly at the mode change time t_k. It's used to understand how much resource was available just before the switch.",
+        "steps": [
+          "This definition is conceptual. The actual calculation uses the sbf function for Omega_i.",
+          "sbf_prior(M_i, t) is equivalent to sbf(Omega_i, t)."
+        ],
+        "pseudocode": "# Assuming sbf_resource function is defined\ndef sbf_prior(mode_i, t):\n    return sbf_resource(mode_i.resource, t)",
+        "key_insights": [
+          "It's a specialized application of the general sbf function, focusing on the interval immediately preceding a mode change."
+        ]
+      },
+      "dependencies": [
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters",
+        "Supply-Bound Function (sbf)",
+        "Real-Time Mode Change Model Parameters"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 2 (Transition-MCR-SBF)",
+      "formal_description": {
+        "statement": "sbf_trans(M_i, M_j, t) is the minimum execution during mcr_k guaranteed by Omega_ij and Omega_j over the interval [t_k, t_k + t].",
+        "variables": {
+          "M_i": "Old mode",
+          "M_j": "New mode",
+          "t": "Length of the interval starting from t_k",
+          "Omega_ij": "Transition resource from M_i to M_j",
+          "Omega_j": "Resource of the new mode M_j",
+          "mcr_k": "Mode change request",
+          "t_k": "Time of mcr_k"
+        },
+        "assumptions": [
+          "t >= 0"
+        ],
+        "conclusion": "Defines the minimum resource supply available during the transition period, potentially using a dedicated transition resource and then the new mode's resource."
+      },
+      "informal_sketch": {
+        "intuition": "This function calculates the minimum resource supply during the actual mode change. It accounts for the delta_ij offset, where a special Omega_ij resource might be used, followed by the Omega_j resource of the new mode.",
+        "steps": [
+          "This definition is conceptual. The actual calculation is given by Equation (5) in the paper.",
+          "It combines supply from Omega_ij for min(t, delta_ij) and Omega_j for max(0, t - delta_ij)."
+        ],
+        "pseudocode": "# Conceptual definition, actual calculation in Lemma for sbf_trans\ndef sbf_trans_conceptual(mode_i, mode_j, t, transition_resource_omega_ij, delta_ij):\n    # This would involve combining sbf_resource for Omega_ij and Omega_j\n    # over the respective parts of the interval [t_k, t_k + t]\n    pass",
+        "key_insights": [
+          "Crucial for analyzing schedulability during the critical mode change phase."
+        ]
+      },
+      "dependencies": [
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters",
+        "Supply-Bound Function (sbf)",
+        "Real-Time Mode Change Model Parameters"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 3 (Post-MCR-SBF)",
+      "formal_description": {
+        "statement": "sbf_post(M_i, M_j, s, t) is the minimum execution guaranteed by Omega_ij and Omega_j over the interval [t_k + delta_ij - s, t_k + delta_ij + t] (for 0 <= s <= delta_ij).",
+        "variables": {
+          "M_i": "Old mode",
+          "M_j": "New mode",
+          "s": "A look-back duration into the transition period, 0 <= s <= delta_ij",
+          "t": "Length of the interval *after* t_k + delta_ij",
+          "Omega_ij": "Transition resource",
+          "Omega_j": "Resource of the new mode M_j",
+          "t_k": "Time of mcr_k",
+          "delta_ij": "Transition offset"
+        },
+        "assumptions": [
+          "0 <= s <= delta_ij",
+          "t >= 0"
+        ],
+        "conclusion": "Defines the minimum resource supply available in an interval that spans across the end of the transition period (t_k + delta_ij) and into the new mode."
+      },
+      "informal_sketch": {
+        "intuition": "This function calculates the minimum resource supply for an interval that *starts before* the new mode fully takes over (i.e., before t_k + delta_ij) and extends *into* the new mode. The s parameter allows looking back into the transition phase.",
+        "steps": [
+          "This definition is conceptual. The actual calculation is given by Equation (6) in the paper.",
+          "It combines supply from Omega_ij for s duration and Omega_j for t duration."
+        ],
+        "pseudocode": "# Conceptual definition, actual calculation in Lemma for sbf_post\ndef sbf_post_conceptual(mode_i, mode_j, s, t, transition_resource_omega_ij, delta_ij):\n    # This would involve combining sbf_resource for Omega_ij and Omega_j\n    # over the respective parts of the interval [t_k + delta_ij - s, t_k + delta_ij + t]\n    pass",
+        "key_insights": [
+          "Essential for checking schedulability as the system settles into the new mode, considering any lingering effects from the transition."
+        ]
+      },
+      "dependencies": [
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters",
+        "Supply-Bound Function (sbf)",
+        "Real-Time Mode Change Model Parameters"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Helper Functions for Carry-In Execution (E_ij, F_ij, Psi, Psi_x, lambda_i)",
+      "formal_description": {
+        "statement": "lambda_i(t) = max(0, d_i - t). \nPsi_x(M_i, M_j, zeta, phi, x) = sum_{tau_i in tau_i \\ {tau_ij union alpha_ij}} (floor((x - lambda_i(phi)) / p_i) + 1) * e_i + sum_{tau_i in alpha_ij} (x / p_i) * e_i + sum_{tau_i in tau_ij} dbf(tau_i, x + phi) + (1 if (x - N_i * Pi_i) >= 0 else 0) * zeta - sbf_prior(M_i, x). \nPsi(M_i, M_j, zeta, phi) = sup_{x>0} {Psi_x(M_i, M_j, zeta, phi, x)}. \nE_ij = sum_{tau_ij in tau_ij} e_ij + max(0, sum_{tau_i in tau_i \\ alpha_ij} e_i + sum_{tau_ij in tau_ij} floor(delta_ij / p_ij) * e_ij - sbf_trans(M_i, M_j, delta_ij)). \nF_ij(zeta) = max(0, Psi(M_i, M_j, zeta, max(delta_ij + d_ij_max, d_i_max)) - sum_{tau_ij in tau_ij} dbf(tau_ij, max(delta_ij + d_ij_max, d_i_max) - delta_ij - p_ij) - sbf_trans(M_i, M_j, delta_ij)).",
+        "variables": {
+          "lambda_i": "Modified deadline function for task tau_i",
+          "t": "Time parameter for lambda_i",
+          "d_i": "Deadline of task tau_i",
+          "Psi_x": "Demand function for interval x, considering carry-in",
+          "M_i": "Old mode",
+          "M_j": "New mode",
+          "zeta": "Max carry-in from previous mode changes into M_i",
+          "phi": "Interval length",
+          "x": "Interval length for Psi_x",
+          "tau_i": "Task system of mode M_i",
+          "tau_ij": "Unchanged tasks",
+          "alpha_ij": "Aborted tasks",
+          "e_i": "Execution time of task tau_i",
+          "p_i": "Period of task tau_i",
+          "dbf": "Demand-bound function",
+          "N_i": "Minimum mode duration in periods for M_i",
+          "Pi_i": "Resource period for M_i",
+          "sbf_prior": "Pre-MCR SBF",
+          "Psi": "Supremum of Psi_x",
+          "E_ij": "Upper bound on carry-in execution",
+          "e_ij": "Execution time of unchanged task tau_ij",
+          "p_ij": "Period of unchanged task tau_ij",
+          "delta_ij": "Transition offset",
+          "sbf_trans": "Transition-MCR SBF",
+          "F_ij": "Refined upper bound on carry-in execution",
+          "d_ij_max": "Maximum deadline among unchanged tasks",
+          "d_i_max": "Maximum deadline among tasks in mode M_i"
+        },
+        "assumptions": [
+          "The term `sum_{tau_i in alpha_ij} (x / p_i) * e_i` is used as written in the paper, despite being an unusual form for a demand function.",
+          "The indicator function `mu_ge0(x)` is 1 if `x >= 0` and 0 otherwise."
+        ],
+        "conclusion": "These functions are used to calculate the carry-in execution ci(M_i, M_j)."
+      },
+      "informal_sketch": {
+        "intuition": "These are the detailed mathematical components that build up the ci function. E_ij provides a simple upper bound on carry-in. F_ij refines this by considering demand over a longer interval, including the effect of previous carry-in. Psi and Psi_x are the core demand functions that account for tasks from the old mode, unchanged tasks, and the impact of prior mode changes (zeta). lambda_i adjusts deadlines.",
+        "steps": [
+          "lambda_i(t): Calculates a modified deadline, effectively max(0, d_i - t).",
+          "Psi_x: This is a complex demand calculation. It sums demand from:",
+          "Finished tasks (tau_i \\ {tau_ij union alpha_ij}) considering x and lambda_i(phi).",
+          "Aborted tasks (alpha_ij) considering x (using the paper's specific formula).",
+          "Unchanged tasks (tau_ij) using dbf over x + phi.",
+          "A term (1 if (x - N_i * Pi_i) >= 0 else 0) * zeta which brings in the carry-in from *previous* mode changes if x is long enough.",
+          "Subtracts sbf_prior(M_i, x) to account for supply from the old mode.",
+          "Psi: Takes the supremum of Psi_x over x > 0 (in practice, over a finite set of critical points).",
+          "F_ij: Uses Psi to calculate a demand value, then subtracts demand from unchanged tasks and transition supply.",
+          "E_ij: Calculates a simpler upper bound based on total execution of non-aborted/unchanged tasks and transition supply."
+        ],
+        "pseudocode": "import math\n\ndef lambda_i_func(task_i, t):\n    return max(0, task_i.d - t)\n\ndef Psi_x_func(mode_i, mode_j, zeta, phi, x, transitions):\n    tau_i = mode_i.task_system\n    tau_ij = transitions[(mode_i.mode_id, mode_j.mode_id)].unchanged_tasks\n    alpha_ij = transitions[(mode_i.mode_id, mode_j.mode_id)].aborted_tasks\n    N_i = mode_i.N\n    Pi_i = mode_i.resource.Pi\n\n    demand = 0\n\n    # Finished tasks\n    for task in tau_i:\n        if task not in tau_ij and task not in alpha_ij:\n            demand += max(0, math.floor((x - lambda_i_func(task, phi)) / task.p) + 1) * task.e\n\n    # Aborted tasks (using the paper's notation, assuming x/p_i * e_i)\n    # NOTE: This term is unusual for demand. Standard would be floor(x/p_i)*e_i.\n    for task in alpha_ij:\n        demand += (x / task.p) * task.e # Normalized from x p(i) × e(i)\n\n    # Unchanged tasks\n    for task in tau_ij:\n        demand += dbf_task(task, x + phi)\n\n    # Carry-in from previous mode changes\n    if x >= N_i * Pi_i:\n        demand += zeta\n\n    # Subtract supply from prior mode\n    demand -= sbf_prior(mode_i, x)\n\n    return demand\n\ndef Psi_func(mode_i, mode_j, zeta, phi, transitions, x_values_to_test):\n    # In practice, sup is found by testing a finite set of x values\n    max_psi_x = 0\n    for x in x_values_to_test: # x_values_to_test would be a finite set of critical points\n        max_psi_x = max(max_psi_x, Psi_x_func(mode_i, mode_j, zeta, phi, x, transitions))\n    return max_psi_x\n\ndef calculate_E_ij(mode_i, mode_j, transition_data):\n    tau_i = mode_i.task_system\n    tau_ij = transition_data.unchanged_tasks\n    alpha_ij = transition_data.aborted_tasks\n    delta_ij = transition_data.delta_ij\n\n    sum_e_ij_unchanged = sum(task.e for task in tau_ij)\n    \n    sum_e_i_non_aborted = sum(task.e for task in tau_i if task not in alpha_ij)\n    sum_floor_delta_p_e_ij = sum(math.floor(delta_ij / task.p) * task.e for task in tau_ij)\n\n    sbf_trans_val = sbf_trans_lower_bound(mode_i, mode_j, delta_ij, transition_data) # Using the lower bound lemma\n\n    term2 = sum_e_i_non_aborted + sum_floor_delta_p_e_ij - sbf_trans_val\n    \n    return sum_e_ij_unchanged + max(0, term2)\n\ndef calculate_F_ij(mode_i, mode_j, zeta, transition_data, x_values_for_psi):\n    delta_ij = transition_data.delta_ij\n    tau_ij = transition_data.unchanged_tasks\n    \n    # d_ij_max and d_i_max are max deadlines for unchanged and all tasks in mode i respectively\n    d_ij_max = max(task.d for task in tau_ij) if tau_ij else 0\n    d_i_max = max(task.d for task in mode_i.task_system) if mode_i.task_system else 0\n\n    phi_val = max(delta_ij + d_ij_max, d_i_max)\n\n    psi_val = Psi_func(mode_i, mode_j, zeta, phi_val, transition_data, x_values_for_psi)\n\n    # Note: dbf(tau_ij, max(delta_ij + d_ij_max, d_i_max) - delta_ij - p_ij)\n    # The argument to dbf can be negative, dbf_task handles this.\n    dbf_tau_ij_sum = sum(dbf_task(task, phi_val - delta_ij - task.p) for task in tau_ij)\n\n    sbf_trans_val = sbf_trans_lower_bound(mode_i, mode_j, delta_ij, transition_data) # Using the lower bound lemma\n\n    return max(0, psi_val - dbf_tau_ij_sum - sbf_trans_val)",
+        "key_insights": [
+          "These functions are highly interdependent and capture the complex dynamics of demand and supply across mode changes, including the \"memory\" effect of carry-in."
+        ]
+      },
+      "dependencies": [
+        "Sporadic Task Model Parameters",
+        "Demand-Bound Function (dbf)",
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters",
+        "Supply-Bound Function (sbf)",
+        "Real-Time Mode Change Model Parameters",
+        "Definition 1 (Pre-MCR-SBF)",
+        "Definition 2 (Transition-MCR-SBF)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 4 (Carry-In Execution)",
+      "formal_description": {
+        "statement": "ci(M_i, M_j) is an upper bound on the maximum possible remaining execution (over any legal sequence of MCRs) of non-aborted jobs from mode M_i for tasks tau_i \\ {tau_ij union alpha_ij} at time t_k + delta_ij that arrive prior to t_k AND the maximum total execution of unchanged tasks (tau_ij) that have arrival before t_k + delta_ij. \nci(M_i, M_j) is obtained from the convergence of the sequence ci_g(M_i, M_j) for g in N. \nci_g(M_i, M_j) = 0 if g = 0. \nci_g(M_i, M_j) = min(E_ij, F_ij(max_{h=1,...,q, h!=i} {ci_{g-1}(M_h, M_i)})) if g > 0. \nConvergence occurs at smallest g such that forall i,j in {1,...,q}, i!=j, ci_g(M_i, M_j) = ci_{g-1}(M_i, M_j).",
+        "variables": {
+          "ci": "Carry-in execution from mode M_i to M_j",
+          "M_i": "Old mode",
+          "M_j": "New mode",
+          "M_h": "Any other mode",
+          "t_k": "Time of mode change",
+          "delta_ij": "Transition offset",
+          "tau_i": "Task system of mode M_i",
+          "tau_ij": "Unchanged tasks",
+          "alpha_ij": "Aborted tasks",
+          "E_ij": "Helper function for carry-in execution",
+          "F_ij": "Helper function for carry-in execution",
+          "zeta": "Represents max_{h=1,...,q, h!=i} {ci_{g-1}(M_h, M_i)}",
+          "g": "Iteration index for inductive definition",
+          "q": "Total number of modes"
+        },
+        "assumptions": [
+          "i, j, h are mode indices",
+          "g is a natural number"
+        ],
+        "conclusion": "Defines the maximum \"carry-over\" workload from previous modes and the current mode's unchanged tasks that must be accounted for in the new mode."
+      },
+      "informal_sketch": {
+        "intuition": "When a mode changes, some tasks from the old mode might still be running or have pending execution. ci quantifies the absolute maximum of this \"leftover\" work that the new mode needs to handle. It's calculated iteratively because carry-in can depend on carry-in from *even earlier* mode changes.",
+        "steps": [
+          "Initialize ci_0(M_i, M_j) = 0 for all i, j.",
+          "Iteratively calculate ci_g(M_i, M_j) for g = 1, 2, ... using the formula:",
+          "zeta = max_{h!=i} {ci_{g-1}(M_h, M_i)} (max carry-in from any *previous* mode into M_i).",
+          "ci_g(M_i, M_j) = min(E_ij, F_ij(zeta)).",
+          "Repeat until ci_g values converge (i.e., ci_g = ci_{g-1} for all pairs). The converged value is ci(M_i, M_j).",
+          "E_ij (from helper functions) bounds the carry-in by the total execution of non-aborted/unchanged tasks.",
+          "F_ij (from helper functions) uses Psi to calculate demand, considering previous carry-in zeta."
+        ],
+        "pseudocode": "# Helper functions E_ij, F_ij, Psi, Psi_x, lambda_i are assumed to be defined\n\ndef calculate_ci(modes, transitions, x_values_for_psi):\n    q = len(modes)\n    ci_prev = [[0 for _ in range(q)] for _ in range(q)]\n    ci_curr = [[0 for _ in range(q)] for _ in range(q)]\n\n    g = 0\n    while True:\n        g += 1\n        converged = True\n        for i in range(q):\n            for j in range(q):\n                if i == j:\n                    continue\n\n                # Calculate zeta (max carry-in from any previous mode into M_i)\n                zeta = 0\n                for h in range(q):\n                    if h != i:\n                        zeta = max(zeta, ci_prev[h][i])\n\n                # Calculate E_ij (Equation 8)\n                E_ij = calculate_E_ij(modes[i], modes[j], transitions[(modes[i].mode_id, modes[j].mode_id)])\n\n                # Calculate F_ij(zeta) (Equation 9)\n                F_ij_zeta = calculate_F_ij(modes[i], modes[j], zeta, transitions[(modes[i].mode_id, modes[j].mode_id)], x_values_for_psi)\n\n                ci_curr[i][j] = min(E_ij, F_ij_zeta)\n\n                if ci_curr[i][j] != ci_prev[i][j]:\n                    converged = False\n        \n        if converged:\n            break\n        \n        ci_prev = [row[:] for row in ci_curr] # Deep copy\n\n    return ci_curr # The converged ci values",
+        "key_insights": [
+          "The iterative nature handles dependencies between mode changes.",
+          "ci is a critical component for multi-modal schedulability, as it quantifies the \"memory\" of past modes."
+        ]
+      },
+      "dependencies": [
+        "Sporadic Task Model Parameters",
+        "Demand-Bound Function (dbf)",
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters",
+        "Supply-Bound Function (sbf)",
+        "Real-Time Mode Change Model Parameters",
+        "Definition 1 (Pre-MCR-SBF)",
+        "Definition 2 (Transition-MCR-SBF)",
+        "Helper Functions for Carry-In Execution (E_ij, F_ij, Psi, Psi_x, lambda_i)"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 5 (Carry-In Demand-Bound Function)",
+      "formal_description": {
+        "statement": "cidbf(M_i, M_j, phi) for a mode change from M_i to M_j at time t_k and phi in R_ge0 is the maximum remaining execution (over any legal sequence of MCRs prior to t_k) of jobs of tasks tau_i \\ alpha_ij that arrive prior to t_k (or prior to t_k + delta_ij for tau_ij tasks) and have deadlines in the interval [t_k, t_k + phi].",
+        "variables": {
+          "cidbf": "Carry-in demand-bound function",
+          "M_i": "Old mode",
+          "M_j": "New mode",
+          "phi": "Length of the interval [t_k, t_k + phi]",
+          "t_k": "Time of mode change",
+          "tau_i": "Task system of mode M_i",
+          "alpha_ij": "Aborted tasks",
+          "tau_ij": "Unchanged tasks",
+          "delta_ij": "Transition offset"
+        },
+        "assumptions": [
+          "phi >= 0"
+        ],
+        "conclusion": "Defines the maximum demand that \"carries in\" from the old mode into the new mode's initial interval."
+      },
+      "informal_sketch": {
+        "intuition": "This is the demand equivalent of ci. It quantifies the maximum demand from tasks of the old mode (that are not aborted) that needs to be met within an interval phi starting from the mode change. It's the demand that \"straddles\" the mode change.",
+        "steps": [
+          "This definition is conceptual. The paper states that Psi(M_i, M_j, ci(M_i, M_j), phi) is an upper bound on cidbf(M_i, M_j, phi).",
+          "Therefore, in practice, cidbf is bounded by the Psi function using the converged ci values."
+        ],
+        "pseudocode": "# In practice, cidbf is bounded by Psi\ndef cidbf_upper_bound(mode_i, mode_j, phi, ci_value_ij, transitions, x_values_for_psi):\n    return Psi_func(mode_i, mode_j, ci_value_ij, phi, transitions, x_values_for_psi)",
+        "key_insights": [
+          "This function is used in schedulability conditions to ensure that the demand from carry-in jobs is met."
+        ]
+      },
+      "dependencies": [
+        "Real-Time Mode Change Model Parameters",
+        "Definition 4 (Carry-In Execution)",
+        "Helper Functions for Carry-In Execution (E_ij, F_ij, Psi, Psi_x, lambda_i)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma (Pre-MCR-SBF Lower Bound)",
+      "formal_description": {
+        "statement": "sbf_prior(M_i, t) >= a * Theta_i + max(0, min(Theta_i, t - (a + 1) * Pi_i - Theta_i)). \nWhere a = floor(t / Pi_i).",
+        "variables": {
+          "sbf_prior": "Pre-MCR SBF",
+          "M_i": "Mode i",
+          "t": "Interval length",
+          "Theta_i": "Capacity of Omega_i",
+          "Pi_i": "Period of Omega_i",
+          "a": "Number of full Pi_i periods in t"
+        },
+        "assumptions": [
+          "This is a lower bound derived from the EDP resource model."
+        ],
+        "conclusion": "Provides a concrete lower bound for the minimum execution guaranteed by Omega_i prior to a mode change."
+      },
+      "informal_sketch": {
+        "intuition": "This formula gives a practical way to calculate the minimum supply from a resource for an interval t ending at a specific point. It accounts for full resource periods (a * Theta_i) and any partial period at the end.",
+        "steps": [
+          "Calculate a = floor(t / Pi_i).",
+          "Calculate the remaining supply term: t_rem_supply = t - (a + 1) * Pi_i - Theta_i.",
+          "The total lower bound is a * Theta_i + max(0, min(Theta_i, t_rem_supply))."
+        ],
+        "pseudocode": "import math\n\ndef sbf_prior_lower_bound(mode_i, t):\n    Pi_i = mode_i.resource.Pi\n    Theta_i = mode_i.resource.Theta\n\n    a = math.floor(t / Pi_i)\n    \n    # The term `t - (a + 1) * Pi_i - Theta_i` is directly from the paper.\n    # It represents a remaining interval length after (a+1) periods, minus Theta_i.\n    # This is a simplified lower bound, not the full sbf_resource.\n    remaining_supply_term = t - (a + 1) * Pi_i - Theta_i\n    \n    return a * Theta_i + max(0, min(Theta_i, remaining_supply_term))",
+        "key_insights": [
+          "This provides a safe, pessimistic estimate of resource availability, which is crucial for schedulability analysis."
+        ]
+      },
+      "dependencies": [
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters",
+        "Definition 1 (Pre-MCR-SBF)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma (Transition-MCR-SBF Lower Bound)",
+      "formal_description": {
+        "statement": "sbf_trans(M_i, M_j, t) >= b * Theta_ij + c * Theta_j + max(0, min(Theta_ij, min(t, delta_ij) - b * Pi_ij + Delta_ij - Theta_ij)) + max(0, min(Theta_j, max(0, t - delta_ij) - c * Pi_j + Delta_j - Theta_j)). \nWhere b = floor(min(t, delta_ij) / Pi_ij), c = floor(max(0, t - delta_ij) / Pi_j).",
+        "variables": {
+          "sbf_trans": "Transition-MCR SBF",
+          "M_i": "Old mode",
+          "M_j": "New mode",
+          "t": "Interval length",
+          "delta_ij": "Transition offset",
+          "Pi_ij": "Resource period of Omega_ij",
+          "Theta_ij": "Resource capacity of Omega_ij",
+          "Delta_ij": "Resource deadline of Omega_ij",
+          "Pi_j": "Resource period of Omega_j",
+          "Theta_j": "Resource capacity of Omega_j",
+          "Delta_j": "Resource deadline of Omega_j",
+          "b": "Number of full Pi_ij periods in the transition phase",
+          "c": "Number of full Pi_j periods in the new mode phase"
+        },
+        "assumptions": [
+          "This is a lower bound derived from the EDP resource model and mode change model."
+        ],
+        "conclusion": "Provides a concrete lower bound for the minimum execution guaranteed during a mode transition."
+      },
+      "informal_sketch": {
+        "intuition": "This formula calculates the minimum supply during a mode change by splitting the interval t into two parts: the delta_ij transition phase (using Omega_ij) and the subsequent new mode phase (using Omega_j). It sums the minimum supply from each part.",
+        "steps": [
+          "Calculate b = floor(min(t, delta_ij) / Pi_ij). This is for the Omega_ij part.",
+          "Calculate c = floor(max(0, t - delta_ij) / Pi_j). This is for the Omega_j part.",
+          "Sum the contributions:",
+          "b * Theta_ij (full periods from Omega_ij).",
+          "c * Theta_j (full periods from Omega_j).",
+          "A remainder term for Omega_ij: max(0, min(Theta_ij, min(t, delta_ij) - b * Pi_ij + Delta_ij - Theta_ij)).",
+          "A remainder term for Omega_j: max(0, min(Theta_j, max(0, t - delta_ij) - c * Pi_j + Delta_j - Theta_j))."
+        ],
+        "pseudocode": "import math\n\ndef sbf_trans_lower_bound(mode_i, mode_j, t, transition_data):\n    delta_ij = transition_data.delta_ij\n    omega_ij = transition_data.resource_omega_ij\n    omega_j = mode_j.resource\n\n    Pi_ij, Theta_ij, Delta_ij = omega_ij.Pi, omega_ij.Theta, omega_ij.Delta\n    Pi_j, Theta_j, Delta_j = omega_j.Pi, omega_j.Theta, omega_j.Delta\n\n    # Part 1: during delta_ij\n    t_part1 = min(t, delta_ij)\n    b = math.floor(t_part1 / Pi_ij)\n    supply_part1 = b * Theta_ij + max(0, min(Theta_ij, t_part1 - b * Pi_ij + Delta_ij - Theta_ij))\n\n    # Part 2: after delta_ij\n    t_part2 = max(0, t - delta_ij)\n    c = math.floor(t_part2 / Pi_j)\n    supply_part2 = c * Theta_j + max(0, min(Theta_j, t_part2 - c * Pi_j + Delta_j - Theta_j))\n\n    return supply_part1 + supply_part2",
+        "key_insights": [
+          "This provides a safe lower bound for resource availability during the complex transition phase, which is critical for ensuring deadlines are met."
+        ]
+      },
+      "dependencies": [
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters",
+        "Real-Time Mode Change Model Parameters",
+        "Definition 2 (Transition-MCR-SBF)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma (Post-MCR-SBF Lower Bound)",
+      "formal_description": {
+        "statement": "sbf_post(M_i, M_j, s, t) >= d * Theta_ij + max(0, min(Theta_ij, s - (d + 1) * Pi_ij - Theta_ij)) + f * Theta_j + max(0, min(Theta_j, t - f * Pi_j + Delta_j - Theta_j)). \nWhere d = floor(s / Pi_ij), f = floor(t / Pi_j).",
+        "variables": {
+          "sbf_post": "Post-MCR SBF",
+          "M_i": "Old mode",
+          "M_j": "New mode",
+          "s": "Look-back duration",
+          "t": "Interval length after t_k + delta_ij",
+          "Pi_ij": "Resource period of Omega_ij",
+          "Theta_ij": "Resource capacity of Omega_ij",
+          "Delta_ij": "Resource deadline of Omega_ij",
+          "Pi_j": "Resource period of Omega_j",
+          "Theta_j": "Resource capacity of Omega_j",
+          "Delta_j": "Resource deadline of Omega_j",
+          "d": "Number of full Pi_ij periods in s",
+          "f": "Number of full Pi_j periods in t"
+        },
+        "assumptions": [
+          "0 <= s <= delta_ij",
+          "This is a lower bound derived from the EDP resource model and mode change model."
+        ],
+        "conclusion": "Provides a concrete lower bound for the minimum execution guaranteed in an interval spanning the end of the transition and into the new mode."
+      },
+      "informal_sketch": {
+        "intuition": "Similar to sbf_trans, this formula calculates the minimum supply for an interval that starts s units before t_k + delta_ij and extends t units after. It sums the minimum supply from the Omega_ij resource (for the s part) and the Omega_j resource (for the t part).",
+        "steps": [
+          "Calculate d = floor(s / Pi_ij). This is for the Omega_ij part.",
+          "Calculate f = floor(t / Pi_j). This is for the Omega_j part.",
+          "Sum the contributions:",
+          "d * Theta_ij (full periods from Omega_ij).",
+          "f * Theta_j (full periods from Omega_j).",
+          "A remainder term for Omega_ij: max(0, min(Theta_ij, s - (d + 1) * Pi_ij - Theta_ij)).",
+          "A remainder term for Omega_j: max(0, min(Theta_j, t - f * Pi_j + Delta_j - Theta_j))."
+        ],
+        "pseudocode": "import math\n\ndef sbf_post_lower_bound(mode_i, mode_j, s, t, transition_data):\n    omega_ij = transition_data.resource_omega_ij\n    omega_j = mode_j.resource\n\n    Pi_ij, Theta_ij, Delta_ij = omega_ij.Pi, omega_ij.Theta, omega_ij.Delta\n    Pi_j, Theta_j, Delta_j = omega_j.Pi, omega_j.Theta, omega_j.Delta\n\n    # Part 1: during s (from Omega_ij)\n    d = math.floor(s / Pi_ij)\n    supply_part1 = d * Theta_ij + max(0, min(Theta_ij, s - (d + 1) * Pi_ij - Theta_ij))\n\n    # Part 2: during t (from Omega_j)\n    f = math.floor(t / Pi_j)\n    supply_part2 = f * Theta_j + max(0, min(Theta_j, t - f * Pi_j + Delta_j - Theta_j))\n\n    return supply_part1 + supply_part2",
+        "key_insights": [
+          "Provides a safe lower bound for resource availability after the transition, ensuring the system remains schedulable."
+        ]
+      },
+      "dependencies": [
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters",
+        "Real-Time Mode Change Model Parameters",
+        "Definition 3 (Post-MCR-SBF)"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim (Psi as Upper Bound for cidbf)",
+      "formal_description": {
+        "statement": "Psi(M_i, M_j, ci(M_i, M_j), phi) is an upper bound on the carry-in demand-bound function cidbf(M_i, M_j, phi) for any mode change from M_i to M_j over any interval of length phi.",
+        "variables": {
+          "Psi": "Helper function for carry-in execution",
+          "ci": "Converged carry-in execution",
+          "cidbf": "Carry-in demand-bound function",
+          "M_i": "Old mode",
+          "M_j": "New mode",
+          "phi": "Interval length"
+        },
+        "assumptions": [
+          "ci(M_i, M_j) has converged"
+        ],
+        "conclusion": "The Psi function, when evaluated with the converged ci value, provides a safe upper bound for the carry-in demand."
+      },
+      "informal_sketch": {
+        "intuition": "This statement is crucial because cidbf is defined conceptually as \"maximum remaining execution,\" which is hard to compute directly. This claim provides a computable upper bound (Psi) that can be used in schedulability tests. If the system can handle this upper bound, it can handle the actual cidbf.",
+        "steps": [
+          "Calculate ci(M_i, M_j) using the iterative process.",
+          "Evaluate Psi(M_i, M_j, ci(M_i, M_j), phi) for the desired phi.",
+          "This Psi value can then be used in schedulability conditions as a safe upper bound for cidbf."
+        ],
+        "pseudocode": "# Assuming calculate_ci and Psi_func are defined\ndef get_cidbf_upper_bound(mode_i, mode_j, phi, all_ci_values, transitions, x_values_for_psi):\n    ci_val = all_ci_values[mode_i.mode_id][mode_j.mode_id]\n    return Psi_func(mode_i, mode_j, ci_val, phi, transitions, x_values_for_psi)",
+        "key_insights": [
+          "This bridges the theoretical definition of cidbf to a practical, computable upper bound, enabling its use in schedulability analysis."
+        ]
+      },
+      "dependencies": [
+        "Definition 4 (Carry-In Execution)",
+        "Helper Functions for Carry-In Execution (E_ij, F_ij, Psi, Psi_x, lambda_i)",
+        "Definition 5 (Carry-In Demand-Bound Function)"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem (EDF-Schedulability Conditions for Multi-Modal Systems)",
+      "formal_description": {
+        "statement": "Over any possible (legal) sequence of mode-change requests, the multi-mode system M is EDF-schedulable if the following five conditions hold for any two distinct modes M_i and M_j: \nSC 1: sum_{tau_j in tau_j} dbf(tau_j, t) <= sbf(Omega_j, t), forall t in T_SC1_j. \nSC 2: sum_{tau_j in tau_j \\ tau_ij} dbf(tau_j, t) + sum_{tau_ij in tau_ij} dbf(tau_ij, t + s) <= sbf_post(M_i, M_j, s, t), forall s, t : (0 < s <= delta_ij) and (t in T_SC2_i_j_s). \nSC 3: sum_{tau_ij in tau_ij} dbf(tau_ij, t) <= sbf(Omega_ij, t), forall t in T_SC3_i_j. \nSC 4: Psi_x(M_i, M_j, C_i, phi, x) <= sbf_trans(M_i, M_j, phi), forall phi, x : (0 < phi <= delta_ij) and (x in T_SC4_i_j_phi). \nSC 5: sum_{tau_j in tau_j \\ tau_ij} dbf(tau_j, t) + Psi_x(M_i, M_j, C_i, delta_ij + t, x) - sbf_trans(M_i, M_j, delta_ij) <= sbf_post(M_i, M_j, 0, t), forall t, x : (0 < t <= T_ij) and (x in T_SC5_i_j_t). \nWhere C_i = max_{h=1,...,q, h!=i} {ci(M_h, M_i)}. \nT_SC1_j, T_SC2_i_j_s, T_SC3_i_j, T_SC4_i_j_phi, T_SC5_i_j_t, and T_ij are finite testing sets of consecutive positive integers.",
+        "variables": {
+          "M_i": "Old mode",
+          "M_j": "New mode",
+          "M_h": "Any other mode",
+          "tau_j": "Task system of mode M_j",
+          "Omega_j": "EDP resource of mode M_j",
+          "dbf": "Demand-bound function",
+          "sbf": "Supply-bound function",
+          "T_SC1_j": "Testing set for SC 1 for mode M_j",
+          "tau_ij": "Unchanged tasks",
+          "sbf_post": "Post-MCR SBF",
+          "s": "Look-back duration for sbf_post",
+          "t": "Interval length",
+          "delta_ij": "Transition offset",
+          "T_SC2_i_j_s": "Testing set for SC 2 for transition M_i to M_j and look-back s",
+          "Omega_ij": "Transition resource",
+          "T_SC3_i_j": "Testing set for SC 3 for transition M_i to M_j",
+          "Psi_x": "Helper function for carry-in demand",
+          "C_i": "Maximum carry-in from any other mode M_h into M_i",
+          "phi": "Interval length for SC4",
+          "x": "Parameter for Psi_x",
+          "sbf_trans": "Transition-MCR SBF",
+          "T_SC4_i_j_phi": "Testing set for SC 4 for transition M_i to M_j and interval phi",
+          "T_ij": "Maximum interval length for SC 5 for transition M_i to M_j",
+          "T_SC5_i_j_t": "Testing set for SC 5 for transition M_i to M_j and interval t"
+        },
+        "assumptions": [
+          "The system is uniprocessor and scheduled by EDF",
+          "Mode changes follow the defined model",
+          "ci values have converged",
+          "The testing sets are finite and correctly determined (as per Fisher and Ahmed [6])"
+        ],
+        "conclusion": "These five conditions, if all satisfied, guarantee the EDF-schedulability of the multi-modal system."
+      },
+      "informal_sketch": {
+        "intuition": "This is the main schedulability test. It breaks down the complex problem of multi-modal schedulability into five distinct checks, each addressing a different critical scenario (e.g., steady-state, transition, post-transition, carry-in effects). If all these \"worst-case\" scenarios pass, the system is schedulable.",
+        "steps": [
+          "Pre-computation:",
+          "Calculate all ci(M_h, M_i) values by iteration until convergence.",
+          "For each M_i, determine C_i = max_{h!=i} {ci(M_h, M_i)}.",
+          "Determine the finite testing sets T_SCZ_... and T_ij.",
+          "Check SC 1 (Individual Mode Schedulability): For each mode M_j, verify that its task demand (dbf(tau_j, t)) never exceeds its resource supply (sbf(Omega_j, t)) for all t in T_SC1_j.",
+          "Check SC 2 (Post-Transition with Unchanged Tasks): For each transition (M_i, M_j), verify that the demand from new mode tasks (excluding unchanged) plus unchanged tasks (with an offset s) does not exceed the post-MCR supply (sbf_post(M_i, M_j, s, t)) for all s, t in their respective testing sets.",
+          "Check SC 3 (Transition Resource for Unchanged Tasks): For each transition (M_i, M_j), verify that the demand from unchanged tasks (dbf(tau_ij, t)) does not exceed the transition resource supply (sbf(Omega_ij, t)) for all t in T_SC3_i_j.",
+          "Check SC 4 (Transition Period with Carry-In): For each transition (M_i, M_j), verify that the carry-in demand (Psi_x(M_i, M_j, C_i, phi, x)) does not exceed the transition supply (sbf_trans(M_i, M_j, phi)) for all phi, x in their respective testing sets.",
+          "Check SC 5 (Post-Transition with Carry-In): For each transition (M_i, M_j), verify that the demand from new mode tasks (excluding unchanged) plus the carry-in demand (adjusted for transition supply) does not exceed the post-MCR supply (sbf_post(M_i, M_j, 0, t)) for all t, x in their respective testing sets.",
+          "If all checks pass, the system is schedulable. Otherwise, it is not."
+        ],
+        "pseudocode": "def is_multi_mode_system_schedulable(modes, transitions, testing_sets, x_values_for_psi):\n    # Step 1: Pre-computation of ci values and C_i\n    all_ci_values = calculate_ci(modes, transitions, x_values_for_psi) # From Definition 4\n    C_values = {}\n    for i in range(len(modes)):\n        max_ci_into_i = 0\n        for h in range(len(modes)):\n            if h != i:\n                max_ci_into_i = max(max_ci_into_i, all_ci_values[h][i])\n        C_values[modes[i].mode_id] = max_ci_into_i\n\n    # Step 2: Check SC 1\n    for mode_j in modes:\n        for t in testing_sets.T_SC1[mode_j.mode_id]:\n            demand = dbf_system(mode_j.task_system, t)\n            supply = sbf_resource(mode_j.resource, t)\n            if demand > supply:\n                print(f\"SC 1 failed for mode {mode_j.mode_id} at t={t}\")\n                return False\n\n    # Step 3: Check SC 2, SC 3, SC 4, SC 5 for all transitions\n    for i_idx in range(len(modes)):\n        for j_idx in range(len(modes)):\n            if i_idx == j_idx:\n                continue\n            \n            mode_i = modes[i_idx]\n            mode_j = modes[j_idx]\n            transition_data = transitions[(mode_i.mode_id, mode_j.mode_id)]\n            delta_ij = transition_data.delta_ij\n            tau_ij = transition_data.unchanged_tasks\n            \n            # SC 2\n            for s in testing_sets.S_SC2[mode_i.mode_id][mode_j.mode_id]:\n                if not (0 < s <= delta_ij): continue # Ensure s is valid\n                for t in testing_sets.T_SC2[mode_i.mode_id][mode_j.mode_id][s]:\n                    demand_new_mode_tasks = dbf_system([task for task in mode_j.task_system if task not in tau_ij], t)\n                    demand_unchanged_tasks = dbf_system(tau_ij, t + s)\n                    total_demand = demand_new_mode_tasks + demand_unchanged_tasks\n                    supply = sbf_post_lower_bound(mode_i, mode_j, s, t, transition_data)\n                    if total_demand > supply:\n                        print(f\"SC 2 failed for transition {mode_i.mode_id}->{mode_j.mode_id} at s={s}, t={t}\")\n                        return False\n\n            # SC 3\n            for t in testing_sets.T_SC3[mode_i.mode_id][mode_j.mode_id]:\n                demand = dbf_system(tau_ij, t)\n                supply = sbf_resource(transition_data.resource_omega_ij, t) # sbf for Omega_ij\n                if demand > supply:\n                    print(f\"SC 3 failed for transition {mode_i.mode_id}->{mode_j.mode_id} at t={t}\")\n                    return False\n\n            # SC 4\n            C_i_val = C_values[mode_i.mode_id]\n            for phi in testing_sets.Phi_SC4[mode_i.mode_id][mode_j.mode_id]:\n                if not (0 < phi <= delta_ij): continue # Ensure phi is valid\n                for x in testing_sets.X_SC4[mode_i.mode_id][mode_j.mode_id][phi]:\n                    demand = Psi_x_func(mode_i, mode_j, C_i_val, phi, x, transitions)\n                    supply = sbf_trans_lower_bound(mode_i, mode_j, phi, transition_data)\n                    if demand > supply:\n                        print(f\"SC 4 failed for transition {mode_i.mode_id}->{mode_j.mode_id} at phi={phi}, x={x}\")\n                        return False\n\n            # SC 5\n            for t in testing_sets.T_SC5[mode_i.mode_id][mode_j.mode_id]:\n                if not (0 < t <= testing_sets.T_ij[mode_i.mode_id][mode_j.mode_id]): continue # Ensure t is valid\n                for x in testing_sets.X_SC5[mode_i.mode_id][mode_j.mode_id][t]:\n                    demand_new_mode_tasks = dbf_system([task for task in mode_j.task_system if task not in tau_ij], t)\n                    psi_term = Psi_x_func(mode_i, mode_j, C_i_val, delta_ij + t, x, transitions)\n                    sbf_trans_delta_ij = sbf_trans_lower_bound(mode_i, mode_j, delta_ij, transition_data)\n                    \n                    total_demand = demand_new_mode_tasks + psi_term - sbf_trans_delta_ij\n                    supply = sbf_post_lower_bound(mode_i, mode_j, 0, t, transition_data) # s=0 for this condition\n                    if total_demand > supply:\n                        print(f\"SC 5 failed for transition {mode_i.mode_id}->{mode_j.mode_id} at t={t}, x={x}\")\n                        return False\n    \n    return True # All conditions passed",
+        "key_insights": [
+          "This theorem provides a comprehensive set of conditions to verify schedulability in complex multi-modal systems, addressing steady-state behavior, transitions, and the cumulative effects of mode changes.",
+          "The use of finite testing sets makes the analysis tractable."
+        ]
+      },
+      "dependencies": [
+        "Sporadic Task Model Parameters",
+        "Demand-Bound Function (dbf)",
+        "Explicit-Deadline Periodic (EDP) Resource Model Parameters",
+        "Supply-Bound Function (sbf)",
+        "Real-Time Mode Change Model Parameters",
+        "Definition 1 (Pre-MCR-SBF)",
+        "Definition 2 (Transition-MCR-SBF)",
+        "Definition 3 (Post-MCR-SBF)",
+        "Helper Functions for Carry-In Execution (E_ij, F_ij, Psi, Psi_x, lambda_i)",
+        "Definition 4 (Carry-In Execution)",
+        "Definition 5 (Carry-In Demand-Bound Function)",
+        "Lemma (Pre-MCR-SBF Lower Bound)",
+        "Lemma (Transition-MCR-SBF Lower Bound)",
+        "Lemma (Post-MCR-SBF Lower Bound)",
+        "Claim (Psi as Upper Bound for cidbf)"
+      ]
+    }
+  ]
+}

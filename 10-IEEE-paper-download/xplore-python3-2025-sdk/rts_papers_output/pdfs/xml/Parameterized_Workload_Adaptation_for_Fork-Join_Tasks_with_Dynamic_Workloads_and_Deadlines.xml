@@ -1,0 +1,1161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Parameterized Workload Adaptation for Fork-Join Tasks with Dynamic Workloads and Deadlines</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Marion</forename><surname>Sudvarg</surname></persName>
+							<email>msudvarg@wustl.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Washington University in St. Louis</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Jeremy</forename><surname>Buhler</surname></persName>
+							<email>jbuhler@wustl.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Washington University in St. Louis</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Roger</forename><forename type="middle">D</forename><surname>Chamberlain</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">Washington University in St. Louis</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Chris</forename><surname>Gill</surname></persName>
+							<email>cdgill@wustl.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Washington University in St. Louis</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Jim</forename><surname>Buckley</surname></persName>
+							<email>buckley@wustl.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Washington University in St. Louis</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Wenlei</forename><surname>Chen</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="institution">University of Minnesota</orgName>
+								<address>
+									<country>Twin Cities</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Parameterized Workload Adaptation for Fork-Join Tasks with Dynamic Workloads and Deadlines</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">FD650A1300DACCB8950C2A327BB882C3</idno>
+					<idno type="DOI">10.1109/RTCSA58653.2023.00035</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-17T19:40+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Many real-time systems run in dynamic environments where exogenous factors inform task workloads and deadlines, which may not be known prior to job release. A job of a task that would otherwise miss its deadline may adapt to remain schedulable by executing in a degraded state that reduces its workload. We suggest that such a task should adjust parameters of its computation over multiple dimensions to maintain schedulability while minimizing loss of utility, which we discuss for highly parallel fork-join tasks executing on a fixed number of dedicated processors. We identify the parameterized degrees of freedom over which workload can be adjusted, then characterize the impact of workload reduction on response time and utility. From this, we generate a Pareto-optimal surface over which efficient search, interpolation, and extrapolation enable online selection of task parameters at time of job release.</p><p>We apply this approach to the Advanced Particle-astrophysics Telescope, a planned mission to perform real-time gamma-ray burst (GRB) localization using SWaP-constrained embedded hardware aboard an orbiting platform. Due to GRBs' dynamic and uncertain nature, the workload and deadline may not be known prior to job release. Nonetheless, even for bright GRBs that may otherwise take longer than a second to localize on candidate embedded hardware, our approach often enables subdegree accuracy while meeting a 33 ms imposed deadline.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Many real-time systems execute in dynamic environments where exogenous factors inform task workloads and latency requirements, which therefore may not be known prior to job release. If a job's workload cannot be completed in time, it nonetheless might be able to adjust its computation to provide an imprecise result prior to the deadline: anytime workloads <ref type="bibr" target="#b0">[1]</ref> stop executing when their budget is exhausted, providing the current state of their results, while others support discrete execution modes corresponding to varying degrees of precision that can be selected prior to execution <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b2">[3]</ref>.</p><p>However, anytime or discrete semantics may not fully capture the dimensions over which a task's workload can adapt to meet its deadline. Some computations have multiple parameterized degrees of freedom that can be adjusted from their nominal values. These can be categorical (e.g., selecting from among a collection of algorithms) or numeric. Numeric parameters typically take discrete values (e.g., the number of iterations to refine a result), though at fine granularity, they can be approximated as a continuous state space (e.g., the proportion of input data selected from a large set for</p><p>The research presented in this paper was supported in part by NSF grants CSR-1814739, CNS-17653503, CNS-2229290 (CPS) and NASA grant 80NSSC21K1741 and was performed on behalf of the APT collaboration. processing). If an instance of a task is not schedulable when run using its desired computational mode, its utilization may be reduced or compressed by adjusting these parameters to guarantee completion while minimally degrading result utility.</p><p>In this paper, we consider the problem of parameterized workload adaptation for highly parallel fork-join tasks with dynamic workloads and deadlines executing on a fixed number of dedicated cores. We compress the task's workload by adjusting its parameters so as to maximize the utility of its result within the available running time. For example, in simultaneous localization and mapping (SLAM) systems <ref type="bibr" target="#b3">[4]</ref>, result utility can be scored objectively according to the relative pose error (RPE) <ref type="bibr" target="#b4">[5]</ref>; compression should therefore seek to minimize RPE within the constraints of schedulability.</p><p>Several challenges must be addressed in the face of dynamic workloads and deadlines. Characterizing the objective as a closed-form function over multiple parameterized dimensions may be difficult, and finding optimal values for each parameter that satisfy the problem's dynamic constraints may be inefficient for online compression. Furthermore, while parameters must be assigned to satisfy schedulability under worst-case assumptions, avoiding unnecessary worst-case pessimism (i.e., overcompression) remains a goal of this work.</p><p>Our solution is to quantify loss empirically for a large set of states (i.e., joint parameter settings), constructing a monotonically-decreasing hull of hyperplanes between these states. The set of all states is reduced to a Pareto-optimal surface by sorting candidate states in order of worst-case response times for a target platform and removing those for which a greater response time yields a lower utility. At job release, this surface can be efficiently searched to find a state satisfying the dynamic constraints imposed by the job-specific workload and deadline. Selected parameter values define a computational mode prior to execution. Despite conservative parameter selection to guarantee schedulability under worstcase execution times, some application semantics enable less pessimism. For example, an execution time budget may be assigned to anytime subtasks to allow additional execution if assigned work is completed early, and alternative approaches of slack reclamation (such as we describe in Sec. VIII) are sometimes possible.</p><p>We apply our techniques to the Advanced Particleastrophysics Telescope (APT) <ref type="bibr" target="#b5">[6]</ref>, a planned orbital observatory that will detect and localize gamma-ray bursts (GRBs) in real time using onboard embedded hardware that is highly constrained in size, weight, and power (SWaP). Localization is a highly parallel fork-join task with a workload and deadline that depend on the unique characteristics of each GRB <ref type="bibr" target="#b6">[7]</ref>. We demonstrate that our approach enables efficient online compression and slack reclamation, allowing for rapid and accurate localization of even bright transient GRBs that may provide only a short window of opportunity for observation.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND AND RELATED WORK</head><p>Several approaches have been explored for adapting workloads under resource-constrained recurrent execution. Elastic scheduling models offer frameworks for dynamic adaptation of task utilizations to avoid system overload. The elastic model for implicit-deadline tasks on a uniprocessor <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b8">[9]</ref> compresses each task's utilization proportionally to its elasticity, a value indicating its relative adaptability. The model was extended to constrained-deadline tasks <ref type="bibr" target="#b9">[10]</ref>, <ref type="bibr" target="#b10">[11]</ref>, to multiprocessors <ref type="bibr" target="#b11">[12]</ref>, to federated scheduling of parallel realtime tasks for which periods <ref type="bibr" target="#b12">[13]</ref> and workloads <ref type="bibr" target="#b13">[14]</ref> are compressed over continuous ranges, and to tasks for which discrete sets of candidate utilizations may be accommodated <ref type="bibr" target="#b14">[15]</ref>. Under federated scheduling, each parallel task executes on cores dedicated according to a sufficiency condition <ref type="bibr" target="#b15">[16]</ref>; task utilizations are compressed so that the assigned cores fit within those available. While several of these models compress workloads, they do not describe how best to adapt computation under the applied constraints. The discretely elastic model considers specific modes of execution, but this does not capture the multiple degrees of freedom over which a task's workload may be compressed. Recent work <ref type="bibr" target="#b16">[17]</ref> suggests using subtask-specific objective functions but is limited to end-to-end sequential execution and does not consider how compressing a subtask may affect its successors.</p><p>In <ref type="bibr" target="#b17">[18]</ref>, the authors survey protocols for switching between execution modes without missing deadlines. An adaptive framework in <ref type="bibr" target="#b18">[19]</ref> degrades task execution according to "service levels," allowing for a user-defined notion of quality of outcome. A similar approach was presented for parallel LiDAR object detection <ref type="bibr" target="#b2">[3]</ref> and applied to the PointPillars <ref type="bibr" target="#b19">[20]</ref> encoder, aiming to maximize utility while maintaining schedulability guarantees by profiling execution times and assigning accuracies to discrete states. Such approaches may allow for a more objective measure of performance than traditional elastic scheduling, which compresses task utilizations proportionally to their elasticity. However, they are limited in practice to a small set of discrete states. We propose to allow adaptation according to a user-defined objective function over multiple degrees of freedom involving continuous or discrete numeric values and categorical variables.</p><p>Recent work on dynamic deadline-driven execution <ref type="bibr" target="#b20">[21]</ref> presents a novel adaptation scheme for tasks with environment-dependent deadlines and execution times. This data-driven execution model provides handlers for deadline misses, allowing downstream components in the computational pipeline to adapt in response. The authors argue that periodic execution models, which use conservative WCET estimates, fail "to maximize the runtime-accuracy trade-off due to the large skew between the mean and maximum runtime," which typically "leaves plenty of slack." In Sec. IX, we demonstrate an approach that reclaims slack to provide higher utility while still using conservative WCET estimates to prevent deadline misses.</p><p>Our work focuses on highly parallel fork-join tasks, for which it is straightforward to characterize a closed-form worstcase response time under a nearly optimal schedule as a function of its compressible parameters. Many real-world applications <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref>, including APT's GRB localization task <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b23">[24]</ref>, <ref type="bibr" target="#b24">[25]</ref>, can be described as such.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. PROBLEM STATEMENT</head><p>We consider recurrent, constrained-deadline, highly parallel fork-join tasks. Each released job is characterized by workload C, representing its worst-case execution time on a single processor core; and relative deadline D, the interval after its release by which it must complete execution. The task's workload and deadline may be dynamic but are fixed for a given instance at job release. Such a task τ can be decomposed into a sequence of subtasks {τ i } with workloads C i , where each subtask is either sequential (s) or parallel (p), as is illustrated in Fig. <ref type="figure">1</ref> in Sec. V. We assume the task executes on a fixed number of dedicated cores n; as these are highly parallel tasks for which parallel subtasks have workloads that can be distributed evenly across processors, the worst-case response time R can be expressed as</p><formula xml:id="formula_0">R = τi is s C i + τi is p C i n (1)</formula><p>Every prior instance of a constrained-deadline task must complete before activation of its next job. This implies that the task is schedulable if and only if R ≤ D for each instance.</p><p>In this paper, we address the scenario where a job is released with a workload and deadline for which it is not schedulable. We consider computationally elastic tasks having multiple execution states associated with a set of applicationspecific parameters {a j } over which workload can be adjusted according to one of the following semantics, allowing response time to be expressed as a monotone non-decreasing function R({a j }):</p><p>1) The workload of one or more subtasks may be a function C i ({a j }) of discrete or continuous numeric parameters; these must be monotone non-decreasing in each parameter.</p><p>Sec. VI provides examples of subtasks having execution times linear or quadratic in a continuous numeric parameter representing the amount of input data to process. 2) A discrete numeric parameter (e.g., a number of iterations) may change the sequence of subtasks. In this work, we consider the case where such a parameter defines the number of identical copies of a sequence of subtasks. 3) A categorical parameter may change the computational mode (e.g., the algorithm used) of one or more subtasks. In this case, each mode may impose its own workload as a function C i ({a j }) of the other parameters. To match the semantics of (1), we assign numeric values to each category, with the requirement that a larger numeric value is assigned to a mode with a greater workload.</p><p>Each parameter a j is constrained by some maximum value a max j . These values may be either constants or monotone nondecreasing functions of another parameter. The uncompressed workload is defined as that associated with each parameter taking its maximum value. Formally, a task with a dynamic workload is one for which some values a max j are unknown prior to job release. If a job is not schedulable, its workload is compressed by selecting values {a j } such that its response time does not exceed its deadline. Compression should attempt to maximize the utility of the system by minimizing some application-specific loss function L({a j }) of these parameters. We consider applications for which L is monotone nonincreasing with each parameter, i.e., doing more work yields a better result. We formulate our problem as follows:</p><formula xml:id="formula_1">min {aj } L({a j }) (2a) s.t. R({a j }) ≤ D (2b) ∀ j , a min j ≤ a j ≤ a max j (2c)</formula><p>Here, a min j constrains the parameter to some minimum value and is assumed to be known a priori.</p><p>The problem, then, is to identify the parameters over which a task's workload may be compressed; to characterize their impact on the task's response time and the utility of its result; and finally to use this information to solve optimization problem (2) efficiently online to adjust a released job's computation to adapt to overload.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. SOLUTION OVERVIEW</head><p>In this section we provide a solution overview for highly parallel fork-join tasks executing on a fixed number of dedicated cores. In subsequent sections we then illustrate and evaluate our approach in the context of a real-world application.</p><p>Offline Steps. The following steps are performed first offline, enabling an efficient online solution search.</p><p>1 Identify Parameters. Parameters may be identified offline by inspection of the application and should match the semantics listed in Sec. III. The parameters for adapting APT's GRB localization task are described in Sec. VI.</p><p>2 Characterize an Objective Function. Utility loss for an application can be quantified empirically for a large set of input state combinations. For each parameter a j , a number b j of values within the state space should be considered. The complete Cartesian product of these values should be tested, except where some parameter is constrained by another. Smaller values of b j reduce the number of samples for efficiency of offline analysis, but denser sampling may allow for more accurate characterization of the objective (and the input space may still be reduced in 4 for use online). The selection is left up to the application designer, though for categorical parameters, each possible value should be considered. In Sec. VI, we identify 4 parameters and test 2657 input states for GRB localization.</p><p>For x numeric and y categorical parameters, the objective will be a function of x + y dimensions, characterized as y b j x-dimensional manifolds. Fitting a closed-form function to the losses observed at the sampled states may be difficult and error-prone. Instead, our approach allows the loss function to be represented as a monotonically decreasing hull formed by hyperplanes connecting the space of observed states. Construction from a Pareto-optimal subset of states is described in 4 .</p><p>3 Quantify Response Time. The task's worst-case response time can be quantified by decomposing it into constituent subtasks, then profiling subtask execution times individually or in groups that share dependence on common parameters. Constituent execution time functions C i ({a j }) can thus be characterized for those parameters satisfying semantic (1) from Sec. III. For those parameters a j satisfying semantic (2), some subset of subtasks is duplicated by the parameter value, equivalent to scaling the workload of the individual subtasks by a j . This can be incorporated into the expression C i ({a j }). From this, Eqn. 1 can be used to compute response times as functions of execution times, allowing easy adjustments of core assignments for the application on a given platform. For categorical parameters, the response-time functions for the Cartesian product of their values must be identified, resulting in up to y b j functions of the form</p><formula xml:id="formula_2">R({a j }) = τi is s C i ({a j }) + τi is p C i ({a j }) n . (<label>3</label></formula><formula xml:id="formula_3">)</formula><p>While the set of functions grows exponentially in the number of categorical parameters, realistically this can be represented more compactly. Such parameters typically represent the selection between a handful of available computational modes or algorithms to apply to a phase of the application. These are selected by the application designer and so may be as small in number as desired. For example, in Sec. VI, a single categorical parameter selects one of two algorithms for an initial approximation of a gamma-ray burst's direction; this selection only affects the response time of the approximation stage subtasks. As the results in Sec. IX demonstrate, a single such parameter is sufficient for our target application.</p><p>4 Generate Pareto-Optimal Surface. Candidate states are sorted by response time, after which any state with a higher loss than the previous state (i.e., a higher response time results in a worse outcome) is discarded. As noted in Sec. VIII, for APT, this procedure yields fewer than 100 candidate states for each platform we tested. From these, we construct hyperplanes connecting adjacent states for interpolation. For each candidate state s, we find the points from the original set of states having the next larger value of each parameter respectively with lower error,<ref type="foot" target="#foot_0">1</ref> holding constant the other parameters in s. These hyperplanes can be extended for extrapolation to parameter values beyond the ranges used to infer the surface.</p><p>Online Steps. To implement online task compression, we modify the task to include an initial sequential subtask that calculates its response time according to the revealed constraints on workload parameters at time of release. In an overload scenario, the subtask should then solve the optimization problem (2) and apply the resulting parameters. Realizing computational mode changes is application-specific, but we outline an OpenMP-based approach for GRB localization in Sec. VII. As this subtask adds to task workload, it must remain efficient and be accounted for in the response time.</p><p>5 Check for Overload. When a job of a dynamic task arrives, the initial subtask must determine if the job will complete in time. To do so, it must calculate response time based on the parameter constraints revealed. We assume that each function C i ({a j }) can be computed in time linear in the number of numeric parameters x, so for a given input state, response time can be calculated in time O(x d m) for m subtasks and x d numeric parameters with dynamic constraints.</p><p>6 Online Solution Search. If a job's response time exceeds its deadline, the Pareto-optimal surface can be searched for a set of parameters that satisfy schedulability. Binary search over the sorted set of candidates finds the state s with the greatest response time not exceeding the deadline, from which a Pareto-optimal solution is then obtained by interpolation or extrapolation. This can be performed efficiently by considering each parameter in s connected to an adjacent state in 4 , with the other parameters held constant, solving in constant time for the value yielding a response time equal to the deadline. The best such value obtained (i.e., the one corresponding to the state with the lowest objective function value) is chosen. This takes total time linear in the number of numeric parameters.</p><p>In the case that the state s has values that exceed the dynamic parameter constraints imposed on the job, iterative search down from s can be used to find the best state s for which all parameters are within the constraints. However, parameter extrapolation from this state is not guaranteed to find a Pareto-optimal set of parameters, though the values will have a higher expected utility than s . This is not a problem for our target application, as its dynamic constraints (described in Sec. VI) are defined by the amount of input data available, and our real-world test cases (described in Sec. IX) all provide sufficient input data. As such, exploration of alternative approaches (such as storing multiple surfaces, or falling back to iterative search over the complete set of candidate states generated in 3 ) are deferred to future work.</p><p>7 Adapt Task Execution. For subtasks with discrete modes, execution should proceed according to the state defined by the input parameters, but this may result in overcompression as worst-case response times are often pessimistic. For collections of subtasks with anytime workloads, workload compression can instead be applied by calculating WCETs corresponding to the given input parameters. This portion of the task may then be allowed to proceed until the compressed WCET or response-time limit has been reached, whereupon it is stopped and the current result is used. Some applications may provide other opportunities to reduce pessimistic overcompression via slack reclamation; we describe one such approach for GRB localization in Sec. VIII.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. TARGET APPLICATION: GRB LOCALIZATION</head><p>The Advanced Particle-astrophysics Telescope (APT) <ref type="bibr" target="#b5">[6]</ref> is a planned space-based observatory that will support multiwavelength and multi-messenger astrophysics <ref type="bibr" target="#b25">[26]</ref>- <ref type="bibr" target="#b27">[28]</ref> by rapidly detecting gamma-ray bursts (GRBs) and directing follow-up instruments to observe GRBs across broad ranges of wavelengths and emission modalities. APT is designed for a nearly full-sky field of view, but many follow-up instruments have narrow apertures (often &lt;1 • ) and so must point almost directly at the GRB source. APT will do onboard detection and localization of GRBs in real-time, enabling prompt communication of precise source directions to those instruments.</p><p>We consider reconstruction and localization of Comptonregime GRBs using techniques presented in <ref type="bibr" target="#b23">[24]</ref>, <ref type="bibr" target="#b24">[25]</ref>. Thousands to millions of gamma-ray photons enter APT's detector from a single burst. Each may Compton-scatter one or more times before being photoabsorbed; each interaction is referred to as a hit, and a single photon's hits are collectively referred to as an event. Event reconstruction, followed by localization of the GRB by combining multiple reconstructed events, both execute on a fixed number of cores in SWaP-constrained hardware flying aboard the orbital platform.</p><p>The GRB localization task forms the highly parallel forkjoin computation illustrated in Fig. <ref type="figure">1</ref>. The task can be decomposed into a sequence of subtasks that collectively form the three stages detailed in Sec. VI. Each instance of this task, corresponding to the detection and localization of a unique GRB, is highly variable in its workload and deadline. The workload depends on the number of detected events, which itself is a function of the burst's spectral-energy distribution, angle with respect to the detector, and fluence (a measure proportional to the number of incident gamma rays) <ref type="bibr" target="#b6">[7]</ref>. The deadline may depend on the burst duration, which can range from around 10 ms to 20 minutes in the Compton regime <ref type="bibr" target="#b28">[29]</ref>- <ref type="bibr" target="#b31">[32]</ref>. It also may be informed by the communication latency and slewing speeds of available follow-up instruments. Speedof-light delays to ground-based devices impose an extra ≈5 s of latency, but APT could be instead be coupled with an onboard optical telescope (similarly to Swift's UVOT <ref type="bibr" target="#b32">[33]</ref>). For highly transient bursts, the window of opportunity for follow-up observations may be very brief, though the timescale of prompt emissions in secondary modalities is still an open question in astrophysics. The localization task therefore must adaptable to guarantee completion before a deadline that may not be known a priori, even for highly transient bursts generating large volumes of data.</p><p>To characterize system performance, we simulate the instrument's response to several GRBs with the APTSoft package <ref type="bibr" target="#b33">[34]</ref> that uses the Geant4 simulator <ref type="bibr" target="#b34">[35]</ref> to generate independent gamma rays from a simulated source and track their physical interactions in the detector, then models the response of the front-end electronics. We generate sets of 10 6 gamma rays using two spectral-energy distributions characteristic of short GRBs <ref type="bibr" target="#b35">[36]</ref>. We use two Band <ref type="bibr" target="#b36">[37]</ref> functions with parameters α=-0.5, E peak =490 keV, β∈{-3.2, -2.1} to capture a range of spectral profiles. Spectral energies are in [100 keV-30 MeV] to match the Compton regime of the Fermi Gamma-ray Burst Monitor (GBM) sensitivity <ref type="bibr" target="#b37">[38]</ref>, data from which the distributions presented in <ref type="bibr" target="#b35">[36]</ref> were obtained. For each spectrum, we first generate a normally-incident set, and then the sets described by the Cartesian product of {30 • , 60 • } polar angles and {0 • , 45 • } azimuth angles. This gives a total of 10 synthetic GRBs across 5 incident angles and 2 spectral energy distributions, which we use to characterize the pipeline's localization accuracy and worst-case execution times.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. PARAMETERS AND LOSS FUNCTION</head><p>Workloads in each of APT's three pipeline stages may be compressed to fit a dynamic deadline known only when each job is released. We aim to minimize an objective function informed by the angular error in the predicted GRB source direction, while still guaranteeing that the deadline is met. The associated compressible parameters are outlined in Table <ref type="table" target="#tab_0">I</ref>.</p><p>Stage 1: Event Reconstruction. For each event, we use the tree search algorithm from <ref type="bibr" target="#b23">[24]</ref> to infer the temporal order of the first two hits, constraining the gamma ray's source vector to an annulus on the unit sphere with thickness determined by uncertainties in detector spatial and energy measurements <ref type="bibr" target="#b38">[39]</ref>. In simulation, events with more than 6 hits are extremely uncommon (&lt;0.01%), so we exclude these from reconstruction to bound the tree traversal. Physically impossible reconstructions are dropped, with the remaining n a annuli passed to localization. Reconstruction can degrade by dropping events: for n e reconstructable events, we can select n r ≤n e events to actually reconstruct. As n e is typically on the order of several thousand or more, we approximate n r as a continuous numeric variable. Reconstruction is an anytime workload: the stage can stop at any point.</p><p>To characterize the impact of compressing n r , we iterated over a geometric progression of 11 values from 30 to 30 000, using uncompressed values for all other input parameters. For each value of n r , we generated 10 000 inputs to the pipeline by randomly sampling 1000 subsets of reconstructable events from each of the 10 simulated GRBs. Fig. <ref type="figure" target="#fig_0">2</ref> plots the discrepancy in degrees between the inferred and true source direction against the number of events reconstructed, with the vertical bars enclosing the extent of the distribution. Because of the high variance in localization error for a given value of n r , rather than using expected error as the objective, we instead use 68% containment (representing the 68 th percentile error, a commonly used metric for GRB localization accuracy <ref type="bibr" target="#b33">[34]</ref>, <ref type="bibr" target="#b39">[40]</ref>). These values are shown in Fig. <ref type="figure" target="#fig_0">2</ref>, which illustrates a roughly log-log linear dependence on n r .</p><p>Stage 2: Initial Source Approximation. We use multilateration over reconstructed annuli to infer the GRB's source direction. This involves an initial rough approximation that is then iteratively refined in Stage 3. We consider two approximation techniques (α) both of which execute over a subset n s ≤n a of the input annuli. Our prior work <ref type="bibr" target="#b23">[24]</ref>, <ref type="bibr" target="#b24">[25]</ref> fixed n s =1000 and used only the first approximation technique (ApproxCircles). It uniformly distributes 720 points around each of 20 circles selected at random from n s , finds the point from each with the greatest joint log-likelihood over all n s annuli, then uses a weighted mean to approximate the source vector. The second technique (FibSpiral) is new to this work. It generates 100 points almost uniformly over the surface of the unit sphere with a Fibonacci spiral. For each point, it finds the joint loglikelihood over all n s annuli, then approximates the source vector as a weighted mean over the top 10. Approximation requires both α and n s to be specified prior to computation.</p><p>While FibSpiral is much faster (requiring only 100•n s log-likelihood computations, versus 14 000•n s for ApproxCircles), it has less fidelity in its estimate for equal values of n s . In this work, we constrain n s to the range [10, 1000], which with the choice of α approximates two continuous state spaces that are non-overlapping in execution time but may overlap in result accuracy, as illustrated in Fig. <ref type="figure" target="#fig_1">3</ref>. Measured 68% con- tainments for the approximated source error (degrees) without refinement are plotted against the number of log-likelihood computations required by values of n s for each technique. For this plot, no subsequent refinement is performed, and n r is fixed at 30 000. 68% containments for each n s were obtained from 1000 trials over each simulated GRB. Stage 3: Iterative Source Refinement. The approximation result is subsequently refined using a modified version of the iterative linear least-squares approach in <ref type="bibr" target="#b23">[24]</ref>, <ref type="bibr" target="#b24">[25]</ref> over all reconstructed data. Refinement executes for x iterations (or until convergence). Whereas our prior work fixed x=20, now we allow the task to adapt by compressing x to a discrete numeric value in the range {0. . .20}. Iterative refinement can be terminated at any time, with the result of the last completed iteration (or the initial approximation, if no iterations completed) used as the estimated source direction of the GRB.</p><p>Iterative refinement is highly dependent on the quality of the initial source estimate provided by approximation, as illustrated in Fig. <ref type="figure">4</ref>. Each value of (n s , x) is plotted against the 68% containment of localization error (degrees) over 1000 trials from our 10 synthetic GRBs with n r =1893 (the smallest Fig. <ref type="figure">4</ref>: Impact of approximation on iterative refinement. value in our geometric progression for which n s can reach 1000) and using the ApproxCircles technique. With fewer annuli sampled for approximation, more refinement iterations are necessary to converge on an accurate result. With more refinement iterations, the impact of a poor initial estimate is reduced.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. RESPONSE TIMES</head><p>Each of APT's three stages of CPU computation (illustrated in Fig. <ref type="figure">1</ref>) has an initialization subtask preceding a parallel subtask, with the work evenly split across cores using OpenMP. We measure execution times for each subtask, then use these to calculate response times for each stage as functions of the tunable parameters.</p><p>Reconstruction processes events independently, with its workload linear in n r after a constant-time initialization. To characterize response time, we fit a linear function on the three hardware platforms listed in Table <ref type="table" target="#tab_1">II</ref>, all with CPU throttling disabled, running the pipeline at the highest real-time priority. These platforms span a range of performance in available SWaP-constrained hardware while remaining tolerant to harsh environmental conditions. Though not rad-hardened, they are candidates to fly aboard a scheduled Antarctic high-altitude balloon demonstration mission, and our group has flown the Atom-based platform on previous such missions.</p><p>On each platform, we profile the reconstruction stage for values of n r from 3000 to 27 000 in steps of 3000. For each value, we collect 20 response times from each of our 10 simulated GRBs. To better capture the worst case, we collect 200 times from each GRB for n r =30 000. We fit a linear function over the maximum times for each n r , then offset by the greatest positive residual to guarantee the function upperbounds all 3200 observed response times. Measured worstcase times and characteristic functions are illustrated in Fig. <ref type="figure" target="#fig_2">5</ref>. Note that on the Atom, the extra samples for n r =30 000 produced a slight outlier in measured WCET, indicating that the platform's timing is slightly less stable than the RPi3 or RPi4. Nonetheless, with our offsetting technique we were still able to meet all deadlines considered in Sec. IX.</p><p>Approximation initializes with results from reconstruction then samples annuli at random, with which it computes joint log-likelihoods for each of its candidate source directions. Aggregation and sampling are performed by a single subtask  that precedes an independent subtask for each candidate source direction (100 for FibSpiral and 14 400 for ApproxCircles). A final subtask aggregates the results to find an average source vector, weighted by the joint log-likelihoods. Execution times for each subtask scale linearly with the number of sampled annuli n s . We characterize the worst-case response time separately for each technique α. We profile both approximation techniques for n s ∈ {200, 400, 600, 800, 1000}. For each value, we collect 20 response times from each of 10 simulated GRBs. Similar to reconstruction profiling, we fit a linear function over the maximum times for each n s , then shift vertically to guarantee an upper bound over all observed response times. The measured worst-case times and corresponding functions are illustrated in Figures <ref type="figure">6(a</ref>) and 6(b). Notice that the vertical axis scale for ApproxCircles is 2 orders of magnitude greater than for FibSpiral, commensurate with the number of loglikelihood computations required by each technique.</p><p>Finally, Refinement is iterative; each iteration has a sequential initialization subtask followed by a parallel subtask to process and filter each annulus. A final sequential subtask in each iteration constructs and solves a constant-time quadratic eigenvalue problem, for which forming the matrix has cost quadratic in the number of reconstructed annuli <ref type="bibr" target="#b5">[6]</ref>. Each iteration, then, has a worst-case response time quadratic in n r ; this is multiplied by x to produce the response time of the stage. We fit this function on our three candidate devices, profiling each iteration of refinement from the same set of runs measured for reconstruction. Results are illustrated in Fig. <ref type="figure" target="#fig_3">7</ref>.</p><p>VIII. IMPLEMENTATION In this section, we discuss our implementation of workload adaptation for APT's GRB localization task. Pareto-Optimal Surface. We quantified response times for 2657 input parameter states per the functions identified for each stage in Sec. VII. After generating a Pareto-optimal set of candidates (Sec. IV), only 81 states remained for the RPi3, 84 for the RPi4, and 83 for the Atom. We characterized localization error for all values of α and x for each tested value of n r and n s , removing the option of interpolation over these discrete states. For each candidate state s, we reduced the hyperplanes connecting adjacent values of n r and n s to log-linear functions of error in each of these parameters. As the maximum value of n r is a dynamic constraint, we also constructed log-linear functions from the points for which n r =30 000 (the largest value tested) by extrapolation from the state with the next smaller value of n r having a higher measured error. Each candidate state and its log-linear function parameters are stored in a lookup table to use online. Determining Parameter Values. When a job arrives, the localization task checks the worst-case response time for the number of reconstructable events: if it exceeds the deadline, parameter values are selected accordingly (Sec. IV). Adapting to Overload. The number of events reconstructed affects the response time of the downstream refinement stage, so we do not treat reconstruction as an anytime workload. Instead, once parameter values are selected, global variables are set prior to computation to restrict the number of events reconstructed, the number of annuli sampled for refinement, and the number of refinement iterations to perform. The software implements FibSpiral and ApproxCircles as C++ subclasses of a common Approximation class, allowing dynamic object construction according to the chosen value of α. Slack Reclamation. When parameter values for an execution mode guarantee completion before the deadline in the worst case, pessimism in WCET estimates may result in overcompression. Nonetheless, some tasks provide opportunities for slack reclamation after computation completes. APT's final iterative source refinement is an anytime workload, so slack could be reclaimed naïvely by allowing it to continue iterating until the deadline. However, it might still complete early if refinement converges, and this does not consider that earlier stages of the pipeline may also have been compressed. Instead, we implement a version of slack reclamation that determines, given the remaining slack time (less its own overhead), how many additional events can be reconstructed with another refinement iteration run over the resulting larger set of annuli. For efficiency, rather than allowing OpenMP to split events among threads prior to reconstruction, an idle thread retrieves an event using an atomic fetch-and-increment of an index that tracks the next available event. Once this index reaches n r , reconstruction halts, but is resumed when slack reclamation increases the limit. Reclamation continues in a loop until there is insufficient slack time remaining, as illustrated in Fig. <ref type="figure" target="#fig_4">8</ref>. At this point, additional iterations of refinement can still be run until the deadline (or until convergence).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IX. EVALUATION</head><p>To evaluate our proposed workload compression approach, we first measured the overheads associated with each optional extension of the APT GRB localization application (interpolation/extrapolation and slack reclamation) to appropriately account for them. We next compared these extensions when running the pipeline against our synthetic GRBs to decide which are expected to further improve results against realworld data. Finally, we evaluated our approach in the context of historical GRBs to demonstrate that our approach extends from training to real-world tests, enabling localization of bright GRBs even under highly constrained deadlines.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Overheads</head><p>To evaluate our proposed workload compression approach, we applied it to the APT localization task. We began with profiling the overhead of searching online for a Pareto-optimal set of compressed input parameters (described in Sec. IV) and of computing the inputs to slack reclamation (Sec. VIII). We ran the localization task with both compression and slack reclamation over the synthetic GRBs described in Sec. V. For each GRB, we tested numbers of input gamma-ray photons over a geometric progression of 9 values from 30 to 10 6 . Geometric progressions of 9 deadline values were selected separately for each hardware platform to guarantee that the shortest deadline would be between the response times of the first two candidate states, and that the longest deadline would be greater than the response time of the last candidate state.</p><p>Fig. <ref type="figure" target="#fig_5">9</ref> illustrates the overheads of the 810 profiled runs of online compression for each tested hardware platform, with the vertical bars enclosing the distribution. The overhead remained under 220 μs on the RPi3, under 180 μs on the RPi4, and under 60 μs on the Atom, demonstrating the efficiency of our online compression technique. We adjusted the response time functions for each of our platforms accordingly.</p><p>Overheads of slack reclamation were captured by profiling the elapsed time of the first successful attempt to reclaim slack for each run. Those runs for which slack could not be reclaimed were ignored, as the overhead may be lower in these cases. This produced 538 samples for the RPi3, 555 for the RPi4, and 573 for the Atom; these are also illustrated in Fig. <ref type="figure" target="#fig_5">9</ref>. Despite the equivalent program logic, the RPi3 had significantly higher overhead (notice the difference in verticalaxis units): its overhead reached 97.5 μs, whereas it remained under 1.9 μs on both the RPi4 and Atom.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Evaluation on Synthetic GRBs</head><p>To characterize the expected performance of our approach, we evaluated three versions when applied to APT's localization task. The first, Pareto, finds the best state from the Pareto-optimal set of candidates with a response time that does not exceed the deadline and for which n r ≤n e according to the procedure in Sec. IV. The second, IntExt, additionally interpolates or extrapolates from that state. The third, Reclaim, performs compression equivalently to IntExt while also attempting to reclaim available slack time after the task completes according to the procedure in Sec. VIII.</p><p>We ran each version over each of our 10 synthetic GRBs, using subsets of the generated gamma rays with sizes 10 N for N from 2 to 6. For each of the resulting 50 subsets, we evaluated the pipeline with a sufficiently large deadline to guarantee an uncompressed state, then imposed deadlines of   10, 33, 100, 330, and 1000 ms, 2 for a total of 300 sets of inputs to the pipeline. For each set of inputs, we ran Pareto and IntExt once and ran Reclaim 5 times to account for variations in remaining slack time. We observed that over 1750 deadlineconstrained runs on each of our three hardware platforms, no instance of the task missed its deadline.</p><p>To predict which approach is most likely to perform best on real-world datasets, we compared each approach pairwise with the other two. We define better utility as exceeding a 10% reduction in localization error; we use this threshold to characterize the difference because even a small change in input can result in significantly different results, as reflected by the wide distributions illustrated in Fig. <ref type="figure" target="#fig_0">2</ref>. Results for all 1500 runs of Reclaim and 300 runs of IntExt and Pareto are illustrated in Fig. <ref type="figure" target="#fig_6">10</ref>. We note that a pairwise comparison provides more detail than enumerating the times each approach is the best of the three, which would not capture situations where two methods dominate the third, but not each other. We also observe that slack reclamation occasionally degrades results, as the additional input events selected might be incorrectly reconstructed or reflect noisy measurements. Nonetheless, the results suggest additional interpolation or extrapolation from an initial candidate state, and reclaiming slack at the end of execution, are expected to improve outcomes most of the time.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Evaluation on Short GRBs Observed by Fermi GBM</head><p>To characterize how well our approach extends from synthetic training data to real-world workloads, we simulated four additional GRBs sourced from the Fermi GBM catalogs. We used the data in <ref type="bibr" target="#b35">[36]</ref>, which fits spectral-energy distributions to GRBs observed by the GBM. We searched for short GRBs (duration &lt;1s) fit to a Band function; four matched these 2 The shortest-duration burst captured by GBM was around 10 ms <ref type="bibr" target="#b28">[29]</ref>- <ref type="bibr" target="#b31">[32]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>RPi3</head><p>RPi4 Atom 0 criteria. Simulation parameters are listed in Table <ref type="table" target="#tab_3">III</ref>. We randomly generated source directions by sampling the polar angle uniformly from 0-60 • and the azimuth from 0-360 • . Worst-case response times on each platform to perform uncompressed localization of each GRB are listed in Table <ref type="table" target="#tab_5">IV</ref>  We ran each version of our pipeline for each new GRB. We used a sufficiently large deadline to guarantee an uncompressed state, then imposed a deadline equal to the burst's duration, and finally iterated over the same deadlines evaluated for our synthetic GRBs (10, 33, 100, 330, and 1000 ms). For each deadline, we ran each version of the pipeline 20 times over each GRB. We then found the 68% containment of error in source direction for each set of 20 results. None of the 1440 deadline-constrained runs on each of our three hardware platforms missed its deadline.</p><p>Similarly to the analysis for the synthetic GRBs, we compared Pareto, IntExt, and Reclaim pairwise with the other two, enumerating how often each outperformed the others. Results are illustrated in Fig. <ref type="figure" target="#fig_7">11</ref>. Counts are out of 28. The results validate our predictions from the initial analysis of synthetic GRBs: interpolation and extrapolation from an initial Pareto-optimal state, then reclaiming slack time at the end of the pipeline, both typically improve localization accuracy.</p><p>In Fig. <ref type="figure" target="#fig_10">12</ref>, we provide a plot for each simulated GRB of the 68% containment of source direction error in degrees over the 20 iterations of Reclaim for each imposed deadline. We observe that, with compression, the APT localization task is often able to produce results close in accuracy to those of its uncompressed state for deadlines of around 100 ms, even</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>RPi3</head><p>RPi4 Atom 0 with worst-case uncompressed response times approaching 6 seconds on the platforms tested. While we allow for further compression to guarantee schedulability in response to dynamic workloads and deadlines, our approach also allows us to characterize a minimum acceptable deadline for each hardware platform. For deadlines as short as 33 ms, it is often successful in providing sub-degree accuracy, sufficient for follow-up observations by optical telescopes. However, as the imposed deadline deadline increases, localization error typically decreases, yielding greater utility. Nonetheless, this is not always the case: because of the high variance in localization accuracy, and because larger values of n r might cause noisy or incorrectly reconstructed events to be selected, occasionally larger deadlines correspond to lower accuracy.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>X. CONCLUSIONS AND FUTURE WORK</head><p>In this paper, we proposed a technique for compressing the workloads of highly parallel fork-join tasks executing on a fixed number of processors to remain schedulable in the face of dynamic workloads and deadlines. By identifying multiple discrete numeric, continuous numeric, and categorical parameters over which subtask workloads can be compressed, and through offline characterization of their effects on result utility and response times, a Pareto-optimal surface can be generated to enable efficient online compression that guarantees schedulability while minimizing the resulting loss. We also identified methods to reduce pessimism by reclaiming available slack if execution completes early. We demonstrated that, when applied in the context of real-time GRB localization aboard the planned APT satellite mission, our approach provided subdegree estimates of source direction even for ≈33 ms deadlines imposed by bright, transient bursts.</p><p>Nonetheless, APT and other space-based missions may present additional challenges that motivate further exploration. The real-time properties of GRB localization might be better expressed with time utility functions, rather than a hard deadline: narrow observation windows may impose a tradeoff favoring earlier, but potentially less accurate, alerts <ref type="bibr" target="#b6">[7]</ref>. Additionally, the GRB localization pipeline may run on shared hardware with mission-critical instrument control tasks (e.g., that regulate power or cool the instrument). Alternative analytical frameworks, such as semi-federated <ref type="bibr" target="#b42">[43]</ref> or reservationbased federated <ref type="bibr" target="#b43">[44]</ref> might allow these techniques to be extended to general parallel DAG tasks that share cores with lowutilization workloads. Additionally, further work is needed to efficiently guarantee a Pareto-optimal solution even when the Pareto-optimal surface does not intersect the region described by the dynamic constraints for a given job. This work serves as a prerequisite toward a utility-driven elastic scheduling model over multiple tasks that share a limited set of resources.   </p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Impact of nr on localization error. Note that axes are logarithmic.</figDesc><graphic coords="5,72.03,536.00,210.95,159.67" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: Comparison of approximation techniques.</figDesc><graphic coords="6,61.56,72.69,234.30,179.78" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: Reconstruction stage worst-case response times.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 7 :</head><label>7</label><figDesc>Fig. 7: Refinement stage worst-case response times.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: Localization pipeline with compression and slack reclamation.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 9 :</head><label>9</label><figDesc>Fig. 9: Measured overhead times.</figDesc><graphic coords="8,314.00,556.55,234.30,128.72" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 10 :</head><label>10</label><figDesc>Fig. 10: Pairwise comparison of approach versions for synthetic GRBs.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 11 :</head><label>11</label><figDesc>Fig. 11: Pairwise comparison of approach versions for cataloged GRBs.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Fig. 12 :</head><label>12</label><figDesc>Fig. 12: 68% containment of error in source direction using Reclaim. Horizontal lines indicate 68% containment for uncompressed execution.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>TABLE I :</head><label>I</label><figDesc>Compressible parameters for APT localization task.</figDesc><table><row><cell>Param</cell><cell>Stage</cell><cell>Description</cell><cell>Constraint</cell></row><row><cell>nr</cell><cell>Reconstruction</cell><cell>Events to reconstruct</cell><cell cols="2">30 ≤ nr ≤ ne</cell></row><row><cell>α</cell><cell>Approximation</cell><cell>Approximation technique</cell><cell cols="2">α ∈ {FibSpiral, ApproxCircles}</cell></row><row><cell>ns</cell><cell cols="4">Approximation Number of annuli to sample for joint log-likelihood max{10, na} ≤ ns ≤ min{1000, na}</cell></row><row><cell>x</cell><cell>Refinement</cell><cell>Refinement iterations</cell><cell cols="2">x ∈ {0 . . . 20}</cell></row><row><cell></cell><cell></cell><cell></cell><cell></cell><cell>1 iteration</cell></row><row><cell></cell><cell></cell><cell>…</cell><cell>…</cell><cell>…</cell></row><row><cell></cell><cell></cell><cell>Reconstruction</cell><cell>Approximation</cell><cell>Refinement</cell></row></table><note><p>… Fig. 1: APT's highly parallel fork-join localization task.</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>TABLE II :</head><label>II</label><figDesc>Hardware platforms evaluated. * While the Raspberry Pi models tested support higher CPU clock speeds, we use the lower frequencies recommended in<ref type="bibr" target="#b40">[41]</ref>,<ref type="bibr" target="#b41">[42]</ref> to prevent throttling and instability. Approximation stage worst-case response times.</figDesc><table><row><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="2">Platform</cell><cell></cell><cell cols="2">Abbr.</cell><cell>CPU</cell><cell cols="2">Cores</cell><cell cols="2">Freq.</cell><cell cols="5">RAM Linux Kernel</cell></row><row><cell></cell><cell></cell><cell></cell><cell cols="5">Raspberry Pi 3 Model B+ Raspberry Pi 4 Model B</cell><cell></cell><cell>RPi3 RPi4</cell><cell>Cortex-A53 (ARMv8) Cortex-A72 (ARMv8)</cell><cell>4 4</cell><cell></cell><cell cols="2">700MHz  *  600MHz  *</cell><cell>1GB 4GB</cell><cell></cell><cell cols="2">5.15.61 5.15.61</cell><cell></cell></row><row><cell></cell><cell></cell><cell></cell><cell cols="5">WINSYSTEMS EBC-C413</cell><cell cols="2">Atom</cell><cell>Intel Atom E3845</cell><cell>4</cell><cell></cell><cell cols="2">1.92GHz</cell><cell>8GB</cell><cell></cell><cell cols="2">5.15.0</cell><cell></cell></row><row><cell></cell><cell>10</cell><cell>10 5</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell>8000</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell></cell><cell></cell><cell></cell><cell>Rpi3</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell>Rpi3</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell>Response Time (microseconds)</cell><cell>2 4 6 8</cell><cell></cell><cell cols="3">R a Rpi4 = 823n s R a = 362n s Atom R a = 186n s + 6.72e+03 + 1e+04 + 4.87e+03</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell>Response Time (microseconds)</cell><cell>2000 3000 4000 5000 6000 7000</cell><cell></cell><cell cols="3">R f Rpi4 = 5.49n s R f = 3.48n s Atom R f = 1.82n s + 1.44e+03 + 2.1e+03 + 2.57e+03</cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell></cell><cell>0</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell>1000</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell></cell><cell>0</cell><cell>100</cell><cell>200</cell><cell>300</cell><cell>400</cell><cell>500</cell><cell>600</cell><cell>700</cell><cell>800</cell><cell>900 1000</cell><cell>0</cell><cell>100</cell><cell>200</cell><cell>300</cell><cell>400</cell><cell>500</cell><cell>600</cell><cell>700</cell><cell>800</cell><cell>900 1000</cell></row><row><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="3">Annuli Sampled</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="3">Annuli Sampled</cell><cell></cell><cell></cell></row><row><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="4">(a) ApproxCircles</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="3">(b) FibSpiral</cell><cell></cell><cell></cell></row><row><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="2">Fig. 6:</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head>TABLE III :</head><label>III</label><figDesc>Simulated short GRBs with parameters matching corresponding catalog entries in<ref type="bibr" target="#b35">[36]</ref>.</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head></head><label></label><figDesc>.</figDesc><table><row><cell cols="3">Device 80905499 81209981</cell><cell cols="2">90227772 90429753</cell></row><row><cell>RPi3</cell><cell>1087</cell><cell>1379</cell><cell>5813</cell><cell>1177</cell></row><row><cell>RPi4</cell><cell>490</cell><cell>618</cell><cell>2808</cell><cell>529</cell></row><row><cell>Atom</cell><cell>265</cell><cell>346</cell><cell>1268</cell><cell>291</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>TABLE IV :</head><label>IV</label><figDesc>Worst-case response times (ms) for uncompressed localization.</figDesc><table /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>Due to the often stochastic nature of characterizing loss, some adjacent states may not have a lower objective value for a larger parameter value.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_1"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 05:31:41 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Scheduling of image processing using anytime algorithm for real-time system</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Kywe</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Fujiwara</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Murakami</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 18th Int&apos;l Conf. on Pattern Recognition</title>
+		<meeting>of 18th Int&apos;l Conf. on Pattern Recognition</meeting>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="page" from="1095" to="1098" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Imprecise computations</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W.-K</forename><surname>Shih</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K.-J</forename><surname>Lin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Bettati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-Y</forename><surname>Chung</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Proceedings of the IEEE</title>
+		<imprint>
+			<biblScope unit="volume">82</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="83" to="94" />
+			<date type="published" when="1994">1994</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Anytime-Lidar: Deadline-aware 3D object detection</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Soyyigit</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Yao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of IEEE 28th International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<meeting>of IEEE 28th International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</meeting>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="31" to="40" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Simultaneous map building and localization for an autonomous mobile robot</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Leonard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Durrant-Whyte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of IEEE</title>
+		<meeting>of IEEE</meeting>
+		<imprint>
+			<date type="published" when="1991">1991</date>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="page" from="1442" to="1447" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">From timing variations to performance degradation: Understanding and mitigating the impact of software execution timing in SLAM</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Zhang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)</title>
+		<imprint>
+			<biblScope unit="page">2022</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">The Advanced Particle-astrophysics Telescope (APT) Project Status</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Buckley</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 37th International Cosmic Ray Conference -PoS(ICRC2021)</title>
+		<meeting>of 37th International Cosmic Ray Conference -PoS(ICRC2021)</meeting>
+		<imprint>
+			<date type="published" when="2021-07">Jul. 2021</date>
+			<biblScope unit="volume">395</biblScope>
+			<biblScope unit="page">9</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Work in Progress: Real-Time GRB Localization for the Advanced Particleastrophysics Telescope</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sudvarg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Buhler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Chamberlain</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Buckley</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 15th Wkshp. on Operating Systems Platforms for Embedded Real-Time Applications</title>
+		<meeting>of 15th Wkshp. on Operating Systems Platforms for Embedded Real-Time Applications</meeting>
+		<imprint>
+			<date type="published" when="2022-07">Jul. 2022</date>
+			<biblScope unit="page" from="57" to="61" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Elastic task model for adaptive rate control</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of IEEE Real-Time Systems Symposium</title>
+		<meeting>of IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Elastic scheduling for flexible workload management</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">51</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="289" to="302" />
+			<date type="published" when="2002-03">Mar. 2002</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Generalized elastic scheduling</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Chantem</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><forename type="middle">S</forename><surname>Hu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">D</forename><surname>Lemmon</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of IEEE International Real-Time Systems Symposium</title>
+		<meeting>of IEEE International Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+			<biblScope unit="page" from="236" to="245" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Generalized elastic scheduling for real-time tasks</title>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">58</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="480" to="495" />
+			<date type="published" when="2009-04">Apr. 2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Multiprocessor scheduling of elastic tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Orr</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 27th International Conference on Real-Time Networks and Systems</title>
+		<meeting>of 27th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="133" to="142" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Elastic scheduling for parallel real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Orr</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<idno>05:1-05:14</idno>
+	</analytic>
+	<monogr>
+		<title level="j">Leibniz Transactions on Embedded Systems</title>
+		<imprint>
+			<biblScope unit="volume">6</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="2019-05">May 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Elasticity of workloads and periods of parallel real-time tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Orr</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 26th International Conference on Real-Time Networks and Systems</title>
+		<meeting>of 26th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="61" to="71" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Elastic scheduling of parallel real-time tasks with discrete utilizations</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Orr</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">C</forename><surname>Uribe</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 28th International Conference on Real-Time Networks and Systems</title>
+		<meeting>of 28th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="117" to="127" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Analysis of federated and global scheduling for parallel real-time tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">J</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 26th Euromicro Conference on Real-Time Systems</title>
+		<meeting>of 26th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="85" to="96" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Performance optimization of autonomous driving control under end-to-end deadlines</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Bai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">58</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="509" to="547" />
+			<date type="published" when="2022-12">Dec 2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Mode change protocols for real-time systems: A survey and a new proposal</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Real</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Crespo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">26</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="161" to="197" />
+			<date type="published" when="2004">2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">An adaptive framework for multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Quint</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of Euromicro Conference on Real-Time Systems</title>
+		<meeting>of Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="23" to="33" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">PointPillars: Fast encoders for object detection from point clouds</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">H</forename><surname>Lang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Vora</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Caesar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Beijbom</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)</title>
+		<meeting>of IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)</meeting>
+		<imprint>
+			<date type="published" when="2019-06">Jun. 2019</date>
+			<biblScope unit="page">697</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">D3: A dynamic deadline-driven approach for building autonomous vehicles</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Gog</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kalra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Schafhalter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">E</forename><surname>Gonzalez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Stoica</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 17th European Conf. on Computer Systems</title>
+		<meeting>of 17th European Conf. on Computer Systems</meeting>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="453" to="471" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">The fork-join real-time task model</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Stigge</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Ekberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIGBED Rev</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page">20</biblScope>
+			<date type="published" when="2013-07">Jul. 2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">FJOS: Practical, predictable, and efficient system support for fork/join parallelism</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Parmer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 19th Real-Time and Embedded Technology and Applications Symp</title>
+		<meeting>of 19th Real-Time and Embedded Technology and Applications Symp</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="25" to="36" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">A Fast GRB Source Localization Pipeline for the Advanced Particle-astrophysics Telescope</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sudvarg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Buhler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Buckley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 37th International Cosmic Ray Conference -PoS(ICRC2021)</title>
+		<meeting>of 37th International Cosmic Ray Conference -PoS(ICRC2021)</meeting>
+		<imprint>
+			<date type="published" when="2021-07">Jul. 2021</date>
+			<biblScope unit="volume">395</biblScope>
+			<biblScope unit="page">9</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Supporting multi-messenger astrophysics with fast gamma-ray burst localization</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wheelock</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Kanu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sudvarg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of IEEE/ACM HPC for Urgent Decision Making Workshop</title>
+		<meeting>of IEEE/ACM HPC for Urgent Decision Making Workshop</meeting>
+		<imprint>
+			<date type="published" when="2021-11">Nov. 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<monogr>
+		<title/>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bartos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Kowalski</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Multimessenger</forename><surname>Astronomy</surname></persName>
+		</author>
+		<idno>ser. 2399-2891</idno>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+			<publisher>IOP Publishing</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Introduction to multi-messenger astronomy</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Neronov</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Physics: Conference Series</title>
+		<imprint>
+			<biblScope unit="volume">1263</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="2019">2019</date>
+			<publisher>IOP Publishing</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Multi-messenger astrophysics</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Mészáros</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">B</forename><surname>Fox</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Hanna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Murase</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nature Reviews Physics</title>
+		<imprint>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="585" to="599" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">The Fermi GBM gamma-ray burst spectral catalog: Four years of data</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Gruber</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Goldstein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><forename type="middle">W</forename><surname>Von Ahlefeld</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">The Astrophysical Journal Supplement Series</title>
+		<imprint>
+			<biblScope unit="volume">211</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page">12</biblScope>
+			<date type="published" when="2014-02">Feb. 2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<author>
+			<persName><forename type="first">A</forename><surname>Von Kienlin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">A</forename><surname>Meegan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">S</forename><surname>Paciesas</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">The second Fermi GBM gamma-ray burst catalog: The first four years</title>
+		<imprint>
+			<date type="published" when="2014-02">Feb. 2014</date>
+			<biblScope unit="volume">211</biblScope>
+			<biblScope unit="page">13</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">The third Fermi GBM gamma-ray burst catalog: The first six years</title>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">N</forename><surname>Bhat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">A</forename><surname>Meegan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Von Kienlin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">The Astrophysical Journal Supplement Series</title>
+		<imprint>
+			<biblScope unit="volume">223</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page">28</biblScope>
+			<date type="published" when="2016-04">Apr. 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">The fourth Fermi-GBM gamma-ray burst catalog: A decade of data</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Von Kienlin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">A</forename><surname>Meegan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><forename type="middle">S</forename><surname>Paciesas</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">The Astrophysical Journal</title>
+		<imprint>
+			<biblScope unit="volume">893</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page">46</biblScope>
+			<date type="published" when="2020-04">Apr. 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">The Swift ultraviolet/optical telescope</title>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">W A</forename><surname>Roming</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">E</forename><surname>Kennedy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">O</forename><surname>Mason</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Space Science Reviews</title>
+		<imprint>
+			<biblScope unit="volume">120</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="95" to="142" />
+			<date type="published" when="2005-10">Oct. 2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">The Advanced Particleastrophysics Telescope: Simulation of the Instrument Performance for Gamma-Ray Detection</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Buckley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Alnussirat</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of 37th Int&apos;l Cosmic Ray Conference -PoS(ICRC2021)</title>
+		<meeting>of 37th Int&apos;l Cosmic Ray Conference -PoS(ICRC2021)</meeting>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="volume">395</biblScope>
+			<biblScope unit="page">9</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">Geant4 -a simulation toolkit</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Agostinelli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Allison</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Amako</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Nuclear Instruments and Methods in Physics Research Section A: Accelerators, Spectrometers, Detectors and Associated Equipment</title>
+		<imprint>
+			<biblScope unit="volume">506</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="250" to="303" />
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">Spectral properties of 438 GRBs detected by Fermi GBM</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Nava</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Ghirlanda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Ghisellini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Celotti</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Astronomy &amp; Astrophysics</title>
+		<imprint>
+			<biblScope unit="volume">530</biblScope>
+			<date type="published" when="2011-04">Apr. 2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">BATSE observations of gamma-ray burst spectra. I. spectral diversity</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Band</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Astrophys. J</title>
+		<imprint>
+			<biblScope unit="volume">413</biblScope>
+			<biblScope unit="page">281</biblScope>
+			<date type="published" when="1993-08">Aug. 1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<monogr>
+		<ptr target="https://fermi.gsfc.nasa.gov/ssc/data/analysis/documentation/Cicerone/CiceroneIntroduction/GBMoverview.html" />
+		<title level="m">National Aeronautics and Space Administration Goddard Space Flight Center</title>
+		<editor>
+			<persName><forename type="first">J</forename><forename type="middle">D</forename><surname>Meyers</surname></persName>
+		</editor>
+		<imprint>
+			<date type="published" when="2020-01-26">Jan. 2020. 26 Oct, 2022</date>
+		</imprint>
+	</monogr>
+	<note>Overview of the Fermi GBM</note>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">Event reconstruction in high resolution Compton telescopes</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Boggs</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Jean</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Astronomy and Astrophys. Supp. Series</title>
+		<imprint>
+			<biblScope unit="volume">145</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="311" to="321" />
+			<date type="published" when="2000">2000</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">Localization of gamma-ray bursts using the Fermi gamma-ray burst monitor</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Connaughton</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">The Astrophysical Journal Supplement Series</title>
+		<imprint>
+			<biblScope unit="volume">216</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page">32</biblScope>
+			<date type="published" when="2015-02">Feb. 2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<analytic>
+		<title level="a" type="main">Automatic latency management for ROS 2: Benefits, challenges, and open problems</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blass</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Lange</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of IEEE 27th Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<meeting>of IEEE 27th Real-Time and Embedded Technology and Applications Symposium (RTAS)</meeting>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="264" to="277" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<analytic>
+		<title level="a" type="main">A concurrency framework for priority-aware intercomponent requests in CAmkES on seL4</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sudvarg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of IEEE 28th International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<meeting>of IEEE 28th International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</meeting>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">Semi-federated scheduling of parallel real-time tasks on multiprocessors</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Long</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of IEEE Real-Time Systems Symposium (RTSS)</title>
+		<meeting>of IEEE Real-Time Systems Symposium (RTSS)</meeting>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="80" to="91" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<analytic>
+		<title level="a" type="main">Reservation-based federated scheduling for parallel realtime tasks</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Ueter</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of IEEE Real-Time Systems Symposium (RTSS)</title>
+		<meeting>of IEEE Real-Time Systems Symposium (RTSS)</meeting>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="482" to="494" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

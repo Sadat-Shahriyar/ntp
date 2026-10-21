@@ -1,0 +1,498 @@
+{
+  "paper_name": "Multiprocessor_Real-Time_Scheduling_with_Hierarchical_Processor_Affinities",
+  "paper_description": "This paper introduces a novel approach to multiprocessor real-time scheduling that leverages hierarchical processor affinities (HPAs) to improve runtime efficiency and schedulability. It presents a strong HPA scheduler with improved time complexity for task arrivals and departures, and analyzes its performance in the context of bilevel affinity hierarchies with Earliest Deadline First (EDF) scheduling, relating it to system optimality. The paper also details an implementation and evaluation of the proposed scheduler.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Definition II.1",
+      "formal_description": {
+        "statement": "At any time t, for each ready task T_b not matched by \\chi(t) and for each \\Pi_j \\in \\alpha_b, there exists a task T_i such that (T_i, \\Pi_j) \\in \\chi(t) and \\phi_i \\ge \\phi_b.",
+        "variables": {
+          "t": "current time",
+          "T_b": "a ready task not matched by the current schedule",
+          "\\chi(t)": "the current matching of tasks to processors at time t",
+          "\\alpha_b": "the affinity mask of task T_b (set of allowed processors)",
+          "\\Pi_j": "a processor in the system",
+          "T_i": "another task",
+          "\\phi_i": "priority of task T_i",
+          "\\phi_b": "priority of task T_b"
+        },
+        "assumptions": [
+          "Tasks are ready at time t.",
+          "A matching \\chi(t) exists."
+        ],
+        "conclusion": "This defines the 'Weak Invariant' for processor affinity scheduling, ensuring that if a task is not scheduled, any processor it could run on is either idle or occupied by a higher or equal priority task."
+      },
+      "informal_sketch": {
+        "intuition": "This is a basic rule for processor affinity scheduling. It states that if a task cannot be scheduled on any of its allowed processors, then all of those allowed processors must be occupied by tasks that have at least as high a priority. This prevents lower-priority tasks from blocking higher-priority tasks unnecessarily.",
+        "steps": [
+          "Consider a time 't'.",
+          "Identify a task 'T_b' that is ready but not currently assigned to a processor.",
+          "Look at all processors 'Pi_j' that 'T_b' is allowed to run on (i.e., 'Pi_j' is in 'T_b's affinity mask 'alpha_b').",
+          "For each such processor 'Pi_j', check if it's currently assigned to another task 'T_i'.",
+          "If 'Pi_j' is assigned to 'T_i', verify that 'T_i's priority ('phi_i') is greater than or equal to 'T_b's priority ('phi_b').",
+          "If this condition holds for all allowed processors of 'T_b', the Weak Invariant is satisfied."
+        ],
+        "pseudocode": "def check_weak_invariant(current_time, ready_tasks, current_matching, priorities):\n    for task_b in ready_tasks:\n        if task_b not in current_matching.values():\n            for processor_j in task_b.affinity_mask:\n                assigned_task_i = None\n                for task_i, proc in current_matching.items():\n                    if proc == processor_j:\n                        assigned_task_i = task_i\n                        break\n                \n                if assigned_task_i is not None:\n                    if priorities[assigned_task_i] < priorities[task_b]:\n                        return False # Weak invariant violated\n    return True # Weak invariant satisfied",
+        "key_insights": [
+          "Ensures that unscheduled tasks do not block higher-priority tasks on their allowed processors."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition II.2",
+      "formal_description": {
+        "statement": "At any time t, for each ready task T_b not matched according to \\chi(t) and for each \\Pi \\in R_b(t), there exists a task T_i such that (T_i, \\Pi) \\in \\chi(t) and \\phi_i \\ge \\phi_b.",
+        "variables": {
+          "t": "current time",
+          "T_b": "a ready task not matched by the current schedule",
+          "\\chi(t)": "the current matching of tasks to processors at time t",
+          "R_b(t)": "the set of processors reachable from task T_b in G(t) with respect to \\chi(t)",
+          "\\Pi": "a processor in R_b(t)",
+          "T_i": "another task",
+          "\\phi_i": "priority of task T_i",
+          "\\phi_b": "priority of task T_b"
+        },
+        "assumptions": [
+          "Tasks are ready at time t.",
+          "A matching \\chi(t) exists.",
+          "R_b(t) is defined based on alternating paths."
+        ],
+        "conclusion": "This defines the 'Strong Invariant' for processor affinity scheduling, which considers task shifting. It requires that for any unscheduled task, any processor reachable via an alternating path must be occupied by a higher or equal priority task."
+      },
+      "informal_sketch": {
+        "intuition": "This is a stronger condition than the Weak Invariant. It accounts for the possibility of 'task shifting' – moving tasks around to make space for others. It states that if a task 'T_b' is not scheduled, then any processor that 'T_b' could potentially reach through a sequence of alternating assignments (task-processor-task-processor...) must be occupied by a task with a priority at least as high as 'T_b's. This ensures that even with potential task movements, higher-priority tasks are not blocked by lower-priority ones.",
+        "steps": [
+          "Consider a time 't'.",
+          "Identify a task 'T_b' that is ready but not currently assigned to a processor.",
+          "Determine the set 'R_b(t)' of all processors reachable from 'T_b' via alternating paths in the bipartite graph G(t) with respect to the current matching \\chi(t).",
+          "For each processor '\\Pi' in 'R_b(t)':",
+          "  Check if '\\Pi' is currently assigned to another task 'T_i' in the matching \\chi(t).",
+          "  If '\\Pi' is assigned to 'T_i', verify that 'T_i's priority ('phi_i') is greater than or equal to 'T_b's priority ('phi_b').",
+          "If this condition holds for all reachable processors '\\Pi' for 'T_b', the Strong Invariant is satisfied."
+        ],
+        "pseudocode": "def check_strong_invariant(current_time, ready_tasks, current_matching, priorities, reachable_processors_map):\n    for task_b in ready_tasks:\n        if task_b not in current_matching.values():\n            for processor_pi in reachable_processors_map[task_b]: # R_b(t)\n                assigned_task_i = None\n                for task_i, proc in current_matching.items():\n                    if proc == processor_pi:\n                        assigned_task_i = task_i\n                        break\n                \n                if assigned_task_i is not None:\n                    if priorities[assigned_task_i] < priorities[task_b]:\n                        return False # Strong invariant violated\n    return True # Strong invariant satisfied",
+        "key_insights": [
+          "Considers task shifting by looking at reachable processors via alternating paths.",
+          "Ensures that even with potential task movements, higher-priority tasks are not blocked by lower-priority ones."
+        ]
+      },
+      "dependencies": [
+        "Definition II.1"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition of Hierarchical Affinity",
+      "formal_description": {
+        "statement": "For each i, k = 1, ..., n, either \\alpha_i \\subseteq \\alpha_k or \\alpha_k \\subseteq \\alpha_i or \\alpha_i \\cap \\alpha_k = \\emptyset.",
+        "variables": {
+          "n": "number of tasks",
+          "i, k": "indices of tasks",
+          "\\alpha_i": "affinity mask of task T_i (set of allowed processors)",
+          "\\alpha_k": "affinity mask of task T_k (set of allowed processors)"
+        },
+        "assumptions": [],
+        "conclusion": "This defines the property of a family of affinity masks being hierarchical (or laminar), meaning that any two affinity masks are either nested or disjoint. This structure reflects a tree-like organization of processor subsets."
+      },
+      "informal_sketch": {
+        "intuition": "This definition formalizes what 'hierarchical processor affinities' means. It states that for any two tasks, their allowed sets of processors must either be completely contained within each other (one is a subset of the other) or have no overlap at all. This creates a structured, non-overlapping hierarchy, similar to how computer hardware (like caches) is organized.",
+        "steps": [
+          "Consider any two tasks, T_i and T_k.",
+          "Examine their respective affinity masks, alpha_i and alpha_k.",
+          "Check if alpha_i is a subset of alpha_k.",
+          "OR check if alpha_k is a subset of alpha_i.",
+          "OR check if alpha_i and alpha_k have no common processors (their intersection is empty).",
+          "If one of these conditions is true for ALL pairs of tasks, then the affinity masks are hierarchical."
+        ],
+        "pseudocode": "def is_hierarchical(affinity_masks):\n    for i in range(len(affinity_masks)):\n        for k in range(i + 1, len(affinity_masks)):\n            alpha_i = affinity_masks[i]\n            alpha_k = affinity_masks[k]\n            \n            is_subset_ik = alpha_i.issubset(alpha_k)\n            is_subset_ki = alpha_k.issubset(alpha_i)\n            is_disjoint = alpha_i.isdisjoint(alpha_k)\n            \n            if not (is_subset_ik or is_subset_ki or is_disjoint):\n                return False # Not hierarchical\n    return True # Hierarchical",
+        "key_insights": [
+          "Enforces a structured, non-overlapping hierarchy of processor sets.",
+          "Reflects hardware topology like cache levels."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma III.1",
+      "formal_description": {
+        "statement": "At the end of Algorithm 1 there exists a matching in G(t) of all the tasks in \\tau to processors in \\pi.",
+        "variables": {
+          "\\tau": "the set of tasks admitted to be scheduled at time t by Algorithm 1",
+          "\\pi": "the set of all processors",
+          "G(t)": "the bipartite graph representing task-processor affinities at time t",
+          "\\chi(t)": "a matching in G(t)"
+        },
+        "assumptions": [
+          "Algorithm 1 has completed.",
+          "The tasks in \\tau are those selected by Algorithm 1.",
+          "The affinity masks are hierarchical."
+        ],
+        "conclusion": "Guarantees that the set of tasks selected by Algorithm 1 can be feasibly assigned to processors according to their affinity masks."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma states that if Algorithm 1 successfully selects a set of tasks '\\tau', then it's always possible to find a valid assignment for these tasks onto the available processors, respecting their affinity constraints. This is crucial because Algorithm 1's primary goal is to select a schedulable subset of tasks.",
+        "steps": [
+          "Assume Algorithm 1 has finished and produced the set of admitted tasks '\\tau'.",
+          "Consider the bipartite graph G(t) where edges represent valid task-processor assignments based on affinity masks.",
+          "The lemma asserts that within this graph G(t), there exists a matching that covers all tasks in '\\tau' to distinct processors in '\\pi'.",
+          "This means a feasible assignment exists for the admitted tasks."
+        ],
+        "pseudocode": "def check_lemma_iii_1(admitted_tasks, processors, affinity_graph):\n    # This lemma is proven using Hall's Marriage Theorem on the graph G(t)\n    # The proof relies on the property |Gamma(S)| >= |S| for all S subset of admitted_tasks\n    # If the condition |Gamma(S)| >= |S| holds, then a perfect matching exists for admitted_tasks\n    # The paper's proof demonstrates this condition holds due to hierarchical affinities.\n    return True # Assuming the proof holds",
+        "key_insights": [
+          "Guarantees the existence of a feasible assignment for the admitted task set.",
+          "Relies on the properties of the graph G(t) and the hierarchical structure of affinities."
+        ]
+      },
+      "dependencies": [
+        "Definition of Hierarchical Affinity"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim (from Lemma III.1 proof)",
+      "formal_description": {
+        "statement": "|\\Gamma(S_i)| \\ge |S_i| for every T_i \\in \\tau. (1)",
+        "variables": {
+          "S_i": "the set of tasks with an affinity mask \\alpha_k \\subseteq \\alpha_i that are in \\tau at the end of Algorithm 1",
+          "\\tau": "the set of tasks admitted to be scheduled at time t",
+          "\\Gamma(S_i)": "the set of processors adjacent to tasks in S_i in the bipartite graph G(t)",
+          "T_i": "a task in \\tau"
+        },
+        "assumptions": [
+          "Algorithm 1 has completed.",
+          "S_i is defined as in Algorithm 1.",
+          "The affinity masks are hierarchical."
+        ],
+        "conclusion": "This is a key condition from Hall's Marriage Theorem, which, if satisfied, guarantees the existence of a matching for the set S_i."
+      },
+      "informal_sketch": {
+        "intuition": "This claim is a direct application of Hall's Marriage Theorem. It states that for any subset of admitted tasks 'S_i' (defined by a specific affinity mask '\\alpha_i'), the total number of processors they can collectively run on ('|Gamma(S_i)|') is at least as large as the number of tasks in that subset ('|S_i|'). This is a fundamental requirement for being able to match all tasks in 'S_i' to distinct processors.",
+        "steps": [
+          "Consider any subset 'S_i' of admitted tasks, where all tasks in 'S_i' have affinity masks that are subsets of a specific mask '\\alpha_i'.",
+          "Calculate the total number of unique processors that all tasks in 'S_i' can run on. This is '|Gamma(S_i)|'.",
+          "Calculate the number of tasks in the subset 'S_i'. This is '|S_i|'.",
+          "The claim is that '|Gamma(S_i)|' must be greater than or equal to '|S_i|'."
+        ],
+        "pseudocode": "def check_hall_condition(admitted_tasks, affinity_graph):\n    # This is a condition to be checked for all relevant subsets S_i\n    # The paper proves this condition holds due to hierarchical affinities.\n    # For a given S_i:\n    #   Gamma_S_i = set()\n    #   for task in S_i:\n    #       Gamma_S_i.update(task.affinity_mask)\n    #   return len(Gamma_S_i) >= len(S_i)\n    return True # Assuming the proof holds",
+        "key_insights": [
+          "Direct application of Hall's Marriage Theorem.",
+          "Ensures that for any group of tasks, there are enough available processors they can run on."
+        ]
+      },
+      "dependencies": [
+        "Definition of Hierarchical Affinity"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim (from Lemma III.1 proof)",
+      "formal_description": {
+        "statement": "\\Gamma(S) = \\cup_{T_j \\in S} \\alpha_j. In particular, \\Gamma(S_i) \\subseteq \\alpha_i. On the other hand, when T_i \\in S_i, \\alpha_i \\subseteq \\Gamma(S_i). So, for T_i \\in \\tau, \\Gamma(S_i) = \\alpha_i.",
+        "variables": {
+          "S": "any subset of \\tau",
+          "\\tau": "the set of tasks admitted to be scheduled at time t",
+          "\\Gamma(S)": "the set of processors adjacent to tasks in S",
+          "\\alpha_j": "affinity mask of task T_j",
+          "S_i": "the set of tasks with an affinity mask \\alpha_k \\subseteq \\alpha_i that are in \\tau at the end of Algorithm 1",
+          "T_i": "a task in \\tau"
+        },
+        "assumptions": [
+          "Algorithm 1 has completed.",
+          "S and S_i are defined as in Algorithm 1.",
+          "The affinity masks are hierarchical."
+        ],
+        "conclusion": "This claim clarifies the relationship between the set of neighbors \\Gamma(S) and the affinity masks of the tasks in S, particularly for the sets S_i defined in Algorithm 1. It shows that for tasks admitted into \\tau, the union of their affinity masks is precisely the affinity mask of the set S_i itself."
+      },
+      "informal_sketch": {
+        "intuition": "This claim explains how the set of reachable processors '\\Gamma(S)' relates to the individual affinity masks of tasks within a set 'S'. It states that the union of all affinity masks of tasks in 'S' gives you all the processors that tasks in 'S' can run on. Crucially, for the specific sets 'S_i' considered in Algorithm 1, it shows that the set of reachable processors '\\Gamma(S_i)' is exactly equal to the affinity mask '\\alpha_i' itself. This is a powerful simplification for the schedulability analysis.",
+        "steps": [
+          "For any set of admitted tasks 'S', the set of processors they can run on, '\\Gamma(S)', is the union of their individual affinity masks: '\\Gamma(S) = \\cup_{T_j \\in S} \\alpha_j'.",
+          "For a specific set 'S_i' (tasks with masks \\alpha_k \\subseteq \\alpha_i), the union of their masks is contained within '\\alpha_i': '\\Gamma(S_i) \\subseteq \\alpha_i'.",
+          "However, if a task 'T_i' is itself in 'S_i' (meaning \\alpha_i \\subseteq \\alpha_i), then '\\alpha_i' must be a subset of the reachable processors: '\\alpha_i \\subseteq \\Gamma(S_i)'.",
+          "Combining these, for any admitted task 'T_i' (which implies \\alpha_i is considered), the set of reachable processors '\\Gamma(S_i)' is exactly equal to its affinity mask '\\alpha_i'."
+        ],
+        "pseudocode": "def analyze_gamma_relation(admitted_tasks, affinity_graph):\n    # This is a property derived from the definition of Gamma and affinity masks.\n    # For a set S:\n    #   union_of_masks = set()\n    #   for task in S:\n    #       union_of_masks.update(task.affinity_mask)\n    #   return union_of_masks == affinity_graph.neighbors(S)\n    # The paper proves that for S_i, Gamma(S_i) == alpha_i.\n    return True # Assuming the proof holds",
+        "key_insights": [
+          "Simplifies the relationship between task sets and processor availability.",
+          "Shows that for admitted tasks, the set of processors they can access is precisely their defined affinity mask."
+        ]
+      },
+      "dependencies": [
+        "Definition of Hierarchical Affinity"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim (from Lemma III.1 proof)",
+      "formal_description": {
+        "statement": "\\Gamma(S) = \\alpha_1 \\cup . . . \\cup \\alpha_q = \\Gamma(S_1) \\cup . . . \\cup \\Gamma(S_q),",
+        "variables": {
+          "S": "a subset of \\tau",
+          "\\tau": "the set of tasks admitted to be scheduled at time t",
+          "\\Gamma(S)": "the set of processors adjacent to tasks in S",
+          "\\alpha_1, ..., \\alpha_q": "pairwise non-intersecting affinity masks that form a partition of \\Gamma(S)",
+          "S_1, ..., S_q": "corresponding sets of tasks"
+        },
+        "assumptions": [
+          "Algorithm 1 has completed.",
+          "S and S_i are defined as in Algorithm 1.",
+          "The affinity masks are hierarchical."
+        ],
+        "conclusion": "This claim shows how the union of affinity masks for a set S can be decomposed into a union of disjoint affinity masks, which is then used to bound the size of \\Gamma(S)."
+      },
+      "informal_sketch": {
+        "intuition": "This claim explains how to break down the union of affinity masks for a set of tasks 'S' into a sum of sizes of disjoint affinity masks. It suggests that if we can find a set of pairwise disjoint affinity masks (\\alpha_1 to \\alpha_q) that cover all the processors reachable by tasks in 'S', then the total number of reachable processors is the sum of the sizes of these disjoint masks. This is a key step in bounding the size of '\\Gamma(S)' and proving Hall's condition.",
+        "steps": [
+          "Consider a set of admitted tasks 'S'.",
+          "The set of processors reachable by 'S' is '\\Gamma(S)', which is the union of individual task affinity masks.",
+          "The claim states that this union can be represented as a union of 'q' disjoint affinity masks: '\\alpha_1' through '\\alpha_q'.",
+          "These disjoint masks also correspond to specific task sets 'S_1' through 'S_q'."
+        ],
+        "pseudocode": "def decompose_gamma(admitted_tasks, affinity_graph):\n    # This is a structural property used in the proof of Lemma III.1.\n    # It relies on the laminar property of affinity masks to decompose the union.\n    # The paper uses this to show that |Gamma(S)| can be bounded by summing sizes of disjoint sets.\n    return True # Assuming the proof holds",
+        "key_insights": [
+          "Decomposes complex unions of affinity masks into simpler, disjoint sets.",
+          "Enables a tighter bound on the number of available processors."
+        ]
+      },
+      "dependencies": [
+        "Definition of Hierarchical Affinity"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim (from Lemma III.1 proof)",
+      "formal_description": {
+        "statement": "|\\Gamma(S)| = |\\Gamma(S_1)| + . . . + |\\Gamma(S_q)| \\ge |S_1| + . . . + S_q \\ge |S_1 \\cup . . . \\cup S_q| \\ge |S| ,",
+        "variables": {
+          "S": "a subset of \\tau",
+          "\\tau": "the set of tasks admitted to be scheduled at time t",
+          "\\Gamma(S)": "the set of processors adjacent to tasks in S",
+          "S_1, ..., S_q": "corresponding sets of tasks",
+          "|S|": "number of tasks in set S"
+        },
+        "assumptions": [
+          "Algorithm 1 has completed.",
+          "S and S_i are defined as in Algorithm 1.",
+          "The affinity masks are hierarchical."
+        ],
+        "conclusion": "This is the core of the proof for Hall's condition. It shows that the size of the reachable processor set '\\Gamma(S)' is at least the size of the task set 'S', by leveraging the disjoint decomposition and the fact that each task belongs to at least one of the 'S_i' sets."
+      },
+      "informal_sketch": {
+        "intuition": "This claim is the culmination of the proof for Hall's condition in Lemma III.1. It demonstrates that the number of processors available to a set of tasks 'S' ('|Gamma(S)|') is always greater than or equal to the number of tasks in 'S' ('|S|'). It achieves this by: 1) using the disjoint decomposition from the previous claim to sum the sizes of reachable processors for disjoint mask sets ('|Gamma(S_1)| + ... + |Gamma(S_q)|'), 2) applying the Hall's condition for each individual set ('|Gamma(S_i)| >= |S_i|'), 3) noting that the union of these task sets covers the original set 'S' ('|S_1 U ... U S_q| >= |S|').",
+        "steps": [
+          "Start with the size of the reachable processors for set S: '|Gamma(S)|'.",
+          "Using the disjoint decomposition, this is equal to the sum of sizes of reachable processors for the disjoint mask sets: '|Gamma(S_1)| + ... + |Gamma(S_q)|'.",
+          "Apply the Hall's condition for each individual set S_i (from the previous claim): '|Gamma(S_i)| >= |S_i|'. So, the sum is >= '|S_1| + ... + |S_q|'.",
+          "Since the union of these task sets covers the original set S, the sum of their sizes is at least the size of the union: '|S_1| + ... + |S_q| >= |S_1 U ... U S_q|'.",
+          "Finally, since the union of these sets covers S, the size of the union is at least the size of S: '|S_1 U ... U S_q| >= |S|'.",
+          "Therefore, '|Gamma(S)| >= |S|'."
+        ],
+        "pseudocode": "def prove_hall_condition_for_S(S, S_sets, Gamma_S_sets):\n    # This is the core inequality derivation.\n    # It relies on the previous claims and Hall's condition for individual sets.\n    # |Gamma(S)| = sum(|Gamma(S_i)|)  (due to disjointness of alpha_i)\n    # sum(|Gamma(S_i)|) >= sum(|S_i|) (by Hall's condition for each S_i)\n    # sum(|S_i|) >= |union(S_i)| (union bound)\n    # |union(S_i)| >= |S| (since S is covered by union(S_i))\n    # Thus, |Gamma(S)| >= |S|\n    return True # Assuming the proof holds",
+        "key_insights": [
+          "Combines multiple inequalities to prove Hall's condition for any set S.",
+          "Leverages the hierarchical structure and disjoint decomposition."
+        ]
+      },
+      "dependencies": [
+        "Claim (from Lemma III.1 proof)",
+        "Claim (from Lemma III.1 proof)"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma III.2",
+      "formal_description": {
+        "statement": "For each task T_i \\in \\tau(t) \\setminus \\tau, R_i(t) = \\alpha_i.",
+        "variables": {
+          "T_i": "a task",
+          "\\tau(t)": "the set of ready tasks at time t",
+          "\\tau": "the set of tasks admitted to be scheduled at time t by Algorithm 1",
+          "R_i(t)": "the set of processors reachable from task T_i in G(t) with respect to the matching \\chi(t)",
+          "\\alpha_i": "the affinity mask of task T_i"
+        },
+        "assumptions": [
+          "Algorithm 1 and 2 have completed.",
+          "\\chi(t) is the matching produced by Algorithm 2.",
+          "T_i is a task that was ready but not admitted (\\tau(t) \\setminus \\tau)."
+        ],
+        "conclusion": "This lemma states that for any task that was ready but not admitted by Algorithm 1, the set of processors it can reach via alternating paths is exactly its own affinity mask. This is a crucial step in proving that the Strong Invariant holds."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma is key to proving the Strong Invariant. It states that for any task 'T_i' that was ready but *not* admitted by Algorithm 1, the set of processors it can 'reach' through alternating paths ('R_i(t)') is precisely its own affinity mask ('\\alpha_i'). This simplifies the analysis because we know exactly which processors are relevant for checking the Strong Invariant for these unadmitted tasks.",
+        "steps": [
+          "Consider a task 'T_i' that was ready at time 't' but was *not* selected by Algorithm 1 to be scheduled ('T_i \\in \\tau(t) \\setminus \\tau').",
+          "The lemma asserts that the set of processors 'R_i(t)' that 'T_i' can reach via alternating paths (in the context of the current matching '\\chi(t)') is exactly equal to its own affinity mask '\\alpha_i'.",
+          "This means that if 'T_i' can reach a processor '\\Pi', then '\\Pi' must be within its allowed affinity mask '\\alpha_i', and vice-versa, if '\\Pi' is in '\\alpha_i', 'T_i' can reach it through some alternating path."
+        ],
+        "pseudocode": "def verify_lemma_iii_2(task_i, ready_tasks, admitted_tasks, current_matching, affinity_masks):\n    # This lemma is proven by contradiction, showing that if R_i(t) != alpha_i,\n    # it would contradict the minimality of the affinity mask chosen for R_i(t) in Algorithm 2.\n    # The proof involves analyzing alternating paths and the structure of the matching.\n    # For a given task_i not in admitted_tasks:\n    #   reachable_processors = compute_reachable_processors(task_i, current_matching, affinity_masks)\n    #   return reachable_processors == affinity_masks[task_i]\n    return True # Assuming the proof holds",
+        "key_insights": [
+          "Connects the concept of reachable processors (via alternating paths) directly to a task's affinity mask.",
+          "Simplifies the analysis for the Strong Invariant."
+        ]
+      },
+      "dependencies": [
+        "Definition II.2",
+        "Definition of Hierarchical Affinity"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem III.3",
+      "formal_description": {
+        "statement": "The matching produced by Algorithm 2 satisfies the Strong Invariant.",
+        "variables": {
+          "Algorithm 2": "The conceptual assignment algorithm",
+          "\\chi(t)": "The matching produced by Algorithm 2",
+          "Strong Invariant": "Definition II.2"
+        },
+        "assumptions": [
+          "Algorithm 1 and 2 have completed.",
+          "The affinity masks are hierarchical."
+        ],
+        "conclusion": "This theorem proves that the scheduling strategy described by Algorithms 1 and 2 correctly implements strong APA scheduling, ensuring schedulability even when considering task shifting."
+      },
+      "informal_sketch": {
+        "intuition": "This is the main theorem of Section III.B. It proves that the assignment algorithm (Algorithm 2), when used after the admission algorithm (Algorithm 1), successfully satisfies the Strong Invariant. This means that the scheduler correctly handles processor affinities and task priorities, even when considering the possibility of moving tasks to improve scheduling.",
+        "steps": [
+          "Recall the definition of the Strong Invariant (Definition II.2): for any ready task 'T_b' not matched, and for any processor '\\Pi' reachable from 'T_b', there must be a higher or equal priority task assigned to '\\Pi'.",
+          "The proof of this theorem relies on Lemma III.2, which states that for any unadmitted task 'T_i', the set of reachable processors 'R_i(t)' is exactly its affinity mask '\\alpha_i'.",
+          "The theorem then shows two main things for any unadmitted task 'T_i':",
+          "  (i) There are no alternating paths from 'T_i' to any processor outside its affinity mask '\\alpha_i'.",
+          "  (ii) There exists an alternating path from 'T_i' to any processor within its affinity mask '\\alpha_i'.",
+          "  (iii) For any task 'T_k' matched to a processor in '\\alpha_i', its priority '\\phi_k' is strictly greater than 'T_i's priority '\\phi_i'.",
+          "  (iv) No processor in '\\alpha_i' is idle.",
+          "These conditions, combined with Lemma III.2, directly satisfy the requirements of the Strong Invariant."
+        ],
+        "pseudocode": "def verify_theorem_iii_3(admitted_tasks, current_matching, priorities, affinity_masks, ready_tasks):\n    # This theorem is proven by showing that the conditions of Definition II.2 are met.\n    # It relies heavily on Lemma III.2 and the properties of Algorithm 2.\n    # The proof involves showing that for any unadmitted task T_b:\n    #   1. All processors reachable from T_b are within alpha_b (from Lemma III.2).\n    #   2. All processors in alpha_b are reachable from T_b (from Lemma III.2).\n    #   3. Any task T_i matched to a processor reachable by T_b has phi_i >= phi_b.\n    # The proof in the paper details how Algorithm 2 ensures these.\n    return True # Assuming the proof holds",
+        "key_insights": [
+          "Proves that the proposed scheduling algorithm correctly implements strong APA scheduling.",
+          "Relies on the properties of reachable processors and priority ordering."
+        ]
+      },
+      "dependencies": [
+        "Definition II.2",
+        "Lemma III.2"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition of Bilevel Affinity Hierarchy",
+      "formal_description": {
+        "statement": "The task set \\tau is partitioned into M+1 sets \\tau_0, \\tau_1, ..., \\tau_M and the set of processors is partitioned into M sets \\pi_1, \\pi_2, ..., \\pi_M such that: for each T_i \\in \\tau_0, \\alpha_i = \\pi; for each i = 1, ..., M and T_k \\in \\tau_i, \\alpha_k = \\pi_i.",
+        "variables": {
+          "\\tau": "set of tasks",
+          "\\tau_0, ..., \\tau_M": "disjoint subsets of tasks",
+          "\\pi": "set of all processors",
+          "\\pi_1, ..., \\pi_M": "disjoint subsets of processors",
+          "\\alpha_i": "affinity mask of task T_i"
+        },
+        "assumptions": [],
+        "conclusion": "This defines a specific type of hierarchical affinity structure with two levels: tasks in \\tau_0 have global affinities (can run on any processor), while tasks in \\tau_i (for i>0) are restricted to a specific processor subset \\pi_i."
+      },
+      "informal_sketch": {
+        "intuition": "This defines a simplified, two-level structure for processor affinities. Imagine tasks are divided into two groups: a 'global' group (\\tau_0) that can run anywhere, and several 'specialized' groups (\\tau_1 to \\tau_M) that are restricted to specific sets of processors (\\pi_1 to \\pi_M). This structure is common in real systems, like when some tasks are system-wide and others are tied to specific CPU clusters or NUMA nodes.",
+        "steps": [
+          "Divide all tasks into M+1 groups: \\tau_0, \\tau_1, ..., \\tau_M.",
+          "Divide all processors into M groups: \\pi_1, \\pi_2, ..., \\pi_M.",
+          "Tasks in the first group (\\tau_0) have an affinity mask that includes ALL processors (\\alpha_i = \\pi).",
+          "Tasks in any other group (\\tau_i, where i > 0) have an affinity mask that is restricted to a specific processor group (\\alpha_k = \\pi_i)."
+        ],
+        "pseudocode": "def define_bilevel_affinity(tasks, processors):\n    # This is a structural definition, not an algorithm.\n    # Example:\n    # tasks = [T1, T2, T3, T4]\n    # processors = [P1, P2, P3, P4]\n    # tau_0 = [T1] # Global tasks\n    # tau_1 = [T2] # Tasks restricted to pi_1\n    # tau_2 = [T3, T4] # Tasks restricted to pi_2\n    # pi_1 = {P1}\n    # pi_2 = {P2, P3, P4}\n    # \n    # For T1 in tau_0: alpha(T1) = {P1, P2, P3, P4}\n    # For T2 in tau_1: alpha(T2) = {P1}\n    # For T3, T4 in tau_2: alpha(T3) = alpha(T4) = {P2, P3, P4}\n    pass",
+        "key_insights": [
+          "Simplifies affinity analysis to two levels.",
+          "Models common practical scenarios like global vs. clustered scheduling."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma IV.1",
+      "formal_description": {
+        "statement": "At any point in time, at least as much total work has been processed in S_infinity as in any schedule which is feasible upon platform \\pi with unit-speed processors and subject to the affinity mask constraints \\alpha.",
+        "variables": {
+          "S_infinity": "an idealized schedule using infinitely many speed-(2 - 1/m_max) processors",
+          "\\pi": "the set of m processors",
+          "unit-speed processors": "processors with speed 1",
+          "\\alpha": "the affinity mask constraints",
+          "total work processed": "cumulative execution time of jobs completed"
+        },
+        "assumptions": [
+          "A feasible schedule exists on m unit-speed processors.",
+          "The affinity masks are bilevel.",
+          "Jobs are generated by tasks in \\tau."
+        ],
+        "conclusion": "This lemma establishes a baseline for schedulability. It states that an idealized scheduler (S_infinity) using faster processors and unlimited capacity for global tasks can always process at least as much work as any feasible schedule on the actual system. This is a stepping stone to relating HPA-EDF to optimality."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma is about comparing an 'ideal' scheduler to any 'real' feasible scheduler. The ideal scheduler (S_infinity) uses faster processors (speed 2 - 1/m_max) and has unlimited capacity for the globally-scheduled tasks (\\tau_0). The lemma states that this ideal scheduler will *always* process at least as much work as any scheduler that is considered feasible on the original, slower, m-processor system. This means S_infinity provides a lower bound on the work that *must* be done.",
+        "steps": [
+          "Consider any schedule that is feasible on the original m unit-speed processors, respecting the affinity constraints.",
+          "Now consider the idealized schedule S_infinity.",
+          "S_infinity uses processors with speed s = 2 - 1/m_max (which is >= 1).",
+          "Crucially, S_infinity has 'infinite' capacity for tasks in \\tau_0 (they can be scheduled as early as possible on dedicated extra processors).",
+          "The lemma states that at any given time, the total amount of work completed by S_infinity is greater than or equal to the total work completed by the feasible schedule.",
+          "This implies that S_infinity is a more powerful scheduler in terms of work processing capacity."
+        ],
+        "pseudocode": "def verify_lemma_iv_1(feasible_schedule, idealized_schedule_S_infinity):\n    # This lemma is proven by comparing the service provided by S_infinity to any feasible schedule.\n    # For tasks in tau_i (i > 0), S_infinity uses global EDF on m_i processors of speed (2 - 1/m_max).\n    # For tasks in tau_0, S_infinity uses dedicated processors to schedule them as early as possible.\n    # The proof shows that S_infinity always provides at least as much service to each job\n    # as any feasible schedule on the original system.\n    return True # Assuming the proof holds",
+        "key_insights": [
+          "Establishes a lower bound on work processing capacity.",
+          "Idealized scheduler serves as a benchmark."
+        ]
+      },
+      "dependencies": [
+        "Definition of Bilevel Affinity Hierarchy"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem (from Section IV.B)",
+      "formal_description": {
+        "statement": "Consider a collection J of jobs generated by \\tau and let s \\ge s. Then at least one of the following holds: 1) All jobs in J are completed within their deadline under HPA-EDF on m processors of speed s, or 2) J is not feasible under the speed-s schedule S_infinity, or 3) there exists an interval I such that any feasible schedule for J must finish more than sm -2(m -1) ss s+s |I| units of work within I.",
+        "variables": {
+          "J": "a collection of jobs",
+          "\\tau": "the task set",
+          "s": "a specific speed value (2 - 1/m_max)",
+          "HPA-EDF": "Hierarchical Processor Affinities - Earliest Deadline First scheduler",
+          "m": "number of processors",
+          "S_infinity": "idealized schedule",
+          "I": "an interval of time",
+          "sm -2(m -1) ss s+s |I|": "a bound on work completion"
+        },
+        "assumptions": [
+          "Bilevel affinity hierarchy.",
+          "Job priorities are based on deadlines (EDF).",
+          "Processor speed is s."
+        ],
+        "conclusion": "This theorem relates the performance of HPA-EDF to an idealized optimal scheduler. It states that if HPA-EDF fails to schedule a job collection J, then either J is fundamentally unschedulable even by the idealized scheduler, or the original system is extremely overloaded in a specific way within a time interval I."
+      },
+      "informal_sketch": {
+        "intuition": "This is a powerful result that bounds the performance of HPA-EDF. It says that if HPA-EDF fails to schedule a set of jobs 'J' on processors of speed 's', then one of three things must be true: 1) HPA-EDF itself is the problem (it failed to schedule jobs it should have). 2) The jobs 'J' are so demanding that even an 'ideal' scheduler (S_infinity) with faster processors and unlimited global capacity cannot schedule them. 3) The jobs 'J' are so demanding that *any* feasible schedule on the original system would have to perform an extraordinary amount of work within a specific time interval 'I' to meet deadlines. This essentially means HPA-EDF is either optimal (case 1), or the system is fundamentally overloaded (cases 2 and 3).",
+        "steps": [
+          "Consider a set of jobs 'J' and processors with speed 's' (where 's' is sufficiently fast).",
+          "Assume HPA-EDF fails to schedule all jobs in 'J' by their deadlines.",
+          "The theorem states that at least one of the following must be true:",
+          "  a) HPA-EDF itself is the cause of the failure (meaning it's not optimal for this case).",
+          "  b) The job set 'J' is so demanding that even the idealized schedule S_infinity (which uses faster processors and has unlimited global capacity) cannot schedule it.",
+          "  c) The job set 'J' is so demanding that *any* feasible schedule on the original system would have to do an exceptionally large amount of work within a specific time interval 'I' to succeed. This implies a very high system load.",
+          "The bound 'sm -2(m -1) ss s+s |I|' quantifies this 'extraordinary amount of work'."
+        ],
+        "pseudocode": "def analyze_hpa_edf_performance(job_collection_J, processors_speed_s, idealized_schedule_S_infinity):\n    # This theorem is proven by contradiction, assuming HPA-EDF fails and S_infinity succeeds.\n    # It then analyzes the workload and service provided by HPA-EDF vs. S_infinity.\n    # The proof involves partitioning the interval [t*, Dj] into various sub-intervals (Xk, Yk, Zk, Wk)\n    # and bounding the work done in each.\n    # If HPA-EDF fails, it implies a significant 'deficit' in work completion compared to S_infinity,\n    # which must be accounted for by the third condition.\n    return \"Theorem holds if conditions are met\"\n",
+        "key_insights": [
+          "Relates HPA-EDF performance to an optimal benchmark.",
+          "Provides a bound on system overload if HPA-EDF fails."
+        ]
+      },
+      "dependencies": [
+        "Definition of Bilevel Affinity Hierarchy",
+        "Lemma IV.1"
+      ]
+    }
+  ],
+  "extracted_at": "2025-11-12T02:44:38.399791",
+  "xml_path": "papers\\xml\\Multiprocessor_Real-Time_Scheduling_with_Hierarchical_Processor_Affinities.xml"
+}

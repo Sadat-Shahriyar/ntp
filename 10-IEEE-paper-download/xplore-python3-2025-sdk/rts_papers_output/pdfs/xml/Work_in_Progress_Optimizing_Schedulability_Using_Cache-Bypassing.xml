@@ -1,0 +1,518 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Work in Progress: Optimizing Schedulability using Cache-Bypassing</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Thilo</forename><forename type="middle">L</forename><surname>Fischer</surname></persName>
+							<email>thilo.leon.fischer@tuhh.de</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Hamburg University of Technology</orgName>
+								<address>
+									<settlement>Hamburg</settlement>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Heiko</forename><surname>Falk</surname></persName>
+							<email>heiko.falk@tuhh.de</email>
+							<affiliation key="aff1">
+								<orgName type="institution">Hamburg University of Technology</orgName>
+								<address>
+									<settlement>Hamburg</settlement>
+									<country key="DE">Germany</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Work in Progress: Optimizing Schedulability using Cache-Bypassing</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">AE632B8648BFB1EB4872E12155A14A9A</idno>
+					<idno type="DOI">10.1109/RTAS65571.2025.00015</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T03:00+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>We present an optimization technique to improve system schedulability using selective cache bypassing. By allocating parts of the application to uncached memory sections during compilation, context-switching costs and intra-task cache interference are reduced, leading to improved schedulability. We compare the performance of simulated annealing and the strength pareto evolutionary algorithm (SPEA) for the optimization problem. Our evaluation demonstrates an increase in schedulability by up to 20 percentage points using SPEA.</p><p>418 2025 IEEE 31st Real-Time and Embedded Technology and Applications Symposium (RTAS)    </p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Modern architectures utilize caches to overcome the performance gap between the faster processor core and slower main memory. Caches improve the average memory access latency by leveraging temporal locality, i.e. the reuse of data, and spatial locality, i.e. the tendency of accesses to target data in close proximity to previously accessed data. However, for real-time systems, caches introduce additional complexity to the verification process as the worst-case timing behavior of the cache has to be determined.</p><p>To verify that no deadlines are violated, the worst-case response time (WCRT) is determined. The WCRT corresponds to the maximal duration from the release of a task to its completion. The system is schedulable if the WCRT of all tasks is no larger than the associated deadline.</p><p>If a system is not schedulable, its implementation has to be optimized to meet the timing requirements. Since caches are a significant source of unpredictability in the microarchitectural analysis, optimizing the usage of this component is a promising strategy to improve the worst-case system performance.</p><p>One approach to reduce this unpredictability is to restrict cache utilization. Examples of this approach are cache locking <ref type="bibr" target="#b0">[1]</ref>, <ref type="bibr" target="#b1">[2]</ref>, where important data is loaded into the cache and locked into place, preventing its eviction, and cache partitioning <ref type="bibr" target="#b2">[3]</ref>, <ref type="bibr" target="#b3">[4]</ref>, where each task is assigned a dedicated subset of the cache, eliminating interference between different tasks. Other research has focused on architectures with additional scratchpad memory (SPM) <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b5">[6]</ref>, which features predictable low latencies but is constrained by its size. Moving memory objects to the SPM reduces the traffic to the cache and thus increases the predictability of the cache behavior.</p><p>In this paper, we pursue an orthogonal approach: we selectively bypass caching for parts of the application to improve schedulability. The optimization strategically places code fragments in uncached memory sections to reduce contextswitching costs and intra-task cache interference. While moving code to uncached memory can increase a task's execution time, our evaluations demonstrate that this tradeoff can improve overall system schedulability.</p><p>Compared to cache locking and cache partitioning, we do not modify the core functionality of the cache. In contrast to SPM allocation techniques, the presented optimization does not require a dedicated scratchpad memory. SPM-based optimizations identify critical memory objects and allocate these objects to the scratchpad to reduce their access latency. The presented approach identifies uncritical memory objects and bypasses caching for those objects. While the access latency to the uncached objects increases, cache conflicts are reduced, which, as we will show, improves system performance.</p><p>The remainder of the paper is structured as follows: Section II reviews related work. Section III outlines the system architecture and provides background information. Section IV discusses the optimization problem. Section V presents evaluation results, demonstrating the effectiveness of our approach. Section VI concludes the paper and highlights future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. RELATED WORK</head><p>The context-switching costs caused by caches are called cache-related preemption delay (CRPD). CRPD occurs when tasks assigned to the same core share cache space and preemptions are enabled. During a preemption, the preempting task can evict data from the cache, forcing a reload of the data following the preemption. This creates a delay in the execution of the preempted task, which directly impacts the schedulability of the system. To quantify the CRPD, we use the analysis presented by Fischer and Falk <ref type="bibr" target="#b6">[7]</ref>.</p><p>Verma et al. <ref type="bibr" target="#b4">[5]</ref> presented a static scratchpad allocation optimization, which models cache conflicts in a graph. By moving instructions from regular memory to scratchpad memory, the number of cache misses is reduced. As cache misses are a major contributor to energy usage, the overall energy consumption decreases.</p><p>Falk and Kotthaus <ref type="bibr" target="#b7">[8]</ref> optimized the memory layout of a task to reduce the number of cache misses. The cache behavior is modelled using a conflict graph. The memory layout is modified iteratively by positioning the code fragments causing the highest number of cache misses contiguously in memory.</p><p>Luppold et al. <ref type="bibr" target="#b5">[6]</ref> presented a cache-aware SPM allocation optimization to reduce the worst-case execution time (WCET), which is the maximal execution time of a task without interference from other tasks. An ILP model approximates cache conflicts to make allocation decisions.</p><p>Gebhard et al. <ref type="bibr" target="#b8">[9]</ref> modify the placement of tasks in memory to improve performance in a preemptively scheduled system. The approach determines the optimal starting address of each task considering the placement of other tasks in the system. The tasks are not modified, only the placement in memory is adjusted. The goal of the layout optimization is to reduce the threat of evictions caused by a preemption. They show that optimal placement is NP-hard and solve a simplified problem using simulated annealing (SA) <ref type="bibr" target="#b9">[10]</ref>.</p><p>Lunniss et al. <ref type="bibr" target="#b10">[11]</ref> present another placement optimization technique, inspired by <ref type="bibr" target="#b8">[9]</ref>. The analysis is more precise, as it accounts for useful cache blocks and evicting cache blocks. Using SA, the schedulability is optimized. The nature of the approach limits it to direct-mapped caches; set-associative caches are noted as future work.</p><p>In contrast to <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b10">[11]</ref>, which optimized task ordering, the presented approach bypasses caches by moving parts of the application to uncached memory. And unlike <ref type="bibr" target="#b10">[11]</ref>, the presented approach is not restricted to direct-mapped caches.</p><p>The previously mentioned work focuses on single-level caches. Hardy et al. <ref type="bibr" target="#b11">[12]</ref> proposed an optimization for multicore systems with a shared second-level cache. Cache blocks accessed only once bypass the shared cache, decreasing shared cache pollution. The lower inter-core interference in the shared cache leads to improved performance. Bypassing not only the shared cache but also private caches is noted as potential future work. In this paper, we perform cache bypassing of a two-level cache hierarchy. In contrast to <ref type="bibr" target="#b11">[12]</ref>, we target a single-core system and evaluate the impact on system schedulability for preemptive scheduling.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. SYSTEM MODEL &amp; BACKGROUND</head><p>The hardware architecture considered in this paper consists of a single processor core with a two-level instruction cache hierarchy and main memory. The instruction memory hierarchy is visualized in Fig. <ref type="figure" target="#fig_0">1</ref>. Previous research has shown that memory layout optimization can improve system schedulability and reduce energy consumption. While earlier work focused on single-level caches, modern systems typically incorporate multiple cache layers. For this reason, we apply the presented optimization to a two-level cache hierarchy. The presented approach of strategically bypassing caches is applicable to instruction, data, and unified caches.</p><p>When a portion of the code is moved to a different memory location, all jumps targeting the moved code have to be adjusted to point to the new location. This process can necessitate inserting additional instructions, which is referred to as jump correction code. These corrections increase the total code size and introduce delays, potentially offsetting some of the gains from the optimized layout. As modifying application code is inherently more complex than relocating data objects to an uncached region, we focus on instruction caches in this paper to demonstrate that the optimization technique is beneficial even when additional jump correction code is needed.</p><p>The instruction memory consists of two sections: a cached section (.text_cached), and an uncached section (.text_uncached). Memory accesses to the cached section are handled by the L1 cache, the L2 cache, or memory. In contrast, an access to the uncached memory section bypasses both cache levels and is directly served from main memory. The optimization is applicable to systems with virtual memory if the CRPD can be determined <ref type="bibr" target="#b6">[7]</ref>.</p><p>When using caches, memory address ranges are grouped into cache blocks. The CRPD is determined using the concept of useful cache blocks (UCB) and evicting cache blocks (ECB) <ref type="bibr" target="#b12">[13]</ref>, <ref type="bibr" target="#b6">[7]</ref>. A cache block of the preempted task is a UCB at a location in the program iff it is definitely cached and may be reused in the future without eviction. A cache block of the preempting task is an ECB iff it may be accessed by the task.</p><p>Let {τ 1 , . . . , τ n } be the set containing all tasks running on the system. Each task τ i has a minimal inter-arrival time T i , and a deadline D i ≤ T i . The schedulability of a system depends on the WCRT R i of all tasks τ i . The WCRT can be determined from the WCET of each task and the CRPDs <ref type="bibr" target="#b13">[14]</ref>. As the presented optimization modifies the memory layout, the WCET and context-switching costs of tasks are not fixed but depend on the currently considered memory layout. Let B denote the set containing all basic blocks. We define a memory layout as a mapping l : B → {0, 1}, which describes whether each basic block is assigned to cached (0) or uncached (1) memory. The set of all memory layouts is denoted by L.</p><p>Let C i denote the WCET of τ i ; its dependence on the memory layout is explicitly shown by the parameter l: C i (l). Let δ i,j (l) denote the CRPD for τ i due to a preemption by τ j . The function hp(i) returns the set of higher priority tasks, which may preempt τ i . The response time of τ i for a specific memory layout l is the fixpoint solution of:</p><formula xml:id="formula_0">R i (l) = C i (l) + τj ∈hp(i) R i (l) T j • (C j (l) + δ i,j (l)) .<label>(1)</label></formula><p>A task τ i is schedulable if the iterative solution of Eq. (1) converges to at most D i <ref type="bibr" target="#b13">[14]</ref>. The utilization U of a system for a particular memory layout l is given by U (l) = 1≤i≤n Ci(l) Ti .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. MEMORY LAYOUT OPTIMIZATION</head><p>The schedulability of a system is a binary property: either a system is schedulable for the given task periods, or it may violate some deadline and is thus not schedulable.</p><p>To assess the performance of a memory layout, we use the concept of the breakdown utilization. This value describes the highest utilization value for which the system is still schedulable. To determine the breakdown utilization, task periods are scaled until the system is barely schedulable, meaning any further increase of the task's execution frequency would render the system unschedulable.</p><p>For applications where the task periods are given in physical time units, which are predetermined due to physical processes, the scaling of task periods can be interpreted as a change in the required processor clock frequency.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Optimization Rationale</head><p>Although it seems counter-intuitive to expect a speedup from moving code to uncached memory, it is possible to improve system performance by selectively bypassing caches. As can be seen in Eq. ( <ref type="formula" target="#formula_0">1</ref>), the schedulability depends on two components: 1) task WCETs, and 2) context-switching costs.</p><p>The obvious drawback of cache bypassing is the increased latency to access uncached memory relative to cached memory. The additional latency can inflate the WCET if uncached memory objects are used on the worst-case execution path, which is the path that realizes the WCET. Consequently, cache bypassing potentially decreases system schedulability.</p><p>However, there are significant benefits to selective cache bypassing. The context-switching costs depend on two factors: the UCBs of the preempted task, and the ECBs of the preempting tasks. Consider a task τ i that is preempted by another task τ j ∈ hp(i). Not caching parts of τ j directly reduces the number of evicting cache blocks. Thus, a preemption by τ j with a modified memory layout, where τ j is (partially) stored in uncached memory, can cause τ i to experience less CRPD compared to the initial cached layout of τ j . This is the case as executing τ j using cache bypassing causes fewer evictions of useful blocks from τ i . Hence, selective cache bypassing of a high priority task has beneficial effects on lower priority tasks, which can be preempted by the high priority task.</p><p>There are two distinct beneficial effects on τ i , when some of its code is not cached. First, cache bypassing reduces the number of UCBs, which can improve CRPD estimation, as previously useful cache blocks do not contribute to CRPD. Second, when a task is partially moved to uncached memory, intra-task cache interference reduces, because fewer cache blocks are stored in the cache. Thus, the cached code is less likely to be evicted from internal interference and is more resilient to eviction from the interference of a preemption. Note that this effect can also lead to novel UCB classifications for τ i : cache blocks, which were previously not classified as useful as they were evicted by intra-task interference, can become useful in the modified layout.</p><p>We demonstrate in our evaluation that the totality of these effects contribute to an improved cache behavior, leading to an increased breakdown utilization.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Search Space</head><p>All elements l ∈ L are possible solutions to the optimization problem. The intuitive approach is to make a bypassing decision for each individual basic block. As the number of basic blocks correlates with the total code size, there may be a vast number of solution candidates. For this reason, we also evaluate the effectiveness of smaller search spaces that abstract from the concrete memory layout. This allows us to control the granularity of the optimization by adjusting the dimensionality of the search space and guide the optimization using heuristics. We propose two search space restrictions.</p><p>First, a reduced search space can be defined by making the allocation decision at the cache-block level. Instead of making a decision for each basic block, basic blocks can be moved to the uncached region based on whether they are part of a specific cache block in the initial layout. In this way multiple basic blocks can be moved to the uncached region by a single decision variable.</p><p>Second, we introduce the heuristic that it is beneficial to only bypass basic blocks that are not part of a loop in a function. If a basic block is part of a loop, it will potentially be executed many times. The intuition is that bypassing such a basic block can result in a large WCET increase. This heuristic is reminiscent of the approach from Hardy et al. <ref type="bibr" target="#b11">[12]</ref>, which bypassed single-use data around the shared L2 cache.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Optimization Algorithms</head><p>We have considered two different algorithms to optimize the breakdown utilization: simulated annealing <ref type="bibr" target="#b9">[10]</ref>, and the strength pareto evolutionary algorithm (SPEA) <ref type="bibr" target="#b14">[15]</ref>.</p><p>SA mimics the physical process of cooling a material to improve its structure, and has been used in previous layout optimizations <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b10">[11]</ref>. It is a single-objective algorithm, and we use the breakdown utilization as the metric. We resolve ties so that the candidate with less cache bypassing is preferable.</p><p>SPEA is an evolutionary algorithm, which operates by grouping multiple individuals in a population. New populations are generated by combining previous individuals. It can be applied to multi-objective problems, and we use the breakdown utilization and the amount of cached code as the two metrics to optimize.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EVALUATION</head><p>We evaluated the effectiveness of the cache bypassing optimization using the WCET-aware C Compiler WCC <ref type="bibr" target="#b15">[16]</ref>. The target architecture consists of a 3-stage, in-order pipeline using the ARMv4 instruction set. The core is connected to the main memory via a two-level instruction cache hierarchy. The caches use the least-recently-used replacement policy. The cache line size is 64 bytes. The L1 cache is 2-way associative and 1 KiB in size. The L2 cache is 4-way associative and 4 KiB in size. The memory access latencies are: 1 cycle if the access is served by the L1 cache (L1 hit); 10 cycles if the access is served by the L2 cache (L2 hit); 100 cycles if the main memory is accessed (L2 miss or bypassed access).</p><p>We generated 100 task sets containing 10 tasks from the MRTC benchmark suite <ref type="bibr" target="#b16">[17]</ref>. Task periods were generated using UUnifast <ref type="bibr" target="#b17">[18]</ref>. Deadlines are implicit. Tasks are scheduled using rate-monotonic preemptive scheduling <ref type="bibr" target="#b18">[19]</ref>.  We performed SA with an initial temperature of 100, a stopping temperature of 0.05, and a cooling rate of 0.98, leading to 378 iterations, as in <ref type="bibr" target="#b10">[11]</ref>. For SPEA, we configured the population size to 10 individuals and performed the optimization over 38 generations, leading to 380 evaluated individuals. The crossover probability was set to 0.8. The mutation rate of bypassing decisions was 1  |B ′ | , where |B ′ | is the dimension of the (restricted) search space. Each system is optimized 5 times to account for the randomized nature of the SA and SPEA algorithms. We aggregated the results of all runs. We evaluated all combinations of the two heuristics: moving multiple basic blocks, which belonged to the same cache block in the initial layout, and prohibiting the bypassing of basic blocks in loops. Coarsening the decision from individual basic blocks to cache blocks did not improve the optimization performance.</p><p>The best performance was exhibited by the SPEA algorithm when basic blocks are moved individually and blocks in loops are not considered. Fig. <ref type="figure" target="#fig_1">2</ref> shows the schedulability improvement achieved by this optimization. The x-axis shows system utilization and the y-axis shows the fraction of schedulable systems. For a system utilization of 0.9, schedulability is increased by 20 percentage points (p.p.). Prior to optimization, 43% of systems were schedulable, whereas 63% of optimized systems were schedulable. In this configuration, cache bypassing improved breakdown utilization for 75% of systems. On average, for an optimized system, the breakdown utilization was increased by 0.042. The best performance of SA was achieved for the same configuration. However, in our evaluation, SPEA consistently outperformed SA. The maximal schedulability increase using SA was 8.65 percentage points.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. CONCLUSION &amp; OUTLOOK</head><p>Our results indicate that bypassing caches is a promising direction for system optimization, which needs to be explored in greater detail.</p><p>In the future, the task positioning optimization proposed by <ref type="bibr" target="#b10">[11]</ref> could be extended to the considered system architecture and incorporated into the presented optimization. This would allow the optimization to simultaneously consider the position of tasks in memory and selective cache bypassing to improve system schedulability.</p><p>While SA has been used in previous layout optimizations <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b10">[11]</ref>, SPEA yielded higher schedulability improvements in our evaluation. This motivates the application of SPEA to related optimization problems. Further experiments could evaluate other algorithms such as flower pollination.</p><p>Furthermore, we want to explore an extension of the presented approach, where the initial memory layout of cached code is preserved. Currently, moving a block to the uncached section modifies the address of all following blocks, as they slide up to fill the gap. Pinning blocks in the cached section at fixed addresses could help the optimization discover better solutions, as the cache sets affected by a decision variable would be independent of other decision variables. Additionally, the effectiveness of cache bypassing for data caches and multi-core systems with shared caches could be evaluated.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 :</head><label>1</label><figDesc>Fig. 1: Instruction Memory Hierarchy</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Schedulable systems before and after optimization. Results of the SPEA algorithm making bypassing decisions for each basic block, without considering blocks in loops.</figDesc></figure>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">A Survey of Techniques for Cache Locking</title>
+		<author>
+			<persName><forename type="first">S</forename></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Des. Autom. Electron. Syst</title>
+		<imprint>
+			<biblScope unit="volume">21</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<date type="published" when="2016-05">May 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Compile-Time Decided Instruction Cache Locking Using Worst-Case Execution Paths</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Falk</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Plazar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Theiling</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of CODES+ISSS</title>
+		<meeting>of CODES+ISSS</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="143" to="148" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">On the effectiveness of cache partitioning in hard real-time systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Altmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Douma</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Lunniss</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">52</biblScope>
+			<biblScope unit="page" from="598" to="643" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Minimizing Cache Usage for Real-time Systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Kloda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Garcia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Gracioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of RTNS</title>
+		<meeting>of RTNS</meeting>
+		<imprint>
+			<date type="published" when="2023">2023</date>
+			<biblScope unit="page" from="200" to="211" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Cache-aware scratchpad allocation algorithm</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Verma</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Wehmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Marwedel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of DATE</title>
+		<meeting>of DATE</meeting>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+			<biblScope unit="volume">2</biblScope>
+			<biblScope unit="page" from="1264" to="1269" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Cache-Aware Instruction SPM Allocation for Hard Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Luppold</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Kittsteiner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Falk</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of SCOPES</title>
+		<meeting>of SCOPES</meeting>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="77" to="85" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Towards Analysing Cache-Related Preemption Delay in Non-Inclusive Cache Hierarchies</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">L</forename><surname>Fischer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Falk</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Embed. Comput. Syst</title>
+		<imprint>
+			<biblScope unit="volume">24</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="2024-10">Oct. 2024</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">WCET-driven Cache-aware Code Positioning</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Falk</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kotthaus</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of CASES</title>
+		<meeting>of CASES</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="145" to="154" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Optimal Task Placement to Improve Cache Performance</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Gebhard</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Altmeyer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of EMSOFT</title>
+		<meeting>of EMSOFT</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="259" to="268" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Optimization by Simulated Annealing</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kirkpatrick</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">D</forename><surname>Gelatt</surname><genName>Jr</genName></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">P</forename><surname>Vecchi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Science</title>
+		<imprint>
+			<biblScope unit="volume">220</biblScope>
+			<biblScope unit="page" from="671" to="680" />
+			<date type="published" when="1983">1983</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Optimising Task Layout to Increase Schedulability via Reduced Cache Related Pre-emption Delays</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Lunniss</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Altmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of RTNS</title>
+		<meeting>of RTNS</meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="161" to="170" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Using bypass to tighten WCET estimates for multi-core processors with shared instruction caches</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Hardy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Piquet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Puaut</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of RTSS</title>
+		<meeting>of RTSS</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="68" to="77" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Cache-related preemption delay via useful cache blocks: Survey and redefinition</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Altmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">Maiza</forename><surname>Burguière</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">57</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<biblScope unit="page" from="707" to="719" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Adding Instruction Cache Effect to Schedulability Analysis of Preemptive Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Busquets-Mataix</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Serrano</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ors</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Gil</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wellings</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of RTTAS</title>
+		<meeting>of RTTAS</meeting>
+		<imprint>
+			<date type="published" when="1996">1996</date>
+			<biblScope unit="page" from="204" to="212" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Multiobjective Evolutionary Algorithms: A Comparative Case Study and the Strength Pareto Approach</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Zitzler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Thiele</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Evolutionary Computation</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="257" to="271" />
+			<date type="published" when="1999">1999</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">A Compiler Framework for the Reduction of Worst-Case Execution Times</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Falk</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Lokuciejewski</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">46</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="251" to="300" />
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">The Mälardalen WCET Benchmarks -Past, Present and Future</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Gustafsson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Betts</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Ermedahl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Lisper</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of WCET, B. Lisper</title>
+		<meeting>of WCET, B. Lisper</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="136" to="146" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Measuring the Performance of Schedulability Tests</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="page" from="129" to="154" />
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Scheduling Algorithms for Multiprogramming in a Hard-Real-Time Environment</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973">1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

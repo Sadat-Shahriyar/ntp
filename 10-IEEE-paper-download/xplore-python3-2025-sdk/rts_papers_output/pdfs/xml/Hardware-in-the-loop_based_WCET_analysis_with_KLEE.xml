@@ -1,0 +1,541 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Hardware-in-the-loop based WCET analysis with KLEE</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Marcus</forename><surname>Lindner</surname></persName>
+							<email>marcus.lindner@ltu.se</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Luleå University of Technology</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Jorge</forename><surname>Aparicio</surname></persName>
+							<email>jorge.aparicio@ltu.se</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Luleå University of Technology</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Henrik</forename><surname>Tjäder</surname></persName>
+							<email>henrik.tjader@ltu.se</email>
+							<affiliation key="aff0">
+								<orgName type="institution">Luleå University of Technology</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><roleName>Per Lindgren †</roleName><forename type="first">Johan</forename><surname>Eriksson</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">Luleå University of Technology</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<affiliation key="aff1">
+								<orgName type="department">Grepit AB</orgName>
+								<address>
+									<country>Luleå Sweden</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Hardware-in-the-loop based WCET analysis with KLEE</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">A5A031ADE78473BE2FE0B5A10488939C</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T10:08+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>C programming dominates the mainstream of embedded development as of today. To aid the development, hardware abstractions, libraries, kernels, and light-weight operating systems are commonplace. However, these typically offer little or no help to automatic worst-case execution time (WCET) estimation, and thus manual test and measurement based approaches remain the de facto standard. For this paper, we take the outset from the Real-Time For the Masses (RTFM) framework, which is developed to facilitate embedded software development for IoT devices and provides highly efficient implementations, suitable to the mainstream of embedded system design. Although the Rust language plays currently a minor part in embedded development, we believe its properties add significant improvements and thus implement our RTFM framework in Rust. We present an approach to worst-case execution time estimation in the context of RTFM tasks and critical sections, which renders sufficient information for further response time and schedulability analysis. We introduce our test bench, which utilizes the KLEE tool for automatic test vector generation and subsequently performs cycle accurate hardware-in-the-loop measurements of the generated tests. The approach is straightforward and fully automatic. Our solution bridges the gap in between measurement based and static analysis methods for WCET estimation. We demonstrate the feasibility of the approach on a running example throughout the paper and conclude with a discussion on its implications and limitations.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Embedded software is playing an increasingly important role for the design and implementation of embedded devices in the CPS/IoT era. In addition to functional requirements, embedded software is often subject to requirements on robustness, safety, real-time properties, and resource efficiency.</p><p>To aid the development, software developers commonly adopt ecosystems like hardware abstraction layers, libraries, kernels, and light-weight real-time operating systems. While improving design efficiency, they typically leave the schedulability analysis at the hands of the developer. For this reason, test based methods remain the de facto standard because scheduling analysis tools are still not widely spread and typically demand expert knowledge. In comparison to static analysis approaches, target testing has the clear advantage that observations on the actual hardware obtain the results, which are free from assumptions and approximations associated to models and imprecise program analysis. On the downside however, it is a tedious and error-prone process to manually derive test vectors, instrument the code, perform tests, collect, and analyze the results. Moreover, test based scheduling analysis of concurrent systems is an inherently hard problem and edge cases are easy to miss because testing can only cover a limited subset of task interleavings and input values. Additionally, test based approaches may also be fragile, where small changes in the system might imply large consequences to the real-time operation what in effect calls for a complete retesting of the system.</p><p>In this paper, we present a test bench for automatic worstcase execution time estimation that enables subsequent response time and schedulability analysis. We take the outset from Real-Time For the Masses (RTFM), which is a set of languages and tools being developed to facilitate embedded software development, and provide highly efficient implementations geared to static verification. The programming model of RTFM is reactive and based on the familiar notions of concurrent tasks and critical sections treated as single-unit resources. The execution model provides race-free concurrency and serialization of side effects under full control of the programmer.</p><p>The supporting Rust based RTFM implementation guarantees deadlock-free preemptive execution on bare metal single core targets by efficiently exploiting the underlying interrupt hardware for static priority scheduling and resource management under the Stack Resource Policy (SRP) <ref type="bibr" target="#b1">[2]</ref>. Besides the advantages associated to SRP based scheduling (see Section V), various research efforts (see, e.g., the seminal work of Baker <ref type="bibr" target="#b1">[2]</ref> and more recent publications <ref type="bibr" target="#b16">[17]</ref>, <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b12">[13]</ref>) established a plethora of methods to static verification (response time analysis, stack memory analysis, etc.) over the last decades.</p><p>Methods for response time and schedulability analysis typically rely on a priori WCET information. In the case of SRP based analysis, the WCETs and resource holding times for the task set are necessary to be known. Our approach takes the outset of test and measurement based methods that are well established in industry and leveraged by known methods to semi-formal program analysis <ref type="bibr" target="#b2">[3]</ref>.</p><p>The automatic test bench process comprises:</p><p>• Automated semi-formal program analysis, which derives concrete test vectors that trigger each feasible path of execution for the tasks of the system, • Automated measurement based WCET and resource holding time estimation for the task set, and</p><p>• System wide analysis of, e.g., response times and schedulability. In this paper, we focus on the test vector generation and automated execution time measurement and leave the system wide analysis to future work. In Section II, we review the the KLEE framework <ref type="bibr" target="#b2">[3]</ref>, the Rust programming language, and the RTFM task and resource model with its kernel implementation in Rust. In Section III, we present our approach to program analysis and test vector generation, and we outline our automated test bench for cycle accurate hardwarein-the-loop measurements of WCETs and resource holding times. Section V covers related work on WCET estimation and Section VI summarizes the contributions of the paper including an outlook to future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. KLEE LLVM Execution Engine</head><p>KLEE <ref type="bibr" target="#b2">[3]</ref> is a tool for symbolic execution operating on the LLVM IR (intermediate representation) of an input program. Symbolic execution is the process of executing the code through an interpreter (virtual machine) while recording path conditions and modifications to variables. In contrast to normal execution, inputs and symbolically tagged variables are assumed to be symbolic rather than having concrete values.</p><p>KLEE keeps track of the program states for each execution path and successively selects based on the chosen strategy one of the states and updates it by symbolic execution of the next instruction along the selected execution path. This process terminates when there is no further instruction to execute for any of the states or a predefined termination condition occurs. As soon as an execution path reaches its end or encounters an error (abort), KLEE discharges the path condition by means of modern solvers <ref type="bibr" target="#b18">[19]</ref> resulting in concrete assignments to the symbolic variables, i.e., a test vector from which the exact path can be reconstructed.</p><p>According to the authors <ref type="bibr" target="#b2">[3]</ref>, "KLEE has two goals: (1) hit every line of executable code in the program and (2) detect at each dangerous operation (e.g., dereference, assertion) if any input value exists that could cause an error." To achieve its goals, KLEE unassistedly and automatically generates highcoverage test cases. One purpose of these test cases is to detect low-level errors of generic character, i.e., errors independent of knowledge about the intended behavior of the program. Therefore, KLEE inserts branches for potentially dangerous operations to check if any input value exists that could cause an error. Such operations are pointer dereferences, zero divisions, load and store instructions for memory accesses as well as system calls. Additionally, the user can insert own assertions for which violations are discovered too. KLEE has been demonstrated to efficiently deal with complex program suites like BusyBox and core-utils <ref type="bibr" target="#b2">[3]</ref>.</p><p>As mentioned, KLEE operates on LLVM IR and is for that reason not limited to any designated input programming language. The only restriction is the availability of an LLVM compiler for the language in use. On the other hand, KLEE provides a set of special functions to guide the symbolic execution and these functions are only available as an API for the C language. For our work, the important functions of this API are:</p><p>• klee_make_symbolic(&amp;v, sizeof(v), "v"), which instructs KLEE to treat the variable v as symbolic and initially unknown, • klee_assert(c), which introduces a branch for the condition c that causes KLEE to output a test vector of concrete variable assignments for entering the false branch if for the current path condition an assertion violating value exists, and • klee_assume(c), which introduces a branch for the condition c that outputs an error if c is unsatisfiable under the current path condition (i.e., the false branch) and otherwise adds c to the current path condition and continues (i.e., the true branch).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Rust</head><p>The ambition behind Rust is to provide a memory safe systems programming language with zero-cost abstractions <ref type="bibr" target="#b17">[18]</ref>, <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b7">[8]</ref>. Therefore, it implements an affine type system with underlying memory model that guarantees memory safety and concurrency without data races. Memory safety is essentially ensured by the ownership model of Rust, which prohibits aliases for mutable data.</p><p>In Rust, each valid memory location is owned by exactly one variable. Assigning the value of a variable to another variable results in copying the value or moving the ownership. An alternative to moving the ownership is temporarily borrowing the value from a variable by referencing its memory location. Referenced values are either immutable (&amp; T) or mutable (&amp;mut T) and uphold the following invariant:</p><p>At any instance in time, each value T may be mutably referenced once or immutably referenced arbitrarily often. <ref type="bibr" target="#b21">[22]</ref> This invariant applies both to sequential code (c and d) and to concurrent execution contexts (A and B), as illustrated in Figure <ref type="figure" target="#fig_0">1</ref>. The Rust compiler enforces memory safety guarantees only in safe Rust code. It utilizes the borrow checker for static memory consistency analysis and inserts runtime verification code where static analysis is in general out of reach (e.g., array indexing). In case of failure, the runtime verification code raises an exception during execution, which is called panic in the Rust terminology.</p><p>Any access to shared mutable data ultimately boils down to explicitly stated unsafe Rust code, out of reach for the Rust compiler to verify. Abstractions providing a safe API allow user code to access shared (mutable) data. Thus, given that the abstractions are sound, any program passing compilation will be memory safe by construction.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. RTFM -Real-time for the Masses</head><p>Real-time for the masses (RTFM) is a framework intended to facilitate embedded software development of reliable realtime applications and to provide highly efficient implementations geared to static verification. RTFM aims at the needs of lightweight embedded devices and particularly real-time systems with guaranteed response time requirements such as embedded sensors and actuators. A major focus lies on providing a model of computation for concurrent real-time programming suitable for static analysis.</p><p>For the purpose of this presentation, we refer to a simplified model of computation, see, e.g., <ref type="bibr" target="#b13">[14]</ref> for further information. A system is a set of tasks T = {t 1 , ..., t n } and a set of single-unit, non-preemptable resources R = {r 1 , ..., r k }.</p><p>The system specification associates a static priority p(t i ), a minimum inter arrival time ia(t i ), and a deadline dl(t i ) to each task t i . External and internal events trigger the tasks, which execute a finite sequence of operations with run-to-end semantics. A task t i may claim exclusive access to a resource r j for a named critical section cs(t i , r j ), and critical sections may only be nested in a LIFO manner. In effect, the RTFM model of computation adheres to the requirements of the Stack Resource Policy (SRP) <ref type="bibr" target="#b1">[2]</ref> based analysis and scheduling. In this context, r i denotes the resource ceiling for the resource r i .</p><p>Figure <ref type="figure" target="#fig_1">2</ref> sketches a little RTFM system composed of the three tasks (EXTI1, EXTI2, and EXTI3) and two resources (X and Y). Each task has a static priority assigned to it and the arrows indicate the resources that a task accesses. According to SRP, a resource ceiling is the maximum priority of all tasks that claim the resource. An implementation of the RTFM framework for ARM Cortex-M microcontrollers is available as a Rust crate <ref type="bibr" target="#b9">[10]</ref>, which is the designation for a library or package in the Rust universe. The cortex-m-rtfm crate provides a convenient way to declaratively define the composition of an RTFM system and program its functionality using the Rust programming language. Subsequently, the Rust compiler yields an efficient SRP based scheduling and resource management implementation for the ARM Cortex-M families of MCUs.</p><p>Listing 1 illustrates the declarative description of the RTFM example system shown in Figure <ref type="figure" target="#fig_1">2</ref> encoded with the Rust crate cortex-m-rtfm. Lines 4-7 define the resources, which are memory resources in this case, and their respective data types. Lines 9-27 specify the tasks, their priorities, and associated resources. Furthermore, each task definition has a path parameter that refers to a Rust function, which is executed when the respective task is triggered by an event.</p><p>At the heart of this code snippet is line 1, which indicates that the whole RTFM system definition is processed by a Rust macro. The exclamation mark after an identifier denotes a macro in Rust. Apart from syntactic macros, Rust also provides procedural macros for general use as an experimental feature. These macros contain Rust statements that are executed at compile time during the preprocessing stage. As a result, the macro generates through its execution regular Rust code that is injected into the actual compilation stage. Natural use cases for procedural macros are syntax extensions of the programming language. The app! macro of the RTFM implementation is a procedural macro and can be seen as a syntax extension of the Rust language.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. WCET ANALYSIS</head><p>In this paper, we present a method to measure the worst-case execution times (WCETs) of RTFM tasks and resource claim blocks on the target hardware for the purpose of scheduling analysis. Our approach utilizes the KLEE tool to generate test vectors with full execution paths coverage, which are subsequently entered into the application while it is running on the target hardware. An automatic test bench measures the executing processor cycles for all test vectors at the level of tasks and resource claim blocks to determine the WCETs.</p><p>The timing diagram in Figure <ref type="figure" target="#fig_3">3</ref> shows a possible task interleaving when executing the RTFM example application shown in Figure <ref type="figure" target="#fig_1">2</ref>. The lowest priority task EXTI1 raises its priority according to the resource ceilings of X and Y when entering the respective claim blocks. Tasks EXTI2 and EXTI3 preempt the execution of lower prioritized tasks. This example demonstrates that we need to know the WCETs for all tasks and claim blocks to calculate blocking times and task interferences for a response time analysis of each task. For the automatic WCET measurement, our test bench is a Python script that successively:</p><p>1) Compiles the source code that is prepared for the execution with KLEE to LLVM IR, 2) Runs KLEE on the LLVM IR compiler output to generate test vectors for all execution paths, 3) Compiles the source code that is prepared for a controlled execution of each task separately to a binary for the target hardware, 4) Flashes the binary onto the target device, and 5) Measures the processor cycles for each task and resource claim block while iteratively executing each task with its corresponding test vectors as input. To implement the steps 1 and 3 of our test bench, we extended the cortex-m-rtfm Rust crate with a klee_mode and a wcet_bkpt compiler flag for conditional compilation. Step 2 uses a custom patched version of KLEE that matches the LLVM version of the Rust compiler and runs in an isolated docker container. For control of the measurements in step 5, the Python script interfaces the GNU Debugger gdb.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Compiler flag klee_mode</head><p>When compiling the source code of an RTFM application with the klee_mode compiler flag set, the Rust compiler expands the app! macro to a program with a main function that calls each task based on a symbolic variable and also declares the resource data to be symbolic in preparation for the execution with KLEE. Figure <ref type="figure" target="#fig_4">4</ref> demonstrates the principle of the app! macro expansion for the RTFM example application shown in Figure <ref type="figure" target="#fig_1">2</ref>. Starting from the main function, each task initiates a separate execution path that declares the data of all resources associated with this task to be symbolic. This is necessary because the resource data potentially influences the execution times and due to the shared access to resources and no a priori knowledge about data constraints, we must assume each possible value to be valid. Listing 2 shows a simplified version of the source code from Listing 1 after the app! macro expansion. During the execution, KLEE finds four execution paths in the main function based on different assignments to the symbolic task variable. The last execution path (line 19) merely completes the match statement to satisfy the Rust compiler and is apart from that ignored. Before executing the task handlers (lines 9, 13, and 17) for the respective execution path, each resource that can be accessed during the execution is declared to be symbolic. As a result, KLEE outputs for each execution path of each task a test vector with variable assignments for all symbolic variables. After initializing the resource data with the values of a test vector, the corresponding task executes the same path again.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Compiler flag wcet_bkpt</head><p>When compiling the source code of an RTFM application with the wcet_bkpt compiler flag set, the Rust compiler essentially injects breakpoints at the beginning and the end of each task handler and resource claim block when it expands the app! macro. Our Python based test bench controls gdb during the measurement stage and uses these breakpoints to obtain the execution times.</p><p>After flashing the application onto the target device, the Python script iteratively takes a test vector from the output of the KLEE execution, sets the memory to the values of the test vector, initiates the corresponding task execution, and halts the task execution at the breakpoints to read the cycle counter and determine the execution times of the task and its resource claim blocks. One iteration step, i.e., one test vector, relates to one execution path of a specific task. Because KLEE yields a test vector for each feasible execution path, the worst-case execution time of a task is among all the longest measured execution time for that task. The worst-case execution time for claiming a resource r j in the context of task t i is the longest measured execution time of all resource claim blocks cs(t i , r j ). For further discussion, see Section IV.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Example</head><p>Listing 3 shows three task handlers for the RTFM example application displayed in Listing 1. One can interpret this simple example as the preprocessing of a sensor input for the control output to another system. E.g., task EXTI3 is triggered by a sensor at each turn of a wheel and stores the duration of the turn in a shared resource. To get the speed of the wheel with a low error rate, EXTI3 runs on the highest priority. Task EXTI1 does on the lowest priority a time consuming preprocessing of the sensor reading and stores its result in another resource for task EXTI2 to set a control point on request. This design makes sense when we assume that the external control system needs a prompt response when requesting input.</p><p>The Rust RTFM implementation models resource claims as a method (claim) that is accessible on resource instances and takes a function as an argument. The function body is the critical section for which a task claims exclusive access to the resource. E.g., line 4 of Listing 3 illustrates how task EXTI1 claims the resource X in its task handler exti1 by calling X.claim(...). The function parameter of the claim call is an anonymous function with access to its environment, which is called closure in the Rust terminology. The function or closure that represents the critical section gets access to the data of the resource through its input value. I.e., when task EXTI1 claims the resource X and executes the critical section result= * x as u32;, the value of variable x is a reference to the memory of resource X.</p><p>Task EXTI1 performs a function that reads the shared variable X and returns either 0 or 1 after a certain amount of iterations. This function has probably no useful meaning for sensor processing but it has two interesting properties to demonstrate the strength of our KLEE based WCET analysis approach. First, the amount of iterations that it takes to return the result is not equal for all input values. I.e., the time for computing the result varies with the input. Second, there is a maximum amount of iterations that it takes to return the result for an arbitrary input value. I.e., the execution time is bound and thus a worst-case execution time exists.</p><p>Even with the knowledge about these two properties, it is by no means trivial to discover the maximum number of iterations that are needed to produce a result or to find at least a sample value that triggers the maximum iterations. No testing approach can give a safe answer until all input values are tested.</p><p>When analyzing this example with our presented approach, KLEE symbolically executes all tasks and thereby explores all feasible paths. At the end of each path execution, KLEE returns a test vector of variable values that can be used to replay this specific execution path on the original program. In case of task EXTI1, KLEE will discover all possible iterations for arbitrary input values and return a sample value for each instance.</p><p>Figure <ref type="figure">5</ref> shows the first two iteration levels of the execution paths flow chart for task EXTI1. For the sake of clarity, we omit the computational steps and the branch direction. Following the left arrow of a branch means that its condition evaluates to true and accordingly the right side means false.</p><p>The rectangle boxes depict the returned test vectors from KLEE. Only X is here of interest because exti1 never reads the value of Y and therefore any value for Y is equally valid as input sample.</p><p>KLEE reveals the maximum number of 4 iterations for the function to terminate on arbitrary input values and returns two example values (9 and 12) with different execution paths that cause four iterations to yield the result.</p><formula xml:id="formula_0">X = 4 Y = 0 X &gt; 1 X = 192 Y = 0 X &gt; 1 isEven(X) X = 3 Y = 0 X &gt; 1 X = 11 Y = 0 X &gt; 1 isEven(X) X = 2 Y = 0 X &gt; 1 isEven(X) X = 0 Y = 0 X &gt; 1 EXTI1 X = 7 Y = 0 X &gt; 1</formula><p>Fig. <ref type="figure">5:</ref> The diagram shows all execution paths of the first two iterations from task EXTI1 and test vectors for the resource values generated by KLEE.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. DISCUSSION</head><p>In this paper, we present a fully automatic method for WCET analysis on RTFM programs. By utilization of symbolic execution, the KLEE tool generates a test vector for each program execution path. Our test bench tool implements a hardware-in-the-loop benchmark test to measure the WCETs for each task and resource claim with the help of the generated test vectors by executing each of the program paths on the target hardware. Our method applies a complete execution path exploration on code without manually added annotations, which is a substantial advantage over abstract execution based methods.</p><p>For our KLEE based WCET analysis, two principle properties must hold:</p><p>1) KLEE needs to perform a complete path search, and</p><p>2) The program needs to terminate for all possible inputs. If KLEE prunes the execution paths tree, there is a high risk for missing the worst-case path. Only a complete exploration of all execution paths (1) reliably yields the WCETs for all tasks and resource claims. On the other side, because KLEE actually executes the program, every execution path needs to terminate (2) for KLEE to terminate too. In consequence of the halting problem <ref type="bibr" target="#b20">[21]</ref>, we cannot generally determine if a given program terminates. But a requirement of the RTFM model of computation is the run-to-end semantics for all task handlers, which the user must ensure.</p><p>In the default configuration of KLEE (i.e., without setting any command line parameters), all limiting execution parameters to constrain the execution based on the search depth and memory or time consumption are switched off. KLEE runs until all program paths are executed to end or stopped in an error state. Although bug tracking is not the focus of this paper, the latter case is already alarming and important for the user to get notified.</p><p>A major issue with approaches based on symbolic execution is the potential path explosion. KLEE mitigates this problem by applying various techniques for efficient path exploration, e.g., compact state representation based on shared memory, single execution of the instruction path before every branch, and multiple solver query optimizations. Despite these mechanisms, the path explosion problem persists for the hardware-inthe-loop benchmarking, where each program path needs to be executed. While the complexity is an issue with symbolic execution, we consider this to be a minor issue, because we aim at lightweight embedded IoT devices with statically sized data structures. Furthermore, we foresee an increasing demand for fully automatic WCET measurement and scheduling analysis tools due to the growing market of real-time IoT applications.</p><p>Another issue with our approach is the quality of the test vectors generated by KLEE. From a path coverage perspective, any test vector that triggers the execution of a specific path is equally valid, and thus KLEE emits arbitrary variable assignments that the SMT solver returns. KLEE is not aware that varying execution times of LLVM instructions have an impact on the WCET measurement, and hence our approach does not take this effect directly into account. Hardware division is a typical example of a time variant instruction. In the Cortex-M case, the execution time can vary in between 2 . . . 12 cycles <ref type="bibr" target="#b0">[1]</ref>. With a model of the hardware instructions, an evaluation of the KLEE traces (klee --replay-ktest-file) for each path allows to account for the difference between the actual measured execution time and the worst-case execution time.</p><p>For our approach, we assume that all execution paths found by KLEE reflect the full program behavior on the target platform. This is not necessarily the case, because KLEE operates on LLVM IR and not the actual hardware instructions. In some cases, LLVM generates conditional instructions (e.g., the LLVM select instruction) that have no IR-level branching, which is the basis of the KLEE execution. Depending on the machine instruction set, this is potentially unsafe with respect to the WCET analysis even if the target machine supports conditional instructions. Moreover, the LLVM → target compiler might generate branch instructions that the KLEE path analysis missed. Executing KLEE on unoptimized LLVM IR solves the problem of inserting conditional instructions but cannot prevent the introduction of new branches in the target binary. To that end, we would have to implement KLEE at target level.</p><p>Another property of our approach that is important to know concerns reoccurring resource claims. Multiple consecutive claims of the same resource during a task execution may lead to path enumeration misses. We declare a resource to be symbolic at the entrance of a task. As a consequence, KLEE analyses the second and subsequent resource claims based on the prevailing path condition from the preceding executions. This behavior does not consider possible preemptions of higher prioritized tasks, which potentially mutate the resource data. Prohibiting multiple consecutive resource claims or forcing KLEE to recognize the resource data to be unknown each time by introducing a new resource for each claim block addresses this problem.</p><p>V. RELATED WORK Execution time estimation has traditionally been conducted through manual test and measurement based approaches either on the actual targets or using simulated environments. However, such processes are tedious and error prone. Moreover, with growing source code complexity, it is inherently difficult to ensure that the worst-case behaviour has been exposed. To this end, academia and industry has spent much effort over the last decades to provide methods and tools that improve on manual test and measurement approaches. Ermedahl and Engblom <ref type="bibr" target="#b4">[5]</ref> give an excellent overview to the area and layout different approaches to model based and hybrid WCET estimation. They also cover industrial experiences of commercial WCET tools, which identify a number of outstanding observations. Among these we find:</p><p>1) Lack of "one-click" analysis, 2) Lack of automatic loop bound calculation, 3) Structure of code has significant impact to analyzability, 4) Manual annotations can sometimes be burdensome to generate, 5) Operating-system services and interrupt handlers should be taken into account, 6) The large diversity in processors used in embedded systems hinders the deployment of static WCET analysis, and 7) Measurements and static timing analysis complement each other and give together a better understanding of the system timing and increase the trust in the resulting timing estimates. The method presented in this paper seeks to address each observation and challange by: 1) Providing a Python based test bench that fully automatically generates tests vectors with the KLEE tool and feeds them into a hardware-in-the-loop benchmark test for execution time measurement, 2) Tracking data dependencies throughout the complete call graph, which derives loop bounds, 3) Providing a well structured model of computation that is amenable to static analysis, 4) Preventing the need for annotations with the tracing of data dependencies and the support of conditional compilation for the analysis stage, 5) Unifying application code, interrupts, and operating system services with the RTFM model of computation to turn them into a part of the system wide analysis, <ref type="formula">6</ref>) Performing the program analysis on the LLVM IR of the compiled source code, which opens the support for any LLVM capable target, and 7) Combining the advantages of static analysis and measurement in a test bench that exploits symbolic execution and hardware-in-the-loop benchmarking. Recent related work includes <ref type="bibr" target="#b19">[20]</ref>, which concludes that creating architectural models based on the data sheets of the manufacturer is exhaustive and, while safe, may lead to ample over estimations when using the OTAWA framework.</p><p>The commercial tool RapiTime <ref type="bibr" target="#b10">[11]</ref> is a representative example of hybrid approaches (adopting static analysis complemented by measurements). It carries out a prediction of the worst-case path and WCET by combining the obtained timing information and the structural model of the code.</p><p>Cassé et al. study overestimations due to imprecise flow facts and approximations during the analysis <ref type="bibr" target="#b3">[4]</ref>. In comparison, our approach derives tests for all feasible paths. Hence, the derived test vectors and corresponding measurements take (up to the limitations of the KLEE tool) all traceable data dependencies into consideration and ensure to accurately expose the worst-case behaviour. Thus, our approach may improve accuracy to both architectural model based methods and hybrid techniques.</p><p>aiT ( <ref type="bibr" target="#b6">[7]</ref>) is a commercial WCET analysis package that performs static analysis on code snippets by abstract interpretation on the binary code for a wide range of target platforms. In general, aiT requires user annotations for generating meaningful output. aiT computes the upper bound including caches and pipeline interactions based on timing accurate architectural models. In general, aiT is not able to calculate the overall schedulability of the system. Instead, it lets the user characterize selected sub-parts of the system and performs a schedulability analysis using some other tool based on the derived WCETs.</p><p>SWEET ( <ref type="bibr" target="#b14">[15]</ref>) is an open source tool developed at the MRTC (Mälardalen Real-Time Research Centre). It includes a C compiler that outputs an intermediate format (ALF) used for abstract execution. This approach is quite similar to our the KLEE + LLVM approach, where KLEE operates on the LLVM IR. SWEET assumes a third party timing model that analyzes the emitted flow facts for the target architecture. Similarly to aiT, the overall schedulability analysis is out of reach for the SWEET tool.</p><p>Schedulability analysis is very important for hard real-time applications and attracts much attention in this context (see, e.g., the seminal work <ref type="bibr" target="#b15">[16]</ref>). The theoretical work typically takes the outset of modelling the system in terms of (concurrent) tasks, which potentially support shared resources. We base our work on the Stack Resource Policy (SRP) <ref type="bibr" target="#b1">[2]</ref>. SRP based scheduling brings a number of benefits whereof most prominent are:</p><p>• Deadlock-free execution,</p><p>• Single (non-transitive) blocking,</p><p>• Shared stack execution, and • Single context switch per task.</p><p>In parallel to the development of the RTFM framework, Hofer et al. proposed a similar approach (SLOTH) to interrupt driven execution of OSEK models <ref type="bibr" target="#b8">[9]</ref>. While SLOTH focuses on the scheduling and resource management of OSEK models, RTFM and its accompanying model of computation aim at providing an ecosystem for modelling, analysis, and implementation of general purpose embedded real-time software.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. CONCLUSION &amp; FUTURE WORK</head><p>With this paper, we attempt to close the gap between measurement based and static analysis methods for WCET estimation. While test based methods are of practical use but can only deliver approximative results, static analysis is much more difficult to apply. Our approach utilizes the KLEE tool for a complete path exploration and subsequent hardwarein-the-loop benchmarking of the generated test input for the WCET estimations. We demonstrate the practicability of the method on the RTFM framework and discuss its implications. Although very promising, our approach has some limitations.</p><p>The classical problem of symbolic execution, i.e., path explosion, still remains. We only argue it is not an issue for lightweight embedded IoT applications, which is our target application. However, open problems are the uncertainty about the worst execution time of the generated test input for an execution path and the potential introduction of new paths after compilation to the target platform. These issues and other missing properties give space for further improvements.</p><p>WCET analysis is a precursor for response time and ultimately schedulability analysis. Our work adheres to the requirements of the Stack Resource Policy based analysis and scheduling for which a plethora of methods to static verification (response time analysis, stack memory analysis, etc.) exist. As we have seen in Section III, the proposed test bench can derive WCET estimations from which response time analysis can be readily applied and integrated into our tool for fully automatic schedulability analysis.</p><p>Currently, our approach does not model I/O. We plan to model interaction to the environment, i.e., peripheral access. The Rust based RTFM framework analogously models peripherals and resources, which allows to extend the generation of symbolic values to peripherals.</p><p>Furthermore, we plan to extend our RTFM framework to support the definition of type invariants for resources. The functions klee_assume and klee_assert for guiding the symbolic execution of KLEE allow us to establish static type invariant checks. When assuming the specified resource invariant on entering the resource claim block and asserting the invariant on leaving the claim block, KLEE verifies the validity of the invariant for all execution paths. Because resources are commonly shared among several tasks, resource invariants constitute a contract between the tasks accessing that resource and KLEE verifies the compliance. Aside from that, this extension provides another method to mitigate the path explosion problem because assumptions on the data type strengthen the path condition and hence mitigate the complexity.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 :</head><label>1</label><figDesc>Fig. 1: Rust Memory Model</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: The diagram exemplifies the composition of tasks and resources in an RTFM system and the derivation of the resource ceilings. Resource ceiling X = max(p(EXTI1), p(EXTI3)) and Y = max(p(EXTI1), p(EXTI2)), where p(ti) is the priority of task ti.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Listing 1 :</head><label>1</label><figDesc>rtfm_example.rs (abridged)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: The diagram shows one possible task interleaving during the execution of the RTFM example application.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: The diagram visualizes the app! macro expansion for the RTFM example application shown in Figure 2 when the compiler flag klee_mode is enabled.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Listing 2 :</head><label>2</label><figDesc>app_macro_expansion.rs (simplified)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Listing 3 : 4 X</head><label>34</label><figDesc>rtfm_example.rs (task handler) 1 fn exti1( ... ) { 2 let mut result: u32 = 0; 3 .claim( |x| {result = * x as u32;} );</figDesc></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 03:25:31 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">ARM Cortex-M4 Processor Technical Reference Manual -Revision r0p1. ARM Information Center</title>
+		<imprint>
+			<date type="published" when="2015">100166 0001 00 en, 2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Stack-based scheduling for realtime processes</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">P</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Syst</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="67" to="99" />
+			<date type="published" when="1991-04">Apr. 1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Klee: Unassisted and automatic generation of high-coverage tests for complex systems programs</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Cadar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dunbar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Engler</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 8th USENIX Conference on Operating Systems Design and Implementation, OSDI&apos;08</title>
+		<meeting>the 8th USENIX Conference on Operating Systems Design and Implementation, OSDI&apos;08<address><addrLine>Berkeley, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>USENIX Association</publisher>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="209" to="224" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">A Framework to Quantify the Overestimations of Static WCET Analysis</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Cassé</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Ozaktas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Rochange</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">15th International Workshop on Worst-Case Execution Time Analysis</title>
+		<editor>
+			<persName><forename type="first">F</forename><forename type="middle">J</forename><surname>Cazorla</surname></persName>
+		</editor>
+		<meeting><address><addrLine>Dagstuhl, Germany</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2015">2015. 2015</date>
+			<biblScope unit="volume">47</biblScope>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+	<note>Schloss Dagstuhl-Leibniz-Zentrum fuer Informatik</note>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title level="m" type="main">Execution time analysis for embedded real-time systems. Handbook of Real-Time Embedded Systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Ermedahl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Engblom</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<monogr>
+		<title level="m" type="main">Analysing stack usage in preemptive shared stack systems</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Hänninen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mäki-Turja</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bohlin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Carlson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sjödin</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2006-07">July 2006</date>
+			<publisher>MDH-MRTC</publisher>
+		</imprint>
+	</monogr>
+	<note type="report_type">Technical Report</note>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<monogr>
+		<title level="m" type="main">Worst-case execution time prediction by static program analysis</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Heckmann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Ferdinand</surname></persName>
+		</author>
+		<ptr target="https://www.absint.com/aiTWCET.pdf" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">The rust programming language</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Hoare</surname></persName>
+		</author>
+		<ptr target="http://www.rust-lang.org" />
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Sleepy Sloth: Threads as Interrupts as Threads</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Hofer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Lohmann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Schröder-Preikschat</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 32nd IEEE Real-Time Systems Symposium (RTSS 2011)</title>
+		<editor>
+			<persName><forename type="first">L</forename><surname>Almeida</surname></persName>
+		</editor>
+		<editor>
+			<persName><forename type="first">S</forename><surname>Brandt</surname></persName>
+		</editor>
+		<meeting>the 32nd IEEE Real-Time Systems Symposium (RTSS 2011)<address><addrLine>Los Alamitos, CA, USA</addrLine></address></meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="67" to="77" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<monogr>
+		<author>
+			<persName><forename type="first">Jorge</forename><surname>Aparicio</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Per</forename><surname>Lindgren</surname></persName>
+		</author>
+		<ptr target="https://crates.io/crates/cortex-m-rtfm" />
+		<title level="m">cortex-m-rtfm -Real Time For the Masses (RTFM) framework for ARM Cortex-M microcontrollers</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="2018" to="2022" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Measurement-based worstcase execution time analysis using automatic test-data generation</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Kirner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Puschner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Wenzel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">PROC. IEEE WORKSHOP ON SOFTWARE TECH. FOR FUTURE EMBEDDED AND UBIQUITOUS SYSTS. (SEUS&apos;05</title>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+			<biblScope unit="page" from="7" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">The Rust Programming Language</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Klabnik</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">No Starch Pr</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+	<note>City</note>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">Scheduling of CRO systems under SRP-DM</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Lindgren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Eriksson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Aittamaa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Pietrzak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wiklander</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+		<respStmt>
+			<orgName>Luleå University of Technology</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Technical report</note>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">RTFM-lang Static Semantics for Systems with Mixed Criticality</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Lindgren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Pereira</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Eriksson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lindner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">M</forename><surname>Pinho</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Ada-Europe 2014: 19th International Conference on Reliable Software Technologies</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Sweet-a tool for wcet flow analysis</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Lisper</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Symposium On Leveraging Applications of Formal Methods, Verification and Validation</title>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="482" to="485" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">J. ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973-01">Jan. 1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Efficient implementation of tight responsetimes for tasks with offsets</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mäki-Turja</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Nolin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">40</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="77" to="116" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">The rust language</title>
+		<author>
+			<persName><forename type="first">N</forename><forename type="middle">D</forename><surname>Matsakis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">S</forename><surname>Klock</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><forename type="middle">I</forename></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">In ACM SIGAda Ada Letters</title>
+		<imprint>
+			<biblScope unit="volume">34</biblScope>
+			<biblScope unit="page" from="103" to="104" />
+			<date type="published" when="2014">2014</date>
+			<publisher>ACM</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Multi-solver support in symbolic execution</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Palikareva</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Cadar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Computer Aided Verification (CAV 2013)</title>
+		<imprint>
+			<biblScope unit="volume">7</biblScope>
+			<biblScope unit="page">2013</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Static worst-case execution time analysis tool development</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">H</forename><surname>Thomas Jerabek</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">The Ninth International Conference on Dependability</title>
+		<imprint>
+			<date type="published" when="2016">2016. 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">On computable numbers, with an application to the entscheidungsproblem</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">M</forename><surname>Turing</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the London mathematical society</title>
+		<meeting>the London mathematical society</meeting>
+		<imprint>
+			<date type="published" when="1937">1937</date>
+			<biblScope unit="volume">2</biblScope>
+			<biblScope unit="page" from="230" to="265" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<monogr>
+		<title level="m" type="main">The rust programming language</title>
+		<ptr target="https://doc.rust-lang.org/book/second-edition/ch04-02-references-and-borrowing.html#mutable-references" />
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="2018" to="2022" />
+		</imprint>
+	</monogr>
+	<note>Various contributors</note>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

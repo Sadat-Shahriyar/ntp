@@ -1,0 +1,800 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">PiCAS: New Design of Priority-Driven Chain-Aware Scheduling for ROS2</title>
+				<funder ref="#_Yz8gjDB">
+					<orgName type="full">Office of Naval Research</orgName>
+					<orgName type="abbreviated">ONR</orgName>
+				</funder>
+				<funder ref="#_NUQxgay">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Hyunjong</forename><surname>Choi</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">University of California</orgName>
+								<address>
+									<settlement>Riverside</settlement>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Yecheng</forename><surname>Xiang</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">University of California</orgName>
+								<address>
+									<settlement>Riverside</settlement>
+								</address>
+							</affiliation>
+						</author>
+						<author role="corresp">
+							<persName><forename type="first">Hyoseung</forename><surname>Kim</surname></persName>
+							<email>hyoseung@ucr.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">University of California</orgName>
+								<address>
+									<settlement>Riverside</settlement>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">PiCAS: New Design of Priority-Driven Chain-Aware Scheduling for ROS2</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">4265C2DED4F35DF0398484EE041E572D</idno>
+					<idno type="DOI">10.1109/RTAS52030.2021.00028</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T05:13+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>In ROS (Robot Operating System), most applications in time-and safety-critical domain are constructed in the form of callback chains with data dependencies. Due to the shortcomings in its real-time support, ROS does not provide a strong timing guarantee and may lead to disastrous results. Although ROS2 claims to enhance the real-time capability, ensuring predictable end-to-end chain latency still remains a challenging problem. In this paper, we propose a new prioritydriven chain-aware scheduler for the ROS2 framework and present end-to-end latency analysis for the proposed scheduler. With our scheduler, callbacks are prioritized based on the given timing requirements of the corresponding chains so that the end-to-end latency of critical chains can be improved with a predictable bound. The proposed scheduling design includes priority assignment and resource allocation considering all ROS2 schedulingrelated abstractions, e.g., callbacks, nodes, and executors. To the best of our knowledge, this is the first work to address the inherent limitations of ROS2 in end-to-end latency by proposing a new scheduler design. We have implemented our scheduler in ROS2 running on NVIDIA Xavier NX. We have conducted case studies and schedulability experiments. The results show that the proposed scheduler yields a substantial improvement in end-toend latency over the default ROS2 scheduler and the latest work in real-world scenarios.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>ROS (Robot Operating System) <ref type="bibr" target="#b2">[4]</ref> is one of the most popular open-source middleware frameworks for robotic applications. The advent of ROS has revolutionized the developers community both in industry and academia, providing a tremendous number of tools, robot systems, and best-practices to build new applications <ref type="bibr" target="#b1">[3]</ref>. Behind such an achievement of productive robotic software developments during a short period of time, the software modularity and composability have played a major role. However, over the decades, ROS has revealed shortcomings in real-time support for timingand safety-critical applications. This had motivated the development of the second generation of ROS, ROS2, in the community.</p><p>ROS2 <ref type="bibr">[6]</ref> has been developed since 2017, with major considerations on improving real-time capabilities. Although most concepts are inherited from the original ROS framework, ROS2 employs unique features including inter-node communication through Data Distribution Service (DDS), which is the industry standard for real-time data distribution <ref type="bibr">[2]</ref>. The new architecture of ROS2 aims to better support real-time robotic software. However, it still does not guarantee stringent timing constraints and system designers need to empirically tune timing-related parameters.</p><p>Guaranteeing the timing constraints of safety-critical applications in ROS2 is a crucial functionality since violating those constraints may cause catastrophic consequences, e.g., a late response from the ROS navigation package for a path following control of a self-driving vehicle may cause a rearend accident. Also, providing such timing guarantees is challenging due to the following reasons. First, such applications generally form a chain which is composed of a set of callbacks with data dependencies. Therefore, the system designer is required to know a safe upper bound on the end-to-end latency of a chain. Second, although many prior studies have proposed analysis techniques for end-to-end chain latency <ref type="bibr" target="#b4">[7,</ref><ref type="bibr" target="#b6">9,</ref><ref type="bibr" target="#b9">12,</ref><ref type="bibr" target="#b18">21]</ref>, they cannot be directly applied to the ROS2 framework due to its unique scheduling behavior caused by various abstractions including executors and nodes (detailed in Sec. III-B).</p><p>To the best of our knowledge, the only recent work on formally analyzing the ROS2 scheduling architecture for realtime guarantees is the study done by Casini et al. <ref type="bibr" target="#b8">[11]</ref>. They particularly focused on analyzing the chains of callbacks within an executor, which is one of the core scheduling entities of ROS2. It is pioneering real-time work for ROS2 and it provides an analytical foundation to the research community. However, there are many unresolved issues, e.g., it only focuses on the scheduling behavior within an executor and does not consider the allocation of scheduling entities to executors and CPU cores in a multi-core system. Furthermore, the end-to-end latency analysis suffers from the limitations of the ROS2 scheduling architecture, motivating the development of a new scheduler design.</p><p>In this paper, we propose PiCAS, a priority-driven chainaware scheduler for ROS2 in a multi-core environment. The goal of our work is to minimize end-to-end chain latency by prioritizing the execution of callbacks of chains based on their criticality and timing requirements. We have implemented PiCAS in the ROS2 "Eloquent Elusor" version and evaluated its performance on a real embedded platform. The main contributions of this paper are shown as follows:</p><p>• We present the design of PiCAS that includes the priority assignment of callbacks and the allocation of nodes to executors and executors to CPU cores in a multi-core platform. PiCAS makes callbacks and executors execute while respecting the end-to-end timing requirement of chains. • We develop analysis to upper-bound the end-to-end latency of chains under the proposed PiCAS framework. The analysis provides safe bounds of end-to-end latency of chains.</p><p>• We have conducted case studies using practical scenarios on an embedded platform and schedulability experiments using random workloads. Experimental results indicate our proposed scheduler yields a significant improvement in endto-end latency over the default ROS2 scheduler and the latest analytical work. The rest of the paper is organized as follows. Sec. II reviews prior work. Sec. III gives the background on ROS2 and our system model used in this paper. Sec. IV describes specific challenges, and Sec. V presents our proposed chain-aware scheduling scheme. The analysis of the end-to-end latency is presented in Sec. VI. In Sec. VII, evaluation results are shown. Finally, Sec. VIII concludes the paper with future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. RELATED WORK</head><p>Most work on ROS has focused on improving real-time capabilities <ref type="bibr" target="#b23">[26,</ref><ref type="bibr" target="#b24">27,</ref><ref type="bibr" target="#b26">29]</ref>. In <ref type="bibr" target="#b23">[26]</ref>, Saito et al. proposed a priority-based message transmission mechanism by allowing publishers to send data based on their priorities. Wei et al. <ref type="bibr" target="#b26">[29]</ref> proposed a hybrid OS platform which executes a real-time ROS node (on Nuttx) and a non-real-time ROS node (on Linux) separately by running two operating systems. In <ref type="bibr" target="#b24">[27]</ref>, ROSCH-G, a loadable kernel framework, is proposed as a real-time extension to ROS with a CPU/GPU coordination mechanism. However, these studies do not provide analytical methods to guarantee real-time timing constraints or are only applied to the first generation of ROS.</p><p>For ROS2, Maruyama et al. <ref type="bibr" target="#b20">[23]</ref> conducted an empirical evaluation with various QoS configurations under different vendor-specific DDS implementations. In <ref type="bibr" target="#b13">[16]</ref>, the worst-case latency between two nodes is measured and the deadline miss behavior is observed in a PREEMPT-RT patched Linux kernel system. Both studies evaluated the performance of ROS2 using measurement-based approaches, but did not provide formal modeling or analysis.</p><p>Many studies have been conducted on analyzing end-to-end chain latency in a publisher-subscriber model or with readexecute-write semantics. Palencia et al. proposed approaches to analyze tasks with precedence constraints in multi-core systems <ref type="bibr" target="#b21">[24,</ref><ref type="bibr" target="#b22">25]</ref>. In <ref type="bibr" target="#b12">[15,</ref><ref type="bibr" target="#b25">28]</ref>, methods to capture an upper bound on the end-to-end latency of tasks are presented based on the worst-case response time. Kloda et al. <ref type="bibr" target="#b18">[21]</ref>, Abdullah et al. <ref type="bibr" target="#b4">[7]</ref>, and Becker et al. <ref type="bibr" target="#b6">[9]</ref> presented analytical methods to bound the end-to-end latency of a chain under fixed-priority scheduling. The most recent work by Choi et al. <ref type="bibr" target="#b9">[12]</ref> proposed chain-based fixed-priority scheduling to improve the end-toend latency of chains. However, none of these analytical approaches cannot be directly applicable to ROS2 due to differences in the scheduling model.</p><p>The literature on the latency of ROS2 processing chains is quite limited. To the best of our knowledge, <ref type="bibr" target="#b8">[11]</ref> is the only work on modeling the ROS2 scheduler and providing a response-time analysis of chains. The authors of that paper investigated callback scheduling behavior within an executor and used resource reservation to model the resource availability of a given executor. The end-to-end latency of a chain is </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>CPU cores</head><p>Fig. <ref type="figure">1</ref>: ROS2 architecture and the scope of our work analyzed by first computing response time of each sub-chain that consists of callbacks within an executor, and then adding the response times of sub-chains spanning across executors based on the compositional performance analysis (CPA) <ref type="bibr" target="#b15">[18]</ref>. Their approach lays the groundwork to analyze the default ROS2 scheduler. However, it remains unanswered how to allocate resources and further improve the end-to-end latency of critical chains.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. BACKGROUND AND SYSTEM MODEL</head><p>A. ROS2 architecture ROS2 is a unified implementation of multiple layers of abstraction as illustrated in Fig 1 . Applications are supported by language-specific client libraries such as C++ and Python officially and many other programming languages from the ROS community. The ROS client library (rcl) provides APIs to ensure consistent behavior between programs written in different languages. The ROS middleware library (rmw) is a communication interface between rcl and the Data Distribution Service (DDS) and is implemented DDS vendor-specific. DDS is an industry standard real-time communication system and is newly added to ROS2 to exchange messages between the publishers and the subscribers of nodes.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Scheduling-related abstractions</head><p>The fundamental scheduling-related abstractions of ROS2 include callbacks, nodes, and executors.</p><p>• Callback is the minimal schedulable entity in ROS2. There are 5 types of callbacks in ROS2 <ref type="bibr" target="#b8">[11]</ref>: timer, subscription, service, client, and waitable callbacks. The timer callback periodically arrives at its own rate, i.e., time-triggered. The others are triggered by external events, i.e., event-triggered.</p><p>Basically, the transport of messages between publishers and subscribers can be achieved by implementing callback functions in ROS2. • Node is a collection of callback functions, organized by application programmers for modularity and logical partitioning of features. Each node also serves as the minimum allocation unit to executors; hence, all callbacks within the same node are executed by the same executor and they cannot be allocated to two or more executors. In general, each application is composed of multiple nodes with multiple callbacks per node. • Executor is the OS-level schedulable entity running on CPU cores, i.e., a thread, and executes the callbacks assigned to it. The allocation of callbacks to executors is done through the node abstraction. Once nodes are allocated to an executor, all the callbacks of those nodes are handled by the executor, regardless of the origin of the callbacks. Callback scheduling within an executor is quite different from conventional priority-based real-time task scheduling, as reported in <ref type="bibr" target="#b8">[11]</ref>. An executor features two unique behaviors in callback scheduling. First, the priority of callbacks is determined by their types. Timer callbacks always have the highest priority and the others get the next highest priorities in the order presented before. All callbacks are executed non-preemptively. Second, an executor updates the ready status of non-timer callbacks in their respective queues by interacting with the communication middleware layer (rmw) shown in Fig. <ref type="figure">1</ref>. This update occurs when all queues are empty (called a polling point), and such a delayed update of callback readiness makes the priority assignment of nontimer callbacks ineffective <ref type="bibr" target="#b8">[11]</ref> and lets chains run in a round-robin-like manner.</p><p>Chain. On top of the scheduling-related abstractions of ROS2, chains can be constructed by application developers. A chain is a semantic abstraction defined by message exchanges between callbacks of one or more nodes. ROS2 does not define any property on a chain and the executor does not take into account the timing and resource requirements of a chain in callback scheduling. However, since the end-to-end latency of a chain has a major impact on the performance of a safety-critical realtime system, we focus on the scheduling, resource allocation, and analysis of chains in this paper.</p><p>Overload handling. ROS2 features an overload handling mechanism in case a timer callback has missed one or more of its periods. The overload handling mechanism occurs at the beginning of timer callback execution (by running rcl_timer_call function in the rcl layer). First, the next_call_time variable is updated by adding the period of the timer callback to its current value so that the new value indicates the time to trigger the next timer callback. Then, if next_call_time is behind the current time, the first step is repeated so that it points to the earliest future time. Hence, missed timer jobs due to overload are skipped naturally and the timer callback can execute in the next future period. In the occurrence of overload, the maximum delay imposed on the end-to-end latency of a time-triggered chain is at most one period of the timer callback, regardless of the number of timer jobs skipped in the past. This is because the release time of a chain instance is effectively determined by the start time of the period where the timer callback job is executed and starts that chain instance. We will make use of this behavior to capture the maximum blocking delay from a prior chain instance in Lemma 4 of Sec. VI. Note that this mechanism is similar to the job-skipping approaches for deadline missed jobs in the literature <ref type="bibr" target="#b10">[13,</ref><ref type="bibr" target="#b11">14,</ref><ref type="bibr" target="#b14">17,</ref><ref type="bibr" target="#b19">22]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. System model</head><p>This paper considers multi-core system where all CPU cores run at the same fixed clock frequency. Below we introduce our model for callbacks, nodes, and executors.</p><p>1) Callback model: The system has M real-time callbacks, each is either a timer callback, which is triggered by a periodic timer, or a regular callback, which is triggered by an event from another callback (e.g., the completion of its prior callback in a chain). Each callback has one chain associated with it. A callback τ i is characterized as follows:</p><formula xml:id="formula_0">τ i := (C i , D i , T i , π i )</formula><p>• C i : The worst-case execution time of a job of τ i .</p><p>• D i : The relative deadline of a callback τ i , which is equal to the deadline of its associated chain. • T i : The period of a callback τ i , which is equal to the period of its associated chain (D i ≤ T i ).</p><p>• π i : The priority of a callback τ i within its executor 2) Node model: We use N to denote a set of nodes as follow:</p><formula xml:id="formula_1">N =: {n 1 , ..., n j , ..., n N }</formula><p>and the utilization of each node n j is given by:</p><formula xml:id="formula_2">U (n j ) = ∀ti:τi∈nj C i T i</formula><p>It is worth noting that nodes do not have priorities since they are not schedulable entities. They only impose restrictions on callback-to-executor allocation, e.g., callbacks in the same node cannot be separately allocated to two or more executors.</p><p>3) Executor model: We denote a set of executors as below:</p><formula xml:id="formula_3">E =: {e 1 , ..., e j , ..., e E }</formula><p>The priority of j-th executor is denoted by π ej and E is sorted in descending order of priority, i.e., π ej &gt; π ej+1 . From a realtime perspective, the scheduling of executors by an OS has a large impact on the timing behavior of callbacks. In this work, we allocate each executor to one CPU core, and schedule the executors of each core with SCHED_FIFO, which is the fixedpriority preemptive real-time scheduling policy in Linux with a priority range from 1 to 99. Therefore, the maximum number of executors with unique priority, E, is limited to 99. 4) Chain model: Each chain consists of one or more callbacks. A chain Γ c is denoted as below:</p><formula xml:id="formula_4">Γ c := [τ s , τ m1 , τ m2 , ..., τ e ] • τ s : The start callback a chain Γ c . • τ m * : The intermediate callbacks of a chain Γ c .</formula><p>• τ e : The end callback of a chain Γ c . The priority of a chain Γ c is denoted by π Γ c and the superscript c is the identifier of the chain Γ c . This model has been widely used in prior work to analyze the end-to-end latency of a chain with inter-dependency among tasks. Following the timetriggered ROS2 chain model used in <ref type="bibr" target="#b8">[11]</ref>, the start callback of a chain is assumed to be a timer callback and the others  be regular callbacks. In case of event-triggered chains, as discussed in <ref type="bibr" target="#b8">[11]</ref>, one can model the first regular callback of a chain (triggered by an external event) as a timer callback with the event's arrival period. Note that a periodic real-time task in conventional task models can be represented as a single timer callback chain in our model. We use C Γ c to denote the total WCET (worst-case execution time) of a chain Γ c :</p><formula xml:id="formula_5">C Γ c = ∀i:τi∈Γ c C i</formula><p>Implications of chain priority. We assume that the priority of a chain, π Γ c , is given by the system designer based on its criticality or importance in the system. We call it semantic priority since it is not part of the original ROS2 framework but should govern the priority assignment of callbacks and executors in order to satisfy application-level requirements.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. CHALLENGES</head><p>In this section, we elaborate on the challenges of the current ROS2 framework based on the scheduling behavior we have observed from experiments using an embedded platform. The experiments were conducted using the ROS2 "Eloquent Elusor" version running on NVIDIA Xavier NX. Two safetycritical chains consisting of 10 callbacks are used as described in Table <ref type="table" target="#tab_1">I</ref>. We assume that chain 1 is more critical than chain 2, i.e., π Γ 1 &gt; π Γ 2 . τ 1 and τ 4 are timer callbacks with a period of 1 sec and all other callbacks are regular callbacks. With the assumption of a uniprocessor system, the following two cases are performed: (1) all callbacks are in a single executor, and (2) callbacks of each chain are allocated to a separate executor, i.e., one executor per chain. Now, we discuss the following two major challenges observed from our experiments. Challenge 1. Fairness-based scheduling within executors. The unique scheduling behavior of an executor discussed in Sec. III-B is that it schedules timer callbacks always first and makes the priority assignment of other regular callbacks ineffective. Besides, since the ROS2 scheduler do not distinguish callbacks by their chains, all callbacks are scheduled without the notion of chain-level timing requirements in mind. Fig. <ref type="figure">2a</ref> shows the scheduling timeline of callbacks within a single executor when two chains are run together. As we can observe, ROS2 gives fair progress of both chains over time, and such fairness-based scheduling may jeopardize the timeliness of safety-critical chains, resulting in extremely high latency as depicted in Table <ref type="table" target="#tab_2">II</ref>. Challenge 2. Priority assignment for executors. By default, executors are scheduled by the Completely Fair Scheduler (CFS) <ref type="bibr" target="#b27">[30]</ref> of the Linux kernel. Under this scheduler, it is hard to predictably prioritize the executors that are running callbacks from critical chains. Fortunately, the system developers can manually assign OS-level priority to executors although ROS2 does not provide an official interface to configure it. However, there exist no general guideline on the priority assignment of ROS2 executors. The most intuitive way is to assign the highest priority to an executor running the most critical chain, as we have done in Fig. <ref type="figure">2b</ref>. Here, the executor containing all callbacks of chain 1 has the real-time priority of 99 with the SCHED_FIFO policy and the other executor of chain 2 has 98. However, this method does not resolve the problem of undesirably high latency for chain 2, shown in Table <ref type="table" target="#tab_2">II</ref>, which happens due to self-interference between the instances of chain 2 itself.</p><p>Note that the priority assignment for executors becomes more challenging if callbacks from chains with different criticalities are mixed in a single node because such callbacks cannot be separately allocated to different executors.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. PRIORITY-DRIVEN CHAIN-AWARE SCHEDULING</head><p>This section presents our priority-driven chain-aware scheduling framework for ROS2, called PiCAS. To improve the end-to-end latency of a chain, the current ROS2 scheduling architecture could be re-designed with the following considerations: (1) higher-priority chains should execute earlier than lower-priority chains (Fig 2a <ref type="figure">),</ref> and<ref type="figure"></ref> (2) for each chain, a prior instance of the chain should complete its execution before the newly released instance starts execution if they are scheduled on the same CPU (Fig <ref type="figure">2b</ref>). The latter is to reduce self-interference between instances of the same chain, thereby preventing undesirable latency increases. Based on the above considerations, we state the desired properties for our scheduler in the following lemma.</p><p>Lemma 1. For the chain Γ c := [τ 1 , ...τ i , ..., τ j , ..., τ N ] whose callbacks are on the same CPU, a prior chain instance is guaranteed to complete its execution before a new instance starts execution if the following conditions are met: (1) τ j has a higher callback priority than τ i (j &gt; i), and (2) τ j runs on an executor with the same or higher priority than τ i 's executor.</p><p>Proof: The proof can be done by contradiction. Suppose that a new chain instance starts execution before its prior instance completes, i.e., τ 1 executes before the completion of τ j (1 &lt; j ≤ N ) on the same CPU. Such behavior occurs in the following cases: (1) τ 1 has a higher priority than τ j when they are on the same executor, (2) τ 1 has a lower priority than τ j but is assigned to a higher-priority executor than τ j 's, and (3) τ 1 has a higher priority than τ j and belongs to a higherpriority executor than τ j 's. These contradict at least one of the conditions. Hence, the proof is done.</p><p>Note that, if the callbacks of a given chain Γ c are distributed across multiple CPU cores, a new instance of that chain may have a chance to start earlier than the completion of its prior instance. However, Lemma 1 still applies to the consecutive subset of Γ c assigned to one CPU core. The conditions of the lemma ensure that the corresponding subset of instances are executed in their arrival order, and thus, any instance of Γ c does not get interference from its future instances.</p><p>Based on Lemma 1, the rest of this section first outlines our scheduling strategies considering two aspects: chains running within an executor (Sec. V-A) and across executors (Sec. V-B). It then presents the proposed callback priority assignment (Sec. V-C) and chain-aware node allocation (Sec. V-D) algorithms that substantialize these strategies. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Strategies for chains running within an executor</head><p>We first describe our strategies for chains running within an executor. These strategies affect how the callbacks of such chains are scheduled in an executor, and they are derived from our classification of chains and callbacks shown in Fig. <ref type="figure" target="#fig_1">3</ref>, with each strategy mapped to one of the categories. It is worth noting that callback scheduling is orthogonal to node configurations (given by program code) and node-to-executor allocations (determined by our algorithm in Sec. V-D). This is because, once the callbacks of nodes are assigned to executors, each executor handles assigned callbacks regardless of their origin nodes.</p><p>Strategy I. Regular callbacks from a single chain. If an executor has only regular callbacks from a single chain Γ c =: [τ 1 , ..., τ i , ..., τ j , ..., τ N ], the priorities of those callbacks should be assigned in the reverse order of their sequence in the chain, i.e., τ j (j &gt; i) gets a higher priority than τ i , in order to satisfy the first condition of Lemma 1.</p><p>Strategy II. Timer and regular callbacks from a single chain. If an executor contains both timer and regular callbacks of a single chain Γ c , the regular callbacks should be given higher priorities than the timer callback to satisfy the first condition of Lemma 1 (because the timer is placed before all other regular callbacks in the chain). The scheduling of the regular callbacks should follow Strategy I.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Strategy III. Regular callbacks from multiple chains.</head><p>Consider two chains, Γ c and Γ c , where π Γ c &lt; π Γ c (i.e., Γ c has a higher semantic priority than Γ c ). If an executor contains regular callbacks from both Γ c and Γ c , all callbacks of Γ c should be assigned higher priorities than those of Γ c . In addition, the priority assignment of callbacks for each chain should follow Strategy I individually. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Strategy IV. Timer and regular callbacks from multiple</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Strategies for chains running across executors</head><p>Next we discuss scheduling strategies for chains running across multiple executors. Since each executor is allocated to one CPU core and scheduled by the OS's preemptive fixedpriority scheduler, we need to consider chain scheduling on each CPU that may have multiple executors assigned to it. The following two strategies will serve as the basis for our allocation algorithm in Sec. V-D. Note that executors here are assumed to follow Strategies I to IV given in Sec V-A. Strategy V. A single chain on one CPU. Suppose a CPU has callbacks from only a single chain Γ c . In this case, the executor containing the lower-index callbacks τ i of Γ c should have the same or lower priority than the other executors on the same CPU that execute the higher-index callbacks τ j (j &gt; i) of Γ c . This is to satisfy the second condition of Lemma 1. Strategy VI. Multiple chains on one CPU. Suppose a CPU has callbacks from multiple chains (e.g., Γ c and Γ c on the same CPU where π Γ c &lt; π Γ c ). In this case, the executor that contains the callbacks of Γ c should have at least the same or higher priority than those including the callbacks of Γ c , in order to respect the semantic priority of chains.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Priority assignment of callbacks</head><p>To realize the aforementioned scheduling strategies, we first propose a callback priority assignment algorithm in this subsection. Our algorithm enables callbacks within each executor to implement Strategies I to IV and is given in Alg. 1.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Algorithm 1 Callback priority assignment</head><p>Input: Γ: chains 1: Γ ← sort in ascending order of semantic priority π Γ 2: p ← 1 Initialize current priority 3: for all Γ c ∈ Γ do</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>4:</head><p>for all τ i ∈ Γ c do 5:</p><formula xml:id="formula_6">τ i ← p 6: p ← p + 1 7:</formula><p>end for 8: end for</p><p>The proposed algorithm takes a hierarchical approach to assign priorities to callbacks, considering first the semantic priorities of their origin chains and then the relative priority ordering within each chain. In Alg. 1, chains are sorted in ascending order of their semantic priorities (line 1) and the outer loop iterates starting from the lowest semantic priority chain (line 3). According to our chain model in Sec. III-C, the callbacks of each chain are already arranged from the start (low index) callback to the end (high index) callback. Hence, the inner loop assigns a lower priority to a callback with a lower index for each chain Γ c (line 4 to line 7), i.e., the timer callback gets the lowest priority in the chain and the end callback gets the highest priority.  </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Chain-aware node allocation scheme</head><p>This subsection presents our chain-aware node allocation scheme for ROS2. The proposed scheme allocates given nodes to executors, and then maps these executors to available CPU cores while following the scheduling strategies mentioned before. This scheme also tries to minimize interference between chains by allocating all nodes associated with one chain to the same CPU core whenever possible. The allocation scheme is done offline and does not introduce runtime overhead. It is worth noting that nodes cannot be split arbitrarily by a resource-allocation algorithm because nodes are composed by programmers for modularity and logical partitioning of features in ROS2. <ref type="foot" target="#foot_1">1</ref> In addition, data-dependency relationship between nodes is unaffected by the node allocation since communication between nodes is done explicitly by messages and does not change regardless of which executor they use. Fig. <ref type="figure" target="#fig_3">5</ref> illustrates the flow diagram of the proposed node allocation scheme. The scheme takes as input the maximum number of executors to use (M), the number of available CPU cores (P), and the set of nodes to be allocated (N ). It first sorts nodes in N in descending order of the highest-priority callback that each node includes. This means that nodes associated with a higher semantic priority chain are allocated first by the scheme. Let us use Γ c to denote the highest semantic priority chain that has not been allocated yet (so its associated nodes are in N ). The scheme selects a subset of nodes, N, by fetching nodes from N one at a time until all the nodes associated with Γ c are fetched or the utilization of N exceeds 1. Then the scheme checks if there is an empty executor e e and moves on to the actual allocation phase consisting of three parts. Part A allocates N to e e and e e to a feasible CPU core. Part B is the case where e e does not exist; it finds a non-empty executor e m that is feasible for N. Part C handles all leftover nodes that were not allocated to executors by the first two parts. Details on each part are given below. Part A. This part of the scheme begins when there is an empty executor e e . It assigns N to e e , and finds all feasible CPU cores P k whose utilization including e e does not exceed 1, i.e., U ee + U P k ≤ 1. If such a CPU core is not found, the scheme removes a node n that contains the lowest-priority callback from N, sends n back to N (so that it can be reconsidered), and finds feasible CPUs for N again until there remains one node in N. If N has only one node and no feasible CPU is found, it is sent to Part C. Otherwise, among all feasible CPUs found, N is assigned to the one that has the lowest utilization and satisfies Strategies V and VI. If none satisfies those strategies, N will be handled Part C. Note that each executor has a unique OS-level real-time priority in the range from 1 to 99 under the SCHED_FIFO policy, and we use the highest-priority empty executor first. Part B. In this part, N is allocated to a non-empty executor e m that has been already assigned to a CPU core P k , i.e., e e ∈ P k . Similar to Part A, the scheme finds all feasible non-empty executors e m where U N + U P k ≤ 1. If no feasible executor exists, the scheme extracts a node n from N and search for available executors iteratively until only one node remains in N. If N has only one node and cannot find any feasible executor, this node will be handled by Part C. N is assigned to the executor that has the lowest utilization and satisfies Strategies I to VI. When no executor meets the strategies, N will be handled by Part C. Part C. This part handles N that could not be allocated to executors or CPUs by Parts A and B. There are two reasons why N could not be allocated. First, a feasible CPU core P k was found but Strategies V and VI were not satisfied. In this case, the scheme merges all executors on P k into a single executor so that the two strategies are trivially satisfied. Secondly, all CPU cores have a utilization higher than 1. Since ROS2 can handle overloaded cases based on the mechanism described in Sec. III-B, we do allocate N to the CPU core whose utilization is the lowest. We will assess the scheduling performance of PiCAS and the default ROS2 scheduler for overloaded cases in Sec. VII.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Example of priority-driven chain-aware scheduling</head><p>Recall the chain set in  </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. ANALYSIS OF END-TO-END LATENCY</head><p>This section presents the end-to-end latency analysis of a chain under the proposed chain-aware scheduling for ROS2. For the purpose, a consecutive subset of a chain Γ c on one CPU core (called a segment Φ i ) can be considered as a single artificial callback. This is because, once the timer callback of Γ c arrives based on its period, the rest callbacks are triggered directly by the completion of their prior callbacks and there is no self-induced delay between them. If a chain executes over multiple CPU cores, it can be decomposed into multiple segments. Therefore, the end-to-end analysis of a chain can be done by two steps: (i) computing the worst-case response time (WCRT) of each segments of a chain, and (ii) adding up the WCRTs of all segments of the given chain. Fig. <ref type="figure" target="#fig_4">6</ref> illustrates an example of a chain with three segments. We will present each step and explain how the analysis is done. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Worst-case response time of a segment Φ i</head><p>At first, we compute the WCRT of each segment of a chain. A segment Φ i is considered as a single artificial callback whose priority is inherited from the lowest-priority callback of Φ i , and its WCET is the sum of all callbacks' WCET in that segment. Interference from higher semantic priority chains. In order to analyze the WCRT of a target segment Φ i , we need to upper bound the maximum interference imposed by other callbacks. In our framework, such callbacks run in higher-priority executors than Φ i 's executor on the same CPU, or are higher-priority callbacks in the same executor as Φ i . Considering these, the following lemma captures the maximum number of arrivals of an interfering callback τ k for an arbitrary time interval t.</p><p>Lemma 2. The maximum number of arrivals of a callback τ k ∈ Γ c that causes interference to a target segment Φ i ⊂ Γ c during an arbitrary time window t is bounded by:</p><formula xml:id="formula_7">η i (t, τ k ) = ⎧ ⎨ ⎩ t T Γ c , if π Γ c &gt;π Γ c ∧P (Φi)=P (τ k ) 0 , otherwise<label>(1)</label></formula><p>where</p><formula xml:id="formula_8">T Γ c = max(T Γ c , τj ∈Γ c C j ), if all callbacks of Γ c</formula><p>are on the same CPU, and</p><formula xml:id="formula_9">T Γ c = T Γ c , otherwise; T Γ c is the period of Γ c ; and P (τ k ) is τ k 's CPU core.</formula><p>Proof: The proof can be done by considering the following two cases. The first case is that the chain of τ k has a higher semantic priority than the chain of Φ i (π Γ c &gt; π Γ c ) and the interfering task τ k is on the same CPU as Φ i (P (Φ) = P (τ k )). In this case, τ k can interfere with Φ i whenever it arrives. If the system is not overloaded, τ k can arrive every T Γ c . On the other hand, if the system is overloaded and all callbacks of Γ c are on the same CPU, the arrival interval of τ k cannot be shorter than the sum of the execution times of all callbacks in Γ c because its prior chain instance always completes before a new instance starts, as proved in Lemma 1. Note that the two conditions of this lemma are satisfied by our callback priority assignment and node allocation schemes. Therefore, T Γ c takes the maximum of these two to bound τ k 's arrival period.</p><p>The second case includes all the other conditions that are not considered by the first case. (i) If π Γ c &gt; π Γ c but τ k is on a different core, τ k obviously does not cause any interference to Φ i . (ii) If π Γ c = π Γ c , it means τ k and Φ i are from the same chain and they do not interfere with each other by Lemma 1. (iii) If π Γ c &lt; π Γ c , one thing we need to consider is whether τ k can be in a higher-priority executor than Φ i 's executor. However, by Strategy VI, τ k is allocated to the same or lower priority executor than Φ i . If τ k is in a lower-priority executor, obviously no interference occurs. If τ k is in the same executor, it gets lower priority than Φ i by Alg. 1 and cannot cause interference delay to Φ i ; τ k can cause blocking delay in this case, which is captured separately using a different term.</p><p>Blocking time from lower priority callback. Due to the non-preemptive scheduling nature within an executor, a lowerpriority callback can cause blocking delay at most once to the target segment Φ i . The maximum blocking time B i for Φ i is therefore bounded by the longest execution time of a lowerpriority callback τ j in the same executor and is given by:</p><formula xml:id="formula_10">B i = max ∀j:τj ∈e(Φi)∧τj / ∈Γ c ∧πj &lt;πi {C j } (2)</formula><p>where e(Φ i ) is the executor of Φ i .</p><p>Based on Lemma 1 and Eq. 2, the worst-case response time of a segment Φ i can be calculated as follow:</p><formula xml:id="formula_11">Lemma 3. The worst-case response time of a segment Φ i ⊂ Γ c , denoted by R n c,i , is bounded by the following recurrence: R n+1 c,i ← B i + ∀j:τj ∈Φi C j + ∀k:τ k ∈e(Φi)∨ τ k ∈eHP η i (R n c,i , τ k ) × C k (3</formula><p>) where e HP is a set of executors with higher priority than the executor of Φ i . The recurrence starts with R 0 c,i = B i + ∀j:τj ∈Φi C j .</p><p>Proof: It is obvious from Lemma 1 and Equation 2. Note that Lemma 3 captures the WCRT of a segment Φ i that is a subset of the chain Γ c . Hence, it can also be used to compute the WCRT of just a single callback τ j , by setting Φ i = {τ j }. In this case, the computed WCRT of τ j represents the time from when τ j is triggered to when it completes its execution.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. End-to-end latency of a chain Γ c</head><p>Finally, we analyze the end-to-end latency of a given chain in the proposed chain-aware scheduling framework. Delay from prior chain instance. Recall the scheduling behavior of chain instances when the conditions of Lemma 1 are satisfied. Since the next released chain instance can start its execution only after the completion of its prior chain instance, the next instance may experience an additional blocking delay from the prior chain instance. Lemma 4. The maximum blocking delay caused by a prior instance of the chain Γ c , denoted by S(Γ c ), is given by:</p><formula xml:id="formula_12">S(Γ c ) = ⎧ ⎨ ⎩ 0 , if Φi⊂Γ c R n c,i ≤ T Γ c T τs , otherwise<label>(4)</label></formula><p>where T Γ c is the period of Γ c .</p><p>Proof: If the cumulative WCRT of Φ i ⊂ Γ c is less than or equal to the period of the chain, no blocking delay occurs for the next chain instance since the previous instance finishes before the next one is released. Otherwise, the next instance can be delayed at most one cycle of the chain's period by the overload handling mechanism of ROS2 as explained in Sec III-B. Thus, the proof is done.</p><p>Theorem 1. The end-to-end latency of a chain Γ c is computed by:</p><formula xml:id="formula_13">L Γ c ← Φi⊂Γ c R n c,i + S(Γ c )<label>(5)</label></formula><p>where Φ i is a segment of the chain Γ c .</p><p>Proof: The proof is straightforward. Since a chain is composed of callbacks that are triggered by the completion of their prior callbacks, the end-to-end latency of the chain is obtained by summing up the WCRT of all segments of the chain. Besides, we consider the blocking delay S(Γ c ) that can be caused by a prior chain instance.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. EVALUATION</head><p>This section evaluates our proposed PiCAS framework by comparing it with the default ROS2 scheduler and the state-of-the-art analysis work. We first conduct case studies on a real platform running self-driving software to identify the practical effectiveness of PiCAS. We then perform schedulability experiments using randomly-generated workloads to explore the performance characteristics of PiCAS and the default ROS2 scheduler.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Implementation</head><p>We have implemented the proposed scheduler in the Eloquent Elusor version of ROS2 running on Ubuntu 18.04 in an NVIDIA Xavier NX platform which is equipped with a six-core ARM®v8.2 1.4GHz processor. Since the ROS2 scheduler features a unique callback scheduling policy discussed in Sec. III-B, our implementation mainly modifies the callback scheduling policy: (i) the condition for updating ready callbacks in the executor's queues, and (ii) the priority assignment for individual callbacks. In ROS2, an executor (rclcpp in Fig. <ref type="figure">1</ref>) interacts with the communication layer (rmw in Fig. <ref type="figure">1</ref>) to fetch ready callbacks onto its queues. Our scheduler implementation updates those queues whenever a callback completes. If one or more callbacks are ready in the queues, our scheduler choose to execute the one with the highest priority determined by the proposed priority assignment (Alg. 1), instead of following ROS2's default assignment.</p><p>Note that the above modifications can be made without a large software endeavor so that the ROS developer and research communities can access and evaluate it easily.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Case study</head><p>The case study is organized into three parts. The first part focuses on a simple uniprocessor system for comparative evaluation with the state-of-the-art analysis work. The second and third parts evaluate more practical and complex multi-core systems, considering non-overload and overloaded situations.</p><p>Comparison of approaches. We compare our work with two other existing approaches. The first one is the ROS2 default scheduler, which runs executors with the Linux's default scheduling policy. This is a baseline but is not directly analyzable. The second one is the state-of-the-art analysis work <ref type="bibr" target="#b8">[11]</ref>, which also uses the ROS2 default scheduler but assumes that each executor has a resource reservation. In summary, the following three methods are compared:</p><p>• ROS2: ROS2 default scheduler with no analysis.</p><p>• ROS2-SD: ROS2 default scheduler with resource reservation and the worst-case response time analysis <ref type="bibr" target="#b8">[11]</ref>. • ROS2-PiCAS: Our Priority-driven Chain-Aware Scheduler with the proposed end-to-end analysis. Resource reservation for ROS2-SD can be implemented using the SCHED_DEADLINE policy in the Linux system. We also used the source code provided in <ref type="bibr" target="#b3">[5]</ref> by the authors of <ref type="bibr" target="#b8">[11]</ref> for the analysis of ROS2-SD. Since the analysis of ROS2-SD in <ref type="bibr" target="#b3">[5]</ref> does not support testing an overloaded system, we only apply the ROS2-SD analysis to non-overloaded setups. For analysis purposes, we measured the execution time of each callback in isolation from 5,000 runs on our embedded platform and chose the maximum observed one as the WCET of that callback. Case study I (uniprocessor system). We first evaluate chain latency for a given available budget, which is motivated by the case study used in <ref type="bibr" target="#b8">[11]</ref>. <ref type="bibr">Fig 7 illustrates</ref> this case study that consists of two chains in a uniprocessor environment. In accordance with the case study in <ref type="bibr" target="#b8">[11]</ref>, callbacks are allocated to the same reservation with a given budget amount and the priorities of callbacks are given in descending order of callback's index for ROS2-SD, i.e., a lower-index callback has a higher priority. In that sense, we consider that chain 1 (Γ 1 ) has a higher semantic priority than chain 2 (Γ 2 ), and use this information in ROS2-PiCAS for callback priority assignment and node allocation. To evaluate the effect of budget in ROS2-PiCAS, we created a periodic thread that runs with the same period (i.e., 80 ms) as the two chains (Γ 1 and Γ 2 ), but has the highest real-time priority in the system. Using this thread, we were able to limit the available budget for ROS2-PiCAS by adjusting the execution time of that thread, e.g., 20 ms of thread execution time per 80 ms leaves 75% of budget for ROS2-PiCAS. Fig. <ref type="figure" target="#fig_6">8</ref> shows the end-to-end latency of chains under the two approaches. As expected, we can observe that the latency of both approaches reduces as the available budget increases. For ROS2-SD, the latency of chain 1 and chain 2 are the same because the built-in ROS2 scheduling policy makes the priority assignment ineffective for upper-bounding the response time of callbacks, as explained in <ref type="bibr" target="#b8">[11]</ref>. However, chain 1 under ROS2-PiCAS has lower latency than ROS2-SD because our work prioritizes chains based on their semantic priority. We also carried out another experiment by increasing the executor priority of the two chains of ROS2-PiCAS higher than the periodic thread. As shown with yellow lines in Fig. <ref type="figure" target="#fig_6">8</ref>, we observe that the latency is consistent regardless of the available budget because the chains are not interfered by the periodic thread in this case.</p><p>Case study II (multi-core system). To evaluate the effectiveness of chain-aware scheduling in practical scenarios, we add more complex chains inspired by the indoor self-driving stack of the F1/10 vehicle platform <ref type="bibr" target="#b0">[1]</ref>. This case study consists of 6 real-time chains that we are interested in and 6 other best-efforts chains in a 4-core system. Fig. <ref type="figure" target="#fig_7">10</ref> shows the chain configuration in this case study. We assume that a lower-index chain has a higher semantic priority. With given priorities of chains, ROS2-PiCAS is used for node allocation. It first allocates chain 1 to chain 4 each to a different CPU core, and then distributes the others in a load-balancing manner. The utilization of each CPU core after allocation is 0.97 on average. Since no allocation scheme is provided by the default ROS2 scheduler as well as the prior work <ref type="bibr" target="#b8">[11]</ref>, we used the same node-to-core assignment and one executor per core for ROS2 and ROS2-SD. For ROS2-SD, we also set the resource reservation budget to 100% on each core. Fig. <ref type="figure">9a</ref> illustrates the observed end-to-end latency of chains under the three approaches. Fig. <ref type="figure">9b</ref> shows the maximum observed latency from our measurements and compares it with the analyzed latency. We clarify that the observed latency in our experiments was obtained by recording the starting time of timer callback execution, not the release time, which was inevitable due to the lack of ROS2's support for setting the initial release offset. However, it is worth noting that the starting time of chain 1 to chain 4 are exactly the same as their release time under ROS2-PiCAS because they are each allocated to the highest priority executor on a different CPU core. Even if chain 5 and chain 6 are allocated to the same CPU cores as chain 1 (CPU 1) and chain 4 (CPU 4), respectively, we can easily estimate their release-time-based latency by considering their executors' priority (i.e., the second highest priority executor on each CPU core) and periods (i.e, harmonic with other chains) under ROS2-PiCAS. However, we cannot intuitively estimate the release-time-based latency under ROS2 and ROS2-SD.</p><p>As expected, ROS2-PiCAS outperforms the others on most real-time chains, e.g., chain 1 to chain 5. Besides, our latency analysis provides tighter upper-bounds for those real-time chains. However, we can see that the observed and analyzed latency of chain 6 under ROS2-PiCAS are worse than the others. We discuss this phenomenon for the following two reasons. First, under ROS2-PiCAS, a higher-priority chain 4 (T =100 ms and C=45.1 ms) can interfere with chain 6 (T =1000 ms and C=197.6 ms) multiple times, while under ROS2 and ROS2-SD, chain 4 and chain 6 can block only once each other due to the non-preemptive callback execution (a) Observed end-to-end latency of chains  and fairness-based scheduling of the default ROS2 scheduler. Secondly, the observed latency of chain 6 under ROS2 and ROS2-SD does not include the blocking time from chain 4 because the observed latency is obtained using the starting time of a timer callback, as explained above. For the latter reason, more clear evidence can be seen in chain 4. Due to the non-preemptiveness, we expect that the latency of chain 4 under ROS2 and ROS2-SD should be at least larger than the execution time of chain 6. However, the observed latency does not include the execution time of chain 6. The large difference between the observed and analyzed latency of chain 4 under ROS2-SD (265.5 ms vs. 1804 ms shown in Fig. <ref type="figure">9b</ref>) strengthens this argument. In conclusion, we found that PiCAS yields a substantial benefit in end-to-end chain latency and can schedule chains while respecting their semantic priority.</p><formula xml:id="formula_14">!" "# $ % &amp;'() !" * +" $ % &amp;'() !" "# $ ) !" * +" $ ) (b)</formula><p>Case study III (overloaded scenario). We now use more best- efforts chains to evaluate latency behaviors in an overloaded system setup. By adding 4 more best-effort chains to the above multi-core system, we made each CPU core's utilization 1.25 on average. As can be seen in Fig. <ref type="figure" target="#fig_8">11</ref>, ROS2-PiCAS significantly outperforms the other approaches for real-time chains. In particular, ROS2-PiCAS achieves up to 85% and 90% reduction in the average end-to-end latency for the most critical chains, i.e., chain 1 and chain 2, respectively. Moreover, while the analysis for ROS2-PiCAS gives a tight upper-bound on real-time chains, the analysis of ROS2-SD failed to test this overloaded system.</p><p>Note that we did not observe any appreciable delay from inter-core timing interference in our experimental setup. However, shared memory resources such as caches, memory buses, and DRAM banks are critical sources that cause timing unpredictability in multi-core platforms <ref type="bibr" target="#b5">[8,</ref><ref type="bibr" target="#b16">19,</ref><ref type="bibr" target="#b17">20]</ref>. We leave addressing this issue as part of our future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Schedulability experiments</head><p>In this subsection, we evaluate the schedulability of chains under ROS2-SD and ROS2-PiCAS. We also assess the analysis running time of these approaches. All experiments are conducted on a machine equipped with dual AMD EPYC 7452 2.35GHz processors.</p><p>Workload generation. For each system utilization, We use 1, 000 randomly-generated workload sets of callbacks. The utilization of a workload set is selected from {2.5, 3.0, 3.5} for a 4-core environment. For each workload set, we use 45 callbacks that forms 9 chains, i.e., each chain consists of 5 callbacks. Each callback's utilization is obtained by the UUniFast algorithm <ref type="bibr" target="#b7">[10]</ref>. Chain period is chosen randomly in the range of [50, 1000] ms and the deadline is set equal to the period. The utilization of each chain does not exceed 1.0. After the generation of each workload set, chains are reordered such that lower-index chains have shorter period, and lower-index chains are assigned higher semantic priority.</p><p>! " Comparison of schedulability tests. The results of schedulability ratio at each utilization are shown in Fig. <ref type="figure">12</ref>. The schedulability ratio decreases as the utilization increases for both approaches. ROS2-PiCAS significantly outperforms ROS2-SD for all utilization setups. Under ROS2-PiCAS, the first four chains, i.e., chain 1 to chain 4, are always schedulable because they are each allocated to the highest priority executor on a different CPU core. Moreover, since ROS2-PiCAS prioritizes chains based on their semantic priority, the schedulability ratio decreases as the chain priority decreases (higher chain index). On the other hand, for ROS2-SD, we observe that the ratio decreases as the chain deadline gets shorter (lower chain index). This is mainly due to that ROS2-SD is agnostic to chain priority, as discussed with our case study I (Sec. VII-B).</p><p>!"# #$ !"# % &amp;# Fig. <ref type="figure" target="#fig_1">13</ref>: Comparison of analysis running time</p><p>Comparison of analysis running time. In this experiment, we compare the analysis running time, which is the time to compute the end-to-end latency of each workload set, for ROS2-SD and ROS2-PiCAS. Each analysis tool is single-threaded. The analysis running time is obviously affected by the utilization of the workload set. We thus use the same workload sets as before, where the utilization per workload set is 2.5, 3.0, and 3.5. Fig. <ref type="figure" target="#fig_1">13</ref> shows the results of the average analysis time.</p><p>The analysis time rises as the utilization increases under both approaches, but ROS2-SD is much slower than ROS2-PiCAS. This is because, unlike ROS2-PiCAS, the search space of the ROS2-SD analysis is for the longest possible busy interval (which tends to increase with the utilization) and the analysis iteratively searches for a global fixed point where all response times converge <ref type="bibr" target="#b8">[11]</ref>. Therefore, we conclude that the proposed analysis for chain-aware scheduler is much faster than the existing approach, thereby applicable to complex systems and runtime admission control.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. CONCLUSION</head><p>In this paper, we propose a priority-driven chain-aware scheduling and its end-to-end latency analysis framework for ROS2. To reduce the end-to-end latency based on the chains' criticality, we propose scheduling strategies for callbacks within and across executors. We then present callback priority assignment and chain-aware node allocation algorithms that substantialize those strategies. We implemented our chainaware scheduler in the Eloquent Elusor version of ROS2 running on the NVIDIA Xavier NX platform. The results of the case study demonstrate that our proposed scheduler outperforms the existing ROS2 scheduling with respect to the end-to-end latency under practical scenarios. It has also been shown that our analysis technique upper-bounds the latency tightly and results in a better schedulability ratio compared to the start-of-the-art. As a next step, we will deploy our work to more complex and practical scenarios such as an autonomous driving software that is built on ROS2, e.g., autoware.auto. We also plan to extend our work for diverse ROS2 settings including the configuration of QoS for DDS communication.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head></head><label></label><figDesc>Fig. 2: ROS2 scheduling example in a uniprocessor environment</figDesc><graphic coords="5,59.93,247.70,312.82,73.51" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: Chain/callback classification for scheduling purposes</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: Execution timeline with the proposed scheduling framework chains. If an executor contains both timer and regular callbacks from multiple chains (e.g., Γ c and Γ c where π Γ c &lt; π Γ c ), the timer callback from a higher semantic priority chain (Γ c ) should have a higher priority than that from a lower semantic priority chain (Γ c ). Since the timer callback is the starting point of each chain instance, such a prioritization ensures more critical chain instances to precede the less critical ones. Then, each chain should follow Strategy II individually to conform to Lemma 1.</figDesc><graphic coords="6,61.13,247.70,312.82,73.51" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: Diagram of the proposed node allocation scheme</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 6 :</head><label>6</label><figDesc>Fig. 6: Latency analysis of a chain in a multi-core system</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>5 Fig. 7 :</head><label>57</label><figDesc>Fig. 7: Case study I (uniprocessor system)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 8 :</head><label>8</label><figDesc>Fig.8: Effect of available budget on end-to-end chain latency</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 10 :</head><label>10</label><figDesc>Fig. 10: Case study II &amp; III (multi-core system)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Fig. 11 :</head><label>11</label><figDesc>Fig. 11: Case study III results for overloaded scenario</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>5 Fig. 12 :</head><label>512</label><figDesc>Fig. 12: Schedulability under ROS2-SD and ROS2-PiCAS</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>TABLE I :</head><label>I</label><figDesc>Chain set Chains Chain 1 Γ 1 =: [τ 1 , τ 2 , τ 3 ] Chain 2 Γ 2 =: [τ 4 , τ 5 , τ 6 , τ 7 , τ 8 , τ 9 , τ 10 ] Specifications [sec] Timer callback (τ 1 and τ 4 ) C i = 0.109, T i = 1 Regular callbacks C</figDesc><table /><note><p>i = 0.131</p></note></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head>TABLE II :</head><label>II</label><figDesc>End-to-end latency results[sec]    </figDesc><table><row><cell>Single executor</cell><cell>Mean</cell><cell>Max</cell><cell>Min</cell><cell>STD</cell></row><row><cell>Chain 1</cell><cell>36.865</cell><cell>72.752</cell><cell>0.505</cell><cell>21.223</cell></row><row><cell>Chain 2</cell><cell>36.730</cell><cell>73.149</cell><cell>0.773</cell><cell>21.154</cell></row><row><cell>Executor per chain</cell><cell>Mean</cell><cell>Max</cell><cell>Min</cell><cell>STD</cell></row><row><cell>Chain 1</cell><cell>0.370</cell><cell>0.392</cell><cell>0.366</cell><cell>0.004</cell></row><row><cell>Chain 2</cell><cell>48.795</cell><cell>97.783</cell><cell>0.772</cell><cell>28.304</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head></head><label></label><figDesc>Table I which results in high end-toend latency under ROS2's default scheduling, as discussed in Sec III. Now, we re-run the chain set under the proposed Pi-CAS framework. As illustrated in Fig 4, our scheduler executes</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>TABLE III :</head><label>III</label><figDesc>End-to-end latency results with PiCAS [sec]</figDesc><table><row><cell>Single executor</cell><cell>Mean</cell><cell>Max</cell><cell>Min</cell><cell>STD</cell></row><row><cell>Chain 1</cell><cell>0.436</cell><cell>0.506</cell><cell>0.368</cell><cell>0.038</cell></row><row><cell>Chain 2</cell><cell>1.196</cell><cell>1.738</cell><cell>0.741</cell><cell>0.348</cell></row><row><cell>Executor per chain</cell><cell>Mean</cell><cell>Max</cell><cell>Min</cell><cell>STD</cell></row><row><cell>Chain 1</cell><cell>0.369</cell><cell>0.394</cell><cell>0.366</cell><cell>0.004</cell></row><row><cell>Chain 2</cell><cell>1.255</cell><cell>1.731</cell><cell>0.737</cell><cell>0.352</cell></row><row><cell cols="5">callbacks of a higher semantic priority chain first. Besides, in</cell></row><row><cell cols="5">accordance with Lemma 1, the prior chain instance of each</cell></row><row><cell cols="5">chain completes execution before starting the execution of its</cell></row><row><cell cols="5">new chain instance in a uniprocessor environment. Table III</cell></row><row><cell cols="5">depicts the end-to-end latency for the following two cases: (1)</cell></row><row><cell cols="5">all callbacks are in a single executor, and (2) callbacks of each</cell></row><row><cell cols="5">chain are allocated to a separate executor. For both cases, we</cell></row><row><cell cols="5">have observed that PiCAS significantly improves the latency</cell></row><row><cell>of both chains.</cell><cell></cell><cell></cell><cell></cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_6"><head></head><label></label><figDesc>Maximum observed latency vs. analyzed latency Fig. 9: Case study II results for non-overload scenario</figDesc><table><row><cell cols="2">T=1000msec C=1.7msec</cell><cell>GOAL 17</cell><cell cols="3">C=16.1msec C=195.9mse global_plan 18 c</cell><cell>Global_planner</cell></row><row><cell></cell><cell></cell><cell></cell><cell cols="2">global_costmap</cell><cell></cell></row><row><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell>Local_planner</cell></row><row><cell>C=2.3msec T=80msec</cell><cell></cell><cell>LIDAR</cell><cell>pose C=2.2msec</cell><cell cols="3">local_costmap C=18.4msec</cell><cell>local_plan C=9.1msec 5</cell></row><row><cell>T=100msec C=23.1msec</cell><cell cols="2">6 CAMERA1</cell><cell>pre_processing C=7.9msec 7</cell><cell></cell><cell cols="2">object_detection C=14.2msec 8</cell><cell>9</cell><cell>C=17.9msec</cell></row><row><cell>C=20.6msec T=100msec</cell><cell cols="2">CAMERA2 10</cell><cell cols="2">depth_estimation 11 C=17.9msec</cell><cell cols="2">traffic_prediction 12 C=6.6msec</cell><cell>object_tracking</cell></row><row><cell>C=1.7msec T=160msec</cell><cell>13</cell><cell>TF</cell><cell>generate_robot_ joint_state 14 C=11.0msec</cell><cell cols="3">extract_robot_model (URDF) 15 C=6.6msec</cell><cell>state_data record_robot_ 16 C=7.9msec</cell></row><row><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="2">Chains</cell></row><row><cell cols="5">Timer callback(T:period, C:execution time) Regular callback Data dependency</cell><cell cols="2">1 =: 1 , 2 2 =: 1 , 3 , 4 , 5 3 =: 6 , 7 , 8 , 9</cell><cell>4 =: 10 , 11 , 12 5 =: 13 , 14 , 15 , 16 6 =: 17 , 18</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 06:20:13 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_1"><p>To split a single node and allocate it to two or more CPUs, the node's software code needs to be rewritten, which is beyond the scope of this work.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENT</head><p>We gratefully acknowledge the support from the <rs type="funder">Office of Naval Research (ONR)</rs> grant <rs type="grantNumber">N00014-19-1-2496</rs> and the <rs type="funder">National Science Foundation (NSF)</rs> award <rs type="grantNumber">1943265</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_Yz8gjDB">
+					<idno type="grant-number">N00014-19-1-2496</idno>
+				</org>
+				<org type="funding" xml:id="_NUQxgay">
+					<idno type="grant-number">1943265</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<ptr target="https://f1tenth.org/" />
+		<title level="m">F1tenth</title>
+		<imprint>
+			<date type="published" when="2020-10">October 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<ptr target="http://download.ros.org/downloads/metrics/metrics-report-2018-07.pdf" />
+		<title level="m">ROS Community Metrics Report</title>
+		<imprint>
+			<date type="published" when="2020-10">October 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<ptr target="http://wiki.ros.org/ROS/Introduction" />
+		<title level="m">ROS Introduction</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">response time analysis</title>
+		<ptr target="https://github.com/boschresearch/ros2" />
+	</analytic>
+	<monogr>
+		<title level="m">ROS2 response time analysis</title>
+		<imprint>
+			<date type="published" when="2020-10">October 2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Worst-case cause-effect reaction latency in systems with non-blocking communication</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Abdullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Dai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2019 Design, Automation &amp; Test in Europe Conference &amp; Exhibition (DATE)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="1625" to="1630" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of tasks with corunner-dependent execution times</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">D</forename><surname>Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Embedded Computing Systems (TECS)</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="1" to="29" />
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Synthesizing job-level dependencies for automotive multi-rate effect chains</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Becker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dasari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Mubeen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 IEEE 22nd International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="159" to="169" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Measuring the performance of schedulability tests</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="issue">1-2</biblScope>
+			<biblScope unit="page" from="129" to="154" />
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Response-time analysis of ros 2 processing chains under reservation-based scheduling</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lütkebohle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Schloss Dagstuhl-Leibniz-Zentrum fuer Informatik</title>
+		<imprint>
+			<date type="published" when="2019">2019. 2019</date>
+		</imprint>
+	</monogr>
+	<note>31st Euromicro Conference on Real-Time Systems</note>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Chain-based fixed-priority scheduling of loosely-dependent tasks</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Karimi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2020 IEEE The 38th IEEE International Conference on Computer Design (ICCD)</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Work-in-progress: A unified runtime framework for weakly-hard real-time systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Brief Presentations of RTAS</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Job-class-level fixed priority scheduling of weakly-hard real-time systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Zhu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2019 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="241" to="253" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Period optimization for hard real-time distributed automotive systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Davare</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Zhu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Di Natale</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Pinello</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kanajan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Sangiovanni-Vincentelli</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 44th annual Design Automation Conference</title>
+		<meeting>the 44th annual Design Automation Conference</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="278" to="283" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">S V</forename><surname>Gutiérrez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">U S</forename><surname>Juan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><forename type="middle">Z</forename><surname>Ugarte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><forename type="middle">M</forename><surname>Vilches</surname></persName>
+		</author>
+		<idno type="arXiv">arXiv:1809.02595</idno>
+		<title level="m">Towards a distributed and real-time framework for robots: Evaluation of ros 2.0 communications for real-time robotic applications</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">arXiv preprint</note>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Budgeting under-specified tasks for weakly-hard real-time systems</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Hammadeh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Quinton</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Panunzio</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Henia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Rioux</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS 2017-29th Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="1" to="22" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">System level performance analysis-the SymTA/S approach</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Henia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Jersak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Racu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Richter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEE Proceedings-Computers and Digital Techniques</title>
+		<imprint>
+			<biblScope unit="volume">152</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="148" to="166" />
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Bounding memory interference delay in COTS-based multi-core systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Mutlu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2014">2014. 2014</date>
+			<biblScope unit="page" from="145" to="154" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Predictable shared cache management for multi-core real-time virtualization</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Embedded Computing Systems (TECS)</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="1" to="27" />
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Latency analysis for data chains of real-time periodic tasks</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Kloda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bertout</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Sorel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 IEEE 23rd International Conference on Emerging Technologies and Factory Automation (ETFA)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="page" from="360" to="367" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Skip-over: Algorithms and complexity for overloaded systems that allow skips</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Koren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Shasha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings 16th IEEE Real-Time Systems Symposium</title>
+		<meeting>16th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1995">1995</date>
+			<biblScope unit="page" from="110" to="117" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Exploring the performance of ros2</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Maruyama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 13th International Conference on Embedded Software</title>
+		<meeting>the 13th International Conference on Embedded Software</meeting>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis for tasks with static and dynamic offsets</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">C</forename><surname>Palencia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">G</forename><surname>Harbour</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings 19th IEEE Real-Time Systems Symposium (Cat. No. 98CB36279)</title>
+		<meeting>19th IEEE Real-Time Systems Symposium (Cat. No. 98CB36279)</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1998">1998</date>
+			<biblScope unit="page" from="26" to="37" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Exploiting precedence relations in the schedulability analysis of distributed real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">C</forename><surname>Palencia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">G</forename><surname>Harbour</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings 20th IEEE Real-Time Systems Symposium (Cat. No. 99CB37054)</title>
+		<meeting>20th IEEE Real-Time Systems Symposium (Cat. No. 99CB37054)</meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1999">1999</date>
+			<biblScope unit="page" from="328" to="339" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Priority and synchronization support for ros</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Saito</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Nishio</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 IEEE 4th International Conference on Cyber-Physical Systems, Networks, and Applications (CPSNA)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="77" to="82" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">ROSCH: real-time scheduling framework for ros</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Saito</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Sato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Nishio</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 IEEE 24th International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="52" to="58" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Response-time analysis for task chains in communicating threads</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Schlatow</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">RT-ROS: A real-time ros architecture on multi-core processors</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Wei</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Shao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Tan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Shao</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Future Generation Computer Systems</title>
+		<imprint>
+			<biblScope unit="volume">56</biblScope>
+			<biblScope unit="page" from="171" to="178" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Fairness and interactive performance of O(1) and CFS Linux kernel schedulers</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">S</forename><surname>Wong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><forename type="middle">K T</forename><surname>Tan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">D</forename><surname>Kumari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Lam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Fun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2008 International Symposium on Information Technology</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="volume">4</biblScope>
+			<biblScope unit="page" from="1" to="8" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

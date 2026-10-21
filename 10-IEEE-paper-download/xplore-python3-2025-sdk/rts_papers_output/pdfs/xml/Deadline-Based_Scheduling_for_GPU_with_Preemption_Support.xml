@@ -1,0 +1,849 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Deadline-based Scheduling for GPU with Preemption Support</title>
+				<funder ref="#_pnBQnRE">
+					<orgName type="full">EU Commission</orgName>
+				</funder>
+				<funder ref="#_SNZVCBA">
+					<orgName type="full">unknown</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Nicola</forename><surname>Capodieci</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Physics, Mathematics and Informatics</orgName>
+								<orgName type="institution">University of Modena and Reggio Emilia Modena</orgName>
+								<address>
+									<country key="IT">Italy</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Roberto</forename><surname>Cavicchioli</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Physics, Mathematics and Informatics</orgName>
+								<orgName type="institution">University of Modena and Reggio Emilia Modena</orgName>
+								<address>
+									<country key="IT">Italy</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Marko</forename><surname>Bertogna</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Physics, Mathematics and Informatics</orgName>
+								<orgName type="institution">University of Modena and Reggio Emilia Modena</orgName>
+								<address>
+									<country key="IT">Italy</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Aingara</forename><surname>Paramakuru</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="institution">NVIDIA Corporation Toronto</orgName>
+								<address>
+									<country key="CA">Canada</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Deadline-based Scheduling for GPU with Preemption Support</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">9FC6FA308500B1A56648D16110F79CAF</idno>
+					<idno type="DOI">10.1109/RTSS.2018.00021</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T00:53+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>GPU</term>
+					<term>Scheduling</term>
+					<term>real-time</term>
+					<term>ADAS</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Modern automotive-grade embedded computing platforms feature high-performance Graphics Processing Units (GPUs) to support the massively parallel processing power needed for next-generation autonomous driving applications (e.g., Deep Neural Network (DNN) inference, sensor fusion, path planning, etc). As these workload-intensive activities are pushed to higher criticality levels, there is a stronger need for more predictable scheduling algorithms that are able to guarantee predictability without overly sacrificing GPU utilization. Unfortunately, the real-rime literature on GPU scheduling mostly considered limited (or null) preemption capabilities, while previous efforts in broader domains were often based on programming models and APIs that were not designed to support the real-rime requirements of recurring workloads. In this paper, we present the design of a prototype real-time scheduler for GPU activities on an embedded System on a Chip (SoC) featuring a cuttingedge GPU architecture by NVIDIA adopted in the autonomous driving domain. The scheduler runs as a software partition on top of the NVIDIA hypervisor, and it leverages latest generation architectural features, such as pixel-level preemption and threadlevel preemption. Such a design allowed us to implement and test a preemptive Earliest Deadline First (EDF) scheduler for GPU tasks providing bandwidth isolations by means of a Constant Bandwidth Server (CBS). Our work involved investigating alternative programming models for compute APIs, allowing us to characterize CPU-to-GPU command submission with more detailed scheduling information. A detailed experimental characterization is presented to show the significant schedulability improvement of recurring real-time GPU tasks.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>There is an increasing need in Advanced Driver Assistance Systems (ADAS) and Autonomous Vehicles (AV) technologies to support hybrid settings where highly-critical applications execute on the same embedded platform with less critical applications. High-performance embedded platforms are being proposed featuring multiple computing units, where shared resources across domains characterized by different criticality levels are usually managed by a hypervisor. To provide the required performance for complex ADAS/AV tasks, these systems often feature an integrated GPU as a massively parallel programmable processor that has to be shared across a potentially large variety of applications, each having different timing requirements. Being the component that provides the highest computing performance in the System of Chip (SoC), the GPU is becoming the most critical component to schedule in such heterogeneous systems. This led to the challenge of designing a real-time scheduler for GPU applications able to tackle both graphic and computing workloads that are typical of a vehicle capable of driving itself or to act as an intelligent assistant for the human driver. In such applications, GPU workloads may include DNN inference computing kernels, but also other generic embarrassingly parallel algorithms related to image processing, SFM (Structure From Motion), generic path planning and sensor fusion. Examples for graphic applications are speedometer and virtual cockpit rendering. The computing workloads potentially executed on high-performance embedded SoCs may therefore belong to different criticality domains. Some of them may be implicitly or explicitly constrained by deadlines, as it is typical for real-time tasks, whereas other applications may rather have weaker QoS requirements, henceforth called Best-Effort tasks.</p><p>In this paper, we propose and discuss the first (to the best of our knowledge) prototype implementation of a deadlinebased scheduler with preemption support for GPU tasks in a virtualized environment. Previous efforts on GPU scheduling, as detailed in the next section, assumed little to no preemption capabilities for GPU tasks, or they did not take into account the possibility to leverage different programming models for GPU APIs in order to fully exploit event-driven scheduling algorithms. Deadline-based scheduling algorithms such as EDF (Earliest Deadline First) are known to be an optimal choice when scheduling systems composed of a single computing resource able to execute only one task at a time <ref type="bibr" target="#b0">[1]</ref>. Since the single-instruction multiple-data (SIMD) execution paradigm of an integrated GPU fits the single-resource model for tasks working on parallel data in lockstep mode, EDF scheduling may be particularly useful to achieve a higher schedulable utilization for GPU tasks. Note that not all indepth technical details of the setting can be revealed, nor the code be made freely available, due to NDA restrictions. Still, we did an extensive effort to provide information on previously undisclosed technical details, proposed implementation and API extensions, experimentally characterizing our solution over representative workloads and synthetic benchmarks. To investigate preemptive EDF policies for scheduling GPU tasks, we utilize a recently released NVIDIA Tegra-based SoCs able to expose shader/kernel preemption functionalities. Tests and experiments have been performed on an NVIDIA Drive-PX "AutoCruise" platform featuring the Parker SoC. A notable feature of this SoC is the Pascal-based integrated GPU (gp10b) that allowed us to overcome some of the limitations assumed in previous papers dealing with real-time GPU scheduling. Since the introduction of the Pascal architecture, NVIDIA GPUs are graphic processing units able to support preemption at pixellevel for graphic applications, and at thread-level for CUDA compute workloads <ref type="bibr" target="#b1">[2]</ref>. By leveraging this novel feature, and by having access to the NVIDIA software stack for embedded automotive systems, we were able to implement a prototyped version of an EDF-scheduler, which we then enhanced with a Constant Bandwidth Server (CBS) for providing task isolation in case of misbehaving applications. The implementation of such a scheduler implied: -Transitioning from a pre-existent table-based approach to an event-driven approach for GPU commands submission; -Prototyping an enhanced programming model for both CUDA and OpenGL with real-time extensions; -Prototyping an alternative SW (software) scheduler implementation that acts as a privileged guest in the hypervisor, improving over the currently implemented NVIDIA scheduler; -Integrating our prototype with the pre-existing model for handling dependencies between the NVIDIA computing platform sensors/actuators and the respective GPU tasks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. RELATED WORK</head><p>The GPU scheduling problem has been tackled by different research works. For graphic applications, Kato et al. proposed TimeGraph <ref type="bibr" target="#b2">[3]</ref>, a non-preemptive fixed-priority scheduler for only graphic GPU tasks, based on a modification of the Nouveau Open Source driver for NVIDIA GPU. The adopted event-driven approach is shown to outperform Best-Effort policies for scheduling real-time GPU tasks. More recently, Schnitzer et al. <ref type="bibr" target="#b3">[4]</ref> proposed a Reservation-based scheduling mechanism for tasks, that also relies on open source GPU drivers. The goal was to schedule 3D-graphics tasks of an automotive application to meet frame-rate constraints, e.g., speedometer rendering rate as mandated by legal specifications. Lower priority tasks are scheduled only if there is sufficient slack to schedule higher priority GPU jobs before their deadlines, represented by a target framerate.</p><p>Our contribution modifies the proprietary NVIDIA driver to implement an event-driven scheduler, but it improves over both mentioned works in multiple aspect: (i) supporting not only graphic tasks but also GPU compute tasks; (ii) exploiting a much finer preemption granularity for GPU tasks, i.e., at pixel-and thread 1 -level; (iii) implementing a dynamic priority scheduler with resource reservation; and (iv) providing API extensions to consider tasks dependencies, deadlines, budgets and periods.</p><p>With relation to CUDA general-purpose kernels, Elliot et al. proposed in <ref type="bibr" target="#b4">[5]</ref> system-wide lock mechanisms for GPU engines (Compute and Copy). In this solution, GPU engines are 1 Thread-level preemption implies being able to preempt a CUDA kernel at compute instruction granularity seen as mutually-exclusive resources that can be accessed only by given real-time locking protocols. Based on this assumption, the authors developed GPUSync, a software framework for GPU management in multi-core real-time systems.</p><p>Tasks are assumed to be composed of a CPU-and a GPUpart, where CPU activities are scheduled with EDF, while GPU kernels are scheduled with a non-preemptable FIFO algorithm. This latter choice is imposed by the fact that (differently from our presented work) no GPU preemption capabilities were considered in <ref type="bibr" target="#b4">[5]</ref>.</p><p>Other attempts to enhance the standard GPU hardware and software scheduler are related to the implementation of Persistent Threads and related applications <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b6">[7]</ref>. Userdefined scheduling policies are obtained by batching many kernel calls into a single invocation to then arbitrate the execution of blocks of GPU threads within one or more persistently executing GPU threads <ref type="bibr" target="#b7">[8]</ref>. All referred approaches consider the GPU as a non-preemptable resource, limiting the scheduling strategies that can be applied in such scenarios. Even if preemption of a CUDA kernel can be achieved by splitting a single kernel invocation into many different ones to have a better control over the scheduled blocks of threads <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b9">[10]</ref>, this solution adds a significant overhead at the CPU side, while enabling only coarse grained preemptions, i.e., CTA (Cooperative Thread Array) level preemption within prioritized CUDA streams <ref type="bibr" target="#b10">[11]</ref>. Moreover, these solutions imply significant changes both at CPU-host and GPUkernel code level, preventing their adoption to closed-source tasks. Although recent contributions managed to mitigate this limitation by introducing source-to-source transformation at compiler level <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b12">[13]</ref>, these solutions are still limited to a block-or task-level preemption granularity. For this reason, previous efforts on GPU scheduling cannot be used to implement resource reservation policies based on aperiodic servers, such as Constant/Total Bandwidth Servers <ref type="bibr" target="#b13">[14]</ref>, <ref type="bibr" target="#b14">[15]</ref> and Deferrable/Polling Servers <ref type="bibr" target="#b15">[16]</ref>, as these mechanisms require preemption at a fine and known granularity.</p><p>Another common shortcoming of previously cited contributions is the lack of proper mechanisms to consider and arbitrate dependencies among different GPU applications. GPU-level dependencies are crucial to take into account, as they represent one of the most challenging aspects from a GPU scheduling point of view. Accounting for such dependencies implied a significant effort when developing a preemptive GPU scheduler. In order to fully exploit the proposed scheduling mechanisms, we also enhanced the programming model extending the API for real-time GPU applications. To our knowledge, previous contribution did not provide the possibility to specify deadlines, budgets and periods for GPU tasks at programming model level.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. PROTOTYPE IMPLEMENTATION</head><p>In this section, we detail our prototype implementation of a GPU scheduler at the software level. In order to do so, we first discuss some basic information related to the computing platform adopted in our implementation, disclosing the actual approach adopted by NVIDIA to GPU scheduling in current automotive-grade boards. It is important to highlight that sections III-A, III-B and III-C refer to the actual architectural solutions that are currently adopted within NVIDIA automotive boards. We then detail our prototype implementation for an EDF based scheduler with preemption support from section III-D.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Drive PX description</head><p>NVIDIA Drive PX is a high-performance embedded computing platform commonly used in Advanced Driving Assistance Systems (ADAS) and autonomous driving applications. The board features two versions: "AutoChauffeur" and "AutoCruise". The first one is a small scale supercomputer featuring two Tegra Parker SoCs, allowing external connection to up to two discrete GPUs connected through PCI-express. The second version, the one adopted in our experiments in Section VI, is a much simpler platform featuring a single Tegra Parker SoC, with a significantly smaller power consumption (10-15 W).</p><p>The Tegra Parker SoC is the latest embedded processing unit by NVIDIA, featuring a two-island CPU-complex and a high performance integrated GPU sharing the same LPDDR4 system memory. The CPU-complex is composed of a four-core A57 (ARMv8-A 64bit) island and by a dual-core NVIDIA Denver island. Denver is the NVIDIA proprietary design of a 64bit ARMv8-A compliant CPU architecture<ref type="foot" target="#foot_1">2</ref> . The GPU is an integrated scaled-down version of the newly released Pascal Architecture, commonly featured in both consumer-level and HPC-level graphics cards. The integrated GPU on Parker (gp10b) is characterized by two Streaming Multiprocessors (SMs), each featuring 128 CUDA cores.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. GPU Scheduling and synchronization</head><p>With GPU scheduling, we refer to the arbitration mechanisms that regulate access to the GPU by the different applications. We do not consider the CTA (Cooperative Thread Array) hardware scheduling support within the same application, as it is out of the scope of this work. Recently disclosed information on NVIDIA GPU scheduler shows the presence of a hardware scheduler embedded in the GPU within a component called "Host<ref type="foot" target="#foot_2">3</ref> ". The Host component is responsible for dispatching work to the respective GPU engines, such as the Copy, Compute and Graphics engines, in a Round-Robin way, and it is able to act in an asynchronous and parallel manner with respect to the CPU complex.</p><p>The Host scheduler fetches work related to channels, where a channel is an independent stream of work to be executed on the GPU on behalf of user-space applications. It is worth noticing that channels are transparent to a user-space programmer, which specifies GPU workloads through appropriate API (CUDA, OpenGL, etc.) function calls. Such a workload Fig. <ref type="figure">1:</ref> A reconstructed runlist composed of 2 High priority task and 2 Medium priority tasks. consists of a sequence of GPU commands that are inserted in a Command Push Buffer, which is a memory region written by the CPU and read by the GPU. Channels are therefore related to an application's Command Push buffer. Synchronization within a group of commands in the same channel or between different channels is implemented by means of semaphores and syncpoints, which are synchronization primitives able to be acquired and released by CPU, GPU engines and host1x <ref type="foot" target="#foot_3">4</ref> . Synchronization operations such as acquiring and releasing a semaphore/syncpoint are commands enqueued within a Command Push Buffer.</p><p>A GPU application maps itself to one or more channels. Each channel is characterized by a different timeslice value to timeshare the GPU execution among the different channels. Whenever all the work within a channel is consumed, or a preemption is needed for timeslice expiration, the currently running channel undergoes a context switch. Hence, the Host will start dispatching workloads related to the next channel from a list called runlist, and so on. The way in which applications map to one or more channels is application/API dependent and will not be discussed here.</p><p>The runlist is a list of established channels that may or may not have pending work to execute. It is important not to confuse the concept of runlist with the concept of Command Push Buffer. A runlist is not a list of pending GPU commands to be dispatched to the appropriate engines. It is simply a list of channels, each one pointing to a Command Push Buffer that contains the list of pending commands for that channel.</p><p>The GPU Host implements a list-based scheduling policy that snoops each channel for work by browsing the runlist. Each channel has a number of entries in the runlist that is proportional to its interleaving level. The scheduler browses the runlist, checking for each entry if the corresponding Command Push Buffer has workload to execute. If it does, the channel is scheduled until it either completes execution, or its timeslice expires. In the latter case, the channel is preempted, and it will be resumed in the next entry associated to that channel. If instead the application has no workload to execute, the scheduler skips its entries, proceeding to the channels related to the next application. An open source version of the runlist construction algorithm can be found in the NVIDIA kernel driver stack <ref type="foot" target="#foot_4">5</ref> . In general, all channels of a given priority level have an occurrence in the runlist before there is an entry for one lower priority slot. The next entry at that priority level will be after all channels of the higher priority level had another slot, and so on. Fig. <ref type="figure">1</ref> shows a sample runlist built with the mentioned algorithm for the case with two high priority applications and two medium priority ones, each consisting of one channel.</p><p>Timeslice length, interleaving level and allowed preemption policy are the scheduling parameters that can be tuned by a user. The timeslice is the execution time assigned to a channel before being preempted. The interleaving level refers to the number of occurrences of a particular channel within a runlist. The rationale for allowing a channel to be replicated more than once in a runlist is to have higher priority channels be checked for work more often than lower priority ones, allowing critical applications to be more resilient towards CPU-side delays when submitting commands. Replicating a channel within a runlist does not replicate its pending commands; it only increases the frequency in which the GPU Host will poll for work submissions related to that channel. Checking higher priority applications more often than lower priority applications is a design choice motivated by the asynchronous relation between GPU Host scheduler and CPU-side command submissions. Lacking direct CPU-to-GPU interrupt support to signal new command submissions, the GPU scheduler may poll more often higher priority applications to reduce their latency. Finally, the preemption policy allows labeling a channel to be non-preemptable, so that even if its timeslice expires, it may keep executing until it has no more pending work. Other preemption policies are CTA or thread-level preemption (for CUDA) and pixel-level preemption (for graphics workloads), allowing a channel to be preempted at the finest possible granularity when its timeslice is over. In older GPU architectures, such as Kepler and Maxwell, data movements operated by the copy engine were non-preemptable; however, preemption points might be easily inserted by splitting long copies into multiple smaller chunks <ref type="bibr" target="#b10">[11]</ref>. In the considered GPU setting, i.e. Pascal GPU architecture, the hardware internally breaks up the copies into smaller chunks, so it is preemptable on this boundary.</p><p>Channels are established at context creation (i.e., at application launch). The Host keeps polling the command buffer related to the currently resident channel. Submitting new work or even adding/removing a channel does not have an immediate effect on Host scheduling. It is also worth mentioning that (i) the Host scheduler allows only one application to be resident within the GPU engines at a given time, and (ii) preemption is only initiated by a timeslice expiration event.</p><p>If the executing channel is marked as preemptive, a timeslice expiration event triggers its preemption at pixel-or thread-level boundary, depending if it is a graphic or compute workload. Essentially, this scheduler performs a work-conserving TDMA (Time Division Multiple Access) between channels, and each channel can be assigned multiple slots within the runlist, which is the sequence of slots in the TDMA round.</p><p>We are interested in analyzing the response time of a GPU task, which is defined as a recurring set of commands sent to the Command Push Buffer associated to a channel. According to the standard notation for characterizing recurring real-time activities, a GPU task τ i is characterized as</p><formula xml:id="formula_0">τ i . = (C i , D i , P i ),<label>(1)</label></formula><p>where C i is the requested GPU execution time, D i is the relative deadline, and P i is the period or minimum interarrival time between two job submissions. This model fits perfectly an advanced automotive application where critical tasks (both graphic and compute) such as pedestrian detection and speedometer rendering follow a recurring pattern. The computing platform periodically acquires frames from one or more cameras at periodic rates, to feed them to Deep Neural Networks (DNNs) for object detection. Speedometer rendering must have a minimum target framerate that coincides with the periodic VBLANK signal, also known as vertical blanking interval, i.e., the signal triggered by the display refresh rate.</p><p>The execution time C i may match the inference time for a DNN, or any other combination of CUDA kernel invocations and copy operations, or the actual rendering time of the draw calls needed for displaying a graphic application. NVIDIA's GPU scheduler is efficient for soft real-time requests and Best-Effort activities, but it shows some drawbacks in case of tighter real-time requirements. The scheduler allows only three priority levels (for interleaving), making this mechanism not sufficiently flexible for complex task sets. In addition, it is unclear how to estimate the optimal number of duplicated entries of a real-time task within the runlist, or how to properly select task timeslices. As will be shown in the experimental section, the list-based scheduling policy may lead to a very high latency between a job submission from the CPU and its actual execution on the GPU. Such a latency can be upper bounded using Theorem 1 in Appendix. Our analysis of the NVIDIA baseline scheduler proves that preemption alone (even at a fine granularity) is not sufficient for providing realtime guarantees to GPU task-sets. The focus of our work is to bypass the HW hardcoded arbitration policies, implementing scheduling algorithms at software level to improve real-time guarantees.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. NVIDIA hypervisor</head><p>The Drive PX platform development kit includes hypervisor and GPU virtualization technology, allowing multiple guests to concurrently run and access the GPU engines. Each guest might be mapped to different virtual or physical CPU cores, and it can run different operating systems. The hypervisor is able to guarantee memory spatial isolation and it manages both inter-VM (Virtual Machine) communication and resource sharing. The NVIDIA hypervisor follows the baremetal paradigm, statically assigning memory ranges and HW (hardware) devices to the different guests in an exclusive manner. However, certain devices might be shared among different VMs. This is the case of the GPU, which can be concurrently accessed by different guests. This is accomplished through a privileged SW scheduler guest called RunList Manager, or RLM. The other guests wishing to access the GPU have to contact the RLM server through the inter-VM communication infrastructure of the hypervisor for operations such as channel allocations, scheduling parameters setting, and other memory management operations. In other words, regular guests have a para-virtualized GPU driver in which security-sensitive and resource-sharing operations are actually managed by the RLM. The only direct-access operation to the GPU allowed to the clients is pushing commands to the command buffer so to be fetched by the GPU Host. This happens in a completely transparent manner with respect to CUDA or OpenGL API calls. Hence, no user-space application code refactoring is needed.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Scheduler implementation</head><p>To implement our prototype scheduler, we enhanced the RLM with a software scheduling module. A block diagram of the SW stack featuring our scheduler is depicted in Fig. <ref type="figure" target="#fig_0">2b</ref>.</p><p>The scheduler represents the interface towards the GPU HW, acting as a replacement of the current runlist-based approach. Our scheduling mechanism works by submitting to the GPU a runlist including only the channels mapped to the application selected by the scheduler, i.e., one application at a time. Since the GPU Host only polls channels included in the runlist, and the runlist is composed of a single resident application, the Host component is prevented from performing a context switch at timeslice boundaries. This allows implementing an internal RLM module able to take scheduling decisions of arbitrary complexity at SW side, without requiring modifications to the scheduling policy hardwired in the Host module. In order for our approach to work as expected, every application is marked as preemptable at pixel/thread granularity. Whenever our scheduler decides a new task is to be scheduled (i.e., enforcing a runlist update), a preemption signal is triggered on the currently running application.</p><p>On a design perspective, we had to modify the inner mechanisms of the currently implemented NVIDIA approach. As detailed in the previous section, the runlist-based arbitration has a list of pending work which is constantly and asynchronously polled with relation to the rest of the system. This mechanism is efficient to maximize throughput, but it may be not so appropriate to provide real-time guarantees to critical jobs, as scheduling decisions are not based on timing requirements, e.g., deadlines, periods and allowed budget. For this reason, we decided to implement an event-based approach relying on signals triggered by events such as new work submission, work batch completion and budget expiration (A,B and C in Fig. <ref type="figure" target="#fig_0">2b</ref>).</p><p>Whenever a batch of commands is written by a client guest to the Command Push Buffer, a signal denoting new work submission is triggered to the RLM module. The existing virtualization support in the NVIDIA hypervisor did not trigger such a communication procedure, mainly for performance reasons: both graphic and compute applications might write into the Push Buffer at a very high frequency, and even a slightest delay might result in visible performance deterioration. In our prototype, we traded performance for real-time compliance, triggering a signal every time a new batch of commands is pushed.</p><p>A similar mechanism is needed to signal when work is completed, notifying the SW scheduler whenever GPU engines are idle. In order to do this, we decided to take advantage of synchronization procedures (semaphores and syncpoints) that the client driver inserts within the Command Push Buffer, using them to understand whether the previous commands have been consumed by the engines. Such synchronization data structures are passed each time a submission of new work is notified to the SW scheduler.</p><p>The last signaling event is triggered internally by the RLM. Every time a new runlist with the relevant set of channels is pushed, a software timer keeps track of the time spent by the running application in the GPU engines. This is instrumental for developing scheduling algorithms based both on time-sharing and bandwidth reservation at application level. This latter signal is closely related to the implementation of the resource reservation scheduler detailed in the following section.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. EDF+CBS ALGORITHM</head><p>Our assumption to consider the GPU as a single computing resource may sound oversimplifying due to the massively parallel nature of a GPU. Newly released consumer/HPC level graphic cards featuring the same architecture as the one in the Parker SoC can scale up to a very large number of SMs, i.e., the computing cluster containing parallel executing CUDA cores. For example, an NVIDIA Tesla P100 scales up to 60 SMs. In these settings, mapping groups of SMs to different tasks might be instrumental for developing an efficient scheduling algorithm that still retains real-time properties.</p><p>In contrast, gp10b features only 2 SMs, as a completely different power consumption and die size is needed for embedded automotive scenarios. The GPU is sufficiently small to be considered as a single computing resource, where to schedule one GPU task at a time, hence taking advantage of thread-level parallelism within the task, but not among different tasks. The benefits of mapping multiple applications or tasks to different SM's would be neglected by GPU selfinterference <ref type="bibr" target="#b16">[17]</ref>. Considering an integrated GPU as a single resource suggested using EDF as a scheduling algorithm to maximize GPU resource utilization.</p><p>The absolute deadline d of a GPU task is computed as d = D i + t a , where t a is the job arrival time. A scheduler based on absolute deadlines allows us to be independent from the clock skews of the different sensors and actuators utilized in the analyzed system. However, misbehaving tasks may still cause enqueued critical jobs to be scheduled too late. For this reason, we implemented a Constant Bandwidth Server (CBS) to enforce resource reservation <ref type="bibr" target="#b17">[18]</ref> at task level. The budget B i of the CBS server is assumed equal to the WCET of the corresponding GPU task C i . Whenever a task overruns its budget, its deadline is proportionally postponed, potentially causing a preemption. CBS was selected for its design simplicity and limited implementation overhead, seamlessly integrating with the deadline-based scheduling support we prototyped at GPU level. Schedulability analysis with respect to EDF with CBS, also in the presence of shared resources can be found in <ref type="bibr" target="#b18">[19]</ref> and <ref type="bibr" target="#b19">[20]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Deadline-based GPU scheduling</head><p>Having defined the scheduling events that may modify the list of tasks, the EDF+CBS scheduler is implemented as a SW module on the RLM. However, there are a number of additional challenges that we had to consider. In particular we need to define the scheduling granularity, to detect and deal with inter-process dependencies and to handle Best-Effort applications.</p><p>Scheduling granularity. When designing a GPU scheduler, we had to decide at which granularity to take scheduling decisions. Doing it at command level would imply a heavy overhead due to the large number of commands that might compose a single API call. Setting deadlines only at application level would not provide the necessary flexibility, as an application may be composed of multiple jobs with different timing requirements. Therefore, we set the scheduling granularity at the level of command batches. A batch of commands is a group of commands that relates to a variable number of unsynchronized API calls. Such API calls use the same set of inputs and outputs related to a high-level definition of task. An example of how we define a batch of commands in a graphic application is represented by the set of commands for rendering the same frame. In a compute scenario involving DNN inference, we flag as a batch the set of commands related to the kernel invocations for each layer of the considered neural network, along with the data movements from CPU-GPU address space and vice versa. Graphic applications are batched by definition, as the swap buffers API call is used as frame delimiter. This cannot be applied for CUDA applications, hence our effort to propose an alternative programming model, as detailed in Section V.</p><p>Inter-process dependencies. Interprocess dependencies at GPU level have been only superficially considered in previous literature (see section II). However, this turned out to be one of the most challenging aspects when designing a real-time scheduler for the GPU. Dependencies between channels in the same application are trivially resolved by placing all the channels mapped to that application in the next runlist update. By doing so, the required channels for the considered application are available to be scheduled by the GPU to acquire and release the synchronization primitives for satisfying dependencies and enforcing the desired execution order. The hardware support at the GPU side is already optimized to sort out this kind of intra-application dependencies.</p><p>The same is not true when synchronization primitives are shared among command buffers kicked by different applications. An application -level example is given by the display server (Xorg or Weston) which is shared by multiple graphic client applications. Any kind of dependency graph can be established between an arbitrary number of GPU applications. This can be done by means of Khronos EGLStreams <ref type="bibr" target="#b20">[21]</ref>, which are sharable objects that allow sharing data across multiple contexts related to different APIs. This is how, for instance, a CUDA application might share a buffer with an OpenGL renderer, or how a video feed or a camera might share frames to be consumed by a CUDA application. EGLStreams act at user space level, flagging processes as data producer and consumer, but allowing these roles to switch over time <ref type="foot" target="#foot_6">6</ref> . At driver level, sharing of EGLStream objects translates into pushing acquire and release syncpoint operations in the Command Push Buffer.</p><p>In our prototype, we implemented a deadline inheritance mechanism described as follows. Consider a task set τ , in which a task τ i ∈ τ might be a consumer or a producer. If τ i is a consumer of τ k , that implies τ k being a producer of τ i , we will denote it as τ k &lt; τ i . Each task is mapped to one or more GPU channels. At every scheduling event, we need to decide how to fill the next runlist RL to submit to the GPU Host.</p><p>Once application τ i is pulled from the ordered list of deadline-based batches, a recursive procedure fills the next runlist to be submitted by including all the channels mapped to the chain of dependencies of τ i . The priority level of the channels added in this way is boosted to the same priority of application τ i . Namely, all tasks that have a precedence constraint with τ i have their priority boosted to that of τ i . Once this new runlist is pushed to the GPU, every time a dependency is satisfied, the corresponding channels are disabled/removed from the current runlist. EGLStream shared objects are internally managed by GPU synchronization primitives like semaphores and syncpoints. As previously highlighted, this information is passed with each notification of new work submission (details in section III-D).</p><p>Best-Effort applications. We cannot expect Best-Effort applications to behave in a ideal manner, let alone to have them to communicate period, budget and deadlines to therefore send commands in a timely fashion. On the contrary, Best-Effort applications may flood the Command Push Buffer, potentially affecting the predictability of the system. In our prototype, we implemented a fixed-priority scheduler to arbitrate Best-Effort applications, that operates only when no real-time task is ready to execute.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. API REAL-TIME EXTENSION</head><p>For enforcing the scheduling decision detailed in the previous sections, we need to allow the application developer to expose API functionalities for specifying task boundaries and respective timing parameters. We do this by prototyping API extensions for both CUDA and OpenGL. Ideally, considering the available support at API-side, a different programming model would be more suitable. The closest programming model able to fit our needs is represented by newly released APIs, such as Vulkan and Direct3D 12. These novel approaches to GPU programming involve preparing in advance pipeline state objects and command buffers to be then later submitted within a single (or limited set of) write operation inside the Command Push Buffer. We refer to these single submissions as a batch of commands.</p><p>The minimal CPU-to-GPU submission mechanism for these novel APIs involves minimal driver interactions and validation procedures, therefore minimizing the impact of CPUside delays during command submission. This is in contrast with the traditional APIs (e.g., CUDA and OpenGL) and respective programming models, in which commands are constantly streamed from the CPU to the GPU, with each API call being validated at driver level. Such paradigm not only constitutes an additional threat to predictability, but it also makes it impossible for CUDA applications to define a concept of batched command submission. If we were able to complement these novel programming models with the possibility of sending scheduling parameters (period, budget and relative deadline) attached to each submission, the RLM guest would be informed about the most suitable scheduling decisions to take based on such parameters, properly sorting the queue of deadline batches, as well as setting the CBS with the appropriate budget and period.</p><p>Rather than exploiting Vulkan, our implementation extends the traditional APIs to become closer to such a newer generation of programming models. This allows us to fully exploit the maturity that characterizes traditional APIs, in terms of pre-existing libraries (such as cuDNN for CUDA) and available support. Our extensions are basically additional user space runtime OpenGL and CUDA functions that internally trigger appropriate messages and signals to the RLM. Graphic applications are intrinsically batched. On an application-level perspective, this resulted in the creation of an OpenGL API call able to inform the RLM about the rendering WCET and the desired target frame-rate. We do this before the rendering loop, i.e., during the graphic context initialization, as detailed in Listing 1 in the Appendix.</p><p>When the graphic application starts submitting commands related to the different frames, the RLM associates them to the scheduling parameters that have been previously specified. Such scheduling parameters are sent as a message to the hypervisor layer through the API-level function call that we introduced. This function is called glSetFrameTarget and takes two parameters as input: an unsigned integer for indicating the desired framerate, and another unsigned integer identifying the budget in μs to assign for the draw calls needed for rendering the subsequent frames.</p><p>For CUDA compute applications, instead, commands are not batched, as there is no equivalent concept of frame boundary. In order to create batches of commands, we introduce two additional CUDA runtime API calls: cudaStreamDeadlineBegin and cudaStreamDeadlineEnd. These API calls allow us to bind different batches of commands within different CUDA streams, where a CUDA stream is a software abstraction of a queue of commands which are executed in the order they are inserted into the stream. Therefore, our API extension allows us to identify task boundaries where to define scheduling parameters (period, budget and relative deadline) that will be then associated by the RLM to all the commands included between the code block of cudaStreamDeadlineBegin and End. Scheduling parameters are inserted as input arguments for cudaStreamDeadlineBegin. More specifically, the input arguments for the added function calls are:</p><p>-cudaStream t s : the CUDA stream in which we want to enqueue the commands to schedule.</p><p>-uint32 t D r : the relative deadline of the batch of commands <ref type="bibr">[μs]</ref>.</p><p>-uint32 t B : the budget of the batch of commands [μs] -int32 t P : the period of the batch of commands [μs]. Work completion notification from CPU side to the GPU is implemented through cudaStreamDeadlineEnd, which is a wrapper to the CUDA standard runtime function cudaS-treamAddCallback. This function registers an asynchronous callback to notify the RLM when the previously enqueued operations of the CUDA stream are completed. A simple pseudo-code sample is provided in Listing 2 in the Appendix.</p><p>In a typical setting, the CPU has multiple threads submitting batches of commands to the GPU. An initialization function creates the CUDA context and the CUDA streams that will be used to submit batches of commands. CPU threads are dynamically activated based on sensor inputs and external events. Each thread may then submit batches of commands to one or more of the created streams, associating a budget, deadline and period to each batch. We highlight that the insertion of these novel API calls for real-time tasks has to be done by the application developer, requiring only a minimal effort. No modification is instead needed for best effort applications.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. EVALUATION AND TESTING</head><p>In order to validate the implementation of our scheduler and for providing a sound comparison analysis against the existing NVIDIA interleaved scheduler, we set up two different benchmarking scenarios. The first test environment evaluates the feasibility of our approach in a realistic scenario. We ran a set of experiments in the Drive PX board using a collection of both graphic and compute workloads that are representative of a real world ADAS application. Dependencies with display servers and output displays are taken into account.</p><p>Rather than showing other similar test benchmarks that would only characterize a limited portion of the schedulability space, we present a second test setting that provides an exhaustive characterization of the relative performances against a set of randomly generated task sets to evaluate the theoretical schedulability limits of the NVIDIA baseline approach. For each generated task set, we simulate the runlist construction using the existing NVIDIA algorithm.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Realistic benchmarks</head><p>In this evaluation scenario, different applications at different levels of criticality compete for GPU time. Applications run on a NVIDIA customized Ubuntu distribution using Weston display server. Such operating system runs on top of the NVIDIA hypervisor, as described in section III. Modified drivers and API implementation were applied to the latest version of the Tegra proprietary driver stack, both for CUDA and OpenGL. The experimental task set is composed as follows:</p><p>(1) An OpenGL real-time application with 30 FPS as a strict requirement (32 ms as deadline). This application renders a sphere built with 2500 dynamically displaced vertices. The sphere's reflective surface is rendered with cube environment mapping. This program runs with a resolution of 960x540 and its WCET is 4 ms, with an average of 1.2 ms.</p><p>(2) A CUDA real-time application running from a Weston command shell, submitting a CUDA stream of work for computing the inference of a 10-layer convolutional DNN. Its calculated WCET is 3 ms (1.5 ms on average) and its period is 40 ms. This network is a reduced version of an image processing inference kernel, that we trained on the CIFAR10 dataset <ref type="bibr" target="#b21">[22]</ref>. Its relative deadline is set to 4 ms after the task release.</p><p>(3) A custom-built OpenGL Best-Effort application, featuring multi-texturing and dynamic lighting. This application has an average rendering time of 3.5 ms when running with a resolution of 960x540, and it is continuously submitting jobs. (4) A Wayland-based porting of the known glxgears benchmark, which is a Best-Effort OpenGL application running in a 960x540 window with a framerate capped at 60 FPS, and an average rendering time of 1.1 ms. All these applications involve moving data from a CPU-managed address space to the GPU-address space as part of the work submission. All the graphic applications have a dependency on Weston. Even if WCETs and average GPU time for the previously described tasks are relatively short compared to a 16.67 ms window (corresponding to 60 FPS), the Best-Effort application (3) is continuously submitting commands, bringing the overall GPU theoretical utilization above 100%.</p><p>To evaluate the behavior of the existing NVIDIA interleaved scheduler detailed in section III-B, we assigned the two realtime applications the highest possible interleaving level (i.e., the highest priority), while maintaining the lowest interleaving level for the other two applications. The timeslices assigned to the high priority tasks are equal to their WCETs, whereas the lower priority tasks have a timeslice of 1 ms. For the EDF+CBS algorithm, we set CBS server budgets to the WCET of the real-time applications. With the interleaved approach, 5.6% of batch submissions from both real-time tasks experienced deadline misses. Instead, when adopting our proposed EDF+CBS approach, no deadline miss has been observed. The worst-case response times of real-time tasks (1) and (2) improve by 64% and 93%, respectively, at the expense of an increase of the response time of best-effort applications. This is in line with our scheduling target of privileging critical recurring real-time activities while limiting the interference due to best-effort jobs, consolidating the feasibility of our prototype implementation. Charts showing more detailed results can be found in the Appendix.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Simulated benchmarks</head><p>In order to provide a more detailed characterization of the considered schedulers for general task sets, we performed an exhaustive set of simulations with randomly generated recurring GPU workloads. The UUniFast algorithm presented in <ref type="bibr" target="#b22">[23]</ref> was adopted to build task sets composed of a given number of real-time tasks with a desired overall Utilization U . Task periods were randomly generated from a uniform distribution in the range [16ms, 125ms], corresponding to a framerate varying between 8 to 60Hz. WCETs were computed accordingly from the generated utilization and period. Deadlines were assumed to be equal to task periods. We considered NR real-time tasks with the highest interleaving level, and a single Best-Effort task with low interleaving level continuously submitting work to the GPU. We assess the schedulability only in relation to the NR high priority applications. Each task is mapped to one GPU channel. The maximum preemption granularity level is enabled for all tasks.</p><p>The schedulability for NVIDIA's GPU scheduler has been characterized by invoking the runlist construction routine available in the referred open source driver, and simulating the resulting schedule, including the preemption and communication overhead, in the worst-case scenario outlined in Theorem 1 in the Appendix.</p><p>For the NVIDIA scheduler, we also characterized the behavior when varying the maximum allowed timeslice TS for all tasks, given in μs. As explained in section III-B, the timeslice determines the maximum continuous execution time allowed to a GPU task instance before being preempted. A larger timeslice implies a smaller number of preemptions, but also a larger blocking time. The experiments shown in Fig. <ref type="figure" target="#fig_1">3</ref> detail the schedulability ratio of the considered algorithms, where each point corresponds to 1000 randomly generated task sets. The real contribution of preemption and communication overhead is included in the simulated settings, as will be detailed later on. Inset (a) shows the behavior of NVIDIA's native scheduler with NR = 5 tasks. Clearly, the number of schedulable task sets decreases when increasing the overall utilizations due to the additional interference from concurrently executing GPU tasks. Even with a small timeslice (1ms), the schedulable utilization significantly drops for U &gt; 0.5. Increasing the timeslice causes a larger blocking penalty that further deteriorates the schedulable utilization.</p><p>Fig. <ref type="figure" target="#fig_1">3</ref>(b) shows the situation when increasing NR to 20. With a higher number of tasks, a larger blocking delay is imposed to real-time tasks, due to the higher number of entries associated to interfering tasks in the runlist. Indeed, the delay between two timeslices of the same channel is proportional to NR, so that increasing this value leads to a higher response time. To better understand how the timeslice length affects the schedulability of NVIDIA's scheduler, we performed a set of experiments varying TS within a [500, 8000] μs, which are typical values adopted in the existing systems. The results with NR = 5 are shown in Fig. <ref type="figure" target="#fig_1">3(c</ref>) for various GPU utilizations. Increasing the timeslice has again a significant impact on the schedulability. The last set of experiments is devoted to show the performances of our EDF+CBS scheduler. Since we consider the GPU as a single resource, the theoretical schedulable utilization of the EDF scheduler is 100%. To better characterize the improvement of our solution with respect to the native scheduler, we present the experimental results including the cost of CPU-to-GPU command submission, kernel driver-RLM interactions and GPU context switches. To this extent, we adopted the schedulability test for EDF presented in <ref type="bibr" target="#b23">[24]</ref>, including preemption overhead and CPUto-GPU communication delay.</p><p>A parameterized simulation is visible in Fig. <ref type="figure" target="#fig_1">3</ref>(d) within a representative overhead range. Almost all generated task sets are schedulable with our EDF scheduler even at very high utilization and with a large overhead, significantly improving over NVIDIA's existing approach. For large utilization values, the overhead starts affecting the schedulability when it exceeds 500 μs for task sets with 0.95 utilization, or 1ms for slightly smaller utilizations. While, for NDA reasons, we cannot include the detailed measurements we performed on each overhead component on the real platform, it suffices here to say that the actual overhead is way smaller than these values for typical CUDA kernels. The following section provides intuitive evidences behind this statement.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Overhead characterization</head><p>The experiments we presented factored in representative values of the overhead. E.g., the results shown for NVIDIA baseline scheduler considered a realistic preemption penalty whenever a timeslice expiration event is triggered while the executing channel has still pending work to be consumed. A similar overhead is added whenever our EDF-based scheduler triggers a preemption.</p><p>To better understand the magnitude of the overhead, consider the operations to be executed whenever a preemption is triggered. For CUDA kernels, the data context of the preempted task has to be saved, which basically implies storing all the local data for each SM to global memory, and flushing the GPU Last Level Cache (L2). Therefore, the amount of data to save in the worst-case amounts to around one Megabyte: 64KB of total constant memory, 48KB of shared/L1 for each SM, 32K 32bit registers for each SM, and 512KB as L2 size. Considering a 20GB/s bandwidth from GPU to system memory, saving such a context takes around 50 μs.</p><p>Instead, for graphic applications, pixel level preemption implies that the time to compute a pixel (and therefore the preemption latency) varies depending on the executing shader. We can bound this value to 750 μs, which is half the channel reset time, as documented in the Drive PX official guide. A channel reset occurs when a GPU application gets stuck in the engines, for example due to a long or infinite loop in a graphic shader or compute kernel. A reset implies evicting the context from the runlist/task-set, which is why we did not consider reset channels in our simulations.</p><p>For our prototype scheduler, in addition to preemption costs, it is necessary to add the communication cost between the guest and the RLM at each scheduling event, as detailed in section III-D. This cost could be neglected if the scheduler were implemented at hardware level, as is the case of NVIDIA baseline scheduler. While NDA reasons prevent us from providing exact figures on these communication signals, we parametrized the total overhead of our EDF+CBS simulation into the realistic range of [100, 1500] μs, with the real value being in the lower half of this range for typical workloads. For realistic overhead values within this range, Fig. <ref type="figure" target="#fig_1">3(d)</ref> shows that our prototype scheduler is able to guarantee the schedulability of most generated task sets even at large utilizations: more than 70% of the generated task sets with utilization 0.95 are schedulable even with an overhead of 1500μs. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. CONCLUSION AND FUTURE WORK</head><p>This paper described a prototype implementation of a deadline-based scheduler with preemption support for integrated GPUs. The prototype runs as a software module on the RunList Manager partition of the NVIDIA hypervisor. It implements an EDF scheduling algorithm, enhanced with a CBS-based timing isolation mechanism for both compute and graphic workloads. On a software perspective, this work implied modifications at API and hypervisor level, in order to transition from NVIDIA's existing runlist-based approach to an event-driven one, hence providing more flexibility to system designers when defining the timing requirements of their task sets. The execution of high priority aperiodic activities can be easily accommodated in our scheduling support by assigning them a short, or null, relative deadline, allowing them to preempt any currently running job. This may be particularly useful in critical settings for promptly displaying critical messages to the user in a virtual interface, e.g., the instrument cluster in a driving cockpit, something that is difficult to achieve with the existing table-driven approach without wasting pre-reserved slots. We implemented our scheduler as a module within NVIDIA's proprietary hypervisor to allow the concurrent access to GPU resources by multiple guest VMs in a mixed-criticality environment. A similar solution could have been implemented at kernel driver level in a native non-virtualized solution using publicly available platforms.</p><p>As a future work, we intend to enhance the implemented server with more advanced reclaiming mechanisms for GPU bandwidth left unused by real-time tasks <ref type="bibr" target="#b24">[25]</ref>, allowing a more flexible selection of GPU task budgets. In the current approach, the unused bandwidth is left to Best-Effort tasks. We also intend to address the more complex scheduling problem of GPUs composed of a larger numbers of streaming multiprocessors, or Multi-GPU settings within the same chip, as recently discussed in <ref type="bibr" target="#b25">[26]</ref>). In these cases, considering the GPU as a single computing resource might not be an optimal choice, but more efficient algorithms may be designed following a multi-resource paradigm <ref type="bibr" target="#b26">[27]</ref>. We are also working on mitigating the effects of memory contention in GPU-based embedded systems. As shown in <ref type="bibr" target="#b27">[28]</ref>, significant latencies may be experienced in heterogeneous embedded devices due to contention on shared memory, especially in case of memoryintensive GPU tasks. To overcome memory contention, several methodologies for arbitrating memory accesses between CPU and GPU are under investigation <ref type="bibr" target="#b10">[11]</ref>, <ref type="bibr" target="#b28">[29]</ref>- <ref type="bibr" target="#b30">[31]</ref>. Our final target is to tackle the coordinated scheduling problem of real-time tasks executing on heterogeneous embedded devices featuring multi-core host, GPU and a number of alternative accelerators <ref type="foot" target="#foot_7">7</ref>that are being integrated on next-generation devices for the autonomous driving domain.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: (a) Worst Case Response Time (WCRT) for a GPU task H2 as a function of its arrival time t arr. Note that the darker green H2 is depicted as a short interval because the GPU Host did not find work to dispatch to the engines. Task initials H, M or L indicate their interleaving level. I H2 is the latency between t arr(H2) and the beginning of H2 execution. (b) The main blocks characterizing our prototype scheduler implementation. A, B and C are event signals and messages used for scheduling decisions.</figDesc><graphic coords="5,82.45,104.24,269.29,87.80" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: Schedulability ratio of NVIDIA scheduler as a function of task set utilization with 5 tasks (a) and 20 tasks (b) for different timeslice lengths TS in us; and as a function of timeslice length TS with 5 tasks (c) for different utilizations; Inset (d) shows the schedulability ratio of our EDF scheduler as a function of preemption overhead with 5 tasks for different utilizations (note the different y-axis scale).</figDesc><graphic coords="10,95.42,202.89,185.73,114.82" type="bitmap" /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 22:41:08 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_1"><p>www.tiriasresearch.com/downloads/nvidia-charts-its-own-path-to-armv8</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_2"><p>From now on, we refer to Host as the GPU component that dispatches work to the respective engines. Not to be confused with the term host in generic heterogeneous programming contexts, such as OpenCL or CUDA.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_3"><p>The Tegra host1x module is the DMA engine for register access to Tegra's 2D graphics and multimedia-related modules.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_4"><p>Available in the L4T (Linux For Tegra) kernel sources at https://developer. nvidia.com/embedded/linux-tegra and described in the official documentation available at https://docs.nvidia.com/drive/nvvib docs/index.html</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="123" xml:id="foot_5"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 22:41:08 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="6" xml:id="foot_6"><p>More information on EGL and CUDA interoperability can be found at: http://on-demand.gputechconf.com/gtc-eu/2017/presentation/ 53023-debalina-bhattacharjee-eglstreams-interoperability-for-camera-... cuda-and-opengl.pdf</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="7" xml:id="foot_7"><p>NVIDIA Deep Learning Accelerator http://nvdla.org/</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENT</head><p>The authors would like to thank <rs type="institution">NVIDIA Corporation</rs> for letting us work on the latest GPU architectures and for the useful information given to us. This work is also part of the Hercules and OPEN-NEXT projects, which are respectively funded by the <rs type="funder">EU Commission</rs> under the <rs type="programName">HORIZON 2020 framework program</rs> (<rs type="grantNumber">GA-688860</rs>) and <rs type="grantNumber">ERDF-OP CUP E32I16000040007</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_pnBQnRE">
+					<idno type="grant-number">GA-688860</idno>
+					<orgName type="program" subtype="full">HORIZON 2020 framework program</orgName>
+				</org>
+				<org type="funding" xml:id="_SNZVCBA">
+					<idno type="grant-number">ERDF-OP CUP E32I16000040007</idno>
+				</org>
+			</listOrg>
+			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX</head><p>Theorem 1. An upper bound on the response time R i of a GPU task τ i at the highest interleaving level scheduled with NVIDIA's scheduler can be found when (i) τ i arrives right after one of its assigned slot elapsed, and (ii) all other tasks in the runlist are released as soon as possible after their execution.</p><p>Proof. Consider the case shown in Fig. <ref type="figure">2a</ref>, where a task τ i with high interleaving level submits new commands to the Command Push Buffer right after the GPU Host checked its associated entry (H2) in the runlist. In this case, the task will have to wait until its next entry in the runlist. For tasks having the highest interleaving level, this means waiting one instance of each of the tasks having the same interleaving level, plus one instance of only one task with a lower interleaving level. If the considered job of τ i does not complete its execution due to timeslice exhaustion, a further interfering contribution of the same amount will be experienced before the task can resume execution in a next slot. The interfering contributions are upper bounded considering a situation where each interfering task is re-released right after its execution. Moving τ i 's release earlier would allow it to catch the assigned slot, therefore decreasing its response time. Moving it later would not change its schedule, also reducing the response time.</p><p>We are interested in determining an upper bound on the response time of a task τ i with high interleaving level. The maximum time interval l i between two slots of τ i 's channel in the runlist can be computed as</p><p>where TS j = min(TS , C j ), TS M/L is the timeslice assigned to the medium or low priority task and NR is the number of channels in the runlist. The response time R i of τ i given a timeslice T S can then be upper bounded as</p><p>where Ci TS represents the number of preemptions due to timeslot expiration during the task execution. A simple way to include the preemption overhead contribution to the overall response time can then be derived by including the preemption cost ξ at each timeslot expiration event: </p></div>			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">L</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">W</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="1973">1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Gpu scheduling and synchronization for adas</title>
+		<ptr target="gputechconf.com/gtc/2017/presentation/s7105-venugopala-madumbu-adas-ad-challenges-gpu-scheduling-and-synchronization.pdf" />
+	</analytic>
+	<monogr>
+		<title level="j">NVIDIA</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<title level="m" type="main">Timegraph: Gpu scheduling for real-time multi-tasking environments</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling for 3d gpu rendering</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Schnitzer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Gansel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Dỳrr</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Rothermel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Industrial Embedded Systems (SIES), 2016 11th IEEE Symposium</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Gpusync: A framework for real-time gpu management</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">A</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">C</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2013">2013. 2013</date>
+			<biblScope unit="page" from="33" to="44" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Static gpu threads and an improved scan algorithm</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Breitbart</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">European Conference on Parallel Processing</title>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="373" to="380" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Efficient implementation of genetic algorithms on gp-gpu with scheduled persistent cuda threads</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Capodieci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Burgio</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Parallel Architectures, Algorithms and Programming (PAAP)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2015">2015. 2015</date>
+			<biblScope unit="page" from="6" to="12" />
+		</imprint>
+	</monogr>
+	<note>Seventh International Symposium on</note>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Inter-block gpu communication via fast barrier synchronization</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Xiao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W.-C</forename><surname>Feng</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Parallel &amp; Distributed Processing (IPDPS), 2010 IEEE International Symposium</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="1" to="12" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Supporting preemptive task executions and memory copies in gpgpus</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Basaran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K.-D</forename><surname>Kang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2012 24th Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="287" to="296" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Kernelet: High-throughput gpu kernel executions with dynamic slicing and scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Zhong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>He</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="1522" to="1532" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Sigamma: Server based integrated gpu arbitration mechanism for memory accesses</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Capodieci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Cavicchioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Valente</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th International Conference on Real-Time Networks and Systems, ser. RTNS &apos;17</title>
+		<meeting>the 25th International Conference on Real-Time Networks and Systems, ser. RTNS &apos;17<address><addrLine>New York, NY, USA</addrLine></address></meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="48" to="57" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Effisha: A software framework for enabling effficient preemptive scheduling of gpu</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Shen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Zhou</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 22nd ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming</title>
+		<meeting>the 22nd ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="3" to="16" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Flep: Enabling flexible and efficient preemption on gpus</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Wu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Jiang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 22nd International Conference on Architectural Support for Programming Languages and Operating Systems</title>
+		<meeting>the 22nd International Conference on Architectural Support for Programming Languages and Operating Systems</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Efficient aperiodic service under earliest deadline scheduling</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Spuri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="1994">1994</date>
+			<biblScope unit="page" from="2" to="11" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Scheduling aperiodic tasks in dynamic priority systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Spuri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="179" to="210" />
+			<date type="published" when="1996">1996</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">The deferrable server algorithm for enhanced aperiodic responsiveness in hard real-time environments</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">K</forename><surname>Strosnider</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Lehoczky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">44</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="73" to="91" />
+			<date type="published" when="1995">1995</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Anatomy of gpu memory system for multi-application execution</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Jog</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Kayiran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Kesten</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Pattnaik</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bolotin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Chatterjee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">W</forename><surname>Keckler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">T</forename><surname>Kandemir</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">R</forename><surname>Das</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2015 International Symposium on Memory Systems</title>
+		<meeting>the 2015 International Symposium on Memory Systems</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Integrating multimedia applications in hard real-time systems</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1998">1998. 1998</date>
+			<biblScope unit="page" from="4" to="13" />
+		</imprint>
+	</monogr>
+	<note>Proceedings. The 19th IEEE</note>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Constant bandwidth server revisited</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lelli</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Acm Sigbed Review</title>
+		<imprint>
+			<biblScope unit="volume">11</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="19" to="24" />
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Task synchronization in reservation-based real-time systems</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lamastra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Abeni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="issue">12</biblScope>
+			<biblScope unit="page" from="1591" to="1601" />
+			<date type="published" when="2004">2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title level="m" type="main">Khronos eglstream specification</title>
+		<ptr target="https://www.khronos.org/registry/EGL/extensions/KHR/" />
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<publisher>Khronos</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Multi-column deep neural networks for image classification</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ciregan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Meier</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Schmidhuber</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Computer vision and pattern recognition (CVPR), 2012 IEEE conference on</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="3642" to="3649" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Measuring the performance of schedulability tests</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="129" to="154" />
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Preemptively scheduling hardreal-time sporadic tasks on one processor</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">K</forename><surname>Mok</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">E</forename><surname>Rosier</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 11th Real-Time Systems Symposium</title>
+		<meeting>the 11th Real-Time Systems Symposium<address><addrLine>Orlando, Florida</addrLine></address></meeting>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="1990">1990</date>
+			<biblScope unit="page" from="182" to="190" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Capacity sharing for overrun control</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time Systems Symposium, 2000. Proceedings. The 21st IEEE</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2000">2000</date>
+			<biblScope unit="page" from="295" to="304" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Mcm-gpu: Multi-chip-module gpus for continued performance scalability</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Arunkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bolotin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Cho</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Milic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Ebrahimi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Villa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Jaleel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C.-J</forename><surname>Wu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Nellans</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 44th Annual International Symposium on Computer Architecture</title>
+		<meeting>the 44th Annual International Symposium on Computer Architecture</meeting>
+		<imprint>
+			<publisher>ACM</publisher>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<monogr>
+		<title level="m" type="main">Multiprocessor Scheduling for Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+			<publisher>Springer</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Memory interference characterization between cpu cores and integrated gpus in mixedcriticality platforms</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Cavicchioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Capodieci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Conference on Emerging Technologies and Factory Automation (ETFA)</title>
+		<imprint>
+			<date type="published" when="2017-09">2017. Sept 2017</date>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Towards predictable execution model on arm-based heterogeneous platforms</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Houdek</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sojka</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Hanzálek</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Industrial Electronics (ISIE)</title>
+		<imprint>
+			<date type="published" when="2017">2017. 2017</date>
+			<biblScope unit="page" from="1297" to="1302" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Gpuguard: Towards supporting a predictable execution model for heterogeneous soc</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Forsberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marongiu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Benini</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2017 Design, Automation &amp; Test in Europe Conference &amp; Exhibition (DATE)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2017">2017</date>
+			<biblScope unit="page" from="318" to="321" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Work-in-progress: Protecting real-time gpu applications on integrated cpu-gpu soc platforms</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Waqar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Heechul</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

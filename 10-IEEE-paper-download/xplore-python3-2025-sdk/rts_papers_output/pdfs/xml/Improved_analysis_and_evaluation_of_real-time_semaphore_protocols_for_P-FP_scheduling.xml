@@ -1,0 +1,650 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Improved Analysis and Evaluation of Real-Time Semaphore Protocols for P-FP Scheduling</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+						</author>
+						<title level="a" type="main">Improved Analysis and Evaluation of Real-Time Semaphore Protocols for P-FP Scheduling</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">1855D325771A074D92E4608FA8B63F6C</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T03:17+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Several suspension-based multiprocessor real-time locking protocols for partitioned fixed-priority (P-FP) scheduling have been proposed in prior work. These protocols differ in key design choices that affect implementation complexity, overheads, and worst-case blocking, and it is not obvious which is "best" when implemented in a real OS. In particular, should blocked tasks wait in FIFO or in priority order? Should tasks execute critical sections locally on their assigned processor, or should resource access be centralized on designated processors? This paper reports on a large-scale, overhead-aware schedulability study comparing four protocols, the MPCP, FMLP + , DPCP, and the DFLP, which together cover each of the four possible combinations. The results are based on a new, linear-programming-based blocking analysis technique, which is explained in detail and shown to offer substantial improvements over prior blocking bounds. The results reveal that priority queuing (MPCP, DPCP) is often preferable if the range of temporal constraints spans (at least) an order of magnitude, whereas FIFO queueing (FMLP + , DFLP) is preferable if the ratio of longest to shortest deadlines is small. Further, centralized resource access (DPCP, DFLP) is found to be preferable to local critical sections (MPCP, FMLP + ) for high-contention workloads. Scheduling, cache, and locking overheads were accounted for as measured in LITMUS RT on two 8-and 16-core x86 platforms. In contrast to earlier LITMUS RT -based studies, no statistical outlier filtering was performed, owing to improved tracing support.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Predictable scheduling and mutual exclusion primitives are two of the most essential facilities provided by multiprocessor real-time operating systems (RTOSs). With regard to the former, partitioned fixed-priority (P-FP) scheduling is a widespread choice in practice today (e.g., it is supported by VxWorks, RTEMS, Linux, and many other RTOSs). With regard to the latter, binary semaphores (or mutexes) are a near-universally supported locking mechanism (e.g., their availability is mandated by the POSIX real-time profile). How to "best" support predictable semaphores under P-FP scheduling is thus a question of great practical relevance; however, an answer is far from obvious and several, quite different solutions have been proposed in prior work (reviewed in Sec. VII). In particular, there are two key design questions that any locking protocol must address: Q1 in which order are blocked tasks queued; and Q2 where are critical sections executed?</p><p>Concerning Q1, the use of either FIFO or priority queues has been proposed <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b22">22]</ref>. While priority queues may seem to be a natural fit for real-time systems, they are susceptible to starvation and thus, asymptotically speaking, give rise to non-optimal maximum blocking for lower-priority tasks on multiprocessors <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b9">10]</ref>, as explained in Sec. II. In contrast, FIFO queues are somewhat simpler, avoid starvation, and yield asymptotically optimal bounds <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b9">10]</ref>, albeit at the expense of increased delays for higher-priority tasks. Both choices thus have advantages and disadvantages, and from an RTOS designer's point of view, it is not immediately clear which is the "right one" to implement.</p><p>With regard to Q2, in shared-memory systems, it is common for tasks to execute critical sections locally, in the sense that each task accesses shared resources directly from the processor to which it has been assigned, such that, over time, resources are accessed from multiple processors. For example, this is the case under the classic multiprocessor priority-ceiling protocol (MPCP) <ref type="bibr" target="#b22">[22,</ref><ref type="bibr" target="#b23">23]</ref>. However, another plausible option are distributed locking protocols such as the original distributed priority-ceiling protocol (DPCP) <ref type="bibr" target="#b23">[23,</ref><ref type="bibr" target="#b24">24]</ref>, where each resource is accessed only from a designated synchronization processor. Such protocols, which derive their name from the fact that they could also be used in distributed systems (i.e., in the absence of shared memory), require critical sections to be executed remotely if tasks access resources not local to their assigned processor. While distributed locking protocols require increased kernel involvement and careful coordination among cores, they also avoid the need to migrate resource state and have recently seen renewed interest in throughput-oriented computing <ref type="bibr" target="#b19">[20]</ref>. Again, neither choice is "obviously" superior to the other. This study. To shed light on these fundamental RTOS design issues, we conducted a large-scale evaluation of the four possible combinations of priority/FIFO queueing and local/remote critical section execution. In particular, we sought to identify which approach (if any) is "best" from the point of view of hard realtime schedulability under consideration of worst-case overheads as they arise in an actual RTOS, namely LITMUS RT  <ref type="bibr" target="#b0">[1]</ref>. To this end, we implemented and compared four semaphore protocols from prior work: the aforementioned MPCP and the DPCP combine priority queuing with local and remote critical sections, respectively; the remaining two FIFO cases are covered by the FIFO Multiprocessor Locking Protocol (FMLP + ) <ref type="bibr" target="#b4">[5]</ref>, under which tasks execute critical sections locally, and the Distributed FIFO Locking Protocol (DFLP) <ref type="bibr" target="#b5">[6]</ref>. Intuitively, one might assume distributed protocols to be inferior when overheads are considered; surprisingly, this is not the case: our results, discussed in Secs. IV and V, show that each of the considered protocols offers a decisive advantage for certain workloads.</p><p>Improvements. The significance of any overhead-aware schedulability study hinges upon two critical aspects: the accuracy of the employed analysis, and the validity of the assumed overheads. This work improves upon prior studies in both regards.</p><p>Concerning accuracy of analysis, in predictable real-time systems, a protocol with good runtime properties is of little use if its associated a priori bounds on worst-case blocking are too pessimistic. However, blocking analysis is quite tedious and error-prone in nature, and with conventional methods there exists a tension between accuracy and clarity (i.e., the less pessimistic the bounds, the harder they are to express), with the result that prior ad-hoc analysis of locking protocols has generally favored ease of exposition at the expense of precision. To overcome this apparent dichotomy, we have developed a new linear-programming-based analysis technique that is sound by design, concise, simpler to reason about, and-as shown in Sec. IV-significantly less pessimistic than prior approaches.</p><p>Considering the validity of measured overheads, outliers and "noisy" data can be very problematic when approximating worst-case overheads empirically. If left unchecked, outliers due to untimely interrupts, trace buffer overflows, or intervening preemptions can easily distort maxima to the point of being useless (e.g., due to preemption-related reordering of timestamps, it is possible to "observe" system call overheads on the order of days, which is clearly implausible). To cope, all prior LITMUS RT -based studies have applied statistical outlier filters to remove erroneous samples from recorded data sets. However, while effective, this approach has the downside that the choice of statistical filter is essentially arbitrary, and that it is possible for valid samples to be accidentally culled as well. In contrast, no statistical filters were applied in this study, which became possible due to several improvements to LITMUS RT 's tracing support, which we detail in Sec. V.</p><p>In the following, we briefly introduce needed background (Sec. II) before introducing the new analysis technique (Sec. III) that underlies the results presented in Secs. IV and V. Further refinements of the efficiency of the proposed method are discussed in Sec. VI. Finally, related work is surveyed in Sec. VII.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND AND DEFINITIONS</head><p>We consider a real-time workload consisting of n sporadic tasks τ = {T 1 , . . . , T n } scheduled on m identical processors P 1 , . . . , P m . We denote a task T i 's worst-case execution cost as e i and its period as p i , and let J i denote a job of T i . A task's utilization is defined as u i = e i /p i . A job J i is pending from its release until it completes. T i 's worst-case response time r i denotes the maximum duration that any J i remains pending. For simplicity, we assume implicit deadlines.</p><p>Besides the m processors, the tasks share n r serially-reusable resources 1 , . . . , nr (e.g., I/O ports, network links, data structures, etc.). We let N i,q denote the maximum number of times that any J i accesses q , and let L i,q denote T i 's maximum critical section length, that is, the maximum time that any J i uses q as part of a single access (L i,q = 0 if N i,q, = 0). We assume that J i must be scheduled in order to use q , which is true for shared data structures, but could be relaxed for I/O devices. We further assume that jobs release all resources before completion and that jobs request and hold at most one resource at any time.</p><p>Access to shared resources is governed by a locking protocol that ensures mutual exclusion. If a job J i requires a resource q that is already in use, J i must wait and incurs acquisition delay until its request for q is satisfied (i.e., until J i holds q 's lock). In this paper, we focus on semaphore protocols, under which jobs wait by suspending (as opposed to spinning, see Sec. VII). The worst-case execution cost e i includes critical sections under shared-memory protocols, but not under distributed locking protocols (where critical sections may be executed remotely).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Scheduling, Priority Inversions, and Blocking</head><p>Under P-FP scheduling, each task has a unique, fixed base priority, and is statically assigned to one of the m processors; we let P (T i ) denote T i 's assigned processor. For brevity, we assume that tasks are indexed in order of decreasing base priority. Whether a task set is schedulable under P-FP scheduling in the presence of locks (i.e., whether r i ≤ p i for each T i ) is commonly determined using response-time analysis <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b18">19]</ref>, that is, by solving the following recurrence for each T i :</p><formula xml:id="formula_0">r i = e i + b l i + b r i + P (T h )=P (Ti)∧h&lt;i r i + b r h p h • e h ,<label>(1)</label></formula><p>where b l i and b r i denote bounds on the maximum local and remote priority-inversion blocking (pi-blocking), respectively.</p><p>Intuitively, a priority inversion exists if a high-priority job that should be scheduled is not scheduled (e.g., while waiting to acquire a lock). Formally, a job J i incurs a priority inversion at time t if J i is pending and neither J i nor a higher-priority job are scheduled on processor P (T i ) at time t <ref type="bibr" target="#b9">[10]</ref>, that is, if J i is delayed and no jobs of tasks contributing to the right-hand side of Eq. (1) are scheduled.</p><p>Priority inversions are considered to cause "blocking" because they lead to an undesirable increase in worst-case response time.</p><p>To avoid confusing such locking-related delays with other uses of the word "blocking," we use the more specific term "pi-blocking" in this paper. Pi-blocking is local (i.e., accounted for by b l i ) when caused by critical sections executed on processor P (T i ), and remote (i.e., accounted for by b r i ) otherwise.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Asymptotically Optimal PI-Blocking</head><p>The primary purpose of a real-time locking protocol is to minimize the occurrence and duration of priority inversions, which, however, cannot be avoided entirely in the presence of semaphores. Recent work <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b9">10]</ref> has explored the asymptotic limits of pi-blocking in terms of maximum pi-blocking (formally, max Ti∈τ b l i + b r i ) and found that there exist two classes of schedulability tests-called suspension-aware and suspensionoblivious analysis, respectively-that give rise to different lower bounds on maximum pi-blocking. Although a detailed discussion is beyond the scope of this paper, we note that response-time analysis <ref type="bibr" target="#b2">[3]</ref>, that is, Eq. (1) above, belongs to the class of suspension-aware analysis, which is subject to an Ω(n) lower bound on maximum pi-blocking <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b9">10]</ref>. In other words, there exist pathological task sets such that pi-blocking is linear in the number of tasks under any semaphore protocol.</p><p>To be asymptotically optimal, a locking protocol must ensure that maximum pi-blocking is always within a constant factor of the lower bound. In the suspension-aware case, O(n) maximum pi-blocking is hence asymptotically optimal, which can be realized with FIFO queues <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b9">10]</ref>. In contrast, priority queues are liable to non-optimal Ω(m • n) pi-blocking <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b9">10]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Considered Protocols</head><p>We consider two classic and two recent semaphore protocols in this paper. As mentioned in Sec. I, these protocols differ in the order in which waiting jobs are queued and where critical sections are executed. Further, they differ in how the effective priority of lock holders is determined, which must exceed a task's base priority to prevent extended priority inversions. a) DPCP: Rajkumar et al. were first to study real-time locking on multiprocessors and proposed the DPCP <ref type="bibr" target="#b23">[23,</ref><ref type="bibr" target="#b24">24]</ref>, which does not require shared memory. Each resource q is assumed local (i.e., statically assigned) to a specific processor, which we denote as P ( q ), and may not be accessed from other processors. To enable non-local resource access, resource agents are provided to carry out requests on behalf of remote jobs. Under the DPCP, there is one such agent, denoted A q,i , for each resource q and each task T i . Importantly, resource agents are subject to priority boosting, which means that they have effective priorities higher than any regular task (and thus cannot be preempted by "normal" jobs), although resource agents acting on behalf of higher-priority tasks may still preempt agents acting on behalf of lower-priority tasks. After a job has invoked an agent, it suspends until its request has been carried out.</p><p>On each processor, conflicting accesses are mediated using the well-known uniprocessor priority-ceiling protocol (PCP) <ref type="bibr" target="#b23">[23,</ref><ref type="bibr" target="#b26">26]</ref>. The PCP assigns each resource a priority ceiling, which is the priority of the highest-priority task (or agent) accessing the resource, and, at runtime, maintains a system ceiling, which is the maximum priority ceiling of any currently locked resource. A job (or agent) is permitted to lock a resource only if its priority exceeds the current system ceiling, waiting jobs/agents are ordered by effective scheduling priority, and priority inheritance <ref type="bibr" target="#b23">[23,</ref><ref type="bibr" target="#b26">26]</ref> is applied to prevent unbounded priority inversion.</p><p>b) MPCP: In work on shared-memory systems, Rajkumar proposed the MPCP <ref type="bibr" target="#b22">[22,</ref><ref type="bibr" target="#b23">23]</ref>, which is based on direct resource access. Similar to the DPCP, blocked jobs wait in priority order and lock holders are preemptively priority-boosted (i.e., lockholding jobs can be preempted, but only by other lock-holding jobs with higher effective priority). When acquiring a lock, a job's effective priority is immediately raised to the associated priority ceiling, which is defined differently under the MPCP: the priority ceiling of a resource q on processor P k is the highest priority of any task accessing q that is not assigned to P k . c) FMLP + : Block et al. were first to propose the use of FIFO queuing in real-time semaphore protocols with their Flexible Multiprocessor Locking Protocol (FMLP) <ref type="bibr" target="#b3">[4]</ref>. The protocol considered herein, the FMLP + <ref type="bibr" target="#b4">[5]</ref>, is a recent refinement of the FMLP for partitioned scheduling. Like its precursor, the FMLP + is a shared-memory locking protocol, uses simple FIFO queues to order conflicting requests, and employs priority boosting to expedite request completion. However, the original FMLP does not ensure asymptotically optimal pi-blocking due to a nonoptimal assignment of effective priorities. The FMLP + corrects this with the following simple rule: lock holders are scheduled in order of increasing lock-request time, that is, the effective priority of a lock holder is the time at which it requested the lock. This ensures that lock-holding jobs are never delayed by later-initiated critical sections, which can be shown to ensure asymptotically optimal O(n) maximum pi-blocking <ref type="bibr" target="#b4">[5]</ref>.</p><p>d) DFLP: The DFLP <ref type="bibr" target="#b5">[6]</ref> is a recently developed cross of the FMLP + and the DPCP. As under the DPCP, resources are assigned to designated synchronization processors and resource access is mediated by priority-boosted agents. However, the DFLP does not use the PCP and there is only a single agent A q for each resource q . Similar to the FMLP + , agents serve requests in FIFO order with respect to each resource and are scheduled in order of decreasing lock-request time (with respect to the request currently being served). Jobs that have invoked an agent are suspended until their request is complete. An example DFLP schedule is discussed in the next section.</p><p>This concludes the review of essential background. Next, we introduce a new approach for bounding worst-case pi-blocking, that is, for deriving suitable b l i and b r i bounds for use in Eq. (1). III. A LINEAR MODEL OF PI-BLOCKING To obtain pi-blocking analysis that is concise, extensible, robust, and less pessimistic than prior ad-hoc approaches, we formalize the goal of bounding maximum pi-blocking as a linear optimization problem. That is, for a given task T i , we derive a linear program (LP) that, when maximized by an LP solver, yields a valid bound b i = b r i + b l i on the maximum pi-blocking incurred by any job of T i . Concerning robustness, our approach starts with basic bounds that enumerate all critical sections, which are then incrementally refined by imposing constraints inferred from the protocol. As a result, this approach is sound by construction: omitting constraints may yield more pessimistic, but still correct results. In other words, prior approaches require the analyst to enumerate every critical section that can block, whereas our approach first assumes that any request can block and then enumerates critical sections that can be shown to not block the task under analysis. The general idea is quite flexible and not protocol-specific; however, due to space constraints, we focus on the DPCP and the DFLP in the following and refer the interested reader to an online appendix <ref type="bibr" target="#b6">[7]</ref> for an analogous analysis of the MPCP and the FMLP + .</p><p>To derive accurate bounds on pi-blocking, it is necessary to analyze different causes of locking-related delays individually. There are three kinds of delay common to all locking protocols, and one specific to distributed locking protocols.</p><p>1) Direct request delay arises under any protocol whenever a job J i requests a resource that is currently not available. While J i waits for the lock holder to finish its critical section, it potentially incurs pi-blocking. Direct request delay arises only via resources that J i requests. 2) Indirect request delay occurs if J i waits for another job J a to release a resource and J a is preempted by a third job J b (or an agent acting on behalf of J b ), thus increasing J i 's total acquisition delay. Indirect request delay can arise due to shared resources that J i never accesses. 3) Preemption delay occurs when J i is preempted by a priority-boosted, lower-priority job (or agent). Unlike </p><formula xml:id="formula_1">P 4 : J1 J2 J3 J 1 J 2 J 3 J 4 A 1 A 2 Fig. 1.</formula><p>Example DFLP schedule of four jobs, with parameters as specified in the above table. The two shared resources 1 and 2 are local to processor P 4 .</p><p>direct and indirect request delay, preemption delay affects even tasks that do not access shared resources. 4) Finally, agent execution delay characterizes the time that a job is suspended under distributed locking protocols while an agent carries out its request. Agent execution delay is not contention-related, but it is a source of delay and thus can cause priority inversions. Agent execution delay does not arise in shared-memory locking protocols since jobs execute critical sections themselves (recall that the execution cost e i includes critical sections under sharedmemory, but not under distributed locking protocols).</p><p>Since any locking-related pi-blocking coincides with one of the above kinds of delay, an upper bound on such delays also bounds pi-blocking; in Sec. III, we will derive such a delay bound. The example DFLP schedule depicted in Fig. <ref type="figure">1</ref> exhibits each kind of delay. For simplicity, only one (i.e., the highest-priority) job is shown on each processor. Two shared resources, 1 and 2 , are local to processor P 4 . Job J 3 requests 2 at time 1, which activates agent A 2 on processor P 4 . Since A 2 is subject to priority boosting, it preempts J 4 immediately. At time 2, J 2 requests 1 , which activates agent A 1 , but does not preempt A 2 since A 1 has lower effective priority (recall that the agent serving the earliest-issued request has the highest effective priority under the DFLP). Job J 1 also requests 1 at time 3, but A 1 is not scheduled until time 4 when A 2 finishes J 3 's request. Since the DFLP employs FIFO queues, A 1 first serves J 2 's request at time 4, and J 1 's request only at time 7. J 4 suffers pi-blocking throughout [1, 10) while A 1 and A 2 serve requests-an example of preemption delay. Indirect request delay occurs during <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b3">4)</ref>, where J 2 and J 1 are transitively delayed by J 3 's (otherwise not conflicting) request for 2 . J 1 is subject to direct request delay during <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b6">7)</ref> while A 1 serves J 2 's earlier-issued, conflicting request. Finally, agent execution delay is incurred by J 3 during [1, 4), by J 2 during [4, 7), and by J 1 during <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b9">10)</ref>.</p><p>We next introduce the core idea underlying the proposed approach by means of an analysis of the preceding example. In the following, let J i denote an arbitrary job of the task under analysis, and, for each task T x , let R x,q,v denote the v th request for q by jobs of T x while J i is pending.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Linearization with Blocking Fractions: An Example</head><p>Consider the pi-blocking incurred by J 1 in Fig. <ref type="figure">1</ref>. The depicted schedule is not a worst-case scenario for J 1 since J 3 's request R 3,2,1 at time 1 overlaps with J 1 's request R 1,1,1 at time 3 only partially. To express such partial blocking, we introduce the concept of "blocking fractions." Consider a request R x,q,v , and let b x,q,v i denote the actual pi-blocking (of any kind) that J i incurred due to the execution of R x,q,v . The corresponding blocking fraction X x,q,v b x,q,v i /L x,q relates the pi-blocking actually incurred by J i to the maximum piblocking that R x,q,v could have caused, where X x,q,v ∈ [0, 1]. We analogously define X D</p><p>x,q,v , X I x,q,v , and X P x,q,v to denote only the fraction of pi-blocking due to direct request delay, indirect request delay, and preemption delay, respectively.</p><p>For example, in Fig. <ref type="figure">1</ref>, R 3,2,1 causes J 1 to incur indirect request delay during <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b3">4)</ref> </p><formula xml:id="formula_2">(i.e., b 3,2,1 i = 1). Since L 3,2 = 3, it follows that X I 3,2,1 = 1 3 , X D 3,2,1 = 0, and X P 3,2,1 = 0. Similarly, R 2,1,1 causes direct request delay during [4, 7), and hence X I 2,1,1 = 0, X D 2,1,1 = 1, and X P 2,1,1 = 0. During [7, 10</formula><p>), J 1 waits for the agent A 1 to finish; however, this agent execution delay, which is bounded by L 1,1 , is not modeled as a blocking fraction (since it is J 1 's own request causing the delay).</p><p>The concept of blocking fractions is key to our analysis since it allows total pi-blocking to be expressed as a linear function. For example, in the schedule shown in Fig. <ref type="figure">1</ref>, J 1 is suspended for a total of seven time units, which can be expressed as</p><formula xml:id="formula_3">L 1,1 + (X D 2,1,1 + X I 2,1,1 + X P 2,1,1 ) • L 2,1 + (X D 3,2,1 + X I 3,2,1 + X P 3,2,1 ) • L 3,1<label>(2)</label></formula><p>to yield 3 + (1 + 0 + 0)</p><formula xml:id="formula_4">• 3 + (0 + 1 3 + 0) • 3 = 7.</formula><p>It is important to realize that Eq. ( <ref type="formula" target="#formula_3">2</ref>) holds for any schedule of the given task set: Eq. ( <ref type="formula" target="#formula_3">2</ref>) remains structurally unchanged even if the schedule is changed, and only the blocking fractions' numeric values vary (e.g., in a contention-free, best-case scenario, all blocking fractions are simply zero). This allows for two interpretations of Eq. ( <ref type="formula" target="#formula_3">2</ref>). In the context of a specific, fixed schedule S, blocking fractions denote specific, numeric values and Eq. ( <ref type="formula" target="#formula_3">2</ref>) yields the actual delay incurred by J 1 in S. However, in the context of all possible schedules, Eq. ( <ref type="formula" target="#formula_3">2</ref>) can also be understood as the objective function of a linear program that bounds the worst-case remote pi-blocking b r 1 (in this simple example, J 1 is not subject to local pi-blocking, i.e., b l 1 = 0). Specifically, a bound on b r 1 can be obtained by reinterpreting each blocking fraction as a variable with domain [0, 1], and by maximizing Eq. ( <ref type="formula" target="#formula_3">2</ref>) subject to the constraints (i) X D 3,2,1 = 0 (since T 1 does not access 2 , i.e., N 1,2 = 0) and (ii) X P x,q,1 = 0 for each T x and each q (as there are no agents located on J 1 's processor). For the given constraints, a maximal solution is</p><formula xml:id="formula_5">X I 3,2,1 = X D 2,1,1 = X I 2,1,1 = 1</formula><p>, which yields a safe (but pessimistic) upper bound of b r i = 12. A more accurate bound could be obtained by imposing additional constraints to rule out variable assignments that reflect impossible schedules (e.g., R 2,1,1 cannot indirectly block J 1 , which implies X I 2,1,1 = 0). In a nutshell, our analysis works as follows: first enumerate the lengths of all concurrent critical sections as coefficients of blocking fractions in the objective function, which immediately yields a sound, but grossly pessimistic bound, and then impose constraints on blocking fractions (i.e., variables of the LP) to discount impossible schedules. We formalize this technique next.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Objective Function and Basic Constraints</head><p>We begin with defining the objective function of the LP for task T i . Let rr (T i ) { q | P ( q ) = P (T i ) } denote the set of remote resources (w.r.t. T i ); analogously, let lr (T i ) denote the set of local resources. Bounds on b l i and b r i can be expressed as functions of blocking fractions with regard to resources in lr (T i ) and rr (T i ), respectively. However, this requires a bound on the maximum number of requests for each resource q issued by each task T x while an arbitrary job J i is pending. Recall that r i denotes the maximum response time of T i . For a sporadic task T x , the number of jobs that execute while J i is pending is bounded by (r i + r x )/p x (see e.g. <ref type="bibr">[5, p. 406</ref>] for a formal proof of this well-known bound), which implies that jobs of T x issue at most N i x,q (r i + r x )/p x • N x,q requests for a resource q while J i is pending. For brevity, let τ i τ \ {T i } (see Table <ref type="table">I</ref> for a summary of essential notation). Analogously to Eq. ( <ref type="formula" target="#formula_3">2</ref>), the objective is then to maximize</p><formula xml:id="formula_6">b i = b l i + b r i , with b l i = q ∈lr (Ti) N i,q • L i,q + Tx∈τ i N i x,q v=1 (X D x,q,v + X I x,q,v + X P x,q,v ) • L x,q ,</formula><p>and b r i defined analogously with regard to rr (T i ). Note that only N i x,q ties b i to the sporadic task model; by substituting an appropriate definition of N i x,q , our analysis can be easily transferred to more expressive task models (e.g., event streams <ref type="bibr" target="#b25">[25]</ref>).</p><p>With the objective function in place, we next specify constraints that rule out impossible scenarios to eliminate pessimism. We begin with the observation that direct request delay, indirect request delay, and preemption delay are mutually exclusive. Constraint 1. In any schedule of τ :</p><formula xml:id="formula_7">∀T x ∈ τ i : ∀ q : ∀v : X D</formula><p>x,q,v + X I x,q,v + X P x,q,v ≤ 1. Proof: Suppose not. Then there exists a schedule in which a request R x,q,v causes J i to incur multiple types of delay at the same time. However, by definition, direct delay is only possible if J i has requested q , whereas indirect delay is only possible if J i has not requested q ; further, preemption delay can only occur when J i is not suspended, whereas direct and indirect request delay imply that J i is suspended. Thus, at any time, J i incurs at most one kind of delay due to R x,q,v . Contradiction.</p><p>Constraint 1 ensures that each request is accounted for at most once. Next, we take into account that non-local agents cannot preempt J i , which we formalize with the following constraint. set of resources with priority ceiling at least i pc(Ti, P k ) set of resources in pc(Ti) local to processor P k N i</p><p>x,q number of requests by Tx for q while Ji is pending Ni(P k ) number of requests by Ji for resources in R(P k )</p><p>Constraint 2. In any schedule of τ under the DPCP or DFLP:</p><p>∀T x ∈ τ i : ∀ q ∈ rr (T i ) : ∀v : X P x,q,v = 0. Proof: Follows from the definitions of rr (T i ) and preemption delay, which only agents executing on P (T i ) cause.</p><p>Preemption delay due to local, lower-priority tasks is also bounded since lower-priority tasks can issue requests only when scheduled, which is limited to times when J i is not scheduled. Let τ ll {T x | P (T x ) = P (T i ) ∧ x &gt; i } denote such tasks. Constraint 3. In any schedule of τ under the DPCP or DFLP:</p><formula xml:id="formula_8">∀T x ∈ τ ll : q ∈lr (Ti) N i x,q v=1 X P x,q,v ≤ 1 + u∈rr (Ti) N i,u</formula><p>Proof: Jobs of a local, lower-priority task T x are only scheduled (and can issue requests) when no higher-priority jobs (including J i ) or local agents are scheduled. Thus jobs of T x can only issue requests prior to J i 's release, and when J i is suspended and no local agents are scheduled, which can only be the case if J i is waiting for a remote agent's response (assuming agents do not self-suspend). Since J i is released once and waits at most u ∈rr (Ti) N i,u times for remote agents, there does not exist a schedule in which jobs of T x cause preemption delay more often (assuming jobs issue at most one request at once).</p><p>Constraints 1-3 are generic since they apply to any distributed locking protocol. To reduce pessimism, protocol-specific properties must be modeled. We begin with DFLP-specific constraints, which are simpler than those for the DPCP.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Direct and Indirect Delay under the DFLP</head><p>The key property of the DFLP is its use of FIFO ordering to both serialize requests and to order priority-boosted agents (with regard to the currently served request). This ensures that requests can only be delayed by earlier-issued requests. Lemma 1. Let R i,q,v denote a request of J i , and let T x denote another task (T x = T i ). At most one request of T x delays R i,q,v .</p><p>Proof: Suppose there exists a schedule in which the completion of R i,q,v is (directly or indirectly) delayed by at least two requests by jobs of T x . Let R x,u,w denote a request that delays R i,q,v and that is issued after R i,q,v . Since tasks are sequential, and since jobs issue no more than one request at any time, at most one of T x 's requests is incomplete when R i,q,v is issued. Therefore, R x,u,w exists if R i,q,v is delayed by more than one request. To directly delay R i,q,v , R x,u,w must precede R i,q,v in the FIFO queue for q , which is impossible if R x,u,w is issued after R i,q,v . To indirectly delay R i,q,v , agent A u must have a higher effective priority than agent A q while serving R x,u,w , which implies that R x,u,w must have been issued before R i,q,v . Thus R x,u,w does not exist.</p><p>The strict FIFO ordering of requests implies the following simple, but accurate bound on direct request delay. Constraint 4. In any schedule of τ under the DFLP:</p><formula xml:id="formula_9">∀ q : ∀T x ∈ τ i : N i x,q v=1 X D</formula><p>x,q,v ≤ N i,q .</p><p>Proof: Suppose not. Then there exists a schedule such that N i</p><p>x,q v=1 X D x,q,v &gt; N i,q for some T x and q . If N i,q = 0, direct delay due to requests for q is impossible; hence assume N i,q &gt; 0. This implies that a request R i,q,v is directly delayed by multiple requests of T x . By Lemma 1, this is impossible. Constraint 4 implies that J i never incurs direct delay due to resources that it does not access (i.e., N i,q = 0 implies X D</p><p>x,q,v = 0). While N i,q = 0 does not rule out indirect delay due to requests for q (when J i accesses other resources on the same processor), by design, a bound on indirect delay is implied by Lemma 1. In the following, let R(P k ) { q | P ( q ) = P k } denote the set of resources local to processor P k , and let N i (P k )</p><p>q ∈R(P k ) N i,q denote the maximum number of requests issued by J i for resources in R(P k ).</p><p>Constraint 5. In any schedule of τ under the DFLP:</p><formula xml:id="formula_10">∀P k : ∀T x ∈ τ i : q ∈R(P k ) N i x,q v=1 X D</formula><p>x,q,v + X I x,q,v ≤ N i (P k )</p><p>Proof: Suppose not. If N i (P k ) = 0, then J i cannot be delayed by critical sections executed on processor P k , so assume N i (P k ) &gt; 0. Then there exists a schedule in which a task T x delays one of J i 's requests for resources in R(P k ) with at least two requests. By Lemma 1, this is impossible.</p><p>Note that Constraints 4 and 5 do not imply each other, that is, either one may be more limiting than the other, depending on the resource requirements of T i and conflicting tasks. This highlights the compositional, declarative nature of our analysis: each constraint can be reasoned about in isolation, and the LP solver will implicitly determine the most limiting one.</p><p>Next, we derive constraints specific to the DPCP, which are of a somewhat different structure due to the use of priority ceilings.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Direct and Indirect Delay under the DPCP</head><p>Recall from Sec. II that, under the DPCP <ref type="bibr" target="#b24">[24]</ref>, agents in each cluster access resources on behalf of their clients according to the rules of the PCP <ref type="bibr" target="#b26">[26]</ref>. As discussed in Sec. II, under the PCP, a job (or agent) is granted access to a resource only if its priority exceeds the current (processor-local) system ceiling. Crucial to the analysis of the DPCP is thus the set of resources with priority ceilings equal to or higher than the priority of J i 's agent. We let pc(T i ) {l q | x ≤ i ∧ N x,q &gt; 0 } denote the set of potentially conflicting resources, and further define pc(T i , P k ) pc(T i ) ∩ R(P k ) to denote the subset of potentially conflicting resources local to processor P k . Importantly, the PCP ensures that T i never incurs direct or indirect request delay due to resources not in its conflict set.</p><p>Constraint 6. In any schedule of τ under the DPCP:</p><p>∀T x ∈ τ i : ∀l q ∈ pc(J i ) : ∀v : X D x,q,v + X I x,q,v = 0. Proof: By the definition of pc(T i ), any resource q / ∈ pc(T i ) is requested only by lower-priority tasks. Since agent priorities correspond to task priorities under the DPCP, all agents for any such q have priorities lower than any agent executing on J i 's behalf, which implies X D</p><p>x,q,v = 0 and X I x,q,v = 0. With regard to resources in pc(T i ), the PCP famously limits ceiling blocking due to lower-priority jobs to one critical section. Under the DPCP, this implies a bound on direct and indirect request delay with regard to all resources on each processor. Constraint 7. In any schedule of τ under the DPCP:</p><formula xml:id="formula_11">∀P k : q ∈pc(Ti,P k ) x&gt;i N i x,q v=1 X D</formula><p>x,q,v + X I x,q,v ≤ N i (P k ).</p><p>Proof: Suppose not. Then there exists a schedule in which J i 's at most N i (P k ) requests for resources local to processor P k are delayed by more than N i (P k ) requests by lower-priority jobs. This is only possible if an agent of a lower-priority task acquires a resource while J i 's agent is already waiting. Under the PCP, this is impossible <ref type="bibr" target="#b23">[23,</ref><ref type="bibr" target="#b24">24,</ref><ref type="bibr" target="#b26">26]</ref>.</p><p>Note that Constraints 6 and 7 do not limit direct and indirect request delay due to requests issued by higher-priority tasks. In protocols based on priority queues, such requests are problematic since any single request issued by J i can in principle be delayed by requests of all higher-priority jobs. In fact, the original analysis of the DPCP <ref type="bibr" target="#b23">[23,</ref><ref type="bibr" target="#b24">24]</ref> did not establish any limit on such delays, that is, under the classic analysis, J i 's blocking bound b i includes each request that any job of any higher-priority task may issue while J i is pending. This assumption, however, is in many cases quite pessimistic since a single critical section likely does not overlap with more than one or two jobs of each higher-priority task, which was first pointed out by Schliecker et al. <ref type="bibr" target="#b25">[25]</ref> and Lakshmanan et al. <ref type="bibr" target="#b18">[19]</ref> in the context of the MPCP. They proposed to apply response-time analysis <ref type="bibr" target="#b2">[3]</ref> to each individual request-that is, to essentially analyze each resource as a non-preemptive uniprocessor-to bound the maximum interval during which a request is susceptible to delays caused by higher-priority tasks, which reduces pessimism considerably. Fortunately, it is not difficult to incorporate per-request responsetime bounds into our LP-based analysis, as shown next.</p><p>In the following, let W i,q denote a bound on the maximum wait time of J i when requesting q , which is the maximum duration that J i remains suspended after requesting q (i.e., essentially the maximum response time of J i 's request). From an LP point of view, each W i,q is a task-set-specific constant, which must be determined as part of generating the LP. This can be easily accomplished by applying response-time analysis <ref type="bibr" target="#b2">[3]</ref> to individual requests (instead of whole jobs) <ref type="bibr" target="#b18">[19,</ref><ref type="bibr" target="#b25">25]</ref>. To this end, let W L i,q (W H i,q ) denote the maximum direct and indirect request delay caused by lower-priority (higher-priority), respectively. A bound on the total maximum wait time is then given by W i,q W L i,q + W H i,q + L i,q .</p><p>Since the PCP allows at most one lower-priority request to block J i 's agent, W L i,q is simply the maximum lower-priority request length that causes ceiling blocking:</p><formula xml:id="formula_12">W L i,q = max {L x,v | x &gt; i ∧ v ∈ pc(T i , P ( q )) } .</formula><p>(As a simplifying abuse of notation, we assume max ∅ = 0.)</p><p>The higher-priority "demand" for resources on processor P ( q ), W H i,q , is given by the following adaptation of the classic response-time recursion given in Eq. ( <ref type="formula" target="#formula_0">1</ref>), which can be solved iteratively.</p><formula xml:id="formula_13">W H i,q = x&lt;i   r x + W i,q p x • y ∈pc(Ti,P ( q )) N x,y • L x,y  </formula><p>The rationale is that there exist at most rx+Wi,q px jobs of each higher-priority task T x during an interval of length W i,q , of which each issues at most N x,y requests for each resource in the conflict set on processor P ( q ). The maximum wait time W i,q is crucial because it implies a bound on the maximum number of interfering, higher-priority requests that can exist concurrently with one of J i 's requests. To state this bound, we let D x,y i,q denote the maximum number of requests for a resource y issued by jobs of a task T x during the interval that a single request of J i for resource q remains incomplete; formally D x,y i,q rx+Wi,q px</p><p>• N x,y . With these definitions in place, it is possible to constrain direct and indirect delays due to higher-priority tasks. Constraint 8. In any schedule of τ under the DPCP:</p><formula xml:id="formula_14">∀ y : ∀T x ∈ {T x | T x ∈ τ ∧ x &lt; i } : N i x,y v=1 X D</formula><p>x,y,v + X I x,y,v ≤ q ∈R(P ( q )))</p><p>N i,q • D x,y i,q .</p><p>Proof: Each time that J i accesses some resource q local to processor P ( y ), it can be blocked by requests for y issued by a higher-priority task T x . Each such request by J i for any q remains incomplete for at most W i,q time units. During an interval of length W i,q , jobs of task T x issue at most D x,y i,q requests for y . Hence, J i is delayed, directly or indirectly, by at most D x,y i,q requests for y issued by jobs of T x each time that it accesses a resource q local to processor P ( y ). Since J i issues at most N i,q requests for each such q ∈ R(P ( q ))), at most q ∈R(P ( q ))) N i,q • D x,y i,q requests of jobs of T x for resource y directly or indirectly delay J i .</p><p>Constraint 8 has considerable impact and improves schedulability noticeably. This is explained by the fact that D x,y i,q is typically small (i.e., in most task sets D x,y i,q = N x,y ) since W i,q is commonly much shorter than typical task periods (i.e., in well-behaved task sets, p x &gt; r x + W i,q ). Constraint 8 then ensures that at most one job per higher-priority task is considered to interfere with each of J i 's requests. This concludes our analysis of the DFLP and the DPCP. Due to space constraints, we refer the interested reader to the online appendix <ref type="bibr" target="#b6">[7]</ref> for corresponding LP-based analysis of the MPCP and the FMLP + .</p><p>In summary, our LP-based analysis of the DPCP and the MPCP incorporates the key insights of prior analyses <ref type="bibr" target="#b18">[19,</ref><ref type="bibr" target="#b22">[22]</ref><ref type="bibr" target="#b23">[23]</ref><ref type="bibr" target="#b24">[24]</ref><ref type="bibr" target="#b25">[25]</ref>, and further reduces pessimism by ensuring that each request is accounted for at most once (by means of blocking fractions, recall Constraint 1). Further, since it is based on the wellestablished formalism of linear programming, we believe that our blocking analysis is less tedious to understand and to implement than prior approaches, although this admittedly may be a matter of personal taste. Most importantly, our analysis results in substantially improved schedulability, as shown next.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. EMPIRICAL EVALUATION</head><p>We implemented the proposed LP-based analysis using IBM's CPLEX LP solver and conducted a large-scale schedulability study to (i) quantify whether the proposed analysis improves upon prior approaches and to (ii) determine when (if ever) the DPCP, MPCP, DFLP, and FMLP + perform best. Our implementation of the LP-based locking analysis is freely available as part of the SchedCAT open source project <ref type="bibr" target="#b1">[2]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Experimental Setup</head><p>We considered two multicore platforms with 8 and 16 processors and, for each platform, generated task sets ranging in size from n = m to n = 10m. For a given n, tasks were generated by randomly choosing a period p i and utilization u i , and then setting e i = p i • u i (rounding to the next-largest microsecond). Periods were chosen from three uniform distributions ranging over [10ms, 100ms] (short), [100ms, 200ms] (homogenous), and [10ms, 1000ms] (heterogeneous); utilizations were chosen from two exponential distributions ranging over [0, 1] with mean 0.1 (light) and mean 0.25 (medium), and two uniform distributions ranging over [0.1, 0.2] (light) and [0.1, 0.4] (medium). Heterogeneous periods are commonly found in the automotive domain, and computer vision and multimedia applications frequently have constraints in the short and homogeneous period ranges; however, while they are inspired by such applications, the parameter ranges were primarily chosen to expose algorithmic differences in the studied locking protocols.</p><p>Critical sections were generated according to three parameters: the number of resources n r , the access probability p acc , and the maximum requests parameter N max . Each of the n r resources was accessed by a task T i with probability p acc and, if T i was determined to access q , then N i,q was randomly chosen from {1, . . . , N max }, and set to zero otherwise. In our study, we considered n r ∈ {1, 8, 16, 24}, p acc ∈ {0.1, 0.2, 0.3}, and N max ∈ {1, 3, 5}. For each N i,q &gt; 0, the corresponding maximum critical section length L i,q was randomly chosen using two uniform distributions ranging over [10µs, 50µs] (short) and [50µs, 150µs] (moderate). Finally, under the FMLP + and the MPCP, the execution cost e i was increased by q N i,q • L i,q  <ref type="bibr" target="#b23">[23,</ref><ref type="bibr" target="#b24">24]</ref>.</p><p>to reflect that jobs execute critical sections locally in sharedmemory semaphore protocols (under the DPCP and the DFLP, agent execution costs are included in the pi-blocking bounds).</p><p>Tasks were assigned rate-monotonic priorities (i.e., i &lt; x if p i &lt; p x ) and partitioned using the worst-fit decreasing heuristic, which ensures that all processors are roughly equally utilized. Schedulability was tested on each processor with Eq. ( <ref type="formula" target="#formula_0">1</ref>) after bounding local and remote pi-blocking. There is a cyclic dependency between Eq. ( <ref type="formula" target="#formula_0">1</ref>), which yields r i given b l i and b r i for each T i , and the LP-based analysis, which yields b l i and b r i given r i for each T i (to compute each N i x,q ). This was resolved by iteratively computing r i , b l i , and b r i starting from r i = e i until r i converged for each task. Task sets that could not be partitioned, or where r i &gt; p i for some T i , were counted as unschedulable.</p><p>We tested at least 1,000 task sets for each n and each of the 1,728 possible combinations of the listed parameters, for a total of more than 100,000,000 task sets. All results are available online <ref type="bibr" target="#b6">[7]</ref>; the following discussion highlights major trends.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Algorithmic Comparison</head><p>In the first part of the study, we evaluated schedulability (i.e., the fraction of task sets deemed schedulable) without consideration of overheads to focus on algorithmic differences. Naturally, the choice of locking protocol and analysis method is not always relevant: if contention is negligible, then virtually any protocol will do, and, if contention is excessive, the system will be overloaded regardless of the protocol. However, in between the two extremes, there exist many scenarios with significant, but manageable contention. Here, LP-based analysis yields substantial improvements. Importantly, with regard to priority vs. FIFO queuing, the new analysis often changes the conclusion! One such example is shown in Fig. <ref type="figure">2</ref>, which depicts schedulability under the DFLP and the DPCP using both classic and LP-based analysis, assuming uniform light utilizations, short periods, m = 8, n r = 16, N max = 1, and p acc = 0.2. For instance, consider n = 30: under the new, LP-based analysis, all of the generated task sets can be supported using the DPCP, whereas less than 40% are claimed schedulable under the old analysis. Crucially, the DFLP performs clearly better than the DPCP under classic analysis, but (slightly) worse than the DPCP under LP-based analysis. This shows that our LP-based analysis is substantially less pessimistic, and that it has a decisive effect on relative performance in this and many other scenarios. Even larger gains are apparent in Fig. <ref type="figure" target="#fig_0">3</ref>, which shows schedulability under the FMLP + and the MPCP using both new and old analysis, assuming exponential light utilizations, short periods, m = 16, n r = 16, N max = 5, p acc = 0.1. Whereas schedulability pessimistically declines at n ≈ 50 under the old analysis, virtually all task sets with up to 80 tasks are found schedulable under the new, LP-based analysis-a more than 50% increase in the number of supported tasks. Again, the FMLP + performs much better than the MPCP under old analysis, but not quite as well as the MPCP under new analysis. This is not to say that the MPCP always performs better-it does not-but the new analysis clearly prevents a lopsided result in favor of the FMLP + . In the following, we consider the MPCP and the DPCP only in conjunction with the new, LP-based analysis.</p><p>Most surprisingly (to us), our data reveals that schedulability can be much higher under distributed locking protocols than under shared-memory protocols. This is apparent in Fig. <ref type="figure" target="#fig_1">4</ref>, which shows schedulability under the four considered protocols assuming uniform light utilizations, homogeneous periods, m = 16, n r = 16, N max = 1, and p acc = 0.3. Additionally, schedulability assuming zero pi-blocking (i.e., without resource sharing) is shown to put the capacity loss due to pi-blocking into perspective. The curves of the MPCP and the FMLP + overlap and exhibit deteriorating schedulability at n ≈ 50, whereas without contention, most task sets with up to 70 tasks are schedulable, that is, the system's capacity is (on average) reduced by 20 tasks under the FMLP + and the MPCP. Notably, under the DPCP and the DFLP, this capacity loss is halved: schedulability starts to decrease only at n ≈ 60. To the best of our knowledge, this is the first study to show that distributed locking protocols can actually be superior in terms of schedulability. However, overheads are decidedly not negligible in semaphore protocols and must be considered to obtain practically meaningful results.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. IMPACT OF OVERHEADS</head><p>We implemented the DFLP in LITMUS RT <ref type="bibr" target="#b0">[1]</ref>, which already included implementations of the MPCP, DPCP, and FMLP + from prior work <ref type="bibr" target="#b4">[5]</ref>, and used it to estimate worst-case overheads. To measure overheads, LITMUS RT records timestamps before and after an overhead-inducing code segment is executed. Timestamps are written into a wait-free trace buffer, which is periodically flushed to disk. This method is prone to outliers, which prior LITMUS RT -based studies have addressed with statistical filters, which can be problematic, as discussed in Sec. I. We instrumented the tracing code to analyze how outliers arise and found four causes: (i) interrupts in between recorded timestamps, (ii) preemptions in kernel space while recording a timestamp, (iii) preemptions in user space before reporting a timestamp to the kernel, and (iv) "holes" in the record due to buffer overruns. Of these, causes (ii) and (iv) were easy to fix: to avoid preemptions in the tracing code, it is sufficient to (briefly) disable interrupts, and buffer overflows were addressed by correlating recorded sequence numbers, timestamps, processor IDs, and process IDs to reliably detect discontinuities.</p><p>Causes (i) and (iii) proved more challenging because interrupts and preemptions cannot be disabled between the recording of timestamps, that is, such outliers cannot be avoided, but instead must be reliably detected and discarded. We therefore introduced a per-processor interrupt counter that is incremented by each interrupt handler. When recording a sample, the counter is reset and, if it was non-zero, the occurrence of interrupts is indicated with a flag in the trace record, which allows rejecting such samples. Finally, to address cause (iii), we exported another interrupt counter to user-space processes. When reporting a timestamp observed in user space (e.g., this is required to trace the beginning of a system call), the process also submits a snapshot of the interrupt counter. This exposes preemptions that occur between the observation and the recording of a timestamp since involuntary preemptions are triggered by interrupts.</p><p>While these improvements are conceptually simple, considerable effort was required to correctly identify all causes of outliers and to realize the described countermeasures. Fortunately, they completely remove the need for statistical outlier filtering.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Scheduling, Locking, and Cache-Related Overheads</head><p>To obtain a realistic overhead model, we traced scheduling, locking, and cache-related overheads on two configurations of a 2.0 GHz Intel Xeon X7550 system, once with 8 and once with 16 cores enabled, following the methodology described in <ref type="bibr" target="#b4">[5]</ref>. In short, we executed task sets ranging in size from 2 to 20 tasks per core (generated similarly to the procedure in Sec. IV-A) and, for each task set size and each locking protocol, traced ten task sets for 30 seconds each. In total, we recorded more than 400 GB of trace data, which contained more than 15.4 billion undisturbed samples reflecting more than 20 hours of real-time execution. The complete set of results, including histograms for each recorded overhead, is available online <ref type="bibr" target="#b6">[7]</ref>; a representative example histogram of system call entry overheads is shown in Fig. <ref type="figure">5</ref>. Histogram of system call entry overhead (i.e., the cost of trapping into the kernel) on a 16-core, 2.0 GHz Intel Xeon X7550 system. Note the log scale; the linear slope indicates an exponential decrease in frequency. More than 1.69 billion valid samples were recorded; no statistical outlier filter was applied.</p><p>Fig. <ref type="figure">5</ref>. No statistical outlier filter was applied-the reported worst-case cost of 32.02µs is indeed the maximum observed cost during more than 1.69 billion locking-related system calls.</p><p>A summary of all measured kernel overheads (not including cache-related preemption delay) is illustrated in Fig. <ref type="figure">6</ref>. The cost of lock acquisition does not differ much among the four evaluated protocols; however, overheads are significantly higher in the 16-core configuration than in the 8-core system. Next, we extended the schedulability experiments using standard techniques (discussed in <ref type="bibr">[5, ch. 3]</ref>) to account for worst-case scheduling, locking, and cache-related overheads. For example, to lock and unlock a contended semaphore <ref type="bibr">[5, ch. 7]</ref>, a job must enter the kernel, suspend, wait, resume, exit the kernel, execute its critical section, enter the kernel, resume the next job, exit the kernel, and finally reestablish cache affinity, which it lost while waiting to acquire the semaphore. Taken together, these overheads have three effects <ref type="bibr">[5, ch. 7]</ref>: they increase the critical section length (locks are not released as quickly), they increase the critical section latency (jobs are suspended for longer), and they increase each task's worst-case execution cost (system calls are not free, recall Fig. <ref type="figure">5</ref>). Table <ref type="table" target="#tab_4">II</ref> lists the resulting increases under each of the considered locking protocols, in both the 8and the 16-core system. The main differences are that distributed locking protocols entail higher latency increases (due to the need to invoke remote agents) and that overheads are much higher in the 16-core configuration, which is also apparent in Fig. <ref type="figure">6</ref> (and likely due to contention in the memory hierarchy).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Overhead-Aware Schedulability Results</head><p>We repeated the study described in Sec. IV under consideration of the empirically determined worst-case overheads. Since distributed locking protocols incur higher latencies, one might suspect that the theoretical advantages reported in Sec. IV disappear in practice. However, this is not the case, for two reasons: first, the MPCP and FMLP + are subject to considerable worstcase overheads, too, and second, the algorithmic differences can be so large that overheads play only a minor role.</p><p>One such example is shown in Fig. <ref type="figure" target="#fig_4">7</ref>, which depicts overheadaware schedulability under the four considered protocols assuming exponential light utilizations, homogeneous periods, m = 8, n r = 8, N max = 5, and p acc = 0.30. Notably, the DFLP, which is subject to the largest increase in critical section length,  Fig. <ref type="figure">6</ref>. Summary of individual kernel overheads (in microseconds). A description of each measured type of overhead and individual histograms are available in <ref type="bibr" target="#b6">[7]</ref>. The overall costs per lock acquisition are given in Table <ref type="table" target="#tab_4">II</ref>, as computed using the analysis derived in <ref type="bibr">[5, ch. 7]</ref>. performs best, followed by the DPCP. Further, the FMLP + performs better than the MPCP: FIFO queuing is preferable to priority queuing in this scenario since, with homogeneous periods, all tasks have similar temporal constraints, which makes it advantageous to distribute pi-blocking equally among tasks. That FIFO queues are favored by homogeneous periods is also apparent in Fig. <ref type="figure" target="#fig_5">8</ref>, which depicts schedulability assuming exponential light utilizations, homogeneous periods, m = 16, n r = 1, N max = 5, and p acc = 0.2. However, here, the FMLP + performs best, followed by the MPCP: since there is only a single resource, it is preferable to allow tasks to access the resource from multiple processors, lest the synchronization processor becomes overloaded. Again, FIFO queuing is preferable to priority queuing due to the homogeneous periods.</p><p>Overall, enabled by the improved LP-based analysis, there also exist many scenarios in which either the DPCP or the MPCP yield higher schedulability than either FIFO-based protocol. While it is difficult to generalize all 1,728 scenarios <ref type="bibr" target="#b6">[7]</ref>, we found that, in broad terms,</p><p>• FIFO queuing performs well for homogeneous periods (i.e., if the ratio of the shortest and longest period is small); • conversely, priority queuing is a better choice for heterogeneous periods (i.e., if some tasks have much tighter temporal constraints than others); • distributed locking protocols perform well in scenarios with many resources and high contention; and • shared-memory locking protocols perform better in scenarios with few resources. The choice of critical section length had little impact; long critical sections reduce schedulability under any protocol. We note that there are exceptions to these rough guidelines since schedulability is influenced by multiple factors, and aspects other than pi-blocking may be the bottleneck. Nonetheless, we have identified that the range of temporal constraints and the number of resources strongly affect which protocol performs best.</p><p>Finally, we hasten to add that our results pertain to worst-case overheads; when considering average-case overheads, sharedmemory protocols likely have an advantage since they require invocation of the scheduler only in the case of contention, whereas distributed locking protocols require kernel intervention even in the uncontended case.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. EFFICIENCY CONSIDERATIONS</head><p>Solving an LP is a rather heavyweight operation, and solving multiple LPs per task may seem computationally prohibitive. However, as evidenced by the presented empirical evaluation, which involved millions of task sets and was carried out on about 40 nodes of a commodity compute cluster, this is not a problem for a modern LP solver provisioned on current hardware.</p><p>Nonetheless, using LPs may not be an option if pi-blocking is to be bounded as part of online admission control in embedded systems, either due to the unavailability of LP solvers for the target platform or due to insufficient computational resources. We posit that LP-based analysis is still beneficial in such cases. First, it is possible (with some effort) to implement a more efficient "problem-specific solver" by simply enumerating all critical sections and then marking individual instances as "not blocking" based on the invariants underlying the constraints of the LP. And second, the concise, declarative nature of the LP-based analysis makes it an ideal baseline against which a hand-coded, imperative implementation can be tested.</p><p>A second optimization opportunity pertains to the number of variables. As specified in Sec. III, the number of variables (and hence the LPs complexity) depends on the ratio of the maximum response time and the minimum period due to the definition of each N i x,q , which gives rise to pseudo-polynomial complexity. From a practical point of view, this is not a problem: in our experiments, the generated LPs could on average be solved within a few tens to hundreds of milliseconds, even with a pseudopolynomial number of variables. However, it is also possible to rewrite the LP into an equivalent (but slightly less intuitive) form using fewer variables: by collapsing the blocking fractions </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>X D</head><p>x,q,1 , . . . , X D</p><p>x,q,N i</p><p>x,q into a single variable X D x,q with domain [0, N i x,q ] (and analogously collapsing all X I x,q,v variables into X I</p><p>x,q and all X P x,q,v variables into X P x,q ), the number of variables per task and per resource is reduced to three, such that only O(n • n r ) variables are required in total. Of course, this requires the constraints and objective function to be adjusted accordingly. For example, Constraint 1 would be equivalently written as ∀T x ∈ τ i : ∀ q : X D</p><p>x,q + X I x,q + X P x,q ≤ N i x,q . To summarize, even in its unoptimized form with a pseudopolynomial number of variables, we were able to apply the LPbased analysis to millions of task sets on commodity hardware, and further implementation and runtime complexity improvements are possible. We thus believe the proposed approach to be fast enough to be practical even for large task sets.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. RELATED WORK</head><p>Real-time locking has garnered much interest in recent years; due to space constraints, we are forced to focus our review on the most relevant prior work. As mentioned in Sec. II, Rajkumar et al. were the first to study semaphores in multiprocessor real-time systems and developed the DPCP <ref type="bibr" target="#b23">[23,</ref><ref type="bibr" target="#b24">24]</ref> and the MPCP <ref type="bibr" target="#b22">[22,</ref><ref type="bibr" target="#b23">23]</ref> for use under P-FP scheduling. Of the two, the MPCP has received more attention in recent years and improved blocking bounds based on response-time analysis <ref type="bibr" target="#b2">[3]</ref> were independently developed by Lakshmanan et al. <ref type="bibr" target="#b18">[19]</ref> and Schliecker et al. <ref type="bibr" target="#b25">[25]</ref>. The key insight in these analyses, which we have adopted in our analysis of the DPCP and the MPCP <ref type="bibr" target="#b6">[7]</ref>, is to consider the "response time" of low-priority requests to avoid the pessimistic assumption that each such request is repeatedly blocked by all higher-priority requests.</p><p>Striving for simplicity in implementation and analysis, Block et al. <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b7">8]</ref> devised the FIFO-based FMLP, which consists of both a spinlock and a semaphore variant. As implied by its name, the FMLP + <ref type="bibr" target="#b4">[5]</ref> considered in this paper is a direct descendant of the FMLP's semaphore variant. A prior LITMUS RT -based study <ref type="bibr" target="#b8">[9]</ref> evaluated the MPCP, DPCP, and the FMLP; these earlier results are superseded by the results presented herein due to the improved analysis of the MPCP and the DPCP, and since the FMLP + reduces blocking compared to the original FMLP.</p><p>Hsiu et al. <ref type="bibr" target="#b16">[17]</ref> recently studied the problem of finding task and resource assignments that optimize certain criteria (e.g., the number of synchronization processors), assuming P-FP scheduling and a distributed, priority-queue-based semaphore protocol similar to the DPCP. The mapping problem is complimentary to the problem studied in this paper, which is to bound pi-blocking for a given task and resource assignment.</p><p>In work on component-based systems, Nemati et al.</p><p>[21] developed a semaphore protocol for partitioned scheduling that allows predictable resource sharing among independently developed (legacy) applications, where each component is provisioned on a dedicated core. The provided blocking bounds assume P-FP scheduling and structurally resemble earlier analyses of the MPCP and the FMLP, and thus could likely be tightened (in some cases) with our LP-based analysis technique.</p><p>In very recent work, Kim et al. <ref type="bibr" target="#b17">[18]</ref> applied linear programming to the task of determining tight response-time bounds in distributed systems under P-FP scheduling with precedence constraints (and without locking). In contrast to our LP-based, approach, in which a (not necessarily tight) upper bound on pi-blocking is expressed by means of non-integral blocking fractions, Kim et al. use integer linear programs (ILPs) to find schedules that maximize response times. While Kim et al.'s approach yields exact response-time bounds, it is also much more costly and does not scale to the number of task sets considered in our study. We are not aware of prior efforts to analyze locking in multiprocessor real-time systems with LPs.</p><p>Numerous real-time locking protocols have been proposed for non-P-FP environments, including global fixed-priority scheduling (e.g., <ref type="bibr" target="#b13">[14]</ref>), suspension-oblivious analysis (e.g., <ref type="bibr" target="#b10">[11]</ref>), and reservation-based scheduling (e.g., <ref type="bibr" target="#b14">[15]</ref>); see <ref type="bibr" target="#b4">[5]</ref> for a recent survey. Notably, Ward and Anderson <ref type="bibr" target="#b27">[27]</ref> recently showed how to support nested critical sections without loss of asymptotic optimality (e.g., their technique can be used with the FMLP + ). Nesting is beyond the scope of this paper; however, we believe that our LP-based analysis can be extended to support nesting and seek to explore this interesting direction in future work.</p><p>Finally, spinlocks, in which blocked jobs wait by executing a delay loop, are a well-studied alternative to semaphores (e.g., see <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b4">5,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b15">16]</ref>). While spinning is conceptually undesirable, it avoids the scheduling and cache overheads caused by suspensions, and recent studies have shown spinlocks to be preferable for short critical sections <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b11">12,</ref><ref type="bibr" target="#b15">16]</ref>. Nonetheless, semaphores are widely used in practice and can be more appropriate if long wait times cannot be ruled out, or in the presence of background tasks that could benefit from the cycles wasted by spinning. LP-based analysis can be easily adopted to spinlocks as well.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. CONCLUSION</head><p>This work makes three major contributions concerning the analysis and evaluation of real-time locking protocols, a key component in virtually all modern multicore RTOSs. First, we have proposed a novel, compositional, and much more accurate analysis technique based on linear programming, which allows reasoning about individual protocol properties in isolation. Crucially, the burden of understanding the interplay of constraints is shifted from the human analyst to the optimizer. We have empirically shown that, compared to prior bounds, pessimism is greatly reduced through the novel use of blocking fractions, which ensure that each potentially conflicting critical section is accounted for at most once (which is difficult to express with ad-hoc methods). Finally, bounds expressed as LPs are arguably more concise and easier to communicate.</p><p>Second, based on the improved analysis, we have compared two key locking protocol design choices-how to order conflicting requests, and where to execute critical sections-and have demonstrated that none of the considered protocols can be claimed to be the "best protocol" for all workloads. Perhaps surprisingly, we have identified that, even in shared-memory systems, distributed locking protocols are competitive under heavy contention. This is a timely observation as distributed locking protocols are well-suited to platforms without cache coherence, which is often too costly to support in multicore designs targeted at embedded systems (e.g., this is the case in Infineon's AURIX multicore platform for automotive systems).</p><p>Third, we have implemented each protocol and empirically estimated worst-case overheads by recording more than 15 billion valid overhead samples. By incorporating observed worst-case overheads into schedulability experiments involving more than 100 million task sets, we have confirmed that distributed locking protocols remain a viable choice even if realistic overheads are considered. Importantly, we have improved LITMUS RT 's infrastructure such that statistical outlier filtering is no longer required. These improvements have been contributed to the main version of LITMUS RT [1], thereby significantly improving the accuracy of all future LITMUS RT -based studies.</p><p>There are numerous avenues for future work. This study explored fundamental algorithmic differences among the protocols using randomly generated task sets; going forward, it would also be interesting to investigate locking protocol design choices in the context of specific applications. We further plan to apply our new analysis technique to additional semaphore and spinlock protocols, and seek to extend the LP-based analysis method to incorporate nested critical sections and critical sections with I/O-related self-suspensions (see <ref type="bibr" target="#b6">[7]</ref> for a possible approach). Finally, it is interesting to explore the design of "generalized" locking protocols that can be tailored to a task set's needs. (e.g., by splitting locking priorities from scheduling priorities).</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 3 .</head><label>3</label><figDesc>Fig. 3. Comparison of schedulability under the FMLP + , the MPCP with LP-based analysis, and the MPCP with Lakshmanan et al.'s analysis [19].</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 4 .</head><label>4</label><figDesc>Fig. 4. Comparison of shared-memory and distributed semaphore protocols. The curve labeled "w/o locks" indicates P-FP schedulability without pi-blocking.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head></head><label></label><figDesc>3.75 7.25 10.75 14.25 17.75 21.25 24.75 28.25 31.75 number of samples overhead in microseconds (bin size = 0.50us) P-FP: measured system call entry overhead (host=nanping-16) min=0.19us max=32.02us avg=1.41us median=0.79us samples: total=1692079184 [IQR filter not applied]</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 7 .</head><label>7</label><figDesc>Fig. 7. Overhead-aware schedulability under the FMLP + , MPCP, DFLP, and the DPCP. The curve labeled "w/o locks" indicates schedulability without pi-blocking. Distributed locking protocols are preferable in this example.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 8 .</head><label>8</label><figDesc>Fig. 8. Overhead-aware schedulability under the FMLP + , MPCP, DFLP, and the DPCP. The curve labeled "w/o locks" indicates schedulability without pi-blocking. Shared-memory locking protocols are preferable in this example.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head></head><label></label><figDesc>Task ei pi Ni,1 Ni,2 Li,1 Li,2 P (Ti)</figDesc><table><row><cell>T1</cell><cell>4 20</cell><cell>1</cell><cell>0</cell><cell>3</cell><cell>0</cell><cell>P1</cell></row><row><cell>T2</cell><cell>4 30</cell><cell>1</cell><cell>0</cell><cell>3</cell><cell>0</cell><cell>P2</cell></row><row><cell>T3</cell><cell>4 40</cell><cell>0</cell><cell>1</cell><cell>0</cell><cell>3</cell><cell>P3</cell></row><row><cell>T4</cell><cell>4 50</cell><cell>0</cell><cell>0</cell><cell>0</cell><cell>0</cell><cell>P4</cell></row><row><cell></cell><cell>scheduled</cell><cell cols="3">release/activation</cell><cell cols="2">completion</cell></row><row><cell></cell><cell>critical section</cell><cell cols="2">preempted</cell><cell></cell><cell cols="2">suspended</cell></row><row><cell>P 3 :</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell>P 2 :</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell>P 1 :</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row><row><cell></cell><cell>0</cell><cell>5</cell><cell></cell><cell>10</cell><cell></cell><cell>15</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head></head><label></label><figDesc>Comparison of schedulability under the DFLP, the DPCP with LP-based analysis, and the DPCP with Rajkumar et al.'s classic analysis</figDesc><table><row><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="5">������������������������������������������</cell><cell></cell><cell></cell></row><row><cell></cell><cell></cell><cell cols="9">������������������������������������������ � ������ ��� ��������� ��� �����</cell></row><row><cell>���������������������������������</cell><cell>�� ���� ���� ���� ���� ��</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="2">��������� ��������� ������������</cell></row><row><cell></cell><cell>���</cell><cell>���</cell><cell>���</cell><cell>���</cell><cell>���</cell><cell>���</cell><cell>���</cell><cell>���</cell><cell>���</cell><cell>���</cell><cell>���</cell></row><row><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell cols="3">�������������������</cell><cell></cell><cell></cell><cell></cell></row><row><cell cols="2">Fig. 2.</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head>TABLE II LOCKING</head><label>II</label><figDesc>COSTS PER REQUEST (IN MICROSECONDS, ON 8/16 CORES)</figDesc><table><row><cell cols="2">Protocol CS Increase</cell><cell cols="2">Latency Increase WCET Increase</cell></row><row><cell>MPCP</cell><cell cols="2">136.66 / 504.58 25.69 / 47.68</cell><cell>150.46 / 623.01</cell></row><row><cell>FMLP +</cell><cell cols="2">135.65 / 507.74 25.69 / 47.68</cell><cell>151.04 / 627.53</cell></row><row><cell>DPCP</cell><cell cols="2">111.20 / 496.43 162.58 /591.79</cell><cell>89.97 / 378.34</cell></row><row><cell>DFLP</cell><cell cols="2">159.70 / 583.96 108.32 / 488.60</cell><cell>89.97 / 378.34</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>978-1-4799-0187-6/13/$31.00 ©2013 IEEE Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 23:03:53 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_1"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 23:03:53 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">The LITMUS RT project</title>
+		<ptr target="http://www.litmus-rt.org" />
+	</analytic>
+	<monogr>
+		<title level="j">web site</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">SchedCAT: Schedulability test collection and toolkit</title>
+		<ptr target="http://www.mpi-sws.org/∼bbb/projects/schedcat" />
+	</analytic>
+	<monogr>
+		<title level="j">web site</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Applying new scheduling theory to static priority pre-emptive scheduling</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Audsley</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Richardson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Tindell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wellings</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Software Eng. J</title>
+		<imprint>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="284" to="292" />
+			<date type="published" when="1993">1993</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">A flexible real-time locking protocol for multiprocessors</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 13th IEEE Conf. on Embedded and Real-Time Computing Systems and Applications</title>
+		<meeting>13th IEEE Conf. on Embedded and Real-Time Computing Systems and Applications</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="47" to="57" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title level="m" type="main">Scheduling and locking in multiprocessor realtime operating systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+		<respStmt>
+			<orgName>The University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<monogr>
+		<title level="m" type="main">A note on blocking optimality in distributed real-time locking protocols</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+	<note>manuscript</note>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Improved analysis and evaluation of semaphore protocols for P-FP scheduling (extended version)</title>
+		<ptr target="http://www.mpi-sws.org/tr/2013-001.pdf" />
+	</analytic>
+	<monogr>
+		<title level="j">MPI-SWS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Tech. Rep. 2013-001</note>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">An implementation of the PCP, SRP, D-PCP, M-PCP, and FMLP real-time synchronization protocols in LITMUS RT</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 14th IEEE Real-Time and Embedded Technology and Apps. Symp</title>
+		<meeting>14th IEEE Real-Time and Embedded Technology and Apps. Symp</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="185" to="194" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<author>
+			<persName><forename type="first">M-Pcp</forename></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D-Pcp</forename><surname>Rt</surname></persName>
+		</author>
+		<title level="m">Proc. 12th Intl. Conf. On Principles Of Distributed Systems</title>
+		<meeting>12th Intl. Conf. On Principles Of Distributed Systems</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="105" to="124" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Optimality results for multiprocessor real-time locking</title>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 31st Real-Time Systems Symp</title>
+		<meeting>31st Real-Time Systems Symp</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="49" to="60" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">The OMLP family of optimal multiprocessor real-time locking protocols</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+	<note>Design Automation for Embedded Sys</note>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Synchronization on real-time multiprocessors: To block or not to block, to suspend or spin</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 14th Real-Time and Embedded Technology and Apps. Symp</title>
+		<meeting>14th Real-Time and Embedded Technology and Apps. Symp</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="342" to="353" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Reducing queue lock pessimism in multiprocessor schedulability analysis</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Chang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wellings</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 18th Conf. on Real-Time and Network Systems</title>
+		<meeting>18th Conf. on Real-Time and Network Systems</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="99" to="108" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Resource sharing in global fixedpriority preemptive multiprocessor scheduling</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Easwaran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 30th IEEE Real-Time Systems Symp</title>
+		<meeting>30th IEEE Real-Time Systems Symp</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="377" to="386" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">The multiprocessor bandwidth inheritance protocol</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Faggioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Cucinotta</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 22nd Euromicro Conf. on Real-Time Systems</title>
+		<meeting>22nd Euromicro Conf. on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="90" to="99" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">A comparison of MPCP and MSRP when sharing resources in the Janus multiple processor on a chip platform</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Gai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Di Natale</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Ferrari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gabellini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Marceca</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 9th IEEE Real-Time And Embedded Technology Application Symp</title>
+		<meeting>9th IEEE Real-Time And Embedded Technology Application Symp</meeting>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+			<biblScope unit="page" from="189" to="198" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Task Synchronization and Allocation for Many-Core Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">P.-C</forename><surname>Hsiu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D.-N</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T.-W</forename><surname>Kuo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. Intl. Conf. on Embedded Software</title>
+		<meeting>Intl. Conf. on Embedded Software</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="79" to="88" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">An ILPbased worst-case performance analysis technique for distributed real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Oh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Ha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">H</forename><surname>Kang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 33rd Real-Time Systems Symp</title>
+		<meeting>the 33rd Real-Time Systems Symp</meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="363" to="372" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Coordinated task scheduling, allocation and synchronization on multiprocessors</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 30th IEEE Real-Time Systems Symp</title>
+		<meeting>30th IEEE Real-Time Systems Symp</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+			<biblScope unit="page" from="469" to="478" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Remote Core Locking: Migrating Critical-Section Execution to Improve the Performance of Multithreaded Applications</title>
+		<author>
+			<persName><forename type="first">J.-P</forename><surname>Lozi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>David</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Thomas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lawall</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Muller</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. Usenix Annual Technical Conf</title>
+		<meeting>Usenix Annual Technical Conf</meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="65" to="76" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Independently-developed real-time systems on multi-cores with shared resources</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Nemati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc</title>
+		<meeting>null</meeting>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title/>
+	</analytic>
+	<monogr>
+		<title level="j">Euromicro Conf. on Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="page" from="251" to="261" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for shared memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 10th Intl. Conf. on Distributed Computing Systems</title>
+		<meeting>10th Intl. Conf. on Distributed Computing Systems</meeting>
+		<imprint>
+			<date type="published" when="1990">1990</date>
+			<biblScope unit="page" from="116" to="123" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<monogr>
+		<title level="m">Synchronization In Real-Time Systems-A Priority Inheritance Approach</title>
+		<imprint>
+			<publisher>Kluwer Academic Publishers</publisher>
+			<date type="published" when="1991">1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Real-time synchronization protocols for multiprocessors</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 9th IEEE Real-Time Systems Symp</title>
+		<meeting>9th IEEE Real-Time Systems Symp</meeting>
+		<imprint>
+			<date type="published" when="1988">1988</date>
+			<biblScope unit="page" from="259" to="269" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Response Time Analysis on Multicore ECUs With Shared Resources</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Schliecker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Negrean</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Ind. Informat</title>
+		<imprint>
+			<biblScope unit="volume">5</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="402" to="413" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Priority inheritance protocols: an approach to real-time synchronization</title>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Comput</title>
+		<imprint>
+			<biblScope unit="volume">39</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="1175" to="1185" />
+			<date type="published" when="1990">1990</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Supporting nested locking in multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. 24th Euromicro Conf. on Real-Time Systems</title>
+		<meeting>24th Euromicro Conf. on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="223" to="232" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

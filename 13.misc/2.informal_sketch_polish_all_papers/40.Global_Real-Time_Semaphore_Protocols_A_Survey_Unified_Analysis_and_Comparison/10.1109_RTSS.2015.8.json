@@ -1,0 +1,926 @@
+{
+  "paper_name": "Global Real-Time Semaphore Protocols: A Survey, Unified Analysis, and Comparison",
+  "paper_description": "This paper proposes a new, unified response-time analysis framework for suspension-based locking protocols under global fixed-priority (G-FP) scheduling. The analysis is based on linear programming (LP) and aims to derive safe upper bounds on worst-case response times (WCRT) for tasks using shared resources. It defines various types of priority inversions and interference, establishes fundamental properties, and formulates a set of generic and protocol-specific constraints for the LP model. The overall schedulability is determined by checking if the maximum response time derived from the LP for each task is less than or equal to its deadline.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Definition 1: Priority Inversion",
+      "formal_description": {
+        "statement": "A job J_i is subject to priority inversion at time t iff J_i is pending but not scheduled, AND fewer than m higher-base-priority jobs are scheduled at time t (i.e., at least one processor is idle or occupied by a lower-base-priority job).",
+        "variables": {
+          "J_i": "Job of task T_i",
+          "t": "Time instant",
+          "m": "Number of identical processors"
+        },
+        "assumptions": [
+          "G-FP scheduling",
+          "Suspension-aware analysis"
+        ],
+        "conclusion": "Defines when a job experiences priority inversion."
+      },
+      "informal_sketch": {
+        "intuition": "A high-priority job is experiencing a 'priority inversion' if it's ready to run but isn't, even though there are available processors or only lower-priority jobs are running. This means something unexpected (like a lock) is preventing it from executing.",
+        "steps": [
+          "Check if job J_i is currently active (pending) but not running.",
+          "Check the number of jobs with higher base priority that are currently running.",
+          "If fewer than 'm' higher-base-priority jobs are running (meaning some processors are idle or running lower-priority jobs), then J_i is experiencing priority inversion."
+        ],
+        "pseudocode": "def is_priority_inverted(job_i, current_time, scheduled_jobs, m):\n    if not job_i.is_pending(current_time) or job_i.is_scheduled(current_time):\n        return False\n    \n    higher_priority_scheduled_count = 0\n    for scheduled_job in scheduled_jobs:\n        if scheduled_job.base_priority < job_i.base_priority:\n            higher_priority_scheduled_count += 1\n            \n    return higher_priority_scheduled_count < m",
+        "key_insights": [
+          "Priority inversion is a deviation from the expected G-FP schedule.",
+          "It implies that a higher-priority job is delayed by something other than normal higher-priority interference.",
+          "This definition is specific to suspension-aware analysis, where suspended jobs don't occupy processors."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Implicit Definition: Types of Locking-Related Delays",
+      "formal_description": {
+        "statement": "Let J_x denote a job scheduled at time t that is holding a resource q, and suppose job J_i is pending but not scheduled at time t. Then J_x causes J_i to incur: \n1.  **Direct pi-blocking**: iff J_i is waiting for q while fewer than m higher-base-priority jobs are scheduled at time t.\n2.  **Indirect pi-blocking**: iff x > i > pi_x(t) AND J_i is suspended and waiting for another resource u (u != q) that is held by a job J_a AND J_a is not scheduled at time t.\n3.  **Preemption pi-blocking**: iff x > i > pi_x(t) AND J_i is ready but not scheduled at time t.\n\nIn addition, J_x causes J_i to incur (assuming J_x is scheduled, J_i is pending, not scheduled, and not incurring direct pi-blocking at time t):\n4.  **Regular interference**: iff x < i.\n5.  **Co-boosting interference**: iff x > i > pi_x(t) AND J_x is not holding any resource at time t.\n6.  **Stalling interference**: iff x > i AND pi_x(t) >= i.",
+        "variables": {
+          "J_i": "Job of task T_i (task under analysis)",
+          "J_x": "Job of task T_x (delaying task)",
+          "J_a": "Job of task T_a (resource holder)",
+          "t": "Time instant",
+          "q": "Resource held by J_x",
+          "u": "Resource J_i is waiting for",
+          "m": "Number of identical processors",
+          "x": "Base priority (index) of T_x",
+          "i": "Base priority (index) of T_i",
+          "pi_x(t)": "Effective priority of T_x at time t"
+        },
+        "assumptions": [
+          "G-FP scheduling",
+          "Suspension-aware analysis",
+          "Tasks indexed by decreasing base priority (lower index = higher priority)"
+        ],
+        "conclusion": "Categorizes the specific causes of delay for a job J_i due to another job J_x."
+      },
+      "informal_sketch": {
+        "intuition": "These definitions break down the reasons a job might be delayed. 'Pi-blocking' is when a lower-priority job holding a lock directly or indirectly prevents a higher-priority job. 'Interference' is when other jobs (even lower-priority ones with boosted priorities) use processors that the job under analysis could otherwise use.",
+        "steps": [
+          "To determine the type of delay J_i incurs from J_x at time t:",
+          "1. Check if J_i is waiting for a resource 'q' held by J_x, and if there are available processors or lower-priority jobs running. If so, it's 'direct pi-blocking'.",
+          "2. If not direct, check if J_x has lower base priority but higher effective priority than J_i, and J_i is suspended waiting for a *different* resource 'u' held by an *un-scheduled* job J_a. If so, it's 'indirect pi-blocking'.",
+          "3. If not direct or indirect, check if J_x has lower base priority but higher effective priority than J_i, and J_i is ready but not scheduled. If so, it's 'preemption pi-blocking'.",
+          "4. If J_x has higher base priority than J_i, it's 'regular interference'.",
+          "5. If J_x has lower base priority but higher effective priority than J_i, and J_x is *not* holding a resource, it's 'co-boosting interference'.",
+          "6. If J_x has lower base priority and its effective priority is equal to or lower than J_i's base priority, but J_x is scheduled while J_i is pending but not scheduled (and not directly blocked), it's 'stalling interference'.",
+          "Note: These types are mutually exclusive for a given (J_i, J_x) pair at time t (Lemma 2)."
+        ],
+        "pseudocode": "def classify_delay(job_i, job_x, job_a, resource_q_held_by_x, resource_u_waiting_for_i, current_time, m):\n    is_i_pending_not_scheduled = job_i.is_pending(current_time) and not job_i.is_scheduled(current_time)\n    num_higher_base_priority_scheduled = count_higher_base_priority_scheduled(job_i, current_time)\n\n    # Direct pi-blocking\n    if is_i_pending_not_scheduled and job_i.is_waiting_for_resource(resource_q_held_by_x) and num_higher_base_priority_scheduled < m:\n        return 'direct_pi_blocking'\n\n    # Assuming J_x is scheduled, J_i is pending, not scheduled, and not directly blocked\n    if not job_x.is_scheduled(current_time) or not is_i_pending_not_scheduled or job_i.is_waiting_for_resource(resource_q_held_by_x):\n        return 'other_delay_or_no_delay' # Or handle other cases not covered by the 'interference' definitions\n\n    # Regular interference\n    if job_x.base_priority < job_i.base_priority:\n        return 'regular_interference'\n\n    # Cases where job_x.base_priority > job_i.base_priority\n    if job_x.effective_priority(current_time) < job_i.base_priority:\n        # Co-boosting interference\n        if not job_x.is_holding_resource(current_time):\n            return 'co_boosting_interference'\n        # Indirect pi-blocking (J_i suspended, J_a not scheduled)\n        elif job_i.is_suspended(current_time) and job_i.is_waiting_for_resource(resource_u_waiting_for_i) and not job_a.is_scheduled(current_time):\n            return 'indirect_pi_blocking'\n        # Preemption pi-blocking (J_i ready)\n        elif job_i.is_ready(current_time):\n            return 'preemption_pi_blocking'\n    \n    # Stalling interference\n    if job_x.effective_priority(current_time) >= job_i.base_priority:\n        return 'stalling_interference'\n        \n    return 'unknown_delay_type'",
+        "key_insights": [
+          "These definitions are crucial for breaking down the total delay into quantifiable components.",
+          "They distinguish between delays caused by resource contention (pi-blocking) and delays caused by priority management mechanisms (interference types).",
+          "The conditions for each type are precise and mutually exclusive for a given (J_i, J_x) pair."
+        ]
+      },
+      "dependencies": [
+        "Definition 1: Priority Inversion"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 2: Blocking Fraction",
+      "formal_description": {
+        "statement": "Let x_q_v be the v-th request for resource q by jobs of T_x while J_i is pending, and let b_x_q_v_i be the actual amount of pi-blocking incurred by J_i due to x_q_v. The corresponding blocking fraction is defined as X_x_q_v = b_x_q_v_i / L_x_q. In other words, a blocking fraction X_x_q_v relates the actual delay incurred by J_i to the maximum critical section length L_x_q, where X_x_q_v <= 1.",
+        "variables": {
+          "x_q_v": "v-th request for resource q by task T_x",
+          "J_i": "Job of task T_i (task under analysis)",
+          "T_x": "Task T_x (delaying task)",
+          "q": "Resource identifier",
+          "v": "Request instance index",
+          "b_x_q_v_i": "Actual pi-blocking incurred by J_i due to x_q_v",
+          "L_x_q": "Maximum critical section length of T_x for resource q",
+          "X_x_q_v": "Blocking fraction for request x_q_v"
+        },
+        "assumptions": [],
+        "conclusion": "Defines a normalized measure of pi-blocking incurred by J_i from a specific request of T_x."
+      },
+      "informal_sketch": {
+        "intuition": "A blocking fraction tells us what proportion of a critical section's maximum length actually caused blocking for the job we're analyzing. If a critical section is very long but only blocks our job for a short time, the fraction will be small.",
+        "steps": [
+          "Identify a specific request (v-th request for resource q by task T_x).",
+          "Determine the actual time (b_x_q_v_i) that this request caused pi-blocking for job J_i.",
+          "Find the maximum possible length (L_x_q) of this critical section.",
+          "Calculate the fraction: X_x_q_v = b_x_q_v_i / L_x_q.",
+          "Ensure this fraction is between 0 and 1."
+        ],
+        "pseudocode": "def calculate_blocking_fraction(actual_blocking_time, max_critical_section_length):\n    if max_critical_section_length == 0:\n        return 0.0 # Or handle error if expected to be positive\n    blocking_fraction = actual_blocking_time / max_critical_section_length\n    return min(1.0, max(0.0, blocking_fraction)) # Ensure it's within [0, 1]",
+        "key_insights": [
+          "Normalizes blocking time relative to the critical section length.",
+          "Allows for modeling partial blocking, which can reduce pessimism.",
+          "These fractions are variables in the LP formulation, representing unknown actual blocking durations."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 3: Bertogna et al.'s Slack-Aware Workload Bound",
+      "formal_description": {
+        "statement": "During an interval of length R_i, task T_x's workload bound is W_x(R_i) = floor((R_i + p_x - d_x) / p_x) * e_x + min(e_x, (R_i + p_x - d_x) mod p_x).",
+        "variables": {
+          "W_x(R_i)": "Workload bound of task T_x over an interval of length R_i",
+          "R_i": "Length of the analysis interval (response time of J_i)",
+          "p_x": "Minimum inter-arrival time (period) of task T_x",
+          "d_x": "Relative deadline of task T_x",
+          "e_x": "Worst-case execution time (WCET) of task T_x"
+        },
+        "assumptions": [
+          "Sporadic task model",
+          "Constrained deadlines (d_x <= p_x)"
+        ],
+        "conclusion": "Provides an upper bound on the total execution time (workload) that task T_x can demand within any interval of length R_i, considering its release pattern and deadline."
+      },
+      "informal_sketch": {
+        "intuition": "This formula calculates the maximum amount of CPU time a task T_x can 'demand' within a given time window R_i. It accounts for jobs that arrive and complete within the window, and potentially a 'carry-in' job that started before the window but contributes execution within it.",
+        "steps": [
+          "Calculate the effective length of the interval for workload calculation: R_i + p_x - d_x. This accounts for jobs that might arrive just before the interval and have their deadlines within it.",
+          "Divide this effective length by the task's period p_x to find the number of full jobs that could contribute execution: floor((R_i + p_x - d_x) / p_x). Multiply by e_x.",
+          "Calculate the remainder of the division: (R_i + p_x - d_x) mod p_x. This represents a partial job's contribution.",
+          "Take the minimum of this remainder and the task's WCET e_x to get the partial job's contribution.",
+          "Sum the full job contributions and the partial job contribution to get W_x(R_i)."
+        ],
+        "pseudocode": "def calculate_workload_bound(R_i, task_x_period, task_x_deadline, task_x_wcet):\n    effective_interval_length = R_i + task_x_period - task_x_deadline\n    \n    num_full_jobs = effective_interval_length // task_x_period\n    workload_from_full_jobs = num_full_jobs * task_x_wcet\n    \n    remainder_length = effective_interval_length % task_x_period\n    workload_from_partial_job = min(task_x_wcet, remainder_length)\n    \n    return workload_from_full_jobs + workload_from_partial_job",
+        "key_insights": [
+          "This is a fundamental workload bound used in many multiprocessor schedulability analyses.",
+          "It's 'slack-aware' because it considers the task's deadline relative to its period (p_x - d_x is the slack).",
+          "It provides a safe upper bound on processor demand, crucial for LP constraints."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 4: Maximum Contested Resource-Holding Time",
+      "formal_description": {
+        "statement": "H_x_q denotes a bound on the maximum contested resource-holding time of T_x, which is the maximum duration that any job J_x holds a resource q while J_i is waiting to acquire q. If N_x_q = 0, then trivially H_x_q = 0.",
+        "variables": {
+          "H_x_q": "Maximum contested resource-holding time of task T_x for resource q",
+          "T_x": "Task T_x",
+          "q": "Resource identifier",
+          "J_x": "Job of task T_x",
+          "J_i": "Job of task T_i (task under analysis)",
+          "N_x_q": "Maximum number of times T_x accesses resource q"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the maximum time a resource can be held by T_x while J_i is actively waiting for it."
+      },
+      "informal_sketch": {
+        "intuition": "This is the longest a task T_x can hold a specific resource 'q' when another task J_i is blocked and waiting for that same resource. It's 'contested' because J_i is actively trying to acquire it.",
+        "steps": [
+          "Identify a task T_x and a resource q.",
+          "Consider a scenario where J_i needs q, and J_x is holding q.",
+          "H_x_q is the maximum duration J_x can hold q under these specific conditions.",
+          "If T_x never uses q (N_x_q = 0), then H_x_q is 0."
+        ],
+        "pseudocode": "def get_max_contested_holding_time(task_x, resource_q, task_i_waiting):\n    if task_x.num_accesses_to_resource(resource_q) == 0:\n        return 0\n    # This value is typically computed by protocol-specific lemmas (e.g., Lemma 8, 9, 10)\n    # For example, for PI, it might involve solving a recurrence relation.\n    # For RSB, it might be a direct sum of critical section lengths.\n    return calculate_protocol_specific_H_x_q(task_x, resource_q, task_i_waiting)",
+        "key_insights": [
+          "This bound is critical for calculating direct pi-blocking, as it limits how long a single critical section can delay a waiting job.",
+          "Its calculation is highly dependent on the specific locking protocol in use."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 1: Mutual Exclusivity of Direct Pi-Blocking",
+      "formal_description": {
+        "statement": "If a job J_i incurs direct pi-blocking at time t, then it does not incur any other type of delay at time t.",
+        "variables": {
+          "J_i": "Job of task T_i",
+          "t": "Time instant"
+        },
+        "assumptions": [
+          "J_i requests at most one resource at a time",
+          "Each resource is held by at most one job at any time"
+        ],
+        "conclusion": "Direct pi-blocking is an exclusive type of delay for J_i at any given time."
+      },
+      "informal_sketch": {
+        "intuition": "If a job is directly blocked, it means it's suspended waiting for a specific resource held by another job, and that job is currently running. In this state, it cannot be experiencing other types of delays like interference (which implies it's ready but not scheduled) or indirect blocking (which implies it's waiting for a *different* resource).",
+        "steps": [
+          "Assume J_i is directly pi-blocked at time t.",
+          "By definition of direct pi-blocking, J_i is suspended and waiting for resource q, and the job J_x holding q is scheduled.",
+          "Since J_i is suspended, it cannot be ready, thus cannot incur preemption pi-blocking.",
+          "Since J_i is waiting for q, and J_x holding q is scheduled, J_i cannot incur indirect pi-blocking (which requires the resource holder to be *not* scheduled).",
+          "By definition, direct pi-blocking is a type of priority inversion, not interference. So it cannot incur any type of interference."
+        ],
+        "pseudocode": "def check_delay_exclusivity(job_i, current_time, delay_types_incurred):\n    if 'direct_pi_blocking' in delay_types_incurred:\n        # If direct pi-blocking is present, no other delay type should be present for job_i at current_time\n        for delay_type in delay_types_incurred:\n            if delay_type != 'direct_pi_blocking':\n                return False # Contradiction\n    return True",
+        "key_insights": [
+          "Simplifies analysis by ensuring that direct pi-blocking is a distinct state.",
+          "Prevents double-counting delays for the job under analysis when it's directly blocked."
+        ]
+      },
+      "dependencies": [
+        "Implicit Definition: Types of Locking-Related Delays"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 2: Mutual Exclusivity of Delay Causes",
+      "formal_description": {
+        "statement": "At any point in time, a job J_x causes a job J_i to incur at most one type of delay.",
+        "variables": {
+          "J_i": "Job of task T_i (task under analysis)",
+          "J_x": "Job of task T_x (delaying task)",
+          "t": "Time instant"
+        },
+        "assumptions": [],
+        "conclusion": "A single delaying job J_x contributes to only one type of delay for J_i at any given time."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma ensures that when we account for delays caused by a specific job J_x to our job J_i, we don't accidentally count the same delay multiple times under different categories. Each interaction between J_i and J_x at a given moment falls into exactly one delay type.",
+        "steps": [
+          "Consider a job J_i and a delaying job J_x at time t.",
+          "If J_x causes direct pi-blocking, then by Lemma 1, J_i incurs no other delay from any job, including J_x.",
+          "If J_x causes regular interference (x < i), it cannot cause other types (indirect, preemption, co-boosting, stalling) which require x > i.",
+          "If J_x causes co-boosting interference (pi_x(t) < i, J_x not holding resource), it cannot cause stalling (requires pi_x(t) >= i) or pi-blocking (requires holding resource).",
+          "If J_x causes stalling interference (pi_x(t) >= i), it cannot cause indirect or preemption pi-blocking (which require pi_x(t) < i).",
+          "If J_x causes preemption pi-blocking (J_i ready), it cannot cause indirect pi-blocking (J_i suspended)."
+        ],
+        "pseudocode": "def verify_single_delay_type(job_i, job_x, current_time, delay_type_from_x):\n    # This is a verification function, not a calculation.\n    # It checks if the classification of delay_type_from_x is consistent with other types.\n    # The proof is an exhaustive case analysis based on the definitions.\n    # For example:\n    if delay_type_from_x == 'direct_pi_blocking':\n        # Based on Lemma 1, no other delay type should be present for job_i from any job.\n        pass \n    elif delay_type_from_x == 'regular_interference':\n        # Check if job_x.base_priority < job_i.base_priority.\n        # If so, it cannot be indirect, preemption, co-boosting, or stalling.\n        pass\n    # ... and so on for other types.\n    return True # If no contradiction found",
+        "key_insights": [
+          "Ensures that the different delay categories are truly disjoint with respect to a single delaying job.",
+          "Crucial for preventing overestimation of total delays in the response-time analysis.",
+          "Allows summing up contributions from different jobs and different delay types without overlap."
+        ]
+      },
+      "dependencies": [
+        "Implicit Definition: Types of Locking-Related Delays",
+        "Lemma 1: Mutual Exclusivity of Direct Pi-Blocking"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 3: Processor Occupancy During Delays",
+      "formal_description": {
+        "statement": "Under all considered protocols, and also in the absence of a progress mechanism, there are m jobs scheduled while a job incurs indirect pi-blocking, preemption pi-blocking, or any type of interference.",
+        "variables": {
+          "m": "Number of identical processors",
+          "J_i": "Job of task T_i (task under analysis)",
+          "t": "Time instant"
+        },
+        "assumptions": [
+          "G-FP scheduling is work-conserving",
+          "Protocols considered (PIP, FMLP, P-PCP, OMLP, FMLP+, PRSB, no progress mechanism)",
+          "P-PCP (m, n)-configuration implies alpha_i >= m"
+        ],
+        "conclusion": "When J_i experiences certain types of delays (not direct pi-blocking), all processors are busy."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma states that if our job J_i is delayed by anything other than direct blocking (where it's suspended and the lock-holder is running), it means all processors must be busy. If a processor were idle, J_i would be scheduled (if ready) or the job holding the resource J_i needs would be scheduled (if J_i is suspended).",
+        "steps": [
+          "Assume J_i incurs indirect pi-blocking, preemption pi-blocking, or any type of interference at time t.",
+          "Assume, for contradiction, that fewer than m jobs are scheduled at time t (i.e., at least one processor is idle).",
+          "Case 1: J_i is suspended waiting for resource q held by J_a. Since a processor is idle, J_a (which is ready) would be scheduled. This implies J_i incurs direct pi-blocking, contradicting the initial assumption (by Lemma 1, direct pi-blocking is exclusive).",
+          "Case 2: J_i is suspended waiting for an *unheld* resource q. This is only possible under P-PCP if the condition |HPR(i, t)| + |LPR(i, t)| >= alpha_i holds. In the (m,n)-configuration, alpha_i >= m, meaning there are at least m resource-holding, ready jobs. If a processor is idle, this is a contradiction.",
+          "Case 3: J_i is ready but not scheduled. If a processor is idle, J_i would be scheduled due to work-conserving G-FP. Contradiction.",
+          "Since all cases lead to a contradiction, the initial assumption (fewer than m jobs scheduled) must be false."
+        ],
+        "pseudocode": "def verify_processor_occupancy(job_i, current_time, scheduled_jobs, m, protocol_type):\n    # This is a verification function based on the proof logic.\n    # It asserts that if job_i is experiencing specific delays, m processors are busy.\n    \n    # Check if job_i is incurring indirect_pi_blocking, preemption_pi_blocking, or any interference\n    # (This part is assumed to be true for the lemma's premise)\n    \n    # If fewer than m jobs are scheduled, this should lead to a contradiction\n    if len(scheduled_jobs) < m:\n        # Case 1: J_i suspended, waiting for resource held by J_a, J_a is ready\n        # If J_a is ready and a processor is idle, J_a would be scheduled.\n        # This would mean J_i is directly pi-blocked, which is excluded by the lemma's premise.\n        \n        # Case 2: J_i suspended, waiting for unheld resource (P-PCP specific)\n        # If P-PCP condition for suspension is met, there are >= m ready jobs.\n        # If a processor is idle, this is a contradiction.\n        \n        # Case 3: J_i is ready but not scheduled\n        # If a processor is idle, J_i would be scheduled (work-conserving). Contradiction.\n        \n        return False # Contradiction found, lemma violated\n    \n    return True # Lemma holds",
+        "key_insights": [
+          "This lemma is crucial for multiprocessor analysis, as it allows for dividing total interference by 'm' (the number of processors) to get the delay experienced by a single task.",
+          "It leverages the work-conserving nature of G-FP scheduling.",
+          "It simplifies the calculation of `OD_i` (Lemma 4) by ensuring that non-direct blocking/interference effectively consumes all processors."
+        ]
+      },
+      "dependencies": [
+        "Implicit Definition: Types of Locking-Related Delays",
+        "Definition 1: Priority Inversion",
+        "Lemma 1: Mutual Exclusivity of Direct Pi-Blocking"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 4: Cumulative Non-Direct Pi-Blocking Delay (OD_i)",
+      "formal_description": {
+        "statement": "The cumulative length of all intervals during which J_i is pending, not scheduled, and not incurring direct pi-blocking is given by OD_i = (1 / m) * (sum_{h in tau_H} I_R_h + sum_{l in tau_L} (I_C_l + I_S_l + B_I_l + B_P_l)).",
+        "variables": {
+          "OD_i": "Cumulative length of non-direct pi-blocking delays for J_i",
+          "m": "Number of identical processors",
+          "tau_H": "Set of tasks with base priority higher than T_i",
+          "tau_L": "Set of tasks with base priority lower than T_i",
+          "I_R_h": "Total regular interference J_i incurs due to jobs of T_h",
+          "I_C_l": "Total co-boosting interference J_i incurs due to jobs of T_l",
+          "I_S_l": "Total stalling interference J_i incurs due to jobs of T_l",
+          "B_I_l": "Total indirect pi-blocking J_i incurs due to jobs of T_l",
+          "B_P_l": "Total preemption pi-blocking J_i incurs due to jobs of T_l"
+        },
+        "assumptions": [
+          "J_i is pending, not scheduled, and not subject to direct pi-blocking",
+          "Lemma 3 holds (m jobs scheduled during these delays)"
+        ],
+        "conclusion": "Provides a formula for the total delay experienced by J_i that is not direct pi-blocking, normalized by the number of processors."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma quantifies all the 'other' delays a job J_i experiences when it's not directly blocked. Since, by Lemma 3, all 'm' processors are busy during these delays, the total work done by other tasks (interference and non-direct blocking) is distributed across 'm' processors. So, J_i's share of this delay is the total work divided by 'm'.",
+        "steps": [
+          "Identify all jobs J_x that can cause J_i to be delayed (when J_i is pending, not scheduled, and not directly blocked).",
+          "Categorize these delays: regular interference (from higher-priority tasks), and co-boosting, stalling, indirect pi-blocking, preemption pi-blocking (from lower-priority tasks).",
+          "Sum up the total cumulative time for each of these delay types from all relevant tasks: sum_{h in tau_H} I_R_h + sum_{l in tau_L} (I_C_l + I_S_l + B_I_l + B_P_l).",
+          "By Lemma 3, during these delays, all 'm' processors are busy. Therefore, the actual delay experienced by J_i is this total sum divided by 'm'."
+        ],
+        "pseudocode": "def calculate_OD_i(m, tau_H, tau_L, I_R_map, I_C_map, I_S_map, B_I_map, B_P_map):\n    total_interference_and_blocking = 0\n    \n    for task_h in tau_H:\n        total_interference_and_blocking += I_R_map.get(task_h, 0)\n        \n    for task_l in tau_L:\n        total_interference_and_blocking += I_C_map.get(task_l, 0)\n        total_interference_and_blocking += I_S_map.get(task_l, 0)\n        total_interference_and_blocking += B_I_map.get(task_l, 0)\n        total_interference_and_blocking += B_P_map.get(task_l, 0)\n        \n    OD_i = total_interference_and_blocking / m\n    return OD_i",
+        "key_insights": [
+          "This is a core equation for multiprocessor response-time analysis, distributing interference across processors.",
+          "It relies heavily on the categorization of delays and the processor occupancy lemma (Lemma 3).",
+          "It separates direct blocking (which is handled separately) from other forms of delay."
+        ]
+      },
+      "dependencies": [
+        "Implicit Definition: Types of Locking-Related Delays",
+        "Lemma 3: Processor Occupancy During Delays"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 5: Response Time Bound (R_i)",
+      "formal_description": {
+        "statement": "J_i's response time is bounded by R_i = e_i + OD_i + sum_{x in tau_i} B_D_x.",
+        "variables": {
+          "R_i": "Worst-case response time (WCRT) bound for task T_i",
+          "e_i": "Worst-case execution time (WCET) of task T_i",
+          "OD_i": "Cumulative length of non-direct pi-blocking delays for J_i (from Lemma 4)",
+          "tau_i": "Set of all tasks in tau except T_i",
+          "B_D_x": "Total direct pi-blocking J_i incurs due to jobs of T_x"
+        },
+        "assumptions": [
+          "J_i is either scheduled, not scheduled and not incurring direct pi-blocking, or not scheduled and incurring direct pi-blocking.",
+          "e_i bounds the duration J_i is scheduled.",
+          "OD_i bounds the duration J_i is not scheduled and not incurring direct pi-blocking.",
+          "sum_{x in tau_i} B_D_x bounds the duration J_i is not scheduled and incurring direct pi-blocking."
+        ],
+        "conclusion": "Provides the fundamental equation for calculating the worst-case response time of a task, incorporating its own execution, other delays, and direct blocking."
+      },
+      "informal_sketch": {
+        "intuition": "A job's total response time is simply the sum of its own execution time, plus all the time it spends waiting due to other tasks. This lemma breaks down that waiting time into two main categories: 'OD_i' (other delays like interference and indirect blocking) and 'B_D_x' (direct blocking by other tasks).",
+        "steps": [
+          "Start with the job's own execution time (e_i).",
+          "Add the cumulative time J_i spends waiting due to interference, indirect blocking, and preemption blocking (OD_i, calculated by Lemma 4).",
+          "Add the cumulative time J_i spends waiting due to direct pi-blocking from all other tasks (sum_{x in tau_i} B_D_x).",
+          "The sum of these three components gives the total response time R_i."
+        ],
+        "pseudocode": "def calculate_response_time_bound(task_i_wcet, OD_i_value, B_D_map_for_i, task_set_minus_i):\n    R_i = task_i_wcet + OD_i_value\n    for task_x in task_set_minus_i:\n        R_i += B_D_map_for_i.get(task_x, 0) # B_D_map_for_i stores B_D_x for each x\n    return R_i",
+        "key_insights": [
+          "This is the central equation for response-time analysis in this framework.",
+          "It decomposes the response time into its fundamental components: execution, non-direct delays, and direct blocking.",
+          "The LP formulation uses this equation as the objective function to maximize, subject to various constraints."
+        ]
+      },
+      "dependencies": [
+        "Lemma 4: Cumulative Non-Direct Pi-Blocking Delay (OD_i)"
+      ]
+    },
+    {
+      "type": "constraint",
+      "identifier": "Constraint 1: Total Workload Bound",
+      "formal_description": {
+        "statement": "In any G-FP schedule of tau: sum_{q} sum_{v=1}^{N_i_x_q} L_x_q * (X_D_x_q_v + X_I_x_q_v + X_P_x_q_v) + I_R_x + I_C_x + I_S_x <= W_x(R_i).",
+        "variables": {
+          "tau": "Set of all tasks",
+          "q": "Resource identifier",
+          "v": "Request instance index",
+          "N_i_x_q": "Upper bound on max number of requests for q by T_x while J_i is pending",
+          "L_x_q": "Maximum critical section length of T_x for resource q",
+          "X_D_x_q_v": "Blocking fraction for direct pi-blocking",
+          "X_I_x_q_v": "Blocking fraction for indirect pi-blocking",
+          "X_P_x_q_v": "Blocking fraction for preemption pi-blocking",
+          "I_R_x": "Total regular interference J_i incurs due to jobs of T_x",
+          "I_C_x": "Total co-boosting interference J_i incurs due to jobs of T_x",
+          "I_S_x": "Total stalling interference J_i incurs due to jobs of T_x",
+          "W_x(R_i)": "Workload bound of task T_x over an interval of length R_i (from Def. 3)"
+        },
+        "assumptions": [
+          "Lemma 2 holds (mutual exclusivity of delay causes)",
+          "A task causes pi-blocking or interference only when executing."
+        ],
+        "conclusion": "The total time T_x spends causing delays or interference for J_i cannot exceed T_x's total workload within the analysis interval."
+      },
+      "informal_sketch": {
+        "intuition": "This constraint ensures that the total amount of time a task T_x is 'blamed' for delaying J_i (through blocking or interference) does not exceed the maximum amount of time T_x could possibly execute within the relevant analysis window (R_i). You can't cause delays if you're not running.",
+        "steps": [
+          "Calculate the total time T_x spends causing direct, indirect, and preemption pi-blocking for J_i. This is done by summing L_x_q * X_type_x_q_v for all requests and types.",
+          "Add the total time T_x spends causing regular, co-boosting, and stalling interference for J_i.",
+          "The sum of all these delay contributions from T_x must be less than or equal to T_x's maximum possible workload W_x(R_i) over the interval R_i (as defined in Def. 3).",
+          "This is a linear inequality that must hold for each task T_x."
+        ],
+        "pseudocode": "def constraint_total_workload_bound(task_x, R_i, N_i_x_q_map, L_x_q_map, X_D_map, X_I_map, X_P_map, I_R_x, I_C_x, I_S_x, W_x_R_i_func):\n    total_blocking_from_x = 0\n    for q in all_resources:\n        for v in range(1, N_i_x_q_map.get((task_x, q), 0) + 1):\n            total_blocking_from_x += L_x_q_map.get((task_x, q), 0) * (\n                X_D_map.get((task_x, q, v), 0) + \n                X_I_map.get((task_x, q, v), 0) + \n                X_P_map.get((task_x, q, v), 0)\n            )\n            \n    total_interference_from_x = I_R_x + I_C_x + I_S_x\n    \n    lhs = total_blocking_from_x + total_interference_from_x\n    rhs = W_x_R_i_func(R_i, task_x.period, task_x.deadline, task_x.wcet) # Using Def 3\n    \n    return lhs <= rhs",
+        "key_insights": [
+          "Connects the LP variables (blocking fractions and interference) to the fundamental workload properties of tasks.",
+          "Prevents the LP solver from assigning unrealistically high delay values to tasks.",
+          "Leverages Lemma 2 to ensure that different types of delays caused by T_x are summed without overlap."
+        ]
+      },
+      "dependencies": [
+        "Definition 3: Bertogna et al.'s Slack-Aware Workload Bound",
+        "Implicit Definition: Types of Locking-Related Delays",
+        "Definition 2: Blocking Fraction",
+        "Lemma 2: Mutual Exclusivity of Delay Causes"
+      ]
+    },
+    {
+      "type": "constraint",
+      "identifier": "Constraint 2: Individual Task Contribution to OD_i",
+      "formal_description": {
+        "statement": "In any G-FP schedule of tau: (1 / m) * (I_R_x + I_C_x + I_S_x + B_I_x + B_P_x) <= OD_i.",
+        "variables": {
+          "m": "Number of identical processors",
+          "I_R_x": "Total regular interference J_i incurs due to jobs of T_x",
+          "I_C_x": "Total co-boosting interference J_i incurs due to jobs of T_x",
+          "I_S_x": "Total stalling interference J_i incurs due to jobs of T_x",
+          "B_I_x": "Total indirect pi-blocking J_i incurs due to jobs of T_x",
+          "B_P_x": "Total preemption pi-blocking J_i incurs due to jobs of T_x",
+          "OD_i": "Cumulative length of non-direct pi-blocking delays for J_i (from Lemma 4)"
+        },
+        "assumptions": [
+          "Lemma 4 holds (definition of OD_i)",
+          "Lemma 2 holds (mutual exclusivity of delay causes)",
+          "Lemma 1 holds (mutual exclusivity of direct pi-blocking)"
+        ],
+        "conclusion": "The contribution of any single task T_x to the non-direct pi-blocking delay (OD_i) cannot exceed the total OD_i."
+      },
+      "informal_sketch": {
+        "intuition": "This constraint ensures that the portion of OD_i attributed to a single task T_x is consistent with the overall definition of OD_i. It's a sanity check that a task's individual contribution to 'other delays' doesn't somehow exceed the total 'other delays' experienced by J_i.",
+        "steps": [
+          "Calculate the sum of all interference and non-direct pi-blocking caused by a specific task T_x for J_i: I_R_x + I_C_x + I_S_x + B_I_x + B_P_x.",
+          "Divide this sum by 'm' (number of processors) to get T_x's contribution to OD_i.",
+          "This individual contribution must be less than or equal to the total OD_i for J_i.",
+          "This constraint is derived from the definition of OD_i (Lemma 4) and the mutual exclusivity properties (Lemmas 1 and 2)."
+        ],
+        "pseudocode": "def constraint_individual_OD_contribution(m, task_x, I_R_x, I_C_x, I_S_x, B_I_x, B_P_x, OD_i_value):\n    lhs = (I_R_x + I_C_x + I_S_x + B_I_x + B_P_x) / m\n    rhs = OD_i_value\n    return lhs <= rhs",
+        "key_insights": [
+          "Reinforces the consistency of the LP model with the definition of OD_i.",
+          "Prevents the LP solver from assigning an OD_i value that is smaller than the sum of its individual components.",
+          "Ensures that each task's contribution to OD_i is properly bounded."
+        ]
+      },
+      "dependencies": [
+        "Lemma 4: Cumulative Non-Direct Pi-Blocking Delay (OD_i)",
+        "Lemma 2: Mutual Exclusivity of Delay Causes",
+        "Lemma 1: Mutual Exclusivity of Direct Pi-Blocking"
+      ]
+    },
+    {
+      "type": "constraint",
+      "identifier": "Constraint 3: Blocking Fraction Limit",
+      "formal_description": {
+        "statement": "In any G-FP schedule of tau: X_D_x_q_v + X_I_x_q_v + X_P_x_q_v <= 1.",
+        "variables": {
+          "X_D_x_q_v": "Blocking fraction for direct pi-blocking",
+          "X_I_x_q_v": "Blocking fraction for indirect pi-blocking",
+          "X_P_x_q_v": "Blocking fraction for preemption pi-blocking"
+        },
+        "assumptions": [
+          "Lemma 2 holds (mutual exclusivity of delay causes)"
+        ],
+        "conclusion": "A single request can cause at most one type of pi-blocking for J_i, and the total blocking fraction for that request cannot exceed 1."
+      },
+      "informal_sketch": {
+        "intuition": "This constraint is a fundamental sanity check. It says that for any single critical section request (v-th request for resource q by task T_x), it can either cause direct blocking, indirect blocking, or preemption blocking for J_i, but not multiple types simultaneously. Also, the total 'fraction' of its length that causes blocking for J_i cannot exceed 1 (i.e., it can't block J_i for more than its own maximum critical section length).",
+        "steps": [
+          "Recall that X_D_x_q_v, X_I_x_q_v, X_P_x_q_v are blocking fractions, each <= 1.",
+          "By Lemma 2, a job J_x causes J_i to incur at most one type of delay at a time. This implies that for a single request, it can cause at most one type of pi-blocking for J_i at any given moment.",
+          "Therefore, the sum of these fractions for a single request must be at most 1 (representing that the critical section's execution time can contribute to at most one type of blocking for J_i, and for at most its full length)."
+        ],
+        "pseudocode": "def constraint_blocking_fraction_limit(X_D_x_q_v, X_I_x_q_v, X_P_x_q_v):\n    return X_D_x_q_v + X_I_x_q_v + X_P_x_q_v <= 1.0",
+        "key_insights": [
+          "Enforces the mutual exclusivity of pi-blocking types for a single critical section instance.",
+          "Prevents overestimation of blocking by ensuring that a critical section's duration is not counted multiple times for different blocking types.",
+          "Fundamental for the accuracy of the LP formulation."
+        ]
+      },
+      "dependencies": [
+        "Definition 2: Blocking Fraction",
+        "Implicit Definition: Types of Locking-Related Delays",
+        "Lemma 2: Mutual Exclusivity of Delay Causes"
+      ]
+    },
+    {
+      "type": "constraint",
+      "identifier": "Constraint 4: Stalling Interference for Non-Resource-Users",
+      "formal_description": {
+        "statement": "In any G-FP schedule of tau: I_S_x = 0 if T_x does not use any resources.",
+        "variables": {
+          "I_S_x": "Total stalling interference J_i incurs due to jobs of T_x",
+          "T_x": "Task T_x"
+        },
+        "assumptions": [
+          "J_i incurs stalling interference due to J_x only if J_i is suspended.",
+          "If T_x does not use any resources, then J_x does not suspend."
+        ],
+        "conclusion": "A task T_x that does not use any resources cannot cause stalling interference for J_i."
+      },
+      "informal_sketch": {
+        "intuition": "Stalling interference occurs when a lower-priority job J_x runs while J_i is pending but not scheduled, and J_i is *suspended*. If T_x never uses resources, it never suspends. Therefore, it cannot be the cause of J_i's suspension, and thus cannot cause stalling interference.",
+        "steps": [
+          "Recall the definition of stalling interference: J_i incurs stalling interference due to J_x if J_x is scheduled while J_i is pending but not scheduled, and J_i is suspended.",
+          "If task T_x does not use any resources, then jobs of T_x will never suspend to wait for a lock.",
+          "Therefore, T_x cannot be the reason J_i is suspended.",
+          "Thus, T_x cannot cause stalling interference for J_i."
+        ],
+        "pseudocode": "def constraint_stalling_for_non_resource_users(task_x, I_S_x_value, task_x_uses_resources_func):\n    if not task_x_uses_resources_func(task_x): # Check if N_x_q == 0 for all q\n        return I_S_x_value == 0\n    return True",
+        "key_insights": [
+          "Eliminates a source of pessimism by setting certain interference terms to zero based on task properties.",
+          "Reflects the direct link between resource usage and suspension-related delays.",
+          "Simplifies the LP model by reducing the number of active variables."
+        ]
+      },
+      "dependencies": [
+        "Implicit Definition: Types of Locking-Related Delays"
+      ]
+    },
+    {
+      "type": "constraint",
+      "identifier": "Constraint 5: Direct Pi-Blocking for Unrequested Resources",
+      "formal_description": {
+        "statement": "In any G-FP schedule of tau: for all q such that N_i_q = 0: sum_{v=1}^{N_i_x_q} X_D_x_q_v = 0.",
+        "variables": {
+          "q": "Resource identifier",
+          "N_i_q": "Maximum number of times task T_i accesses resource q",
+          "v": "Request instance index",
+          "N_i_x_q": "Upper bound on max number of requests for q by T_x while J_i is pending",
+          "X_D_x_q_v": "Blocking fraction for direct pi-blocking"
+        },
+        "assumptions": [],
+        "conclusion": "Job J_i cannot incur direct pi-blocking for a resource q that it does not request."
+      },
+      "informal_sketch": {
+        "intuition": "This is a basic logical constraint: a job can only be directly blocked for a resource if it actually tries to acquire that resource. If J_i never requests resource 'q', it can't be blocked by another task holding 'q'.",
+        "steps": [
+          "Identify all resources 'q' that task T_i never requests (i.e., N_i_q = 0).",
+          "For any such resource 'q', the total direct pi-blocking incurred by J_i from any task T_x for that resource must be zero.",
+          "This means all corresponding blocking fractions X_D_x_q_v must be zero."
+        ],
+        "pseudocode": "def constraint_no_direct_blocking_unrequested_resources(task_i, all_resources, N_i_q_map, X_D_map):\n    for q in all_resources:\n        if N_i_q_map.get((task_i, q), 0) == 0: # If task_i does not request resource q\n            # Then for any task_x and any request v, X_D_x_q_v must be 0\n            for task_x in all_tasks:\n                for v in range(1, N_i_x_q_map.get((task_x, q), 0) + 1): # N_i_x_q is for T_x's requests\n                    if X_D_map.get((task_x, q, v), 0) != 0:\n                        return False # Violation\n    return True",
+        "key_insights": [
+          "A fundamental logical constraint that removes impossible blocking scenarios.",
+          "Reduces the search space for the LP solver by fixing certain variables to zero.",
+          "Ensures that the model accurately reflects task resource dependencies."
+        ]
+      },
+      "dependencies": [
+        "Definition 2: Blocking Fraction"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 6: Unique Effective Priorities under PI",
+      "formal_description": {
+        "statement": "The effective priorities of ready jobs are unique under all considered PI-based protocols.",
+        "variables": {},
+        "assumptions": [
+          "PI-based protocols (PIP, FMLP, P-PCP, OMLP)",
+          "Base priorities are unique for each task",
+          "Jobs request at most one resource at a time"
+        ],
+        "conclusion": "No two ready jobs will have the same effective priority under PI."
+      },
+      "informal_sketch": {
+        "intuition": "Under Priority Inheritance (PI), a job's effective priority is either its own unique base priority or the (unique) effective priority of a higher-priority job it blocks. If two ready jobs had the same effective priority, it would imply a contradiction with how PI works or that they are blocking the same job for the same resource, which is impossible if jobs only request one resource at a time.",
+        "steps": [
+          "Assume, for contradiction, that two distinct ready jobs J_a and J_b have the same effective priority pi_eff.",
+          "Under PI, a job's effective priority is max(its_base_priority, effective_priority_of_blocked_job).",
+          "If neither J_a nor J_b are blocking any other job, their effective priorities are their base priorities. Since base priorities are unique, this is a contradiction.",
+          "If J_a blocks J_c, and J_b blocks J_d, for J_a and J_b to have the same effective priority, it would imply complex scenarios that are ruled out by the 'at most one resource at a time' assumption and the uniqueness of base priorities.",
+          "Specifically, for two ready jobs to have the same effective priority, they both must hold a resource requested by the same job. Since jobs request at most one resource at a time, this is impossible."
+        ],
+        "pseudocode": "def verify_unique_effective_priorities(ready_jobs_list, protocol_is_PI_based):\n    if not protocol_is_PI_based:\n        return True # Lemma only applies to PI-based protocols\n\n    effective_priorities_seen = set()\n    for job in ready_jobs_list:\n        eff_prio = job.get_effective_priority() # This function would implement PI rules\n        if eff_prio in effective_priorities_seen:\n            return False # Contradiction: effective priorities are not unique\n        effective_priorities_seen.add(eff_prio)\n    return True",
+        "key_insights": [
+          "Simplifies reasoning about scheduling decisions under PI, as there's no ambiguity in which ready job has the highest effective priority.",
+          "Used in proofs for other PI-specific lemmas and constraints.",
+          "Highlights a key property of PI that distinguishes it from other priority management mechanisms."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 7: Scheduled Jobs' Priorities under PI Delays",
+      "formal_description": {
+        "statement": "Under PI, if J_i incurs indirect or preemption pi-blocking at time t, then each of the m jobs scheduled at time t has an effective priority exceeding the base priority of J_i.",
+        "variables": {
+          "J_i": "Job of task T_i (task under analysis)",
+          "t": "Time instant",
+          "m": "Number of identical processors"
+        },
+        "assumptions": [
+          "PI-based protocols",
+          "J_i incurs indirect or preemption pi-blocking at time t",
+          "Lemma 6 holds (unique effective priorities)"
+        ],
+        "conclusion": "When J_i experiences indirect or preemption pi-blocking, all m processors are occupied by jobs with effective priorities strictly higher than J_i's base priority."
+      },
+      "informal_sketch": {
+        "intuition": "If J_i is ready but not scheduled (preemption pi-blocking), or suspended waiting for a resource held by an *un-scheduled* job (indirect pi-blocking), it means there must be 'm' other jobs with higher effective priorities running. If any of the 'm' scheduled jobs had an effective priority lower than or equal to J_i's base priority, J_i would be scheduled (or the job it's waiting for would be scheduled).",
+        "steps": [
+          "Case 1: J_i incurs preemption pi-blocking at time t. This means J_i is ready but not scheduled. By G-FP rules, this implies all 'm' scheduled jobs must have effective priorities strictly higher than J_i's effective priority (which is its base priority 'i' since it's not holding a resource). Since effective priorities are unique (Lemma 6), there are 'm' jobs with effective priority > i scheduled.",
+          "Case 2: J_i incurs indirect pi-blocking at time t. This means J_i is suspended, waiting for resource 'u' held by J_a, and J_a is ready but not scheduled. This implies that all 'm' scheduled jobs have effective priorities strictly higher than J_a's effective priority (pi_a(t)). Due to PI, pi_a(t) <= i. Thus, all 'm' scheduled jobs have effective priorities > pi_a(t), and since pi_a(t) <= i, they are all > i."
+        ],
+        "pseudocode": "def verify_scheduled_priorities_on_delay(job_i, current_time, scheduled_jobs, m, protocol_is_PI_based):\n    if not protocol_is_PI_based:\n        return True # Lemma only applies to PI-based protocols\n\n    # Assume job_i incurs indirect or preemption pi-blocking\n    \n    for scheduled_job in scheduled_jobs:\n        if scheduled_job.get_effective_priority() <= job_i.base_priority:\n            return False # Contradiction: a scheduled job has lower or equal effective priority\n            \n    return True",
+        "key_insights": [
+          "Provides a strong condition on the priorities of jobs running when J_i is delayed by non-direct blocking under PI.",
+          "Used to derive Constraint 7, which simplifies analysis for high-priority tasks.",
+          "Highlights how PI ensures that lower-priority jobs holding resources (or blocking others) get boosted to prevent higher-priority jobs from being delayed by them."
+        ]
+      },
+      "dependencies": [
+        "Implicit Definition: Types of Locking-Related Delays",
+        "Lemma 6: Unique Effective Priorities under PI"
+      ]
+    },
+    {
+      "type": "constraint",
+      "identifier": "Constraint 6: No Co-Boosting under PI",
+      "formal_description": {
+        "statement": "In any G-FP schedule of tau under PI: for all T_x in tau_L: I_C_x = 0.",
+        "variables": {
+          "tau_L": "Set of tasks with base priority lower than T_i",
+          "I_C_x": "Total co-boosting interference J_i incurs due to jobs of T_x"
+        },
+        "assumptions": [
+          "PI-based protocols",
+          "Definition of co-boosting interference"
+        ],
+        "conclusion": "Co-boosting interference, specific to RSB, does not occur under PI-based protocols."
+      },
+      "informal_sketch": {
+        "intuition": "Co-boosting is a mechanism used in RSB protocols where non-lock-holding jobs can have their priorities boosted. Priority Inheritance (PI) only boosts the priority of a job *if* it's holding a contested resource. Therefore, under PI, a job cannot have an elevated effective priority without holding a resource, which is a requirement for co-boosting interference.",
+        "steps": [
+          "Recall the definition of co-boosting interference: J_x causes co-boosting interference if x > i > pi_x(t) AND J_x is *not* holding any resource at time t.",
+          "Under PI, a job's effective priority pi_x(t) is elevated (i.e., pi_x(t) < x) only if it is holding a (contested) resource.",
+          "Therefore, the condition 'J_x is not holding any resource at time t' and 'pi_x(t) < x' cannot simultaneously be true under PI.",
+          "Thus, co-boosting interference cannot occur under PI, and I_C_x must be 0."
+        ],
+        "pseudocode": "def constraint_no_co_boosting_under_PI(task_x, I_C_x_value, protocol_is_PI_based):\n    if protocol_is_PI_based:\n        return I_C_x_value == 0\n    return True",
+        "key_insights": [
+          "Differentiates PI from RSB protocols by eliminating a specific type of interference.",
+          "Simplifies the LP model for PI-based protocols by setting certain variables to zero.",
+          "Reflects the distinct priority management rules of PI."
+        ]
+      },
+      "dependencies": [
+        "Implicit Definition: Types of Locking-Related Delays"
+      ]
+    },
+    {
+      "type": "constraint",
+      "identifier": "Constraint 7: Top-m Tasks' Delay Invariance under PI",
+      "formal_description": {
+        "statement": "In any G-FP schedule of tau under PI: for all T_x such that x <= m: I_S_x + B_I_x + B_P_x = 0.",
+        "variables": {
+          "m": "Number of identical processors",
+          "x": "Base priority (index) of T_x",
+          "I_S_x": "Total stalling interference J_i incurs due to jobs of T_x",
+          "B_I_x": "Total indirect pi-blocking J_i incurs due to jobs of T_x",
+          "B_P_x": "Total preemption pi-blocking J_i incurs due to jobs of T_x"
+        },
+        "assumptions": [
+          "PI-based protocols",
+          "Tasks indexed by decreasing base priority (lower index = higher priority)",
+          "Lemma 6 holds (unique effective priorities)",
+          "Lemma 7 holds (scheduled jobs' priorities under PI delays)",
+          "P-PCP (m, n)-configuration implies alpha_i >= m"
+        ],
+        "conclusion": "The m highest-base-priority tasks (T_1 to T_m) do not incur stalling interference, indirect pi-blocking, or preemption pi-blocking under PI."
+      },
+      "informal_sketch": {
+        "intuition": "For the 'm' highest-priority tasks, they are always among the 'm' highest-priority ready jobs. If they are ready, they will be scheduled. If they are suspended, they can only be directly blocked. They cannot be delayed by lower-priority jobs (stalling, indirect, preemption pi-blocking) because those lower-priority jobs would not be scheduled over them, or if they were, it would imply a contradiction with the number of available processors and unique priorities.",
+        "steps": [
+          "Consider a task T_x with x <= m (one of the m highest base priorities).",
+          "Assume, for contradiction, that J_x incurs stalling interference, indirect pi-blocking, or preemption pi-blocking at time t.",
+          "This implies J_x is pending, not scheduled, and not subject to direct blocking.",
+          "Case 1: J_x is ready at time t. For J_x not to be scheduled, there must be 'm' other ready jobs with effective priorities higher than J_x's base priority (x). However, since x <= m, and effective priorities are unique (Lemma 6), this is impossible (there are only m processors, and J_x is one of the top m base-priority tasks).",
+          "Case 2: J_x is suspended and waiting for a resource held by J_a, and J_a is ready but not scheduled (indirect pi-blocking). By Lemma 7, this requires 'm' ready jobs with effective priorities exceeding J_x's base priority (x). Again, this is impossible as in Case 1.",
+          "Case 3: J_x is suspended waiting for an unheld resource (P-PCP specific). This implies J_x is ready, which leads to Case 1 contradiction.",
+          "Since all cases lead to a contradiction, the assumption must be false, and I_S_x + B_I_x + B_P_x must be 0 for x <= m."
+        ],
+        "pseudocode": "def constraint_top_m_tasks_delay_invariance(task_x, m, I_S_x_value, B_I_x_value, B_P_x_value, protocol_is_PI_based):\n    if protocol_is_PI_based and task_x.base_priority <= m:\n        return (I_S_x_value + B_I_x_value + B_P_x_value) == 0\n    return True",
+        "key_insights": [
+          "Significantly simplifies the analysis for high-priority tasks under PI by eliminating several delay terms.",
+          "Reflects the strong guarantees PI provides for high-priority tasks on multiprocessors.",
+          "Reduces the complexity of the LP model for these tasks."
+        ]
+      },
+      "dependencies": [
+        "Implicit Definition: Types of Locking-Related Delays",
+        "Lemma 6: Unique Effective Priorities under PI",
+        "Lemma 7: Scheduled Jobs' Priorities under PI Delays"
+      ]
+    },
+    {
+      "type": "constraint",
+      "identifier": "Constraint 8: FIFO Queue Direct Blocking",
+      "formal_description": {
+        "statement": "When using FIFO queues: for all T_x in tau_i, for all q: sum_{v=1}^{N_i_x_q} X_D_x_q_v <= 1.",
+        "variables": {
+          "tau_i": "Set of all tasks in tau except T_i",
+          "q": "Resource identifier",
+          "v": "Request instance index",
+          "N_i_x_q": "Upper bound on max number of requests for q by T_x while J_i is pending",
+          "X_D_x_q_v": "Blocking fraction for direct pi-blocking"
+        },
+        "assumptions": [
+          "FIFO queueing for resource requests",
+          "Jobs issue at most one request at a time"
+        ],
+        "conclusion": "For any given resource q, a job J_i can be directly blocked by any other task T_x at most once per request J_i makes for that resource."
+      },
+      "informal_sketch": {
+        "intuition": "In a FIFO queue, requests are served in the order they arrive. If J_i requests a resource, it will only be blocked by requests that arrived *before* it. Since J_i only makes one request at a time, and T_x can only hold the resource once at a time, T_x can only directly block J_i's *current* request once. Subsequent requests by T_x would be behind J_i's request in the queue.",
+        "steps": [
+          "Consider J_i making a request for resource q.",
+          "In a FIFO queue, J_i will be granted q after all earlier-issued requests for q are satisfied.",
+          "A job J_x can only directly block J_i if J_x holds q and J_x's request was issued before J_i's request.",
+          "Since J_i issues at most one request at a time, and J_x can only hold q once at a time, J_x can directly block J_i's *current* request for q at most once.",
+          "Therefore, the sum of blocking fractions from T_x for J_i's requests for q cannot exceed 1 (representing one blocking instance)."
+        ],
+        "pseudocode": "def constraint_fifo_direct_blocking(task_i, task_x, resource_q, N_i_x_q_map, X_D_map, protocol_uses_fifo):\n    if protocol_uses_fifo:\n        total_direct_blocking_fractions_from_x_for_q = 0\n        for v in range(1, N_i_x_q_map.get((task_x, q), 0) + 1):\n            total_direct_blocking_fractions_from_x_for_q += X_D_map.get((task_x, q, v), 0)\n        return total_direct_blocking_fractions_from_x_for_q <= 1.0\n    return True",
+        "key_insights": [
+          "Leverages the starvation-free property of FIFO queues to provide a tight bound on direct blocking.",
+          "Significantly reduces the potential for direct blocking compared to priority queues for lower-priority tasks.",
+          "Crucial for protocols like FMLP and FMLP+ that use FIFO queues."
+        ]
+      },
+      "dependencies": [
+        "Definition 2: Blocking Fraction"
+      ]
+    },
+    {
+      "type": "constraint",
+      "identifier": "Constraint 9: Priority Queue Direct Blocking",
+      "formal_description": {
+        "statement": "When using priority queues: for all T_x in tau_L, for all q: sum_{v=1}^{N_i_x_q} X_D_x_q_v <= N_i_q.",
+        "variables": {
+          "tau_L": "Set of tasks with base priority lower than T_i",
+          "q": "Resource identifier",
+          "v": "Request instance index",
+          "N_i_x_q": "Upper bound on max number of requests for q by T_x while J_i is pending",
+          "X_D_x_q_v": "Blocking fraction for direct pi-blocking",
+          "N_i_q": "Maximum number of times task T_i accesses resource q"
+        },
+        "assumptions": [
+          "Priority queueing for resource requests",
+          "Conflicting requests satisfied in priority order"
+        ],
+        "conclusion": "For any given resource q, a job J_i can be directly blocked by a lower-priority task T_x at most N_i_q times (i.e., once for each of J_i's requests for q)."
+      },
+      "informal_sketch": {
+        "intuition": "In a priority queue, a higher-priority request will always be served before a lower-priority one. If J_i (higher priority) requests a resource, it can only be blocked by a lower-priority task T_x if T_x *already* holds the resource. Once T_x releases it, J_i will get it. This can happen once for each time J_i requests the resource. So, T_x can block J_i for resource q at most as many times as J_i requests q.",
+        "steps": [
+          "Consider J_i making a request for resource q.",
+          "If a lower-priority task T_x already holds q, J_i will be directly blocked.",
+          "Once T_x releases q, J_i (being higher priority) will acquire it.",
+          "This scenario can repeat for each of J_i's requests for q.",
+          "Therefore, the total direct pi-blocking fractions from T_x for J_i's requests for q cannot exceed the total number of times J_i requests q (N_i_q)."
+        ],
+        "pseudocode": "def constraint_priority_queue_direct_blocking(task_i, task_x, resource_q, N_i_x_q_map, X_D_map, N_i_q_value, protocol_uses_priority_queue):\n    if protocol_uses_priority_queue and task_x.base_priority > task_i.base_priority: # T_x in tau_L\n        total_direct_blocking_fractions_from_x_for_q = 0\n        for v in range(1, N_i_x_q_map.get((task_x, q), 0) + 1):\n            total_direct_blocking_fractions_from_x_for_q += X_D_map.get((task_x, q, v), 0)\n        return total_direct_blocking_fractions_from_x_for_q <= N_i_q_value\n    return True",
+        "key_insights": [
+          "Reflects the behavior of priority queues where higher-priority requests preempt lower-priority ones for resource acquisition.",
+          "Provides a looser bound than FIFO queues for lower-priority blocking, as starvation is possible for lower-priority requests.",
+          "Applicable to protocols like PIP and P-PCP that use priority queues."
+        ]
+      },
+      "dependencies": [
+        "Definition 2: Blocking Fraction"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 8: Maximum Contested Resource-Holding Time under PI",
+      "formal_description": {
+        "statement": "Under PI, the maximum contested resource-holding time H_x_q is bounded by:\n1.  If x <= m: H_x_q = L_x_q.\n2.  If x > m: H_x_q is the least positive solution (if any) of the equation H_x_q = L_x_q + (1/m) * (sum_{h<y} W_h(H_x_q) + sum_{l>y, l!=z} sum_{u in sr_y_l} L_x_q_l_u).\n    Where:\n    *   y = min(x, i)\n    *   z = max(x, i)\n    *   L_x_q_l_u = eta_l(H_x_q) * N_l_u * L_l_u\n    *   sr_y_l = {u | N_l_u > 0 AND Pi(u) < y} (set of resources used by T_l with priority ceilings higher than y).",
+        "variables": {
+          "H_x_q": "Maximum contested resource-holding time of T_x for resource q (from Def. 4)",
+          "L_x_q": "Maximum critical section length of T_x for resource q",
+          "x": "Base priority (index) of T_x",
+          "i": "Base priority (index) of T_i (task under analysis)",
+          "m": "Number of identical processors",
+          "W_h(H_x_q)": "Workload bound of task T_h over interval H_x_q (from Def. 3)",
+          "eta_l(H_x_q)": "Maximum number of jobs of T_l pending in interval H_x_q",
+          "N_l_u": "Maximum number of times T_l accesses resource u",
+          "L_l_u": "Maximum critical section length of T_l for resource u",
+          "Pi(u)": "Priority ceiling of resource u"
+        },
+        "assumptions": [
+          "PI-based protocols",
+          "J_i is waiting for J_x to release q",
+          "Lemma 3 holds (m jobs scheduled during preemption)",
+          "Lemma 6 holds (unique effective priorities)"
+        ],
+        "conclusion": "Provides a method to calculate the maximum duration a task T_x can hold a resource q while J_i is waiting, under PI."
+      },
+      "informal_sketch": {
+        "intuition": "This lemma calculates how long a task T_x can hold a resource 'q' when J_i is waiting for it. If T_x is a high-priority task (x <= m), it won't be preempted while holding the resource, so it holds it for its WCET (L_x_q). If T_x is lower priority (x > m), it can be preempted. The equation accounts for T_x's own execution (L_x_q) plus any delays it experiences due to higher-priority tasks (regular interference) or other tasks that get priority-boosted (preemption pi-blocking) while T_x is holding the resource.",
+        "steps": [
+          "Case 1 (x <= m): If T_x is one of the 'm' highest base-priority tasks, and it holds a resource, its effective priority will be high enough (due to PI and Lemma 6) that it won't be preempted. So, it holds the resource for its maximum critical section length L_x_q.",
+          "Case 2 (x > m): If T_x is a lower-priority task, it can be preempted while holding q. Its effective priority will be boosted to min(x, i) (due to PI, as J_i is waiting).",
+          "The total time T_x holds q (H_x_q) is its own execution (L_x_q) plus the time it's preempted.",
+          "Preemption can be due to: (i) regular interference from tasks T_h with base priority h < y (where y = min(x, i)), bounded by W_h(H_x_q) (Def. 3). (ii) preemption pi-blocking from tasks T_l (l > y) that are holding resources with priority ceilings higher than y, bounded by L_x_q_l_u.",
+          "By Lemma 3, these preemptions occur while 'm' jobs are scheduled. So, the total preemption time is the sum of (i) and (ii) divided by 'm'.",
+          "This forms a recurrence relation for H_x_q that needs to be solved iteratively for the least positive solution."
+        ],
+        "pseudocode": "def calculate_H_x_q_PI(task_x, task_i, resource_q, m, L_x_q_value, task_set, W_func, eta_func, N_l_u_map, L_l_u_map, Pi_func):\n    x = task_x.base_priority\n    i = task_i.base_priority\n    \n    if x <= m:\n        return L_x_q_value\n    else:\n        y = min(x, i)\n        z = max(x, i)\n        \n        # Initial guess for H_x_q (e.g., L_x_q)\n        H_x_q_current = L_x_q_value\n        H_x_q_next = 0\n        \n        while True:\n            sum_regular_interference = 0\n            for task_h in task_set:\n                if task_h.base_priority < y:\n                    sum_regular_interference += W_func(H_x_q_current, task_h.period, task_h.deadline, task_h.wcet)\n            \n            sum_preemption_pi_blocking = 0\n            for task_l in task_set:\n                if task_l.base_priority > y and task_l.base_priority != z:\n                    for resource_u in all_resources:\n                        if N_l_u_map.get((task_l, resource_u), 0) > 0 and Pi_func(resource_u) < y: # Corrected N_l_u > 0\n                            L_x_q_l_u_val = eta_func(H_x_q_current, task_l.wcrt, task_l.period) * N_l_u_map.get((task_l, resource_u), 0) * L_l_u_map.get((task_l, resource_u), 0)\n                            sum_preemption_pi_blocking += L_x_q_l_u_val\n            \n            H_x_q_next = L_x_q_value + (1.0 / m) * (sum_regular_interference + sum_preemption_pi_blocking)\n            \n            if abs(H_x_q_next - H_x_q_current) < epsilon: # Convergence check\n                return H_x_q_next\n            \n            H_x_q_current = H_x_q_next",
+        "key_insights": [
+          "This is a complex recurrence relation that captures the dynamic nature of PI on multiprocessors.",
+          "It accounts for both direct execution and preemption delays experienced by the lock-holder.",
+          "The iterative solution is common for response-time analysis equations.",
+          "Crucial for accurately bounding direct pi-blocking under PI."
+        ]
+      },
+      "dependencies": [
+        "Definition 4: Maximum Contested Resource-Holding Time",
+        "Definition 3: Bertogna et al.'s Slack-Aware Workload Bound",
+        "Lemma 3: Processor Occupancy During Delays",
+        "Lemma 6: Unique Effective Priorities under PI"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 9: Maximum Contested Resource-Holding Time under RSB",
+      "formal_description": {
+        "statement": "Under RSB, H_x_q is bounded by H_x_q = L_x_q + sum_{a in tau \\ {T_x, T_i}} max_{u != q} {L_a_u}.",
+        "variables": {
+          "H_x_q": "Maximum contested resource-holding time of T_x for resource q (from Def. 4)",
+          "L_x_q": "Maximum critical section length of T_x for resource q",
+          "tau": "Set of all tasks",
+          "T_x": "Task T_x",
+          "T_i": "Task T_i (task under analysis)",
+          "L_a_u": "Maximum critical section length of T_a for resource u"
+        },
+        "assumptions": [
+          "RSB (Restricted Segment Boosting) protocol",
+          "Resource-holding jobs are priority-boosted in FIFO order",
+          "Priority-boosted resource holder is always scheduled"
+        ],
+        "conclusion": "Provides a direct bound for H_x_q under RSB, accounting for other tasks' critical sections."
+      },
+      "informal_sketch": {
+        "intuition": "Under RSB, the job holding a resource is priority-boosted and always scheduled. However, if multiple jobs request resources, they are served in FIFO order. So, if J_x holds 'q' and J_i is waiting, J_x will execute its critical section. But before J_x gets to run, other tasks might have completed their *own* critical sections (for *other* resources) that started earlier. This lemma sums up J_x's own critical section length plus the maximum length of critical sections from all other tasks (excluding J_i and J_x) for any resource *other than q*.",
+        "steps": [
+          "J_x holds resource q, and J_i is waiting for it.",
+          "Under RSB, J_x is priority-boosted and will be scheduled to complete its critical section.",
+          "However, other tasks (T_a) might have started their critical sections (for resources u != q) *before* J_x's request segment, and these tasks would also be priority-boosted (or co-boosted).",
+          "The total time J_x holds q is its own critical section length (L_x_q) plus the maximum length of any critical section from any other task (excluding T_x and T_i) for any resource *other than q*.",
+          "This sum represents the maximum delay J_x might experience before completing its critical section due to the FIFO ordering of boosted jobs."
+        ],
+        "pseudocode": "def calculate_H_x_q_RSB(task_x, task_i, resource_q, L_x_q_value, task_set, L_a_u_map):\n    sum_other_cs_lengths = 0\n    for task_a in task_set:\n        if task_a != task_x and task_a != task_i:\n            max_L_a_u_for_other_resources = 0\n            for resource_u in all_resources:\n                if resource_u != resource_q:\n                    max_L_a_u_for_other_resources = max(max_L_a_u_for_other_resources, L_a_u_map.get((task_a, resource_u), 0))\n            sum_other_cs_lengths += max_L_a_u_for_other_resources\n            \n    H_x_q = L_x_q_value + sum_other_cs_lengths\n    return H_x_q",
+        "key_insights": [
+          "RSB's strong boosting mechanism simplifies the H_x_q calculation compared to PI.",
+          "The bound is a direct sum, not a recurrence, due to the 'always scheduled' property of the boosted lock-holder.",
+          "It accounts for potential delays from other critical sections that might be prioritized due to FIFO ordering of request segments."
+        ]
+      },
+      "dependencies": [
+        "Definition 4: Maximum Contested Resource-Holding Time"
+      ]
+    },
+    {
+      "type": "lemma",
+      "identifier": "Lemma 10: Maximum Contested Resource-Holding Time without Progress Mechanism",
+      "formal_description": {
+        "statement": "In the absence of a progress mechanism, the maximum contested resource-holding time H_x_q is bounded by:\n1.  If x <= m: H_x_q = L_x_q.\n2.  If x > m: H_x_q is the least positive solution (if any) of the equation H_x_q = L_x_q + (1/m) * sum_{h<x, h!=i} W_h(H_x_q).",
+        "variables": {
+          "H_x_q": "Maximum contested resource-holding time of T_x for resource q (from Def. 4)",
+          "L_x_q": "Maximum critical section length of T_x for resource q",
+          "x": "Base priority (index) of T_x",
+          "i": "Base priority (index) of T_i (task under analysis)",
+          "m": "Number of identical processors",
+          "W_h(H_x_q)": "Workload bound of task T_h over interval H_x_q (from Def. 3)"
+        },
+        "assumptions": [
+          "No progress mechanism (e.g., no PI or RSB)",
+          "J_i is waiting for J_x to release q",
+          "pi_x(t) = x at all times J_x is pending",
+          "Lemma 3 holds (m jobs scheduled during preemption)"
+        ],
+        "conclusion": "Provides a method to calculate H_x_q when no locking protocol is active, accounting only for regular interference."
+      },
+      "informal_sketch": {
+        "intuition": "Without a progress mechanism, a lock-holding job J_x runs at its base priority. If J_x is a high-priority task (x <= m), it won't be preempted. If it's a lower-priority task (x > m), it can be preempted by any higher-priority task (regular interference). The equation accounts for J_x's own critical section length plus the time it's preempted by higher-priority tasks (excluding J_i, which is suspended).",
+        "steps": [
+          "Case 1 (x <= m): If T_x is one of the 'm' highest base-priority tasks, it will be scheduled and not preempted while holding the resource. So, it holds the resource for its maximum critical section length L_x_q.",
+          "Case 2 (x > m): If T_x is a lower-priority task, it can be preempted while holding q. Its effective priority is always its base priority 'x'.",
+          "The total time T_x holds q (H_x_q) is its own execution (L_x_q) plus the time it's preempted.",
+          "Preemption can only be due to regular interference from tasks T_h with base priority h < x (excluding T_i, which is suspended and waiting for T_x). This interference is bounded by W_h(H_x_q) (Def. 3).",
+          "By Lemma 3, these preemptions occur while 'm' jobs are scheduled. So, the total preemption time is the sum of W_h(H_x_q) divided by 'm'.",
+          "This forms a recurrence relation for H_x_q that needs to be solved iteratively."
+        ],
+        "pseudocode": "def calculate_H_x_q_no_progress(task_x, task_i, resource_q, m, L_x_q_value, task_set, W_func):\n    x = task_x.base_priority\n    i = task_i.base_priority\n    \n    if x <= m:\n        return L_x_q_value\n    else:\n        # Initial guess for H_x_q (e.g., L_x_q)\n        H_x_q_current = L_x_q_value\n        H_x_q_next = 0\n        \n        while True:\n            sum_regular_interference = 0\n            for task_h in task_set:\n                if task_h.base_priority < x and task_h.base_priority != i: # h < x and h != i\n                    sum_regular_interference += W_func(H_x_q_current, task_h.period, task_h.deadline, task_h.wcet)\n            \n            H_x_q_next = L_x_q_value + (1.0 / m) * sum_regular_interference\n            \n            if abs(H_x_q_next - H_x_q_current) < epsilon: # Convergence check\n                return H_x_q_next\n            \n            H_x_q_current = H_x_q_next",
+        "key_insights": [
+          "This lemma provides a baseline for performance without any locking protocol, quantifying 'uncontrolled priority inversion'.",
+          "The recurrence relation is simpler than PI's because only regular interference (not priority-boosted blocking) needs to be considered.",
+          "Highlights the severe impact of preemption on lock-holders without priority protection."
+        ]
+      },
+      "dependencies": [
+        "Definition 4: Maximum Contested Resource-Holding Time",
+        "Definition 3: Bertogna et al.'s Slack-Aware Workload Bound",
+        "Lemma 3: Processor Occupancy During Delays"
+      ]
+    }
+  ]
+}

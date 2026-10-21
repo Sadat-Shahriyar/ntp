@@ -1,0 +1,623 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Linux&apos;s Processor Affinity API, Refined: Shifting Real-Time Tasks towards Higher Schedulability</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Felipe</forename><surname>Cerqueira</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems</orgName>
+								<orgName type="institution">MPI-SWS</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Arpan</forename><surname>Gujarati</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems</orgName>
+								<orgName type="institution">MPI-SWS</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Max Planck Institute for Software Systems</orgName>
+								<orgName type="institution">MPI-SWS</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Linux&apos;s Processor Affinity API, Refined: Shifting Real-Time Tasks towards Higher Schedulability</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">4ED7DA3857B18DD9822551FCEDB605A6</idno>
+					<idno type="DOI">10.1109/RTSS.2014.29</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-13T21:12+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Virtually all major real-time operating systems such as QNX, VxWorks, LynxOS, and most real-time variants of Linux expose processor affinity APIs to restrict task migrations. Initially motivated by throughput and isolation reasons, the ability to flexibly control migrations on a per-task basis has also proved to be useful from a schedulability perspective.</p><p>However, as the motivation to use processor affinities is highly application-specific, the two interests can conflict, i.e., the fixed, user-specified processor affinities chosen for non-schedulability reasons can actually limit any possible gains in schedulability. This paper specifically addresses the scenario where processor affinities are given as input, and investigates the following question: while maintaining API compatibility (i.e., without changing the interface exposed to the programmer), is it possible to improve schedulability beyond what Linux and Linux-like systems currently offer, without violating the original affinity restrictions?</p><p>To answer this question, we explore the similarities between priority-based scheduling with processor affinities and the assignment problem with seniority and job priority constraints, studied previously by Caron et al. in an operations-research context, to derive a more generic model of migrations. Based on vertex-weighted bipartite matchings, the proposed model exploits the idea of shifting high-priority tasks among processors in their affinity set, in order to accommodate lower-priority tasks that have more constrained processor affinities. The proposed approach is analyzed with a novel shifting-aware schedulability analysis based on linear programming. An empirical evaluation in terms of schedulability shows shifting to be effective, although performance naturally degrades if migration overheads are high.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. This Paper: Strong APA Scheduling with Task Shifting</head><p>To this end, we relate APA scheduling to the assignment problem with seniority constraints and job priority constraints <ref type="bibr" target="#b11">[12]</ref>, which Caron et al. studied in the context of assigning employees (i.e., tasks) with various levels of seniority (i.e., priorities) to open positions (i.e., processors), where not all employees may be suited for all positions (i.e., affinity restrictions). Analogously to [12], we classify APA scheduling into weak and strong APA scheduling, which allows us to 2014 IEEE Real-Time Systems Symposium</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Contemporary commodity operating systems-Linux, Windows, and OS X-as well as major real-time operating systems-QNX, VxWorks, LynxOS, etc.-flexibly control task migrations with processor affinity masks, which specify on a per-task basis on which processors a task may be scheduled. Although this processor-affinity API has been shown to be useful in several contexts such as application performance, fault tolerance, and security <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b16">17,</ref><ref type="bibr" target="#b17">18,</ref><ref type="bibr" target="#b20">21,</ref><ref type="bibr" target="#b23">24,</ref><ref type="bibr" target="#b25">26]</ref>, it is not yet well understood in the context of real-time systems.</p><p>In particular, the problem of scheduling real-time workloads with fixed priorities and arbitrary processor affinities (APAs) has only recently been considered <ref type="bibr" target="#b18">[19,</ref><ref type="bibr" target="#b19">20]</ref>. The initial work focused primarily on the schedulability aspects of APA schedulers, showing that, in the context of joblevel fixed-priority (JLFP) policies, APA scheduling strictly dominates partitioned, global, and clustered approaches. In other words, prior work established that a careful selection of processor affinities with the intent to improve schedulability can indeed provide good schedulability results. This paper, instead, is based on the assumption that processor affinities are assigned in accordance with application-specific use cases and not with the goal of attaining high schedulability.</p><p>Given this practical scenario, where fixed restricted processor affinities are specified as input, this work explores the following question: while maintaining API compatibility (i.e., without modifying the programmer-visible kernel interface), is it possible to still improve real-time schedulability without violating the user-provided processor affinity restrictions?</p><p>To answer this question, we study Linux's APA interface. Although not a hard real-time OS, we focus on Linux because it is easy to inspect and because other proprietary RTOSs such as QNX actually implement Linux-like APA scheduling semantics. We next briefly explain APA scheduling as implemented by Linux's push and pull scheduler to provide the context needed to state the contributions of this paper.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. APAs in Linux Today: The Push and Pull Scheduler</head><p>For reasons of average-case efficiency, Linux implements perprocessor run-queues, where push and pull migrations across run-queues are enacted on demand when a task arrives in the system or when a processor finishes executing a task, respectively. To conform with processor-affinity restrictions, these migrations do not move tasks outside their affinities, i.e., a lower-priority ready task must wait if all processors included in its affinity mask are executing higher-priority tasks.</p><p>However, this approach of restricting the scope of migrations to only within the waiting task's processor affinity is unnecessarily restrictive, and from an analytical point of view, it does not provide the best possible schedulability. Since a lower-priority task upon its arrival can never "dislodge" a higher-priority task that could also execute elsewhere, this may needlessly prevent tasks from being scheduled, even if some processors idle as a result.</p><p>In this paper, to overcome such limitations, we explore APA semantics beyond the existing implementations and show that it is indeed possible to achieve improved schedulability (i.e., lower response-time bounds) without violating any task's processor affinity, and without changing the operating system API or leaving the class of JLFP schedulers, which is highly attractive from a practical point of view. characterize Linux's push and pull scheduler more formally: it implements only weak APA scheduling.</p><p>Our primary contribution is to show that strong APA scheduling provides superior schedulability and that it can also be realized in practice by leveraging the concept of task shifting, i.e., by allowing higher-priority tasks to be "dislodged" or moved among processors in order to make space for lowerpriority tasks that are limited by affinity constraints.</p><p>To optimally decide when and which tasks to shift, we model a priority-based APA scheduler as a bipartite graph that maps tasks to processors according to affinities. By encoding priorities as vertex weights, a maximum vertexweighted matching (MVM) <ref type="bibr" target="#b26">[27]</ref> can be used to determine how tasks should be optimally assigned to processors (Sec. IV-B).</p><p>A possible downside of modeling strong APA scheduling as an MVM problem, however, is that each scheduling decision could be subject to prohibitive runtime overheads if the MVM algorithm is implemented naïvely. We therefore propose an initial online algorithm that reuses previous matchings to reduce the effort required to dispatch newly arriving tasks (Sec. IV-C).</p><p>We also propose a novel linear-programming-based shiftingaware schedulability analysis, which we further extend to account for the overheads of shifting migrations (Secs. V and VI). Our evaluation in Sec. VII explores the practical aspect of this work, i.e., given an initial processor affinity, how large are the improvements in schedulability due to shifting? And to what extent do they outweigh the additional migration overheads?</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. MOTIVATING EXAMPLE</head><p>To motivate the potential for improved APA semantics, consider the following example, which illustrates the key ideas.</p><p>Example 1. Suppose four tasks {T 1 , T 2 , T 3 , T 4 } are to be executed on three processors {Π 1 , Π 2 , Π 3 }. Priorities are assigned in decreasing order, i.e., T 1 has the highest priority. Tasks T 1 , T 2 , T 3 , and T 4 are restricted to execute on processors {Π 1 , Π 2 , Π 3 }, {Π 2 , Π 3 }, {Π 1 }, and {Π 2 , Π 3 }, respectively. Assume that T 1 , T 2 , and T 4 are released at time t 1 and that T 3 is released at time t 2 &gt; t 1 . The initial state at time t 1 is illustrated in Fig. <ref type="figure" target="#fig_0">1</ref>(a) using a bipartite graph where vertices correspond to tasks and processors. Initially, task T 1 is assigned to processor Π 1 , T 2 is assigned to Π 2 , and T 4 is assigned to Π 3 . In the following, we evaluate the valid states at time t 2 , that is, the state transition corresponding to task T 3 's arrival.</p><p>Under the Linux scheduler, a task arrival causes a push migration, which in this case seeks to assign T 3 to either an idle processor or a processor that currently schedules a lowerpriority task. However, due to T 3 's affinity (it may execute only on Π 1 ), it must wait in Π 1 's run-queue until T 1 completes. Thus, under Linux, the task-to-processor assignment at time t 2 remains as it was at time t 1 (as shown in Fig. <ref type="figure" target="#fig_0">1(b)</ref>). Note that the lower-priority task T 4 remains scheduled even though the higher-priority task T 3 is waiting, which is an avoidable violation of the priority order.</p><p>If the tasks at time t 2 could be freely rearranged (i.e., not confined by the limitations of a push migration), we could achieve a better schedule. In this example, tasks can be rearranged in the transition from t 1 to t 2 such that T 1 , T 2 , and T 3 are scheduled at time t 2 while respecting all affinities and priorities (as illustrated in Figs. <ref type="figure" target="#fig_0">1(c</ref>) and 1(d)). However, Linux cannot find either of the two schedules because shift migrations are required in both cases. That is, to reach the state shown in inset (c), T 1 must shift from Π 1 to Π 3 , and to reach the state shown in inset (d), T 1 must shift from Π 1 to Π 2 , and T 2 must shift from Π 2 to Π 3 . In this case, the state shown in inset (c) is preferable since it requires fewer shift migrations.</p><p>To determine how to reach the desired state at time t 2 , we propose a simple graph-based model and an algorithm that explores the complete state space of the system when enacting migrations, allowing for better schedulability. For example, consider the bipartite graph in Fig. <ref type="figure" target="#fig_0">1</ref>(a) depicting the system state at time t 1 . Let us associate weights with the vertices on the left so that higher-priority tasks have larger weights. Since there is no preference for a particular processor, vertices on the right side are assigned weight zero. Finding a matching of maximum vertex weight (i.e., solving the MVM problem <ref type="bibr" target="#b26">[27]</ref>) guarantees that an optimal set of tasks is assigned to the processors (Theorem 1 in Sec. IV), in the sense that no other assignment has fewer idle processors or schedules higher-priority tasks. Such a task-to-processor mapping must be recomputed every time a task arrives or departs.</p><p>In contrast to Linux's preemptions-only approach, the new approach allows shifting of higher-priority tasks in order to accommodate lower-priority tasks (as shown when T 1 shifts from Π 1 to either Π 2 or Π 3 so that T 3 can be scheduled on Π 1 ). Note that, at least in the absence of overheads, shifting does not affect the schedulability of the higher-priority tasks since a task that shifts continues to execute on another processor.</p><p>We formalize the ideas highlighted in this example in Sec. IV, after first establishing required definitions in Sec. III.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. SYSTEM MODEL AND DEFINITIONS</head><p>In this section, we describe the system model and standard assumptions upon which our analysis is based, and also provide some essential definitions.</p><p>System model and assumptions: We consider the problem of scheduling a set of n real-time tasks τ = {T 1 , . . . , T n } on a set of m identical processors π = {Π 1 , . . . , Π m }. We adopt the classic sporadic task model <ref type="bibr" target="#b24">[25]</ref>, where each task T k = (e k , d k , p k ) is defined by a worst-case execution time (WCET) e k , a relative deadline d k , and a minimum inter-arrival time or period p k . Task T k 's deadline can either be implicit (d k = p k ), constrained (d k ≤ p k ), or arbitrary. We assume constrained deadlines in this work. The task model is extended by associating a user-defined processor affinity α k with every task T k , where α k ⊆ π is the set of processors on which T k is allowed to be scheduled (α k does not change over time).</p><p>In addition, the utilization of task T k is defined as u k = e k /p k and the utilization of task set τ as u τ = Tk∈τ u k . The response time r k of task T k is the maximum time taken by any of T k 's jobs to complete; we denote an upper bound on r k as r ub k . The set of backlogged tasks, represented as B(t), consists of the tasks that are ready but not scheduled at time t.</p><p>In this work, we assume integral time, i.e., any time t ≥ 0 represents the entire real interval [t, t + 1). We also assume that tasks are independent and do not self-suspend. Although the schedulability analysis in Sec. V assumes negligible overheads (in particular those related to task migration), Sec. VI describes how the analysis can be extended to account for overheads.</p><p>Priority assignment: Priority assignment policies used in realtime scheduling can be classified either as task-level fixed priority (FP), job-level fixed priority (JLFP), or job-level dynamic priority (JLDP) policies. While an FP policy assigns a unique priority to each task, a JLFP policy assigns a fixed priority to each job and, unlike under FP policies, two jobs of the same task may have distinct priorities. Prominent examples for FP and JLFP policies include the rate-monotonic priority assignment and the earliest-deadline-first policy, respectively <ref type="bibr" target="#b22">[23]</ref>.</p><p>Due to space constraints, the discussion of APA scheduling in Sec. IV and schedulability analysis in Sec. V are given for FP scheduling. However, the same principles can also be applied to JLFP policies without major changes. Extending the schedulability analysis to JLDP policies is left as future work. In this paper, we will denote T k 's fixed priority as prio k and the set of all tasks with priorities higher than prio k as hp k .</p><p>Workload and interference: The workload w k (t) of task T k denotes the maximum duration for which T k can execute in a time window of length t. It is based on the number of jobs n k (t) = (t + d ke k )/p k that contribute with an entire WCET in this window and is formally defined as</p><formula xml:id="formula_0">w k (t) = n k (t) • e k + min(e k , t + d k -e k -n k (t) • p k ).</formula><p>The interference h k i (t) of a higher-priority task T i on the analyzed lower-priority task T k is the cumulative length of all subintervals in which a job of T k is backlogged but cannot be scheduled on any processor while T i is executing. The interference is bounded by the workload of the interfering task and also by the latest completion time of the job of T k , i.e., h k i (t) = min(w i (t), te k + 1). The concepts of workload and interference are adopted from Bertogna and Cirinei <ref type="bibr" target="#b6">[7]</ref>.</p><p>Next, we formally introduce weak and strong APA scheduling and propose a graph-based strong APA scheduler.</p><p>IV. APA SCHEDULING In Sec. II, we identified the need for a more expressive model for APA scheduling. While global and partitioned schedulers can be realized with straightforward dispatching mechanisms based on priority queues, under APA scheduling it is less obvious which tasks should execute at a given point in time.</p><p>In this section, based on a bipartite graph model (as described next in Sec. IV-A), we propose a new invariant that a correct priority-based APA scheduler should maintain. Comparing the new invariant with the APA scheduling invariant corresponding to the Linux push and pull scheduler <ref type="bibr" target="#b18">[19]</ref>, we show that the new invariant provides stronger schedulability guarantees (see Sec. IV-B). Finally, in Sec. IV-C, we provide an incremental scheduling algorithm that implements the new invariant.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Graph Model</head><p>Let G(t) = (U (t) ∪ V, E(t)) denote a bipartite graph representing the scheduler state at time t. U (t) is the set of ready tasks, V = π is the set of all processors, and E(t) is the set of edges representing affinities, i.e., (</p><formula xml:id="formula_1">T u , Π v ) ∈ E(t) iff Π v ∈ α u .</formula><p>With each task T u ∈ U (t), we also associate a weight φ u corresponding to its priority, such that tasks with higher priorities are assigned larger weights. Given this bipartite graph model, the scheduling problem at time t can be intuitively understood as finding the best possible matching χ(t) between tasks and processors, in the sense that the number of nonidle processors is maximized while maintaining the specified priority ordering, without causing any affinity violations.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. APA Scheduler Invariants</head><p>Since tasks can be assigned in different ways, we need to properly identify an invariant representing a correct scheduler. For global scheduling, this problem is easy, as the only concern is that the m highest-priority ready tasks have to be selected. But when tasks have different affinity constraints, it is difficult to find a proper combination of assignments. In some cases, a processor may have to idle even though tasks are waiting.</p><p>To formally define a correct scheduler, we refer to Caron et al.'s work that addresses a conceptually equivalent problem, but in the different context of assigning employees with varying skill sets to open positions in order of seniority <ref type="bibr" target="#b11">[12]</ref>. Most relevant to APA scheduling are Caron et al.'s weak and strong seniority constraints, as they are closely related to task prioritization with affinity restrictions. Below, we state analogous constraints for APA scheduling in terms of our graph model.</p><formula xml:id="formula_2">Invariant 1 (Weak APA Invariant). ∀T b ∈ B(t), ∀π j ∈ α b , ∃T i : (T i , π j ) ∈ χ(t) ∧ φ i ≥ φ b . (1)</formula><p>Invariant 1 is equivalent to the weak seniority constraint defined by Caron et al. <ref type="bibr" target="#b11">[12]</ref>. Intuitively, it states that for any backlogged task, all the processors in its affinity mask are occupied by higher-priority tasks. That is, there is no candidate task for preemption scheduled on any of the processors on which the backlogged task may execute.</p><p>Recall from the discussion of the Linux scheduler in Sec. II that, upon the arrival of some task T new , Linux's scheduler performs only local decisions within α new , searching for lowerpriority tasks that can be directly preempted. Specifically, Linux never shifts higher-priority tasks in order to accommodate lowerpriority tasks restricted by affinity constraints. As a result, the scheduling invariant ensured by Linux's APA scheduler (formalized in <ref type="bibr" target="#b18">[19,</ref><ref type="bibr" target="#b19">20]</ref>) is in fact equivalent to Invariant 1.</p><p>However, if shift migrations are allowed, i.e., if higherpriority running tasks may be moved from one processor to another, a stronger APA scheduling invariant is possible, similar to the strong seniority constraint proposed by Caron et al.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Before stating the strong invariant, we must define preemption and shifting migrations in terms of the graph G(t).</head><p>Preemption: Given a non-assigned task T out , by traversing the edges corresponding to α out , every task T j assigned to a processor Π j ∈ α out can be reached. By replacing a matched edge (T j , Π j ) with (T out , Π j ), we obtain a new matching χ (t) that replaces T j with T out , corresponding to a preemption.</p><p>Shifting: The same argument can be transitively applied to paths to characterize shifting migrations. Consider an alternating path in the form &lt;T out , Π j-k , T j-k , . . . ,Π j-1 , T j-1 , Π j , T j &gt;, where T j is a task reachable from T out via processor affinities, and every task in {T j-k , . . . , T j } is covered by the matching χ(t). By removing the edge (T j , Π j ) from χ(t), adding a new edge (T out , Π j-k ) to χ(t), and reassigning the edges</p><formula xml:id="formula_3">(T j-k , Π j-k ) . . . (T j-1 , Π j-1 ) as (T j-k , Π j-k+1 ) . . . (T j-1 , Π j ), respectively, we obtain a new matching χ (t) where T j is replaced by T out .</formula><p>This path-based definition can represent any sequence of migrations that respects all processor affinities, which allows us to express the strong APA invariant.</p><formula xml:id="formula_4">Invariant 2 (Strong APA Invariant:). Let R i (t) denote the set of processors reachable from T i in G(t). ∀Tb ∈ B(t), ∀Πj ∈ Rb(t), ∃Ti : (Ti, Πj) ∈ χ(t) ∧ φi ≥ φb (2)</formula><p>Invariant 2 corresponds to Caron et al.'s strong seniority constraint <ref type="bibr" target="#b11">[12]</ref>. To illustrate the difference between the two invariants, recall Linux's scheduler state at time t 2 depicted in Fig. <ref type="figure" target="#fig_0">1(b)</ref>. With respect to the backlogged task T 3 , Invariant 1 trivially holds, since the only processor on which task T 3 can execute is busy with a higher-priority task. However, note that processor Π 3 can be reached from T 3 via the neighboring task T 1 . Because task T 4 , which has lower priority, is executing on processor Π 3 , Invariant 2 is violated. No such priority inversion occurs in the states shown in insets (c) and (d).</p><p>A mapping satisfying Invariant 2 can be obtained by solving the maximum vertex-weighted matching (MVM) problem, which refers to finding a bipartite matching χ(t) that maximizes the total weight Φ = (Tu,Πv)∈χ(t) φ u of the matched tasks. As shown in <ref type="bibr" target="#b26">[27]</ref>, χ(t) is also a maximum cardinality matching, which confirms that no processor unnecessarily remains idle. Maximizing Φ further guarantees that among all the matchings of maximum cardinality, χ(t) selects the highest-priority tasks. We summarize the correspondence between APA scheduling and the MVM problem in the following theorem.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Theorem 1. An MVM in G(t) satisfies Invariant 2 at time t.</head><p>Proof: By contradiction. Let χ(t) be an MVM in G(t) with total weight Φ and assume that χ(t) does not satisfy the Strong APA Invariant at time t. Then:</p><formula xml:id="formula_5">∃Tb ∈ B(t), ∃Πj ∈ Rb(t), ∀Ti : (Ti, Πj) / ∈ χ(t) ∨ φi &lt; φb. (<label>3</label></formula><formula xml:id="formula_6">)</formula><p>For such a processor Π j in R b (t), there are two possible cases: either Π j has an assigned task T i such that φ i &lt; φ b or Π j is idle. In the former case, suppose such a task T i exists. Consider a path that leads from T b to</p><formula xml:id="formula_7">T i : &lt;T b , Π j-k , T i-k , . . . , Π j-1 , T i-1 , Π j , T i &gt;.</formula><p>Such a path allows a shifting operation that assigns T b and deassigns T i , effectively increasing the total weight to Φ = (Φ -</p><formula xml:id="formula_8">φ i + φ b ) &gt; Φ.</formula><p>Similarly, in the latter case where Π j is idle, adding T b to the matching leads to Φ = (Φ + φ b ) &gt; Φ. Since there is a valid edge substitution with total weight Φ &gt; Φ in both the cases, χ(t) is not an MVM in G(t). Contradiction.</p><p>In this paper, we refer to APA scheduling that guarantees the strong APA Invariant (i.e., the MVM-based approach) as strong APA scheduling, and to APA scheduling that guarantees only the weak APA Invariant as weak APA scheduling (e.g., Linux's push and pull scheduler). Having identified a correctness condition for strong APA schedulers, we now discuss one approach for how such matchings can be computed at runtime.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Scheduling Algorithm</head><p>Since the scheduler is a critical part of an operating system, an efficient implementation is necessary in order to avoid performance bottlenecks. For APA scheduling, this is even more important, as graph algorithms are typically more costly than the priority queues found in conventional schedulers.</p><p>A JLFP scheduler implementation has to deal with two main scheduling events that affect the set of ready tasks: task arrival and task departure. A correct, yet naïve, APA scheduler would recompute the MVM "from scratch" every time a scheduling event occurs. Examples of this non-incremental approach include Volgenant's algorithm <ref type="bibr" target="#b27">[28]</ref> The above-mentioned algorithms perform iterations of augmentation steps (each with O(|E|) time complexity), until convergence is reached. Although they indeed compute correct assignments, they are not ideal for APA schedulers in terms of runtime complexity. This is because an OS scheduler is a dynamic system, where the set of ready tasks changes gradually due to scheduling events. Therefore, for performance and simplicity, it is desirable to have an incremental algorithm that, in response to a scheduling event, reuses the previous matching to compute the new task assignment.</p><p>In this work, instead of applying the multiple steps required to compute an MVM "from scratch," we propose a straightforward incremental algorithm that carries out a single O(|E|) augmentation step. Although Volgenant's algorithm works in a similar way (by iteratively solving subproblems), it does not address the incremental nature of our MVM problem, in which the underlying graph may change over time.</p><p>In order to obtain a more efficient algorithm, let us consider two high-level properties of our problem that simplify the solution: (i) systems usually have a number of tasks that significantly exceeds the number of processors (n m); and, as already mentioned, (ii) there are only two possible scheduling events, task arrival (i.e., a job is released or resumes) and task departure (i.e., a job completes or suspends). While the first property suggests that it is preferable to iterate over processors instead of tasks, the second property motivates splitting the problem into two cases (arrival and departure), which can then be solved by different, specialized algorithms. In addition, since we assume that only one task is included or removed per event, the new matching closely resembles the previous matching.</p><p>To derive an incremental algorithm, the scheduling problem can be understood in terms of state transitions. Consider the state of the scheduler at a particular time t 1 , where we have a graph G(t 1 ). Due to the occurrence of scheduling events (e.g., when some task arrives), the system may move to a new state at time t 2 , with a new graph G(t 2 ). Given the previous MVM χ of total weight Φ, our objective is to find a new matching for the modified graph.</p><p>In the following, we describe how to update the matching upon task arrivals and departures. For the sake of simplicity, we assume that every idle processor is assigned an idle task T idle of weight zero that is preemptable by any other task. For the pseudocode presented in Secs. IV-D and IV-E, let χ π (T i ) denote the processor and χ τ (Π j ) the task for a pair (T i , Π j ) ∈ χ corresponding to a task assignment.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Task Arrival</head><p>Suppose a new task T new arrives at time t 2 and the scheduler had computed the previous matching χ of total weight Φ at time t 1 , where t 1 &lt; t 2 . Since χ is an MVM in G(t 1 ), tasks that are initially unmatched remain so in G(t 2 ). Upon the arrival of the new task at time t 2 , there are only two possible cases: either T new is added to the matching for G(t 2 ) or it is not. In the latter case, χ = χ maintains the weight Φ. Otherwise, we must find a better matching that includes T new .</p><p>Consider every possible path in G(t 2 ) of the form &lt;T new ,Π j-k ,T j-k , . . . , Π j-1 ,T j-1 ,Π j ,T j &gt;. As explained in Sec. IV-B, such paths represent all feasible shifting operations that assign T new and deassign some task T j . Such an operation generates a new matching with total weight Φ = Φ+prio newprio j , which indicates that the scheduler must find a path that ends with the lowest-priority scheduled task T j being preempted in favor of T new (possibly an idle task).</p><p>Since we are primarily interested in the end-points (T new , T j ) of the shifting paths, this corresponds to a reachability problem, which can be solved by any graph search algorithm: simply start at task T new and find the reachable scheduled task T j that has the lowest priority, which will then become unassigned. The associated path should be stored to allow backtracking at the end, in order to enact the required shifting migrations. If there is no task T j with priority lower than T new , then T new is not assigned and is added to the ready queue instead.</p><p>The length of the discovered paths corresponds to the number of shifting operations that need to be performed. Thus, a breadth-first search (BFS) minimizes the number of migrations, as it finds a shortest path in graphs without edge weights.</p><p>The pseudocode corresponding to the arrival operation is shown in Algorithm 1. Since the graph traversal visits only matched tasks and processors, in the worst case it visits m tasks, each of which may have an affinity to all m processors if task cur is the lowest priority task seen so far 9:</p><p>and task cur has lower priority than Tnew then for each unvisited cpu in αtask cur do 13:</p><p>Enqueue(cpu) and mark it as visited 14:</p><p>if cpu to preempt = nil then 15:</p><p>Tnew is left unassigned <ref type="bibr">16:</ref> else Backtrack on the alternating path from Tnew to 17:</p><p>cpu to preempt shifting along every task, so that Tnew 18:</p><p>is scheduled and the task on cpu to preempt is preempted. </p><formula xml:id="formula_9">= O(m • n)).</formula><p>The runtime for workloads with "sparse" affinities can be expected to be significantly lower.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Task Departure</head><p>A similar approach can be used to handle task departures. Suppose that a task T old assigned to Π idle completes or suspends at time t 2 . Given the previous MVM χ of total weight Φ, we need to obtain a new MVM considering that T old 's departure leaves processor Π idle unmatched.</p><p>For departures, there are also only two possible cases. Either T old is replaced by another task in the new mapping, or the processor stays idle. Consider a path in the form &lt;T old , Π idle , T j-k , Π j-k , . . . , T j , Π j ,T out &gt;, obtained by following assigned tasks up to some processor Π j that belongs to the affinity of a non-assigned task T out . The corresponding task substitution produces a new matching of weight Φ = Φ-prio old +prio out , where T out shifts in to replace T old .</p><p>To find the best replacement T out , we start a BFS at Π idle looking for a reachable non-assigned task of highest priority. This leads to a shifting operation that replaces T old by T out and maximizes the resulting weight Φ . If the high-priority task is found in the affinity of Π idle , this corresponds to a direct assignment without shifting. The pseudocode for handling a task departure is shown in Algorithm 2.</p><p>The task departure algorithm traverses every processor with matched tasks that is reachable from Π idle . Following the processor affinities, it searches for the highest-priority non-assigned task, which becomes the endpoint of the chain of tasks shifting into for each task such that cur ∈ αtask do if assigned cpu = nil then 9:</p><p>if task has highest priority seen so far then else if assigned cpu has not been visited <ref type="bibr">12:</ref> Enqueue(assigned cpu) and mark it as visited <ref type="bibr">13:</ref> if task to pull = nil then receives a task and task to pull is also scheduled. 18: end function V. SCHEDULABILITY ANALYSIS Irrespective of whether strong or weak APA semantics are used for scheduling, tasks with restricted processor affinities are (generally) difficult to analyze when their affinities overlap. To incorporate irregular interference patterns and to account for shifting, we propose a novel LP-based response-time analysis for strong APA scheduling, which we motivate next with a simple example. We initially assume negligible overheads, and in Sec. VI we propose overhead accounting techniques.</p><p>Example 2. Consider a task set consisting of three tasks, {T 1 , T 2 , T 3 }, to be scheduled on two processors, {Π 1 , Π 2 }. Task priorities are defined in decreasing order of their indices, i.e., T 1 has the highest priority. Their WCETs are 8, 2, and 3 time units, respectively; and the affinities are α 1 = {Π 1 , Π 2 }, α 2 = {Π 2 }, and α 3 = {Π 1 }. Tasks T 1 , T 2 , and T 3 arrive synchronously at time t = 0. We discuss the schedule of these tasks in the interval [0, 12) under both weak and strong APA scheduling. The resulting schedules are illustrated in Fig. <ref type="figure" target="#fig_8">2</ref>.</p><p>The schedule under weak APA scheduling is shown in Fig. <ref type="figure" target="#fig_8">2(a)</ref>. Suppose that tasks T 1 and T 2 are respectively scheduled on processors Π 1 and Π 2 upon release. Since T 3 can only execute on Π 1 , it must wait for T 1 's job to complete, i.e., T 1 interferes with T 3 for a total duration of x = 8 time units (interval [0, 8)). Hence, T 3 's job misses its deadline at time t = 10. We observe that under weak APA scheduling, the entire</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>cost of a higher-priority job may contribute towards the interference experienced by a lower-priority job (if their affinities intersect).</head><p>The schedule under strong APA scheduling is shown in Fig. <ref type="figure" target="#fig_8">2(b</ref>). Unlike under weak APA scheduling, T 3 has to wait only for z = 2 time units during the interval [0, 12). Interference on T 3 reduces in comparison to the previous scenario because at time t = 2, when T 2 's job completes its execution, T 1 shifts from Π 1 to Π 2 and T 3 is scheduled on Π 1 . Consequently, T 3 's job does not miss its deadline. In general, under strong APA scheduling, the interference of a higherpriority task on a lower-priority task (if their affinities intersect) is also indirectly upper-bounded by the duration during which other tasks prevent the higher-priority task from shifting. Arrows pointing upwards denote job releases, arrows pointing downwards denote deadlines, and arrows with blunt ends denote job completion. Grey (respectively, white) rectangles denote execution on processor Π 1 (respectively, Π 2 ). In (a), T 3 's job suffers x = 8 units of interference and misses its deadline (dashed circle), whereas in (b), T 3 's job suffers less interference (z = 2 units) due to T 1 's shifting, and completes its execution before its deadline.</p><p>In this particular example, under strong APA scheduling, T 3 must wait only when T 1 cannot shift to any other processors, i.e., when both Π 1 and Π 2 are busy. Therefore, T 1 's effective interference on T 3 during the interval [0, 12) is actually also bounded by the workload of T 2 . In Fig. <ref type="figure" target="#fig_8">2(b),</ref><ref type="figure"></ref> x denotes the workload of T 1 , z denotes the interference from T 1 incurred by T 3 (i.e., the total time that T 3 cannot be scheduled due to T 1 's execution), and y denotes the duration that T 2 prevents T 1 from shifting in favor of T 3 . We observe that trivially z ≤ x (since T 1 must execute to interfere), but also that z ≤ y, which demonstrates the key advantage of strong APA scheduling: if higher-priority tasks can shift, then their full execution time need not contribute to the interference on lower-priority tasks.</p><p>In the LP-based schedulability analysis that we introduce next, we focus on FP scheduling, but note that the same techniques can be used to analyze JLFP scheduling as well.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. LP-based Schedulability Analysis for APA Scheduling</head><p>Many multiprocessor schedulability analyses rely on the concept of interference (as defined in Sec. III). APA schedulability analysis, however, requires a more expressive concept. Since overlapping affinities cause a task's interference to vary across processors (unlike under global scheduling), we define the concept of per-processor interference, denoted as x k i,p (t). It denotes, in a time window of length t, the cumulative execution time of T i on Π p , while T k is backlogged.</p><p>Since the exact values of per-processor interferences on T k cannot be easily determined, we model the problem of determining x k i,p (t) as a linear program (LP). The objective of the LP is to maximize r ub k , i.e., the upper bound on T k 's response time r k , given some constraints on task interference. Lemmas 1 and 2 (adapted from <ref type="bibr" target="#b19">[20]</ref>) define constraints that we use to formulate the LP. Proofs can be found in <ref type="bibr" target="#b19">[20]</ref>. Recall from Sec. III that h k i (t) denotes the interference of T i on T k in a time window of length t.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 1. In a time window of length t, if task T k is analyzed under FP APA scheduling and task T i has a higher priority,</head><formula xml:id="formula_10">Πp∈αi x k i,p (t) ≤ h k i (t) and ∀Π p / ∈ α i : x k i,p (t) = 0. Lemma 2</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>. In a time window of length t, if task T k is analyzed under FP APA scheduling and if t is the largest value such that</head><p>∀Πp ∈ αk, t ≤ ek + T i ∈hp k x k i,p (t), then t is also an upper bound on the response time of task T k .</p><p>We now state the LP that derives an upper bound on the response time of a task T k in a time window of length t. The solution of the LP is recomputed for growing interval lengths (up to d k ) in a fixed-point iteration. If the iteration converges to a value r ub k ≤ d k , then r ub k is an upper bound on the response time of any job of task T k (assuming that no higher-priority task misses a deadline). The LP variables X k i,p and R ub k correspond to x k i,p (t) and r ub k , respectively. Theorem 2. Given a task T k to be scheduled under FP APA scheduling (either weak or strong), if no task misses a deadline, a safe response-time bound r ub k is given by the least fixed point of the equation</p><formula xml:id="formula_11">r ub k = R LP k (r ub k ), starting with r ub k = e k , where R LP k (t) is the solution of the following LP. R LP k (t) maximize R ub k subject to ∀T i ∈ hp k : Πp∈αi X k i,p ≤ h k i (t) (Constraint 1) ∀T i ∈ hp k , ∀Π p / ∈ α i : X k i,p = 0 (Constraint 2) ∀Π p ∈ α k : R ub k ≤ e k + Ti∈hp k X k i,p (Constraint 3)</formula><p>Constraints 1, 2 and 3 in Theorem 2 can be trivially derived from Lemmas 1 and 2 (see <ref type="bibr" target="#b19">[20]</ref>). We next propose additional constraints, extending the LP in Theorem 2 to derive a shiftingaware schedulability analysis for strong APA scheduling.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Shifting-aware Analysis for Strong APA Scheduling</head><p>From the definition of shifting migration in Sec. IV-B, it follows that under strong APA scheduling, a reachable higherpriority task may (positively) affect the interference on a lowerpriority task even if their affinities do not overlap, by virtue of shifting. Therefore, to develop a shifting-aware schedulability analysis for strong APA scheduling, we must define a bound on task interference that also reflects the workloads of noninterfering higher-priority tasks.</p><p>For instance, in the analysis of T 3 's schedulability under weak APA scheduling in Ex. 2, the constraint z ≤ x is trivial to find (z is the interference incurred by T 3 due to T 1 and x denotes the workload of T 1 ). In contrast, strong APA scheduling also allows for an additional, less easily identifiable constraint z ≤ y (y denotes the duration for which T 2 prevents T 1 from shifting in favor of T 3 ), which restricts the total interference on T 3 to a more accurate value than under weak APA scheduling.</p><p>In order to formalize such interference relations, we define a static graph G representing the entire task set, which is used to derive additional shifting-aware constraints for the LP.</p><p>Let G = (V , E ) represent an undirected graph, where vertices in V correspond to tasks in τ . There exists an edge in E between tasks T a and T b iff their processor affinities intersect, i.e., α a ∩ α b = ∅. In addition, let RT k (l) denote the set of tasks that are reachable from T k in exactly l hops, i.e., T i ∈ RT k (l) iff there exists a path &lt;T k0 ,T k1 , . . . , T kl &gt; in G such that T k0 = T k and T kl = T i . We further define the set RP k (l) of processors reachable in l steps as</p><formula xml:id="formula_12">RPk(l) = T i ∈RT k (l) αi.</formula><p>The following theorem considers, w.r.t. the task T k under analysis, every shifting path of length l from T k to a reachable processor Π p that some task T i can shift to, as long as no higher-priority task T j ∈ hp k is executing on Π p . Theorem 3. Given a time window of length t and a task T k to be analyzed under strong FP APA scheduling, ∀l ∈ {1, . . . , m -1}, ∀Ti ∈ RTk(l), and ∀Πp ∈ αi \ RPk(l -1), the following invariant holds:</p><formula xml:id="formula_13">Πr∈αi∩RPk(l-1) x k i,r (t) ≤ Tj ∈hpk∧Tj =Ti x k j,p (t). (<label>4</label></formula><formula xml:id="formula_14">)</formula><p>Proof: By contradiction. Assume that ∃l ∈ {1, ..., m -1}, ∃Ti ∈ RTk(l), and ∃Πp ∈ αi \ RPk(l -1), such that:</p><formula xml:id="formula_15">Πr∈αi∩RPk(l-1) x k i,r (t) &gt; Tj ∈hpk∧Tj =Ti x k j,p (t).<label>(5)</label></formula><p>Eq. 5 implies that, in some interval of length t, the total execution time of task T i on processors in αi ∩ RP k (l -1) (while T k is backlogged) exceeds the total execution of all other higher-priority tasks on Π p (while T k is backlogged). Let δ be defined as follows:</p><formula xml:id="formula_16">δ = Πr∈αi∩RPk(l-1) x k i,r (t) - Tj ∈hpk∧Tj =Ti x k j,p (t),</formula><p>and let Δ represent the cumulative interval corresponding to these δ time units. Note that since x k i,r (t) and x k j,p (t) both denote execution time while T k is backlogged, it is the case that T k is backlogged at all times in the cumulative interval Δ.</p><p>Because δ is non-zero, there exists a point in time in Δ such that T i is scheduled on a processor Πr ∈ αi ∩ RPk(l -1) while T k is backlogged and none of the tasks in hp k are scheduled on Π p . However, in this case, T i can shift to Π p , thus vacating a processor in αi ∩ RP k (l -1), and another higher-priority task in RTk(l -1) can shift to the processor vacated by T i . By recursively applying this argument up to l = 1, we observe that T k is scheduled after l shifts.</p><p>Assuming that shifting migrations are enacted instantaneously (i.e., negligible overheads for task migrations), this implies that task T k is not backlogged at all times during the cumulative interval Δ. Contradiction.</p><p>The invariants in Theorem 3 (Eq. 4) can be used as an additional set of constraints in the LP in Theorem 2 to obtain shifting-aware response-time bounds under strong APA scheduling. Despite the larger number of constraints in the LP, in our experiments considering up to 16 processors, this analysis approach still exhibited good runtime performance (i.e., the analysis required only a few seconds to complete for reasonable task set sizes). An important concern for strong APA scheduling, however, is how to account for the overheads induced by shifting migrations, which is addressed in the next section.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. OVERHEAD ANALYSIS</head><p>In order to assess the potential for strong APA scheduling in practice, it is necessary to provide means for overhead accounting. The overheads present in an APA scheduler are, in large parts, similar to what already occurs in standard schedulers, and can be accounted for using existing techniques (e.g., see <ref type="bibr" target="#b8">[9]</ref>). The only exception, however, are the additional shifting migrations, which are not covered by previous work.</p><p>Note that previous FP/JLFP schedulers enact migrations only upon the arrival of high-priority tasks. Thus, existing analyses for preemption-related overheads are able to charge the cost of a preemption to the higher-priority (preempting) job, which indirectly interferes with the lower-priority jobs. Under strong APA scheduling, however, tasks can also be shifted due to the arrival of lower-priority tasks, and thus the overheads cannot always be modeled as interference. Rather, they must be accounted for explicitly, as explained next.</p><p>The following lemma provides a bound on the number of migrations that can occur during the lifetime of a job of task T k . Lemma 3. Under strong APA scheduling and in the absence of self-suspensions, a job J migrates at most twice for each job J that arrives or departs while J is pending.</p><p>Proof: Under a FP/JLFP policy, J migrates only due to the arrival or departure of some job J of another task (regardless of priority). The claim follows since (in the absence of selfsuspensions) each job arrives and departs exactly once.</p><p>Assume a worst-case migration (or preemption) delay of Δ mig time units. By Lemma 3, in a time window of length t, an upper bound M k (t) on the migration and preemption overhead incurred by some task T k can be defined as follows:</p><formula xml:id="formula_17">M k (t) = Ti∈ m-1 l=0 RTk(l) 2 • t p i • Δ mig . (<label>6</label></formula><formula xml:id="formula_18">)</formula><p>This additional delay affects the analysis in two cases. First, the overheads that directly affect task T k must be added to the LP constraints that model the response time:</p><formula xml:id="formula_19">∀Π p ∈ α k : R ub k ≤ e k + M k (t) + Ti∈hp k X i,p .<label>(7)</label></formula><p>In addition, migrations that affect a task T i of priority higher than T k must be added to the interference h k i (t), so that they are indirectly accounted for in the response time R k :</p><formula xml:id="formula_20">h k i (t) h k i (t) + M i (t).<label>(8)</label></formula><p>The analysis can be further improved with two observations. First, tasks with singleton processor affinity can only suffer direct preemptions, but never shift. So, when analyzing such tasks, it is sufficient to consider only the arrival of higherpriority tasks executing on the same processor. In addition, when tasks with global affinity arrive, they always preempt the processor running the lowest-priority task, without affecting higher-priority tasks. Thus, we do not consider the arrival of a low-priority task with global affinity as a source of migrations.</p><p>Based on the described analysis techniques, we next report on our evaluation of strong APA scheduling.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. EVALUATION</head><p>Recall from Sec. IV that enforcing the Strong APA Invariant allows higher system utilization. Indeed, in Sec. V, we established stricter bounds on the response time of real-time tasks to be scheduled under strong APA scheduling. To assess whether the theoretical benefits of strong APA scheduling also translate into increased utilization, we conducted schedulability experiments using the SchedCAT tool suite <ref type="bibr" target="#b0">[1]</ref>.</p><p>In the first set of experiments, we evaluated the analytical benefits of shifting using overhead-oblivious schedulability analysis, as described in Sec. V. In the second set of experiments, using the overhead accounting technique introduced in Sec. VI, we investigated how the schedulability under strong APA scheduling degrades with increasing migration overheads.</p><p>Next, we explain the experimental setup used in our evaluation, and then discuss the main trends.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Experimental Setup</head><p>Under APA scheduling, the affinity assignment adds a new dimension when defining task set parameters. Finding optimal affinity assignments is a non-trivial and still open problem. In addition, there is a further complication in that affinities specified by users do not necessarily improve the schedulability of the system. Since we desire to evaluate the benefits of shifting in such restricted scenarios, it was necessary to approximate user-defined affinity assignments in a reasonable manner.</p><p>Adhering to these requirements, we first randomly generated task sets using Emberson et al.'s method <ref type="bibr" target="#b15">[16]</ref> with parameters m ∈ {4, 8, 16}, n ∈ {m + 1, 1.25m, 1.5m, 1.75m, 2m, 3m, 4m}, periods following a log-uniform distribution in [10ms, 100ms], and priorities assigned according to the DkC heuristic <ref type="bibr" target="#b12">[13]</ref>. For each generated task set, we then applied an affinity assignment step in order to emulate reasonable user-defined affinities, as described below.</p><p>Initial Affinity Assignment: Processor affinities were not completely randomized but rather uniformly sampled as either partitioned, clustered, or global, according to a probability ratio of the form p/c/g, respectively. For instance, the probability of a task being partitioned given a hypothetical probability ratio of 3/2/1 would be 3/(3 + 2 + 1).</p><p>In order to approximate realistic use cases, two different configurations were evaluated, 1/1/6 and 5/2/1. The former configuration corresponds to a global-like scenario where a few cache-sensitive tasks are restricted to specific partitions or clusters, and the remaining tasks remain global. In contrast, the latter configuration is biased towards smaller affinities, i.e., it resembles use cases requiring isolation or fault tolerance guarantees, in which critical tasks are statically assigned to different processors, while the remaining tasks are assigned clustered or global affinities.</p><p>After a task is assigned either a partitioned, clustered, or global configuration, it must still be assigned the exact set of processors. Although this processor selection affects the schedulability of the tasks, we preferred not to bias the experiment towards a specific allocation strategy as the user may intentionally decide to isolate or group certain tasks. We also preferred not to use random affinities since they may overload processors. Instead, we applied a simple utilizationand affinity-based heuristic.</p><p>According to the heuristic, a task T i with a partitioned configuration is assigned to the processor Π p that minimizes the sum u k /|α k |, over all tasks T k ∈ hp i already assigned to Π p . This heuristic captures the fact that high-priority tasks with larger affinities can migrate more easily, decreasing the load on the individual processors in their respective affinities. A similar heuristic was used for tasks with clustered configurations.</p><p>However, despite using the aforementioned heuristic, certain processors were still overloaded. In order to discard such clearly unschedulable assignments, we applied Baruah and Brandenburg's APA feasibility test <ref type="bibr" target="#b5">[6]</ref>.</p><p>This procedure generates the task sets we used in the evaluation, where tasks are assigned an initial processor affinity α i . In the next step, we applied schedulability tests, as described in the following.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Runtime Affinity Minimization and Schedulability Tests</head><p>We consider a scenario in which a system designer has determined that certain tasks should be restricted to execute only on certain processors for application-specific reasons. However, during system integration, it is possible to further restrict the set of permissible processors. That is, under APA scheduling, a task T i with a user-provided affinity α i can be further restricted to execute on a smaller set of processors β i ⊆ α i without violating the user-provided scheduling restriction-there is no requirement that T i must actually be given the option at runtime to execute on all processors in α i as long as schedulability is maintained. Thus, during system integration, the user-provided affinity may be "shrunk" to obtain a simpler scheduling problem. In the following, to distinguish between the two cases, we refer to α i as the design-time processor affinity of T i and to β i as the runtime processor affinity of T i : α i is provided by the system designer, whereas β i is given to the OS scheduler.</p><p>Partitioning: We first evaluated task sets under partitioned scheduling, i.e., by attempting to find singleton runtime processor affinities that are compliant with the user-provided design-time affinities. This partitioning-first approach reflects the observation that runtime overheads are low under partitioned scheduling and uniprocessor schedulability analysis is accurate. Therefore, there is little incentive to use an APA scheduler at runtime if partitioning suffices to meet all design-time affinity restrictions.</p><p>Finding singleton runtime processor affinities that are compliant with the user-provided design-time affinities, however, required partitioning heuristics specific for APA scheduling. Partitioning with affinity constraints is inherently limited by the initial design-time affinity assignment, thus conventional bin-packing heuristics such as First-Fit Decreasing-Utilization are not effective. Since some tasks are assigned to single processors in the initial affinity assignment, part of the task set may already be partitioned, reducing the solution space for the bin-packing heuristics. In particular, if tasks with large affinities are partitioned first (i.e., tasks whose processor affinities include most of the processors available in the system), the freedom to choose processors for the remaining tasks is reduced, affecting schedulability. Thus, we obtained improved results by sorting tasks in increasing order w.r.t. the size of their affinities.</p><p>Response-time Analysis: For the cases where partitioning failed, we applied the LP-based APA response-time analysis (described in Sec. V) on different runtime affinity assignments. Starting from the failed partitioning attempt, we first tried intermediate configurations by growing the runtime processor affinity of the tasks that did not fit during bin-packing (without violating the design-time affinity restrictions). In the cases where all these configurations were not schedulable, we applied the schedulability test on the initial design-time affinity.</p><p>Having explained the experimental setup, we next present the main results of our schedulability experiments.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Evaluation of Theoretical Benefits</head><p>In the first set of experiments, we assessed schedulability ignoring overheads. We generated graphs showing the fraction of schedulable task sets w.r.t. increasing system utilization (0 to m in steps of 0.05). For each point, 800 task sets were generated.</p><p>Each graph shows five curves. PART denotes the partitioning heuristic described previously, i.e., APA scheduling where all tasks are assigned singleton runtime affinities. RTA-Weak and RTA-Strong denote the LP-based response-time analyses. The former was proposed first in <ref type="bibr" target="#b19">[20]</ref>, while the latter is described in Sec. V. To provide upper bounds on schedulability, we applied two other tests, SIM-Weak and SIM-Strong, which simulated the task sets for up to 500s under weak and strong APA scheduling, respectively. Since such simulations cannot consider every possible task arrival sequence, they only report task sets that are not schedulable. Nevertheless, they aid in estimating the gap between a scheduling algorithm and its corresponding analysis.</p><p>Schedulability results for 4, 8, and 16 processors, with n ∈ {1.75m, 4m} and ratio 5/2/1 are shown in Figs. <ref type="figure">3(a</ref>)-3(f). We omit the graphs for the ratio 1/1/6 since most task sets were partitionable and there were no differences between the curves up to very high utilization values.</p><p>Recall that a task T k only benefits from shifting if higherpriority tasks that execute on processors in α k can migrate to processors external to α k , which occurs more frequently when the higher-priority tasks have large affinities. In the affinity assignments that we generated, many tasks were able to shift, allowing a significant schedulability improvement. As seen in Figs. <ref type="figure">3(a</ref>)-3(c), RTA-Strong was able to schedule roughly 15-20% more task sets than RTA-Weak for certain utilizations.</p><p>Most importantly, the fact that the pessimistic RTA-Strong analysis dominates the optimistic SIM-Weak simulation provides strong evidence demonstrating that strong APA scheduling is clearly superior in terms of schedulability.</p><p>Increasing the number of tasks reduces the difference between partitioned and APA schedulability analysis due to pessimism, as shown by comparing Figs. 3(a)-3(c) with Figs. <ref type="figure">3(d</ref>)-3(f). However, note that SIM-Strong suggests much better schedulability, which hints that strong APA scheduling still has a large potential that could be explored by improved analysis. Another observation is that the results for partitioned scheduling do not improve as expected for large task counts. This can be attributed to the restrictive initial affinity assignments. Overall, the results show that strong APA scheduling is able to achieve reasonable schedulability gains from an analytical point of view, which could be further improved by selecting better runtime affinities. In addition, all of our experiments were limited by the initial affinity assignment, which was in part random to avoid bias towards specific application requirements.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Evaluation of Shifting Overheads</head><p>In this section, we present the results of our preliminary experiments to evaluate the practicality of strong APA scheduling, for which we used the overhead analysis from Sec. VI.</p><p>Task sets and processor affinities were generated using the same methodology as described earlier, with a small difference. Since partitioned scheduling incurs very low overheads and can always be applied without violating affinities, it is not useful as a baseline for comparison. Thus, we discarded task sets that could be partitioned and focused on only the ones that were schedulable using strong APA scheduling.</p><p>Experiment results for m ∈ {4, 8} showing the fraction of task sets schedulable as the system utilization is increased from 0.3m to 0.9m, and with migration costs varying from 0 to 750μs, are shown in Figs. 3(g)-3(i). For small task counts and migration overheads up to 500μs, a significant fraction of the task sets is deemed schedulable. Because of the large pessimism in the analysis, however, the overheads tend to grow with high task and/or processor counts. Thus, the results are not yet entirely satisfactory; however, even 500μs migration overheads can be considered quite large, and efficient implementations, if carefully optimized, may exhibit lower overheads in practice.</p><p>A full in-kernel implementation, the subject of future work, will allow measuring realistic overheads and further clarify the results. In addition, the overhead analysis could be made less pessimistic. It is clear that not all patterns of shifting can occur in real sequences of scheduling events. Quantifying possible shift patterns would improve the overhead analysis, in comparison with the current method that simply assumes that every job causes migration twice. We thus believe that more efficient ways for implementing and analyzing APA schedulers can be found, which we leave as future work.</p><p>VIII. RELATED WORK Real-time APA scheduling has been addressed thrice in the literature. Our previous work focused on schedulability analysis for weak APA scheduling <ref type="bibr" target="#b18">[19,</ref><ref type="bibr" target="#b19">20]</ref>, whereas Baruah and Brandenburg proposed feasibility analysis for APA scheduling with implicit deadlines <ref type="bibr" target="#b5">[6]</ref>. In the following, we compare APA scheduling with other related scheduling problems.</p><p>Among the schedulers found in the literature, there are classes of hybrid approaches that resemble APA scheduling in the sense of explicitly controlling task migration. Since limiting when task migrations occur (as in restricted-migration scheduling <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b13">14]</ref>) is completely orthogonal to APA scheduling, we focus on schedulers that restrict where a task may migrate to.</p><p>Under clustered scheduling <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b10">11]</ref>, migrations are disallowed between groups of processors, in order to decrease cross-socket memory access overheads in multicore platforms. Since such restriction can be straightforwardly encoded with affinities, APA scheduling clearly generalizes this approach <ref type="bibr" target="#b18">[19,</ref><ref type="bibr" target="#b19">20]</ref>.</p><p>Semi-partitioned algorithms <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b9">10,</ref><ref type="bibr" target="#b21">22]</ref>, while relying mostly on static task allocation schemes, still allow a small number of migratory tasks to increase schedulability. Although APA scheduling with time-varying processor affinities could model semi-partioning-like behavior, the current work on APA scheduling is still limited to static processor affinities.</p><p>Like APA scheduling, virtual cluster-based scheduling <ref type="bibr" target="#b14">[15]</ref> also allows tasks to be assigned to overlapping physical clusters. However, Easwaran et al.'s work fundamentally targets an orthogonal problem of hierarchical scheduling, and also differs in that it does not fit into established scheduling APIs without breaking legacy compatibility.</p><p>IX. CONCLUSION This paper, motivated by the use of arbitrary processor affinities for application-specific use cases, showed how a conventional APA scheduler can be extended to achieve higher schedulability, while maintaining API compatibility.</p><p>With the concept of task shifting, which we related to the assignment problem with seniority constraints <ref type="bibr" target="#b11">[12]</ref>, we defined how priority-based APA schedulers should be modeled in order to maximize system utilization. Though we focused on FP schedulers, the idea generalizes well to JLFP APA schedulers. In addition, apart from identifying MVMs as a tool to compute scheduling decisions, we also proposed a dynamic algorithm for implementing APA schedulers more efficiently.</p><p>To assert temporal guarantees under strong APA scheduling, we extended the recently proposed LP-based response time analysis to account for task shifting. Since overheads must be considered in practice, we also provided a preliminary method to account for shifting migrations, which can be easily adapted into the conventional overhead-aware analysis.</p><p>In our schedulability evaluation, strong APA scheduling exhibited reasonable improvements in comparison with partitioning. More importantly, despite being subject to some pessimism, strong APA schedulability analysis was shown to dominate the simulation results for weak APA scheduling. However, to confirm that our observations hold even with realworld overheads, an in-kernel implementation of the scheduler is still necessary. Due to space constraints, however, we had to relegate our ongoing implementation efforts to future work.</p><p>Finally, being a relatively new research direction, APA scheduling still has many loose ends. For instance, both the schedulability and the overhead analysis could be further improved. While the former does not yet integrate some of the more recent improvements in global schedulability analysis (e.g., see <ref type="bibr" target="#b7">[8]</ref>), the latter incurs pessimism by over-counting migrations. Nonetheless, this paper and the prior work <ref type="bibr" target="#b5">[6,</ref><ref type="bibr" target="#b18">19,</ref><ref type="bibr" target="#b19">20]</ref> already show that both strong and weak APA scheduling have interesting properties that call for further exploration.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 .</head><label>1</label><figDesc>Fig. 1. Figures (a)-(d) each represents the state of the scheduler using a bipartite graph consisting of vertices corresponding to tasks and processors. (a) The initial state at time t 1 . Task T 3 arrives at time t 2 . (b) Linux's system state after time t 2 . (c &amp; d) Two alternate matchings (i.e., scheduler states) that are valid at time t 2 , though neither of them can be found by Linux.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head></head><label></label><figDesc>, which improved upon Caron et al.'s solution [12] to achieve O(|V | • |E|) time complexity, and the solution described by Spencer et al. [27], which is based on specialized bipartite-matching algorithms and achieves O( |V | • |E| • log |V |) time complexity (where |V | = O(m + n) and |E| = O(m • n) denote the total number of vertices and edges in G(t)).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Algorithm 1 2 :</head><label>12</label><figDesc>BFS algorithm for task arrival 1: function TASK ARRIVAL(Tnew) cpu to preempt ← nil 3:for each cpu in αnew do</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>10 :</head><label>10</label><figDesc>cpu to preempt ← cur 11:if task cur = Tidle then 12:</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head></head><label></label><figDesc>Π idle . Though Algorithm 2 may visit all O(n•m) = O(|E|) edges in the bipartite graph (in the case of global affinities), it improves upon the non-incremental algorithms mentioned in Sec. IV-C, which require at least O( |V | • |E| • log |V |) steps to compute an MVM "from scratch". Again, the runtime is expected to be significantly lower for sparse graphs. Algorithm 2 BFS algorithm for task departure 1: function TASK DEPARTURE(Πidle)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>7 :</head><label>7</label><figDesc>assigned cpu ← χπ(task) 8:</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>10 :</head><label>10</label><figDesc>task to pull ← task 11:</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>else</head><label></label><figDesc>Backtrack on the alternating path from Πidle to 16: task to pull, shifting along every task. Then, Πidle 17:</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Fig. 2 .</head><label>2</label><figDesc>Fig. 2. Figures (a) and (b) illustrate the execution sequence of T 1 , T 2 , and T 3 on Π 1 and Π 2 in the interval [0, 12) under weak and strong APA scheduling.Arrows pointing upwards denote job releases, arrows pointing downwards denote deadlines, and arrows with blunt ends denote job completion. Grey (respectively, white) rectangles denote execution on processor Π 1 (respectively, Π 2 ). In (a), T 3 's job suffers x = 8 units of interference and misses its deadline (dashed circle), whereas in (b), T 3 's job suffers less interference (z = 2 units) due to T 1 's shifting, and completes its execution before its deadline.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>14 Fig. 3 .</head><label>143</label><figDesc>Fig. 3. Schedulability graphs for the partitioned/clustered/global ratio of 5/2/1. Insets (a)-(f) do not reflect overheads. Insets (g)-(i) show results for strong APA scheduling with migration costs. The x and y axes represent the total utilization and the fraction of schedulable task sets, respectively.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head></head><label></label><figDesc>19: end function (i.e., global scheduling is the worst case), for a total time complexity of O(m 2 ) (or O(|E|), assuming m ≤ n, since |E|</figDesc><table /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 01:29:43 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">SchedCAT: Schedulability test collection and toolkit</title>
+		<ptr target="http://www.mpi-sws.org/∼bbb/projects/schedcat" />
+		<imprint/>
+	</monogr>
+	<note>project web site</note>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Apparatus and method for improved CPU affinity in a multiprocessor system</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Alfieri</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="s">US Patent</title>
+		<imprint>
+			<biblScope unit="volume">5</biblScope>
+			<biblScope unit="page">778</biblScope>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<title level="m" type="main">An EDF-based scheduling algorithm for multiprocessor soft real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bud</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS&apos;05</note>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<title level="m" type="main">A semipartitioned approach for parallel real-time scheduling</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Bado</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>George</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Courbin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTNS&apos;12</note>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of multiprocessor sporadic task systems</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Handbook of Real-Time and Embedded Systems</title>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<monogr>
+		<title level="m" type="main">Multiprocessor feasibility analysis of recurrent task systems with specified processor affinities</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTSS&apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<monogr>
+		<title level="m" type="main">Response-time analysis for globally scheduled symmetric multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cirinei</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTSS&apos;07</note>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Tests for global EDF schedulability analysis</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">57</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="487" to="497" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title level="m" type="main">Scheduling and locking in multiprocessor realtime operating systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+		<respStmt>
+			<orgName>University of North Carolina</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Partitioned EDF scheduling for multiprocessors using a C=D task splitting scheme</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Zhang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">48</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="3" to="33" />
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">A hybrid realtime scheduling approach for large-scale multicore platforms</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Baumberger</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS&apos;07</note>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">The assignment problem with seniority and job priority constraints</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Caron</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Hansen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Jaumard</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Operations Research</title>
+		<imprint>
+			<biblScope unit="volume">47</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="449" to="453" />
+			<date type="published" when="1999">1999</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Improved priority assignment for global fixed priority pre-emptive scheduling in multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">47</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="1" to="40" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Semi-partitioned hard real-time scheduling with restricted migrations upon identical multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Dorin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Yomsi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Richard</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTNS&apos;10</note>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Optimal virtual cluster-based multiprocessor scheduling</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Easwaran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">43</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="25" to="59" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title level="m" type="main">Techniques for the synthesis of multiprocessor tasksets</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Emberson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Stafford</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in WATERS&apos;10</note>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<title level="m" type="main">An in-depth analysis of the impact of processor affinity on network performance</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Foong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Fung</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Newell</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ICON&apos;04</note>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">Architectural characterization of processor affinity in network processing</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Foong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Fung</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Newell</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Abraham</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Irelan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Lopez-Estrada</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ISPASS&apos;05</note>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<monogr>
+		<title level="m" type="main">Schedulability analysis of the Linux push and pull scheduler with arbitrary processor affinities</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Gujarati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Cerqueira</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS&apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Multiprocessor real-time scheduling with arbitrary processor affinities: from practice to theory</title>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">50</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="1" to="44" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title level="m" type="main">MiAMI: Multi-core aware processor affinity for TCP/IP over multiple network interfaces</title>
+		<author>
+			<persName><forename type="first">H.-C</forename><surname>Jang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H.-W</forename><surname>Jin</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in HOTI&apos;09</note>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<monogr>
+		<title level="m" type="main">Semi-partitioned scheduling of sporadic task systems on multiprocessors</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Yamasaki</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS&apos;09</note>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973">1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Using processor affinity in loop scheduling on shared-memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Markatos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Leblanc</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Supercomputing&apos;92</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Fundamental design problems of distributed systems for the hard-real-time environment</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Mok</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">MIT</title>
+		<imprint>
+			<date type="published" when="1983">1983</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<monogr>
+		<title level="m" type="main">The effectiveness of affinitybased scheduling in multiprocessor networking</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Salehi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Kurose</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Towsley</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in INFOCOM&apos;96</note>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Node weighted matching</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Spencer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Mayr</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Automata, Languages and Programming</title>
+		<meeting><address><addrLine>Berlin Heidelberg</addrLine></address></meeting>
+		<imprint>
+			<publisher>Springer</publisher>
+			<date type="published" when="1984">1984</date>
+			<biblScope unit="volume">172</biblScope>
+			<biblScope unit="page" from="454" to="464" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">A note on the assignment problem with seniority and job priority constraints</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Volgenant</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">European Journal of Operational Research</title>
+		<imprint>
+			<biblScope unit="volume">154</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="330" to="335" />
+			<date type="published" when="2004">2004</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

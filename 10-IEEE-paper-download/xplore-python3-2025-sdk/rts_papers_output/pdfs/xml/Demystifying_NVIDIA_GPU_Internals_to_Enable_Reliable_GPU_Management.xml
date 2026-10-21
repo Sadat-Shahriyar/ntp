@@ -1,0 +1,759 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Demystifying NVIDIA GPU Internals to Enable Reliable GPU Management*</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Joshua</forename><surname>Bakita</surname></persName>
+							<email>jbakita@cs.unc.edu</email>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<email>anderson@cs.unc.edu</email>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Demystifying NVIDIA GPU Internals to Enable Reliable GPU Management*</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">3F1B95A5394811F6205D506682BFEC83</idno>
+					<idno type="DOI">10.1109/RTAS61025.2024.00031</idno>
+					<note type="submission">Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 23:12:13 UTC from IEEE Xplore. Restrictions apply.</note>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T03:46+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>As GPU-dependent artificial intelligence and machine learning workloads increasingly come to embedded, safetycritical systems-such as self-driving cars-real-time predictability for GPU-using tasks becomes essential. This paper identifies flaws in three different real-time GPU management approaches that are largely the result of incomplete information about NVIDIA GPU internals. Details concerning this missing information are elucidated via experiments. Based on this information, key rules of GPU scheduling are identified and shown necessary for safe GPU management.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Over the past decade, GPUs have enabled a revolution in artificial intelligence and machine learning (AI/ML) <ref type="bibr" target="#b0">[1]</ref>. This revolution has led to ever-more-capable autonomous systems, including safety-critical systems such as self-driving cars. In order to deploy such safety-critical systems with GPUs, real-time predictability must be ensured. Canonically, this is done by bounding the response times of GPU-using tasks by applying real-time GPU management and analysis techniques.</p><p>Unfortunately, the response-time bounds provided by most real-time GPU management and analysis frameworks are unreliable. For each of three different approaches-mutualexclusion-based management <ref type="bibr" target="#b1">[2]</ref>, preemption-based management <ref type="bibr" target="#b2">[3]</ref>, and management-free response-time analysis <ref type="bibr" target="#b3">[4]</ref>-Fig. <ref type="figure" target="#fig_0">1</ref> illustrates a scenario in which each makes a false assumption about GPU behavior. In all cases, these false assumptions lead to the failure of analytical response-time bounds-a harbinger of catastrophe.</p><p>This paper is directed at elucidating the reasons for these failures. Through deep hardware investigation, we uncover that all these failures are due to overlooked rules of NVIDIA GPU scheduling. We experimentally frame and unveil the missing scheduling rules, as well as evaluate their necessity for safe GPU-management-and-analysis techniques.</p><p>Prior work. Understanding GPU scheduling rules has long been a known prerequisite for accurate GPU response-time analyses. All the works <ref type="bibr" target="#b1">[2]</ref>- <ref type="bibr" target="#b3">[4]</ref> mentioned in Fig. <ref type="figure" target="#fig_0">1</ref> come from groups with a strong history of elucidating and publishing GPU scheduling rules <ref type="bibr" target="#b4">[5]</ref>- <ref type="bibr" target="#b7">[8]</ref>. Our work broadens these efforts by providing heretofore hidden details concerning key GPU functionality.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Predictable ordering</head><p>Incorrect ordering leading to bad bounds Joint preemptability of GPU engines <ref type="bibr" target="#b2">[3]</ref> No interference after preemption Incomplete preemption leading to bad bounds Independent lockability of GPU copy engines <ref type="bibr" target="#b1">[2]</ref> Copies in different directions co-run Copies may conflict, leading to bad bounds Contributions. In this work, for NVIDIA GPUs, we:</p><p>1) Experimentally derive rules of scheduling behavior that span from GPU library to on-engine-dispatch. 2) Provide context to allow delineating current and prior scheduling rules as hardware-or software-enforced. <ref type="bibr" target="#b2">3</ref>) Build and open-source a tool-nvdebug-for directly examining GPU hardware scheduling state (bypassing user-and kernel-space libraries or drivers). 4) Demonstrate the necessity of our scheduling rules for real-time GPU management and response-time analysis.</p><p>Organization. We provide key terms in Sec. II, before more thoroughly discussing prior work in Sec. III. We then frame and present our experimentally-derived scheduling rules in Sec. IV and Sec. V. The necessity of these rules for realtime GPU management is evaluated in Sec. VI. We conclude in Sec. VII, and provide supplementary details about our new GPU-scheduling-examination tool in Appx. A.  </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND</head><p>We begin with a cursory overview of GPU architecture and programming paradigms. We focus exclusively on NVIDIA GPUs due to their commonality and industry-leading architecture.</p><p>GPU architecture. GPUs are often thought of and referred to as singular accelerators. This is a significant simplification. GPUs, since the very beginning, have been composed of many different functional units. On modern NVIDIA GPUs, these units are referred to as engines. Fig. <ref type="figure" target="#fig_2">2</ref> illustrates the engines available on a recent NVIDIA GPU. The largest and most critical one is the Compute/Graphics Engine, which contains all the general-purpose processing cores. Five copy engines support this by asynchronously handling data movement between GPU DRAM, CPU DRAM, and other GPUs. Supplemental special-purpose engines include three video encode, one video decode, and one JPEG decode engine.</p><p>All engines are connected to GPU DRAM via the internal crossbar bus. This bus also connects to the PCIe lanes, allowing engines to optionally, but slowly, access CPU memory.</p><p>NVIDIA's embedded "Tegra" GPUs differ by sharing a die with the CPU and by replacing the GPU DRAMs with a bridge to a CPU-shared DRAM controller. For the purposes of this work, the internal topology and architecture of NVIDIA's embedded GPUs can otherwise be considered identicallypatterned as discrete GPUs from the same architectural family.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>GPU programming model. Common GPU programming</head><p>APIs include Vulkan, OpenCL, and CUDA. These are all supported by NVIDIA GPUs, and leverage the same underlying components. We focus on CUDA due to its simplicity and common use in real-time literature.</p><p>In Alg. 1, we illustrate a CUDA-using program that adds two vectors in parallel on the GPU. All of the shown operations are in respect to a single, implicit GPU virtual address space called a context, which is created per-GPUusing task. 1 Lines 4 and 6 in our example transfer input to, and output from, the GPU context via a copy engine. Inbetween, Line 5 launches the vector-add operation on the GPU's Compute/Graphics Engine; such operations are known as kernels. In processing this kernel, the GPU will invoke one instance of VECADD for each element of the vector. Given a sufficiently many-core GPU, the addition of each element will be calculated and completed simultaneously.</p><p>As the memory copies and kernel execution occur asynchronously relative to the CPU, most CPU time in this program will be spent implicitly waiting for the GPU engines to complete their operations. To ensure ordering of asynchronous GPU operations, CUDA implicitly creates and enqueues these in a CUDA stream, which enforces FIFO ordering. For calls that would explicitly result in a CPU-visible side effect, CUDA will implicitly block inside the call until all prior asynchronous operations complete. The call on Line 6 in this example is one such case; it will block until both the kernel execution dispatched on Line 5, and the memory copy, complete. 1 Multiple contexts per-task are possible, but discouraged <ref type="bibr" target="#b5">[6]</ref>. We assume a one-to-one task-to-context mapping unless otherwise noted.</p><p>Algorithm 1 Vector Addition in CUDA.  For kernels enqueued in CUDA streams, scheduling behavior with respect to competing streams is difficult to analyze, as the path from task to GPU core is convoluted. After a kernel is launched into a stream, it is processed through two userspace libraries before reaching the GPU hardware (HW) scheduler. This scheduler makes the final determination about when, and on what part of the GPU, blocks of the kernel will be executed. We illustrate this process in Fig. <ref type="figure" target="#fig_3">3</ref>. (Note that the userspace library can communicate directly with the GPU. This avoids the overhead of a system call, but also makes kernel launches challenging to monitor.)</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. RELATED WORK</head><p>Researchers have investigated the temporal predictability of GPUs since early in their application towards general-purpose computation. Unfortunately, as GPU complexity rivals, if not exceeds, that of high-end CPUs, it has taken exceptionally long to answer even basic questions of GPU arbitration and scheduling. The extreme secrecy of GPU hardware has only exacerbated this problem. <ref type="foot" target="#foot_0">2</ref> We only touch on particularly relevant works in this section; for more, see a recent, extensive survey of GPU use in safety-critical systems <ref type="bibr" target="#b11">[12]</ref>.</p><p>To bypass the unknowns of GPU scheduling, a common approach involves minimizing its role. Two exemplars of this approach are TimeGraph <ref type="bibr" target="#b12">[13]</ref> and GPUSync <ref type="bibr" target="#b13">[14]</ref>, which avoid unpredictable arbitration by only giving the GPU one piece of work at a time.</p><p>TimeGraph <ref type="bibr" target="#b12">[13]</ref> functions by queuing GPU work on the CPU, releasing one item at a time to the GPU in priority order. GPU-to-CPU interrupts are used to indicate the completion of each piece of work, triggering the selection and release of the next item. S<ref type="foot" target="#foot_1">3</ref> DNN <ref type="bibr" target="#b14">[15]</ref> is a more recent, special-purpose example of this approach, but with the added ability to release groups of GPU work, rather than just one item at a time.</p><p>GPUSync <ref type="bibr" target="#b13">[14]</ref> and extensions <ref type="bibr" target="#b1">[2]</ref> take a different approach to ensure mutual exclusion. To improve real-time analyzability, these works treat the GPU as a resource and require applications to hold a mutual-exclusion lock while using the GPU. This easier-to-implement approach has seen increasing adaptation in real-time systems, from TimeWall <ref type="bibr" target="#b15">[16]</ref>, to NVIDIA's DRIVE OS System Task Manager. 3 While this does ensure safety, it suffers from a capacity-loss problem; few applications are able to consistently fully utilize the GPU while holding the mutual-exclusion lock, resulting in lost capacity.</p><p>In search for a system that is easy to analyze and implement, but which avoids the capacity-loss problem of mutual exclu- sion, many recent papers have worked to dissect the native scheduling capabilities of GPUs. Otterness et al. <ref type="bibr" target="#b16">[17]</ref>, Amert et al. <ref type="bibr" target="#b4">[5]</ref>, Olmedo et al. <ref type="bibr" target="#b6">[7]</ref>, and Bakita and Anderson <ref type="bibr" target="#b7">[8]</ref> elucidated the arbitration and dispatch order of intra-context CUDA calls, while Otterness and Anderson have done similarly for AMD GPUs <ref type="bibr" target="#b17">[18]</ref>, <ref type="bibr" target="#b18">[19]</ref>.</p><p>More efficient management and analysis approaches have been built on these details. Examples span from granular locking (or reservations <ref type="bibr" target="#b19">[20]</ref>) based on hardware partitioning of compute <ref type="bibr" target="#b7">[8]</ref> and memory <ref type="bibr" target="#b20">[21]</ref>, to preemptive EDF based on creative use of hardware capabilities <ref type="bibr" target="#b2">[3]</ref>, to analysis for unmanaged GPU-using tasks <ref type="bibr" target="#b5">[6]</ref>. Unfortunately, these works make inconsistent assumptions about NVIDIA GPU behavior.</p><p>For example, consider copy engine behavior. Capodieci et al. <ref type="bibr" target="#b2">[3]</ref> assume and manage copy engines as though they are coscheduled with compute, but Elliot et al. <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b13">[14]</ref> assume and manage copy engines as though they operate asynchronously of compute (and each other). Given these seemingly incompatible assumptions, how do we build a coherent model of GPU scheduling?</p><p>To reconcile this tension and build a model, we provide a framing of NVIDIA GPU hardware scheduling that subsumes and extends prior work, coupled with specific, experimentallyderived rules.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. HIGH-LEVEL FRAMING</head><p>We begin our contributions with a high-level framing of NVIDIA GPU scheduling. We focus on the start of the pipeline: from command launch, through cross-context scheduling, to engine hand off. This complements prior work on the subsequent steps for the compute engine <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b7">[8]</ref>.</p><p>The numbered steps in Fig. <ref type="figure" target="#fig_4">4</ref> guide our explaination of the high-level flow. We forgo digressing into caveats; such lowlevel details are for the rules to come in Sec. V.</p><p>Our information comes from a combination of open-source GPU drivers <ref type="bibr" target="#b21">[22]</ref>- <ref type="bibr" target="#b23">[24]</ref>, NVIDIA patents <ref type="bibr" target="#b24">[25]</ref>, our experiments in Sec. V, and other sources.</p><p>① Scheduling initialization. Tasks initialize their scheduling state via the GPU kernel driver. This includes a pushbuffer (a queue detailed in <ref type="bibr" target="#b7">[8]</ref>), encapsulated with bookkeeping information as a channel. All a task's channels are encapsulated with context information into a Time-Slice Group (TSG). A TSG is made runnable via insertion into one of the GPU's runlists (detailed later), and a user-accessible pointer to the pushbuffer is passed to userspace.</p><p>② Commands to streams to channels. As GPU operations are requested, the associated commands are enqueued into streams, and these streams are mapped onto pushbuffers. Commands may consist of kernel launches, copy commands, and various other operations. <ref type="foot" target="#foot_2">4</ref> If not explicitly using a stream, a default or implicit stream is constructed. As channel pushbuffers are mapped into user-writable memory, command enqueueing does not require a syscall.</p><p>③ Channels to runlists. Commands accumulate in pushbuffers until the GPU HW scheduler (also known as the "Host Interface") selects a channel for scheduling. Selection works in two levels: the GPU globally round-robin timeslices across tasks' TSGs, and all channels in the currently active TSG are cyclically scanned for pushbuffers with pending commands.</p><p>④ Runlists to engines. Once the GPU HW scheduler identifies a channel with pending commands, it leverages a hardware Pushbuffer DMA (PBDMA) unit to pull commands from CPU to GPU. From here, they are parsed and passed off for enginespecific scheduling (as detailed for the compute engine in prior work <ref type="bibr" target="#b7">[8]</ref>).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. LOW-LEVEL RULES</head><p>We now provide rules for channel-, runlist-, and enginelevel scheduling (steps ②, ③, and ④ in the prior section) after an overview of our methodology and tooling.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Methodology and Tools</head><p>We perform our experiments on x86_64 and aarch64 Linux systems with a sampling of GPUs from the past seven years, as listed in Table <ref type="table">I</ref>. We guarantee that our rules hold for all these devices, even though we only show a sampling of the results. (We also test on some older GPUs, but find the differences too extensive for easy inclusion.) For all our experiments, we disable background GPU work. <ref type="foot" target="#foot_4">6</ref>For tools, we leverage cuda_scheduling_examiner by Otterness et al. <ref type="bibr" target="#b16">[17]</ref>, and develop two new tool suites: nvdebug and gpu-microbench.<ref type="foot" target="#foot_5">7</ref> nvdebug. nvdebug is a kernel module that exposes an interface in /proc for transparently monitoring and controlling GPU scheduling state. That includes the capability to view internal GPU topology, such as the number and types of engines. Our tool mirrors open-source NVIDIA GPU kernel drivers <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref>, <ref type="bibr" target="#b25">[26]</ref> in how it accesses GPU registers, enabling reliability across a wide range of GPUs and kernels (including Tegra platforms). For more details on this tool and its capabilities, see Appx. A. gpu-microbench. Utilizing the detailed information available from nvdebug, we built a library of microbenchmarks that intricately monitor or benchmark specific GPU engines. These carefully-targeted benchmarks allow for compositional experimentation on scheduling behavior. Two key tools in this suite are exec_logger and copy_monitor. These utilize the compute and copy engines respectively while recording at microsecond granularity when each engine is active. Many of the tools in this suite are the result of years of expert tuning and bug fixing, so please consider reusing them.</p><p>We now apply our tools to derive low-level rules of GPU scheduling behavior.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Rules for Channels</head><p>Channels (and their encapsulated pushbuffers) are closest to streams, thus closest to tasks, and therefore are a natural starting point for our rules.</p><p>R1. Every GPU-engine-using op. goes through a channel.</p><p>Without channels, no GPU-using operations are possible. We verify this by using nvdebug's disable_channel interface to disable all channels associated with a task, and then attempt to launch kernels or copies via a variety of APIs. (Disabled channels are skipped by the GPU HW scheduler. <ref type="foot" target="#foot_6">8</ref> ) We find that any type of kernel launch, copy launch, or devicemapped memory allocation is unable to complete until the channels are re-enabled.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>R2. A task's number of channels limits intra-task parallelism.</head><p>As all GPU-using operations require a channel, problems emerge for work enqueued while all channels are busy. Specifically, false dependencies will occur between work in unrelated streams. Normally, streams are supposed to be independent, with the head of each stream being equivalently accessible to the GPU HW scheduler for dispatch. When a false dependency emerges, the head of one stream becomes dependent on queued work in another stream to complete before it can be dispatched by the GPU. Such false dependencies can prevent kernels at the head of their stream queue frome reaching idle GPU cores. By default, through at least CUDA 12.2 on x86_64, only eight channels are created per-context for compute. 9 This is as low as two-per-context on NVIDIA's embedded "Jetson" boards. 10  We experimentally demonstrate how a lack of channels triggers false dependencies and compromises parallelism in Fig. <ref type="figure" target="#fig_5">5 (top)</ref>. This figure presents a timeline of when and where blocks of 36 kernels execute on the GPU. We launch four kernels into each of nine streams. The kernel launch times are indicated by arrows at the bottom left for each stream, and each thread block is annotated with the kernel name and thread block index, separated by a colon. Streams are indicated by color/pattern. Note that, as launches into each stream complete from time 0 to 0.26 s, the head of each stream near-immediately begins executing on the GPU-up until Stream 9. At this point, a false dependency emerges. All eight compute channels are in-use, and so no channel is available for Stream 9. This condition persists until all work in Stream 1 is fully dispatched at time 0.7.</p><p>In Fig. <ref type="figure" target="#fig_5">5</ref> (bottom), we repeat the same experiment, but with an increased number of channels. 11 As expected, no false dependencies occur-all nine streams are executed concurrently.</p><p>Implications for real-time systems. Our findings add nuance to rule G2 from the work of Amert et al. <ref type="bibr" target="#b4">[5]</ref>, which claims 9 Reported by nvdebug; also mentioned at https://forums.developer.nvidia. com/t/how-many-streams-maximum-number-of-streams/6571/6. 10 Observed as two on the Jetson Xavier with CUDA 10.2, and four on the Jetson Orin with CUDA 11.4. Double this number of channels are created, but CUDA appears to have a bug where only half are used on Jetson boards. 11 Via the environment variable CUDA_DEVICE_MAX_CONNECTIONS. that the kernel at the head of a stream queue is enqueued for execution. Instead, the kernel at the head of a stream queue is enqueued for execution only if the number of streams used is less than the number of channels. Functionally, this means that the number of channels should be reconfigured, or capped at eight by default in real-time systems (for prior rules to hold).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Rules for Runlists</head><p>For a channel, and its wrapped pushbuffer of commands, to be scheduled, it is normally inserted into a runlist (often via an optional TSG). Is this the only way? R3. To be scheduled, channels must be part of a runlist.</p><p>A runlist is a hard prerequisite to launching work from a channel. NVIDIA source code implies this. <ref type="foot" target="#foot_7">12</ref> We also observe this behavior using nvdebug to watch channel and runlist statuses-every enabled channel is associated with a runlist. How many of these channels may be active simultaneously? R4. A runlist may have up to one task active per associated engine. <ref type="foot" target="#foot_8">13</ref>Before explaining this rule, we must explain what we mean by a task being active. For tasks using a TSG, this refers to the TSG being active. For tasks directly inserting channels on the runlist without a TSG, this refers to at least one of the task's channels being active.</p><p>For cases when only one engine is associated with a runlist (as we commonly find in Sec. V-D) the rule simplifies to: each runlist has up to one task active. We demonstrate this for compute, then copy tasks.</p><p>For compute, we co-run two exec_logger tasks, and plot the execution intervals in Fig. <ref type="figure" target="#fig_6">6</ref>. Logger 1 is started first, and Logger 2 after Logger 1 is initialized. In this timeline, each consecutive execution-timeslice-of each application is plotted at a differing y-value to allow for more easily distinguishing the boundaries between intervals. Furthermore, the slope of this line thus indicates how rapidly timeslicing is happening. For example, in the right of the figure, each task is receiving approximately 20 timeslices per 80 ms. The slice lengths are largely consistent, at about 2 ms each. First, observe the mutually-exclusive execution intervals (inset). Only one task executes instructions at any given time, despite each task requiring only a fraction of the GPU.</p><p>Second, note that Logger 1's execution is interrupted several times before Logger 2 completes initialization and launches its kernel (area between the vertical dashed lines). This indicates that initializing a CUDA context generates compute-engine interference; this lasts about 100 ms in our case.</p><p>Returning to justification for our rule, we now experiment with co-running copies via two instances of copy_monitor. (This benchmark is carefully crafted to only utilize and monitor the copy engines; it launches no compute work.) We plot the progress of each copy over time in Fig. <ref type="figure" target="#fig_7">7</ref>. The behavior here mirrors what we saw with compute tasks-only one copy progresses at a time, and the copies trade off about every 1 ms.</p><p>This demonstrates that individual uses of an engine are mutually-exclusive, but a further implication of our rule is that two tasks may co-run on a runlist, if they use different engines. We demonstrate the case as part of justification for our next rule.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>R5. A GPU's number of runlists limits independent inter-task parallelism</head><p>In justifying this rule, we show two sub-rules: (i) that runlists enable independent inter-task parallelism; (ii) that independent inter-task parallelism is not possible without multiple runlists. By "independent inter-task parallelism" we mean that the active task on a runlist is only a function of other tasks on the same runlist using the same engine, and is unrelated to tasks active (or inactive) on any other runlist.</p><p>We begin with two experiments for subrule (i). Using nvdebug, we determine that our GTX 1060 3 GB has separate runlists for compute and copy tasks. We investigate their independence by co-running exec_logger and  copy_monitor instances. We find that these tasks execute continuously, unhindered by one another, confirming that the two runlists operate at least somewhat independently. <ref type="foot" target="#foot_9">14</ref>Does this independence persist if a copy-and-computeusing task is added? We tested this by running such a task alongside an instance of exec_logger and two instances of copy_monitor. If runlists are scheduled independently, our copy-and-compute-using task may use the compute and copy engines at unsynchronized times. This is exactly what occurs, as shown in Fig. <ref type="figure" target="#fig_9">8</ref>. These figures are formatted similarly to past figures but show identical time periods. We add shaded regions to both figures for the intervals during which the copyand-compute task makes copy progress.</p><p>Note how the copy-and-compute task executes on the compute cores (Fig. <ref type="figure" target="#fig_9">8a</ref>) at times unrelated to when copies progress (Fig. <ref type="figure" target="#fig_9">8b</ref>). Consider its second shaded copy interval; during the entirety a completely unrelated task-the exec_loggerexecutes on the compute cores. This supports our first experiment by demonstrating that runlists operate independently, even in complex scenarios.</p><p>We now justify sub-rule (ii): that independent inter-   task parallelism is not possible without multiple runlists. Using nvdebug, we identify that the Jetson TX2 contains two engines that share a single runlist. We demonstrate non-independence by co-running exec_logger and copy_monitor, and plot the results in Fig. <ref type="figure" target="#fig_12">9</ref>.</p><p>Compute work appears to run continuously (Fig. <ref type="figure" target="#fig_12">9a</ref>), but copies appear timesliced (Fig. <ref type="figure" target="#fig_12">9b</ref>)-even though exec_logger does not execute copies. At first, we suspected experimental error or a missed background task as to blame for the copy engine interference, but after extensive experimentation, we verified that the TX2's single runlist is to fault for this strange interference.</p><p>Key to this conclusion is a subtle difference: 1024 µs for a timeslice on compute-associated channels, versus 1049 µs for copy-exclusive channels <ref type="bibr" target="#b25">[26]</ref>. We discover that the time that our copy is interrupted for is not the time required to run another copy, but the time for a compute timeslice. Why then is compute not interrupted while the copy runs (shaded in Fig. <ref type="figure" target="#fig_12">9</ref>)? Based on how the GPU is documented to handle semaphores, 15 the runlist scheduling system must snoop each runlist independently of the currently-running task, preempt only once the next channel has been identified, 15 Obliquely documented in <ref type="bibr" target="#b23">[24]</ref>, manuals/ampere/ga100/dev_pbdma.ref.txt, section "Semaphore switch option" (line 3797). and only preempt the engines needed by the next channel. Whereas copy-exclusive channels never need the compute engine, compute-associated channels may optionally include copy commands. This appears to cause copy engines which share a runlist with compute tasks to be timesliced across both compute-and copy-using tasks. 16 This demonstrates that when tasks share a runlist, they are at best semi-independent-fully independent scheduling requires multiple runlists. Note that, by demonstrating two tasks simultaneously active on a single runlist, this experiment also supports R4.</p><p>Implications for real-time systems. Our findings both challenge and support assumptions made for prior real-time management systems. Works which claim and manage only a single runlist <ref type="bibr" target="#b2">[3]</ref> risk overlooking significant interference channels from unmanaged access to other GPU engines via other runlists. Furthermore, prior per-engine-granularity locking approaches <ref type="bibr" target="#b1">[2]</ref> appear risky if multiple engines share a runlist. On the other hand, such locking techniques seem safe in circumstances where there are at least as many runlists as engines, but is this a common configuration?</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Rules for Runlist to Engine Mappings</head><p>In the previous section, we noted that the number of engines associated with a runlist is core to runlist behavior (R4). We now explore and give rules for how runlists map to engines.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>R6.</head><p>A runlist may be bound to more than one engine.</p><p>As evidenced by the experiments supporting R5, a single runlist can serve multiple engines. This configuration is not 16 For those familiar with NVIDIA's terminology, our specific understanding is that the PBDMA units (desc. in <ref type="bibr" target="#b7">[8]</ref>) each snoop different runqueues in the runlist, where each channel is associated with one or more different runqueues. Each runqueue is restricted in the types of commands it may run. While compute-associated channels may optionally use the copy runqueue, copyexclusive channels only use the copy runqueue. The result is round-robin arbitration among all runqueue-using channels, for each runqueue in a runlist. unique to the TX2. All NVIDIA GPUs we have experimented with have a runlist supporting both compute and copy operations. Despite this, we have not observed the TX2's problematic behavior on other GPUs-we suspect this is because CUDA always prefers to use the commonly-available copy-only runlists instead. R6 follows from the experiments supporting R5, but we further support it with GPU topology data provided by nvdebug's device_info interface. We include the experimentally-extracted information for a sampling of GPUs in Table <ref type="table">II</ref>, Table <ref type="table">III</ref>, and Table <ref type="table">IV</ref>. Each row corresponds to a single runlist (right) with all associated engines (left).</p><p>Copy engines are numbered sequentially by the hardware, even though the first two have special graphics-related capabilities and are also known as GRCEs.</p><p>All runlists adhere to R6, and-with the exception of Runlist 0-every runlist is associated with only one engine. This results in many runlists on modern GPUs such as the RTX 6000 Ada-a significant opportunity for parallelism. Building off the patterns presented in the tables, we draw a further conclusion about how engines are configured.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>R7. Each engine is bound to only one runlist.</head><p>Note how no engine names are repeated in any of the tables-this is a hardware restriction. The device topology (PTOP) registers used by nvdebug's device_info interface map each engine to one runlist. Without nvdebug, this rule is very difficult to derive, as it is not always experimentally evident-we explain why in our next rule.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>R8.</head><p>Copy engines may appear to violate R7 due to copyengine-specific shared hardware.</p><p>An obscure layer of indirection can compromise scheduling independence for copy engines. We demonstrate this via the experiment plotted in Fig. <ref type="figure" target="#fig_14">10</ref>. In this figure, we plot how long a repeating GPU-to-CPU CUDA copy takes on two  GPUs in two circumstances: alone, and co-run with a textureuploading OpenGL task. On paper, these two systems should behave identically: CUDA reports the same number of copy engines for both, nvdebug shows that both have at least two copy engines with independent runlists, and both act similarly when executing only CUDA tasks. If anything, the six-year-newer (and 24× more expensive) RTX 6000 Ada should perform better-but this is not the case. While our OpenGL task is executing, we observe copies to the GPU slowed approximately 2× on the RTX 6000 Ada, but barely slowed (perhaps by DRAM interference) on the GTX 1080 Ti.</p><p>Up to this point in the paper, "copy engines" have been synonymous with NVIDIA's Logical Copy Engines (LCEs). Unfortunately, LCEs are not sufficient to execute a copy operation; they rely on a lower-level unit, the Physical Copy Engines (PCEs) <ref type="bibr" target="#b26">[27]</ref>-this is where we find an explanation for the surprising result in Fig. <ref type="figure" target="#fig_14">10</ref>.</p><p>A set of GPU registers controls how LCEs map to PCEs. We extract and plot these seemingly-constant mappings for a selection of GPUs in Fig. <ref type="figure" target="#fig_15">11</ref>. The register structure restricts copy configurations in two ways: (i) each PCE may be associated with up to one LCE or GRCE; and (ii) only GRCEs may share a PCE associated with another GRCE or LCE. When PCE sharing is utilized for GRCEs, copies from Runlist 0 can interfere with copies in other runlists-this is exactly what we see happening in Fig. <ref type="figure" target="#fig_14">10</ref>. As shown in Fig. <ref type="figure" target="#fig_15">11</ref>, the default copy engine configuration for the RTX 6000 Ada maps both GRCEs onto LCEs. From our experiments, we surmise that whichever GRCE handles texture uploads has been mapped onto the LCE which handles GPU-to-CPU CUDA copies.</p><p>Implications for real-time systems. Generally, scheduling for each GPU engine is fully independent-only the GRCEs compromise isolation for any engine. This strongly supports a per-engine locking approach, but not k-exclusion lockingone copy engine may not at all be like another, depending on GRCE and PCE configuration.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. EVALUATION</head><p>We evaluate our rules in the context of three GPU management and analysis approaches: management-free analysis by Yang et al. <ref type="bibr" target="#b3">[4]</ref>, preemptive EDF via runlist management by Capodieci et al. <ref type="bibr" target="#b2">[3]</ref>, and mutual-exclusion-based management by Elliott et al. <ref type="bibr" target="#b13">[14]</ref>.</p><p>Our goal in this section is to demonstrate that our rules are a prerequisite to safe GPU management. We cannot demonstrate that our rules are sufficient, but we can show that they are necessary. We do this by showing that prior approaches fail without the consideration of our rules.</p><p>A. Necessity for Management-Free Analysis <ref type="bibr" target="#b3">[4]</ref> Yang et al. <ref type="bibr" target="#b3">[4]</ref> have developed response-time analysis for GPU-using directed-acyclic-graph (DAG) tasks, without requiring any GPU-management middleware. They substantially limit the programming and system model to simplify the analysis-a defensible choice, as they target OpenVX tasks for whom these limits are insignificant.</p><p>By R2, any GPU management approach should not use more streams than channels, or risk compromised parallelism and undefined behavior. In the work by Yang et al. <ref type="bibr" target="#b3">[4]</ref>, one stream is used per-job, and the total number of co-running jobs is not limited. If our rule is necessary, Yang et al.'s analysis should be compromised by ignoring our rule. Problematic assumptions. In <ref type="bibr" target="#b3">[4]</ref>, jobs are restricted from launching more than one kernel. This allows for them to use a simplified derivative of the scheduling rules from Amert et al. <ref type="bibr" target="#b4">[5]</ref> in their analysis. The simplified ruleset is as follows: (i) a kernel is enqueued on the EE queue when launched; (ii) a kernel at the head of the EE queue is dequeued from that queue once it becomes fully dispatched; and (iii) a block of the kernel at the head of the EE queue is eligible to be assigned if its resource requirements are met. "Fully dispatched" means that all blocks of the kernel have begun or completed execution; "EE queue" is a first-in-first-out (FIFO) queue whose behavior is defined by the above rules; and "resource requirements" are GPU cores and shared memory.</p><p>We now show that, as this ruleset ignores R2, it is incorrect. This requires defining some of the specific behavior that occurs when R2 is violated before we can give our counter-example to the ruleset of Yang et al..</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Implications of our rules.</head><p>Corollary 1. A channel is not guaranteed to be available until the last kernel in the currently-active stream is fully dispatched.</p><p>In Fig. <ref type="figure" target="#fig_5">5</ref> we show that the last kernel must be at least partially dispatched before a channel is freed. In supplemental experiments, we add more blocks to the kernels and observe that all blocks must be dispatched before a channel is reliably freed.</p><p>Corollary 2. Streams waiting for channels are not assigned channels in FIFO order.</p><p>We repeat the experiment of Fig. <ref type="figure" target="#fig_5">5</ref> with ten streams and a longer K3, finding that Stream 10 is assigned a channel before Stream 9-even though kernels are launched in Stream 9 before Stream 10.</p><p>Counter-example. Consider 10 different GPU jobs which release in order, each consisting of a single large kernel launched in a single-use CUDA stream.</p><p>Under the ruleset of Yang et al., by rule (i) they are all immediately put on the EE queue by order of arrival, and per (ii) and (iii) they are progressively dequeued and executed on the GPU in FIFO order as resources become available.</p><p>Under our rules, the ordering can be different. The first 8 streams and their kernels will be assigned channels and executed, but kernels 9 and 10 will have to wait until a channel is freed, per Corollary 1. Once one of the first 8 kernels is fully dispatched and its channel becomes free, that channel may be assigned to either kernel 9 or kernel 10 per Corollary 2-this is the key point where a problem emerges. If kernel 10 is assigned a channel first, it will execute before kernel 9, resulting in a non-FIFO order of execution.</p><p>In Yang et al., the response-time bound (Theorem 3) for a job omits consideration of all jobs released after that job, dependent on GPU kernels being dequeued in FIFO order. Our above counter-example shows that later-released kernels may cut-ahead, adding unaccounted-for delays, breaking the response-time bound proof of <ref type="bibr" target="#b3">[4]</ref>. If R2 were taken into account, and fewer streams used than channels, this problem would have been avoided.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Necessity for Preemptive EDF On-GPU [3]</head><p>Capodieci et al. <ref type="bibr" target="#b2">[3]</ref> developed a mechanism to enable preemptive EDF scheduling on the GPU. Task scheduling is done by only inserting channels for a single application at a time on the runlist, and preemption is implemented by resetting the runlist.</p><p>The key problem with this work is that a TX2-specific attribute-the presence of only one runlist-is claimed as a general rule of NVIDIA GPU scheduling (as repeated in their later work <ref type="bibr" target="#b6">[7]</ref>).</p><p>Problematic assumptions. In the work of Capodieci et al., they claim that only one task is active on a runlist at a time. This directly contradicts R4. They also overlook that other non-compute engines require access to a runlist, a conflict with R7. In follow-on work, when observing an instance of R5, they instead indirectly question R3-the only claim of their original work that our rules directly align with.</p><p>However, are our rules strictly required for this management technique to be safe?</p><p>Counter-example. Consider a system of two GPU-using tasks on the NVIDIA Jetson Xavier. Task 1 performs compute and copy operations, whereas Task 2 performs only compute operations. Task 1 has a period of 3s, relative deadline of 2s, cost of 2s, and phase of 0.5s. Task 2 has a period of 3s, relative deadline of 3s, cost of 1s, and phase of 0. In this system, Task 2 will always release part-way through Task 1's execution, and have an earlier deadline, hence higher priority according to EDF. The result will be that Task 2 preempts Task 1 on every release.</p><p>According to Capodieci et al., this preemption would be implemented by reconfiguring the compute runlist to only contain Task 2-this should work, per R3. However, the Jetson Xavier includes a second runlist for copy operations. Per R5, even though Task 1 is no longer active on the compute runlist, its copies may continue unhindered on other runlists. Such corunning copies have been shown to severely delay compute work on the Jetson Xavier <ref type="bibr" target="#b6">[7]</ref>, causing Task 2 to miss its tight deadline. If R3, R5, and R7 were taken into account, the second runlist would not have been overlooked, could have been preempted, and the safety of the system preserved.</p><p>C. Necessity for Granular GPU Locking <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b13">[14]</ref> Glenn et al. <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b13">[14]</ref> propose managing the GPU by making each copy and compute engine a lockable resource, such that existing resource-management analysis can be applied to GPU-using tasks.</p><p>R8 and R6 show that the presence of multiple copy engines does not guarantee their independence, as would be required to treat them as separately lockable resources. This lacking copy independence is the key problem with a granular locking approach.</p><p>Problematic assumptions. Glenn et al. assume that if a GPU has at least two copy engines, copies in independent directions can proceed independently-a contradiction of R8. Furthermore, they assume that-no matter the number of copy engines-those copy engines are scheduled independently of the compute engine. R6 contradicts this; copy and compute engines may share a runlist, making scheduling non-independent. Other assumptions of that work are now outdated, such as the non-preemptability of copy engines, but we focus only on the overly-optimistic assumptions, rather than the overlypessimistic ones.</p><p>Counter-example. Consider the system of Fig. <ref type="figure" target="#fig_14">10</ref> on the RTX 6000 Ada: one CPU-to-GPU copy+graphics task, and another GPU-to-CPU copy task on a two-copy-engine-containing system. Given that CUDA reports two copy engines on this system, the following locks would be created: Lock 1 for CPUto-GPU copies, Lock 2 for GPU-to-CPU copies, and Lock 3 for compute/graphics work. Task 2 could freely acquire Lock 2 for its GPU-to-CPU copies at the same time that Task 1 holds Lock 1 or Lock 3-no locks are contended for, and so management is a no-op.</p><p>However, due to how the visible copy engines are mapped to the underlying copy hardware, the copies of Task 1 and Task 2 would contend for access to a single PCE, taking double the time expected. This compromises execution time bounds, leading to unreliably-met deadlines. If hardware mappings were taken into account as required by R8-perhaps extracted via our nvdebug tool-only one copy engine lock would have been created and per-engine mutual exclusion would be restored.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. CONCLUSION</head><p>In this work, we identified key behaviors of NVIDIA GPUs that can compromise the safety of preexisting real-time GPU management frameworks. In order to protect future GPUmanagement efforts from such hazards, we experimentally derived and codified GPU scheduling rules for the lowest-level scheduling primitives-channels, runlists, and engines. We analytically evaluate the necessity of our rules for GPU management and analysis, finding that our rules expose counterexamples in three prior works. To assist others in maintaining and adding to our scheduling rules, we open-sourced all our tools, including our nvdebug Linux kernel module.</p><p>In future work, we aim to develop rules for how runlists are arbitrated and budgeted when containing multiple tasks; a sufficiently-high-accuracy model may allow offloading scheduling from management frameworks onto the HW scheduler-reducing capacity loss.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>APPENDIX A N V D E B U G : A NEW GPU INSPECTION TOOL</head><p>The hazards we have identified in prior work highlight the need for greater visibility into the scheduling mechanisms of NVIDIA GPUs. In order to enable other researchers to continue our work, and to verify that future management approaches works as expected, we are open-sourcing our</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 .</head><label>1</label><figDesc>Fig.1. Real-time GPU management and analysis techniques make dangerous assumptions about GPU behavior.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 2 .</head><label>2</label><figDesc>Fig. 2. Functional blocks of a recent NVIDIA discrete GPU.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 3 .</head><label>3</label><figDesc>Fig. 3. Path from launch to execution for a CUDA kernel.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 4 .</head><label>4</label><figDesc>Fig. 4. High-level GPU cross-context scheduling pipeline.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 5 .</head><label>5</label><figDesc>Fig. 5. Nine streams in-use on GTX 1060 3GB with eight compute channels (top) versus nine compute channels (bottom).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 6 .</head><label>6</label><figDesc>Fig.6. Timeline of timeslice intervals for two instances of exec_logger concurrently running on the GTX 1060 3GB. Inset collapses vertical space to show that each task executes in mutually exclusive intervals of time.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 7 .</head><label>7</label><figDesc>Fig. 7. Progress of two co-running copies in separate contexts over time on the GTX 1060 3GB.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Fig. 8 .</head><label>8</label><figDesc>Fig.8. Times when copy and compute operations complete for four taskscompute-only, exec+copy, copy-only, and copy-only-on the GTX 1080 Ti (similar results on RTX 6000 Ada). Initialization omitted. Shaded regions indicate times exec+copy task is making copy progress.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head></head><label></label><figDesc>Compute interval (continues uninterrupted during copy).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_12"><head>Fig. 9 .</head><label>9</label><figDesc>Fig.9. Times when copy and compute operations complete for two corunning tasks-exec_logger and copy_monitor-on the Jetson TX2. Initialization omitted. Shaded regions indicate times copy_monitor is making progress, and are 1024 µs wide, whereas the gaps are 1000 µs wide.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_14"><head>Fig. 10 .</head><label>10</label><figDesc>Fig.10. OpenGL texture uploads can block CUDA copies in the opposite direction, even if channels, runlists, and LCEs are mutually exclusive.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_15"><head>Fig. 11 .</head><label>11</label><figDesc>Fig. 11. Interconnectedness between Runlists, Logical Copy Engines (LCEs), Graphics Copy Engines (GRCEs), and Physical Copy Engines (PCEs) for a variety of GPUs 2016-2022. Only PCEs can actually perform the copy. The GTX 1080 Ti configuration (not shown) is identical to the GTX 1060 3GB configuration (shown).</figDesc><graphic coords="9,400.85,153.21,122.47,51.88" type="bitmap" /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_0"><p>For example, even NVIDIA GPU instruction encodings are secret<ref type="bibr" target="#b8">[9]</ref>-<ref type="bibr" target="#b10">[11]</ref>.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_1"><p>See Compute Graph and Constraints in the DRIVE OS System Task Manager SDK Reference for more, version 5.10 as of writing.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_2"><p>The GPU supports arbitrary commands via the "software" engine that interrupts into the kernel driver.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_3"><p>Compute capability distinguishes variants within an architectural family.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="6" xml:id="foot_4"><p>On the Jetson TX2, after disabling all background GPU-using tasks, some entries remained on the GPU runlist. We disabled these entries in the runlist using nvdebug to ensure no unexpected interference.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="7" xml:id="foot_5"><p>Both available online at https://www.cs.unc.edu/~jbakita/rtas24-ae/.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="8" xml:id="foot_6"><p>In<ref type="bibr" target="#b23">[24]</ref>, manuals/ampere/ga100/dev_pbdma.ref.txt, line 3803.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="12" xml:id="foot_7"><p>In<ref type="bibr" target="#b21">[22]</ref>, src/common/sdk/nvidia/inc/ctrl/ctrla06f/ctrla06fgpfifo.h line 67.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="13" xml:id="foot_8"><p>When using NVIDIA Multi-Process Service (MPS), this does not apply-it breaks our assumption that there is only one task per context. On GPUs since Volta, when MPS is enabled, each application runs as a subcontext of an MPS-created context. Our rules still likely apply if you consider all MPS-using tasks together as a single task, but we have not verified this.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="14" xml:id="foot_9"><p>With the exception that compute is still hindered during context initialization (as in Fig.6); curiously, it is also briefly interrupted when copy_monitor does large, GPU-device-mapped memory allocations.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="17" xml:id="foot_10"><p>Available online at http://rtsrv.cs.unc.edu/cgit/cgit.cgi/nvdebug.git/. nvdebug's PCE to LCE mapping information API on Tur-ing+ GPUs.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENT</head><p>The authors thank <rs type="person">Benjamin Hadad IV</rs> for his implementation of nvdebug's device information API on Ampere+ GPUs, and thank <rs type="person">Saman Sahebi</rs> for his implementation of</p></div>
+			</div>			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 23:12:13 UTC from IEEE Xplore. Restrictions apply.</p><p>1 user@machine:~$ cat /proc/gpu1/runlist0 2 +----TSG Entry 1 ---+ After being loaded into the kernel, our tool exposes GPU information via a series of virtual files in /proc/gpuX for each GPU X on the system. Key stable APIs include:</p><p>1) gpuX/device_info: Print information about GPU engines, including their associated runlist IDs. 2) gpuX/runlistY: Print the contents of runlist Y.</p><p>3) gpuX/disable_channel: On write, disable the channel associated with the ID written. 4) gpuX/enable_channel: On write, enable the channel associated with the ID written. 5) gpux/lce_for_pceY: Read which LCE PCE Y is mapped to. 6) gpux/shared_lce_for_grceY: Read which LCE (if any) GRCE Y is mapped to. 7) gpux/pce_map: Read a bit mask of which PCEs are available. We include an example of using nvdebug to print Runlist 0 for the second GPU in the system ,in Listing 1.</p><p>Among the challenges we overcome while constructing this tool, accessing, parsing, and traversing GPU page tables to access runlist entries in GPU physical memory proved particularly difficult. We encourage those further interested in this topic to consult our code. 17  </p></div>			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Imagenet classification with deep convolutional neural networks</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Krizhevsky</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Sutskever</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">E</forename><surname>Hinton</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Advances in Neural Information Processing Systems</title>
+		<imprint>
+			<date type="published" when="2012-12">Dec 2012</date>
+			<biblScope unit="volume">25</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<title level="m" type="main">Real-time scheduling for GPUs with applications in advanced automotive systems</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">A</forename><surname>Elliott</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+		<respStmt>
+			<orgName>The University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Deadline-based scheduling for GPU with preemption support</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Capodieci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Cavicchioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Paramakuru</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 39th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 39th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2018-12">Dec 2018</date>
+			<biblScope unit="page" from="119" to="130" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Making OpenVX really &quot;real time</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Wang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 39th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 39th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2018-12">Dec 2018</date>
+			<biblScope unit="page" from="80" to="93" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">GPU scheduling on the NVIDIA TX2: Hidden details revealed</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 38th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 38th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2017-12">Dec 2017</date>
+			<biblScope unit="page" from="104" to="115" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Avoiding pitfalls when using NVIDIA GPUs for real-time tasks in autonomous systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bakita</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 30th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 30th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2018-07">Jul 2018</date>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="page">21</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Dissecting the CUDA scheduling hierarchy: a performance and predictability perspective</title>
+		<author>
+			<persName><forename type="first">I</forename><forename type="middle">S</forename><surname>Olmedo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Capodieci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">L</forename><surname>Martinez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marongiu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 26th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>the 26th IEEE Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2020-04">Apr 2020</date>
+			<biblScope unit="page" from="213" to="225" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Hardware compute partitioning on NVIDIA GPUs</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bakita</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 29th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>the 29th IEEE Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2023-05">May 2023</date>
+			<biblScope unit="page" from="54" to="66" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Decoding CUDA binary</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">B</forename><surname>Hayes</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Hua</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><forename type="middle">Z</forename><surname>Zhang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2019 IEEE/ACM International Symposium on Code Generation and Optimization</title>
+		<meeting>the 2019 IEEE/ACM International Symposium on Code Generation and Optimization</meeting>
+		<imprint>
+			<date type="published" when="2019-02">Feb 2019</date>
+			<biblScope unit="page" from="229" to="241" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<monogr>
+		<title level="m" type="main">Dissecting the NVIDIA Volta GPU architecture via microbenchmarking</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Jia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Maggioni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Staiger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">P</forename><surname>Scarpazza</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2018-04">Apr 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">Dissecting the NVIDIA Turing T4 GPU via microbenchmarking</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Jia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Maggioni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Smith</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">P</forename><surname>Scarpazza</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2019-03">Mar 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">GPU devices for safety-critical systems: A survey</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Perez-Cerrolaza</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Abella</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Kosmidis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">J</forename><surname>Calderon</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Cazorla</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">L</forename><surname>Flores</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Computing Surveys</title>
+		<imprint>
+			<biblScope unit="volume">55</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<biblScope unit="page" from="1" to="37" />
+			<date type="published" when="2022-12">Dec 2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">TimeGraph: GPU scheduling for Real-Time Multi-Tasking environments</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 2011 USENIX Annual Technical Conference. USENIX Association</title>
+		<meeting>the 2011 USENIX Annual Technical Conference. USENIX Association</meeting>
+		<imprint>
+			<date type="published" when="2011-06">Jun 2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">GPUSync: A framework for real-time GPU management</title>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">A</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">C</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 34th Real-Time Systems Symposium</title>
+		<meeting>the 34th Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2013-12">Dec 2013</date>
+			<biblScope unit="page" from="33" to="44" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">S 3 DNN: Supervised streaming and scheduling for GPU-accelerated real-time DNN workloads</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bateni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 24th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>the 24th IEEE Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2018-04">Apr 2018</date>
+			<biblScope unit="page" from="190" to="201" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">TimeWall: Enabling time partitioning for real-time multi-core+accelerator platforms</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Tong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Voronov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bakita</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 42nd IEEE Real-Time Systems Symposium</title>
+		<meeting>the 42nd IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2021-12">Dec 2021</date>
+			<biblScope unit="page" from="455" to="468" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Inferring the scheduling policies of an embedded CUDA GPU</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 13th Annual Workshop on Operating Systems Platforms for Embedded Real Time Applications</title>
+		<meeting>the 13th Annual Workshop on Operating Systems Platforms for Embedded Real Time Applications</meeting>
+		<imprint>
+			<date type="published" when="2017-07">Jul 2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Exploring AMD GPU scheduling details by experimenting with &quot;worst practices</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 29th International Conference on Real-Time Networks and Systems</title>
+		<meeting>the 29th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<date type="published" when="2021-04">Apr 2021</date>
+			<biblScope unit="page" from="24" to="34" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<monogr>
+		<title level="m" type="main">Developing real-time GPU-sharing platforms for artificial-intelligence applications</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+		<respStmt>
+			<orgName>The University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Ph.D. dissertation</note>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">STGM: Spatio-temporal GPU management for real-time tasks</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">K</forename><surname>Saha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications</title>
+		<meeting>the 25th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications</meeting>
+		<imprint>
+			<date type="published" when="2019-08">Aug 2019</date>
+			<biblScope unit="page" from="1" to="6" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Fractional GPUs: Softwarebased compute and memory bandwidth reservation for GPUs</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Jain</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Baek</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>the 25th IEEE Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2019-04">Apr 2019</date>
+			<biblScope unit="page" from="29" to="41" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<monogr>
+		<title level="m" type="main">Linux open GPU kernel module source</title>
+		<author>
+			<persName><surname>Nvidia</surname></persName>
+		</author>
+		<ptr target="https://github.com/NVIDIA/open-gpu-kernel-modules" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<monogr>
+		<title level="m" type="main">Nouveau: Accelerated open source driver for nVidia cards</title>
+		<author>
+			<persName><forename type="first">Nouveau</forename><surname>Project</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Authors</forename></persName>
+		</author>
+		<ptr target="https://nouveau.freedesktop.org/" />
+		<imprint>
+			<date type="published" when="2022">2022</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<monogr>
+		<title level="m" type="main">Open GPU documentation</title>
+		<author>
+			<persName><surname>Nvidia</surname></persName>
+		</author>
+		<ptr target="https://github.com/NVIDIA/open-gpu-doc" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Concurrent execution of independent streams in multi-channel time slice groups</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">H</forename><surname>Duncan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">V</forename><surname>Shah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">J</forename><surname>Treichler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">E</forename><surname>Wexler</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">F</forename><surname>Duluk</surname><genName>Jr</genName></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">B</forename><surname>Johnson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">S R</forename><surname>Evans</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">U.S. Patent</title>
+		<imprint>
+			<biblScope unit="volume">9</biblScope>
+			<date type="published" when="2016-09">Sep., 2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<monogr>
+		<title level="m" type="main">nvgpu git repository</title>
+		<author>
+			<persName><surname>Nvidia</surname></persName>
+		</author>
+		<ptr target="git://nv-tegra.nvidia.com/linux-nvgpu.git" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Managing copy operations in complex processor topologies</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">W</forename><surname>Rashid</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W.-J</forename><forename type="middle">R</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">B</forename><surname>Johnson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">U.S. Patent</title>
+		<imprint>
+			<biblScope unit="volume">10</biblScope>
+			<date type="published" when="2019-04">Apr., 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

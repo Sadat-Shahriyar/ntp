@@ -1,0 +1,509 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Optimizing the Response Time for ROS Tasks in Multi-Core Processors</title>
+				<funder>
+					<orgName type="full">National Research Foundation of Korea</orgName>
+					<orgName type="abbreviated">NRF</orgName>
+				</funder>
+				<funder ref="#_UCMPCBE #_Xhtk3vh">
+					<orgName type="full">Korea government(MSIT)</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Sunho</forename><surname>Kim</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Dept. of Mechanical Engineering</orgName>
+								<orgName type="institution">Seoul National University</orgName>
+								<address>
+									<settlement>Seoul</settlement>
+									<country key="KR">Korea</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Hayeon</forename><surname>Park</surname></persName>
+							<email>hypark@rubis.snu.ac.kr</email>
+							<affiliation key="aff1">
+								<orgName type="department">Dept. of Computer Science</orgName>
+								<orgName type="institution">Seoul National University</orgName>
+								<address>
+									<settlement>Seoul</settlement>
+									<country key="KR">Korea</country>
+								</address>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Chang-Gun</forename><surname>Lee</surname></persName>
+							<email>cglee@snu.ac.kr</email>
+							<affiliation key="aff2">
+								<orgName type="department">Dept. of Computer Science</orgName>
+								<orgName type="institution">Seoul National University</orgName>
+								<address>
+									<settlement>Seoul</settlement>
+									<country key="KR">Korea</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Optimizing the Response Time for ROS Tasks in Multi-Core Processors</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">A5A74DDC7735B5E89AAD97311DCC7D4C</idno>
+					<idno type="DOI">10.1109/DS-RT58998.2023.00011</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-17T23:33+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>Robot Operating System</term>
+					<term>Response Time Analysis</term>
+					<term>DAG Task Scheduling</term>
+					<term>Intra-Task Priority Assignment</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>This paper presents methods to optimize the response time of ROS (Robot Operating System), a widely utilized open-source meta-operating system in robotic software development. Despite its popularity, ROS lacks real-time capabilities, making it unsuitable for real-time control and difficult to use in embedded systems. Recently, DAG (Directed Acyclic Graph) task scheduling algorithms have gained much attention, but they are challenging to apply in the current design of ROS. In this work, we analyze that there are three major challenges in ROS; (i) misalignment delay, (ii) message delivery mechanism using TCP/IP, and (iii) multiple overlapping instances of a single task. We first calculate the new response time bound considering misalignment delay and propose an optimization technique using it to solve the first problem. Furthermore, we address the remaining challenges by assigning priority to the nodes of the DAG and ksoftirqd processes. Our experiments using random tasks show significant improvement, outperforming the state-ofart methods. In addition, our methods are validated through testing autonomous driving software on embedded systems, proving their real-world applicability.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Recently, as many studies on autonomous driving and robots have been conducted, ROS (Robot Operating System), a robot software development tool, is widely used <ref type="bibr" target="#b0">[1]</ref>, <ref type="bibr" target="#b1">[2]</ref>. ROS is open-source, features a vast library, and has a massive global community, including millions of developers. However, ROS has difficulties in satisfying real-time constraints and has clear limitations in its basic structure, which motivated the development of a new type of ROS called ROS2 <ref type="bibr" target="#b2">[3]</ref>. Although it has been eight years since ROS2 came out, many developers still use ROS to utilize their libraries <ref type="bibr" target="#b3">[4]</ref>. Therefore, there remains a need for methodologies to enhance ROS performance.</p><p>A ROS application consists of several independent processes, or nodes, that communicate with each other through topics. To be specific, a publisher node broadcasts a message by publishing data on a specific topic, while a subscriber node listens to the relevant topic periodically. In a typical robotic environment, since information flows from sensor nodes to control nodes, a single directed acyclic graph (DAG) is created by connecting publisher nodes and subscriber nodes as depicted in Fig. <ref type="figure" target="#fig_2">1(a</ref>). Some recent studies analyze and reduce the response time of DAG applications <ref type="bibr" target="#b4">[5]</ref>- <ref type="bibr" target="#b8">[9]</ref>. They assumed that each node moves from a waiting state to a ready state as soon as all predecessor nodes complete execution. In contrast to other DAG tasks, ROS works slightly differently. As depicted in Fig. <ref type="figure" target="#fig_2">1</ref>(b), each node in ROS is composed of a default and callback routine. Each node periodically wakes to check the message queue and execute the callback routine if all necessary messages have been received. However, if the callback execution conditions of the node are not satisfied (i.e., if not all the required messages have arrived), only the default routine is executed. In this paper, we refer to this as an asynchronous polling method. Using v 5 , v 6 , and v 7 in Fig. <ref type="figure" target="#fig_2">1(a)</ref> as examples, Fig. <ref type="figure" target="#fig_2">1(c</ref>) shows the scheduling diagram including the execution of each node and timing parameters. The time at which each node awakens is the polling time, with the interval</p><formula xml:id="formula_0">v 1 v 1 v 2 v 2 v 3 v 3 v 4 v 4 v 5 v 5 v 6 v 6 v 7 v 7 v 8 v 8 v 9 v 9 Time τ i τ j</formula><p>Fig. <ref type="figure">2</ref>: Multiple Overlapping ROS Instances between such polling times referred to as the spinning period. Even though v 5 finishes executing, the processor must wait until the next polling time of v 6 , resulting in an additional delay called the misalignment delay. The response time of chain {v 5 , v 6 , v 7 } is the sum of each node's callback execution time, misalignment delay, and preemption delay. Note that in the example shown, the preemption delay is caused by the default routines of other nodes.</p><p>This paper addresses a crucial issue in ROS performancethe misalignment delay, which can be adjusted by changing the spinning period of each node. Shortening the spinning period of the node reduces the misalignment delay. However, since the default routine executes at each polling time, the preemption delay caused by the default routine increases. Therefore, assigning each node an appropriate spinning period is important to reduce a task's response time. In order to tackle this challenge, this paper presents an algorithm for assigning spinning periods to nodes that minimize the response time, effectively balancing the misalignment and preemption delays.</p><p>ROS uses TCP/IP for inter-node communication, which enables distributed architectures easily <ref type="bibr" target="#b9">[10]</ref>. Therefore, communication must be processed between the execution of each node. Otherwise, the subscriber node will not receive the message at the following polling time and will receive the message later, resulting in additional misalignment delays. We solve this challenge by adjusting the priority of threads handling TCP/IP.</p><p>Many recent studies on DAG task scheduling assume that the deadline of the task is shorter than its period (D k &lt; T k ), meaning only one task is executed at any given time. However, this assumption may not hold true for embedded systems with low processor performance, as completing a task within its period can be challenging. Additionally, having a task deadline longer than its period does not necessarily make a system unstable or unsafe. For example, in the case of LIDAR sensors, the data publishing period is often between 0.05s and 0.1s, while the reaction times of autonomous vehicles are shown to be longer <ref type="bibr" target="#b10">[11]</ref>. Existing heuristic algorithms aimed at reducing response time for DAG tasks assume single-instance cases, which motivated us to propose a new node priority assignment algorithm to improve response time in cases of multiple task instances overlap <ref type="bibr" target="#b6">[7]</ref>- <ref type="bibr" target="#b8">[9]</ref>.</p><p>The rest of the paper is organized as follows: In Section II and Section III we present related work and the task model used in this paper. Then, Section IV explains our three optimization methods to solve the challenges mentioned above. Section V presents our experiment results using random tasks and autonomous driving software. Finally, Section VI concludes our paper.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. RELATED WORK</head><p>The response time bounds in multi-core scheduling have been extensively investigated in prior studies <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b11">[12]</ref>. However, these studies do not consider misalignment and preemption delays specific to ROS. Hence, their response time analysis needs to be revised to accommodate ROS. Recent research on response time analysis and scheduling algorithms for ROS2 is also challenging to apply directly to ROS <ref type="bibr" target="#b12">[13]</ref>, <ref type="bibr" target="#b13">[14]</ref>. This is primarily due to significant differences between ROS and ROS2. Firstly, ROS employs TCP/IP for node communication, whereas ROS2 utilizes DDS to enhance real-time capabilities <ref type="bibr" target="#b14">[15]</ref>. This results in different communication models, with ROS relying on an asynchronous polling mechanism and ROS2 utilizing an event-triggered mechanism. Furthermore, unlike ROS, which restricts each node to run in a separate process, ROS2 allows multiple nodes to be executed within a single process named an executor, offering greater flexibility for user adjustments.</p><p>According to our knowledge, <ref type="bibr" target="#b15">[16]</ref> is the only work that addresses misalignment delay, but it assumes critical nodes are not affected by non-critical nodes. In other words, when the critical node finishes execution, the following critical node starts executions regardless of the completion of other noncritical nodes. Since this paper optimized the spin rate only for the critical nodes, there is a limit in improving response time for general cases. Therefore, in this paper, we proposed a spin rate optimization algorithm by combining the new response time bound of ROS and the simulated annealing method to solve the combinatorial optimization problem <ref type="bibr" target="#b16">[17]</ref>.</p><p>Recent scheduling algorithms for multi-core platforms aim to reduce the total response time with static priority scheduling <ref type="bibr" target="#b6">[7]</ref>- <ref type="bibr" target="#b8">[9]</ref>. Most studies assign higher priority to nodes closer to the source node, preventing subsequent nodes from not being executed due to precedence constraints and reducing the response time. However, this may increase response time in case of multiple simultaneous task instances, which motivated us to derive a new node priority assignment algorithm.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. SYSTEM MODEL</head><p>We consider a ROS system with a single DAG task τ = {T, D, G = (V, E)} on a multi-core platform with m identical cores. T and D denote its spinning period and constrained relative deadline, respectively, and G is a graph defining the set of nodes and edges forming a task. A single task τ infinitely releases a sequence of jobs at every T period, where we express instance number by using the letter k. (i.e. τ = {τ 1 , τ 2 , ..., τ k , ...}) The directed acyclic graph is defined as G = (V, E), where V = {v 1 , v 2 , ..., v n } is a set of nodes and E ⊆ (V × V ) is a set of directed edges. Each node v i ∈ V represents a sequential workload, and an edge (v i , v j ) represents the precedence relation between v i and v j which means v j can only start execution after v i completes. In other words, v i is a predecessor of v j , whereas v j is a successor of v i . The predecessor and successor is defined as</p><formula xml:id="formula_1">&lt; v 5 v 5 v 5 v 6 v 6 v 6 v 7 v 7 v 7</formula><formula xml:id="formula_2">pre(v i ) = {v j ∈ V | (v j , v i ) ∈ E} and succ(v i ) = {v j ∈ V | (v i , v j ) ∈ E}, respectively.</formula><p>Without loss of generality, we assume that G has only one source node v src and one sink node v sink . (i.e. v 1 = v src , v 9 = v sink in Fig. <ref type="figure" target="#fig_2">1</ref>(a)) As described in Section I, a default routine of each node is always executed at every polling time, but a callback routine may or may not be executed. Therefore, we define two worstcase execution times (WCET) for each node v i ∈ V . DE k,i is WCET when only a default routine is executed, and CE k,i is WCET when a callback is called. For simplicity, the instance number k can be omitted because every instance does the same job. (i.e. DE k,i = DE i , CE k,i = CE i ) Also, each node v i has a spinning period T i and wakes up every T i times to execute the code. Because of this characteristic, every node has a misalignment delay, formally defined as follows.</p><p>Definition 1. The misalignment delay of a node v i ∈ V is the time delay caused by a misalignment between the latest end time of pre(v i ) and the start time of v i .</p><p>A DAG task has a sequence λ = {v src , ..., v sink } that starts at v src and end at v sink while satisfying (v k , v k+1 ) ∈ E, which is called a complete path. The length of a path is the sum of the worst-case misalignment delay and worst-case callback execution time (CE i ) of nodes constituting a path. In case of the worst-case misalignment delay, we abbreviate to MD i in the rest of this paper. The longest complete path of a DAG task is referred to as the critical path λ * . Nodes in λ * are referred to as critical nodes, while other nodes are called non-critical nodes. Finally, we can define the length of a DAG task. Definition 2. The length of a DAG task τ k , denoted by L k , is the sum of the worst-case misalignment and worst-case callback execution time of its critical path.</p><formula xml:id="formula_3">L k = ∀vi∈λ * (CE i + MD i )</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. OPTIMIZATION METHODS</head><p>We propose three optimization methods for a ROS task. First, in subsection A, we derive the response time bound considering the misalignment delay and preemption delay caused by default routines. After that, we introduce an algorithm to obtain the optimal spinning period for each node. Next, subsection B proposes a method to improve performance in real-time scheduling situations based on the fact that ROS uses TCP/IP for communication. Finally, in subsection C, we propose an algorithm assigning priority to each node when multiple instances overlap.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Spin Rate Optimization</head><p>This subsection presents the new response time bound for ROS tasks. The new response time bound for ROS tasks is based on a work-conserving scheduler and assumes that instances of tasks do not overlap (i.e., single instance). The structure of the DAG, execution time, misalignment delay, and preemption delay all contribute to the overall response time of a ROS task. Previous studies have considered the structure of the DAG and the execution time of each node but not the misalignment delay <ref type="bibr" target="#b4">[5]</ref>- <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b8">[9]</ref>. The misalignment delay is determined by the spinning period of each node as stated in Lemma 1. Note that the spinning period of v src is equal to T and its misalignment delay is always 0. The source node, typically a sensor node such as a LIDAR or camera, periodically receives data and transmits it to internal nodes.</p><p>Lemma 1. The misalignment delay caused by node v i ∈ V is upper bounded by its spinning period T i .</p><formula xml:id="formula_4">MD i = 0, if v i = v src T i , otherwise</formula><p>Proof. As mentioned in Definition 1, misalignment delay is a delay caused by a time difference between the start time of a node v i and the latest end time of pre(v i ). In the case of v src , since pre(v src ) does not exist, a misalignment delay does not occur. Suppose the misalignment delay of v i ∈ V \v src is longer than T i . Then there is at least one polling time of v i before v i starts execution. At this polling time, v i must start execution because all of pre(v i ) is completed. Since this is a contradiction, the maximum misalignment delay of v i is T i .</p><p>Our response time analysis approach is based on the discrimination of DE i for each node and the basic response time of a task, as depicted in Fig. <ref type="figure">3</ref>. The response time encompasses the callback execution time, misalignment delay, and preemption delay caused by DE i . Here, the preemption delay can be understood as the interference caused by higherpriority tasks (DE i ) that always preempt callbacks.</p><p>To compute the basic response time resulting from CE i and MD i , we need to define a workload. Typically, a task's workload is the maximum time it takes to execute on a single-core processor. Previous works consider only the node's worst-case execution time (WCET) without accounting for misalignment delay <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b11">[12]</ref>. However, in ROS, the workload can be defined by treating the misalignment delay as the execution time so that there is no polling behavior. This approach yields a more conservative response time because other nodes can occupy the CPU during MD i in reality. This idea is applied consistently throughout the remaining formulas in this paper. Lemma 2. The maximum time to execute an instance of τ (τ k ) in a single-core processor is upper bounded by the W k .</p><formula xml:id="formula_5">W k = ∀vi∈V (CE i + MD i )</formula><p>Proof. If a node v i ∈ V executes for less than its CE i or if the misalignment delay of a node is less than MD i , it can enable its successor nodes to execute earlier. This condition is still satisfied even when multiple nodes meet their start condition simultaneously. Hence, the overall response time cannot exceed the above formula.</p><p>The response time of task τ k without any interference from DE i can be formally expressed as given in Eq. ( <ref type="formula" target="#formula_6">1</ref>), where R k denotes the response time, L k is the length of the task, m is the number of cores <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b11">[12]</ref>.</p><p>Theorem 1. The worst-case response time of a task τ k without interference tasks is bounded by the equation below.</p><formula xml:id="formula_6">R k = L k + 1 m (W k -L k )<label>(1)</label></formula><p>Proof. This theorem is proven in <ref type="bibr" target="#b4">[5]</ref> and <ref type="bibr" target="#b11">[12]</ref>.</p><p>A revised response time bound for a ROS task, including DE i , can be obtained by a fixed-point iteration starting from  </p><formula xml:id="formula_7">R ROS k = R k ,</formula><formula xml:id="formula_8">R ROS k = L k + 1 m (W k -L k ) + 1 m vi∈V W DE i (R ROS k )<label>(2</label></formula><formula xml:id="formula_9">W DE i (L) = L + T i -DE i T i • DE i + DE i</formula><p>Proof. The interference from DE i is maximized when the end time of the carry-out job is aligned with the end time of the analysis window. In such a scenario, it can include as many jobs as possible, assuming that the carry-out job starts running as soon as possible. The first term of the above formula includes the contributions of the carry-out and body jobs, and the second term upper bounds the carry-in workload.</p><p>The detailed proof is presented in <ref type="bibr" target="#b4">[5]</ref>. Although <ref type="bibr" target="#b4">[5]</ref> uses a tighter upper bound for the carry-in job, here we use the simpler one.</p><p>The preceding two terms of Eq. ( <ref type="formula" target="#formula_8">2</ref>) can be rewritten as Eq. ( <ref type="formula" target="#formula_10">3</ref>). The worst-case scenario is that non-critical nodes run simultaneously on m cores, preventing the execution of critical nodes that form the longest complete path. Therefore, in the case of non-critical nodes, one over m precedes. Note that</p><formula xml:id="formula_10">MD i is a function of T i . ∀vi∈λ * (CE i + MD i ) + 1 m ∀vi / ∈λ * (CE i + MD i )<label>(3)</label></formula><p>Since the floor function returns the biggest number less than or equal to the input, the following inequality, including the last term of Eq. ( <ref type="formula" target="#formula_8">2</ref>), holds.</p><formula xml:id="formula_11">1 m vi∈V W DE i (L) ≤ 1 m vi∈V ( L -DE i T i + 2) • DE i (4)</formula><p>By reducing the upper limit of R ROS k (sum of Eq. (3) and Eq. ( <ref type="formula">4</ref>)), we can improve the total response time of a ROS task. Moreover, since Eq. ( <ref type="formula" target="#formula_10">3</ref>) and the right side of Eq. ( <ref type="formula">4</ref>) are functions of T i , we can mathematically find T i , which minimizes the sum of the two equations. We illustrate this through an example.</p><p>Example 1. Consider a task τ with period T and graph G = (V, E). A graph consists of three nodes with</p><formula xml:id="formula_12">V = {v 1 , v 2 , v 3 } and E = {(v 1 , v 2 ), (v 1 , v 3 ), (v 2 , v 3 )}. The critical chain λ * for this task is {v 1 , v 3 }.</formula><p>To obtain the result of adding the right-hand side of Eq. ( <ref type="formula" target="#formula_10">3</ref>) and ( <ref type="formula">4</ref>), which we denote as f , we use Lemma 1.</p><formula xml:id="formula_13">f =(CE 1 + 0 + CE 3 + T 3 ) + 1 m (CE 2 + T 2 ) + 1 m ( (R ROS k -DE 1 )DE 1 T 1 + (R ROS k -DE 2 )DE 2 T 2 + (R ROS k -DE 3 )DE 3 T 3 + 2DE 1 + 2DE 2 + 2DE 3 )</formula><p>Since v 1 is a source node with a fixed period T , spinning period optimization for v 1 is not required. T 2 and T 3 that make f minimum are calculated by using partial differentiation.</p><formula xml:id="formula_14">∂f ∂T 2 = 1 m - 1 m (R ROS k -DE 2 )DE 2 (T 2 ) 2 = 0 ∂f ∂T 3 = 1 - 1 m (R ROS k -DE 3 )DE 3 (T 3 ) 2 = 0 ⇒ T 2 = (R ROS k -DE 2 )DE 2 ⇒ T 3 = (R ROS k -DE 3 )DE 3 /m</formula><p>Similar equations can be derived for all nodes.</p><p>As the example shows, the spinning period of each node is affected by R ROS k and DE. The non-critical nodes are not affected by m, but in the case of critical nodes, the spinning period decreases as m increases. However, since the above equations are the results of developing equations for a fixed response time and the response time is also affected by the spinning period, the above process must be repeated several times to obtain the optimal value.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Algorithm 1 T Computation</head><p>Input : DAG G = (V, E); every node v i ∈ V has its CE i , DE i and T i ; the number of cores M Output : T = {T src , ..., T sink } that lists the spinning period of each node</p><formula xml:id="formula_15">1: for v i ∈ V \v src do 2: T i ← T initial 3: end for 4: R min ← ∞; T min ← T 5: for k ← 1 to N do 6: T , R ← ComputeLocalM inimum(G, M ) 7: if R &lt; R min then 8:</formula><p>R min ← R; T min ← T </p><formula xml:id="formula_16">for v i ∈ V \v src do 7: if v i ∈ λ * then 8: T i ← (R -DE i )DE i /M 9:</formula><p>else 10:</p><formula xml:id="formula_17">T i ← (R -DE i )DE i 11: end if 12:</formula><p>end for 13:</p><formula xml:id="formula_18">λ * ← CriticalP ath(G) 14:</formula><p>R new ← ResponseT ime(G, M, λ * ) 15: end while 16: return T old , R (Line 1-3). Next, the value of the new response time and the spinning period is calculated for a given T (Line 6-8). Note that since the response time and period affect each other, the calculated value is not a global minimum but a local minimum. Therefore, a technique for approximating the global optimum is required, so we use a simulated annealing technique (Line 10). Finally, we repeat N times to obtain the final results (Line 5-11).</p><p>Algorithm 2 shows the pseudo-code that computes the local optimum of T , which has a similar process to Example 1. It takes a task's graph representation and the number of cores as input. First, the critical path λ * and response time are computed for a given graph (Line 2-3). Then, since we know the response time and each node's DE, we can calculate the new T i (Line 6-12). Note that, as in Example 1, T src is not updated, and different formulas are used for critical and noncritical nodes. At the end of the iteration, a new critical path and response time are computed for the newly calculated T (Line 13-14). Unlike general DAG tasks, a ROS task has a misalignment delay, so the critical path may change as T is updated. This process is repeated until the newly calculated response time is no longer reduced (Line 4-5). Finally, the procedure is finished by returning the calculated T and R. Note that response time is calculated using Theorem 2 and Lemma 3.</p><p>Simulated annealing is a combinatorial optimization method for finding the global minimum of a cost function with several local minima. Simulated annealing is a similar method to iterative improvement, but there is a difference that allows perturbations that increase the cost function <ref type="bibr" target="#b16">[17]</ref>. The first step is to give each variable a random perturbation (Line 2-4), then calculate the resulting change in cost function (Line Algorithm 3 Procedure SimulatedAnnealing(G, R) Input : DAG G = (V, E); every node v i ∈ V has its CE i , DE i and T i ; the response time R Output : T = {T src , ..., T sink } that lists the spinning period of each node; Global : temperature ℃</p><formula xml:id="formula_19">1: T ori ← T 2: for v i ∈ σ do 3: T i ← RAN DOM (αT i , βT i ) 4: end for 5: R new ← ResponseT ime(G, M, λ * ) 6: ΔR ← R new -R 7: if ΔR &gt; 0 then 8:</formula><p>if RAN DOM (0, 1) &gt; e -ΔR/℃ then 9:</p><p>T ← T ori 10:</p><p>end if 11: end if 12: ℃ ← γ℃ 13: return T 5-6). If the cost function has reduced, ΔR &lt; 0, the new configuration of each node is always accepted. If not, we accept the change with the probability of e -ΔR/℃ . Line 7-11 represents a condition that does not accept changes. Since it has a high temperature at the beginning of the iteration, the change will probably be accepted even though the cost function increases. However, by lowering the temperature (Line 12), this probability finally approaches zero. Note that if the temperature is high and the increase in the cost function is small, the probability of accepting the change is high.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. High ksof tirqd Thread Priority</head><p>As briefly described in Section I, each node in ROS is an independent process and acts as an asynchronous polling method that periodically checks messages. Since each node is a different process, a communication method between nodes is needed. The ROS system uses TCP/IP to send and receive messages. TCP/IP that provides end-to-end communication is a framework for organizing the set of communication protocols. In Linux systems, it is handled by the bottom half of the interrupt handler, called Soft IRQ.</p><p>In Linux systems, TCP/IP operates at a lower priority than real-time processes, leading to potential delays in message delivery between nodes. As an example, consider the graph <ref type="figure" target="#fig_3">5</ref> shows that node v 3 receives the message on time and executes its callback, but node v 2 does not. This leads to an additional delay when v 2 receives the message at the following polling time. This problem is more likely to occur when the CPU utilization is high. To address this, we give the ksof tirqd thread, which handles unserved software interrupts and processes TCP/IP in Linux systems, the highest real-time priority. This ensures the callback execution as soon as all pre(v i ) finish, regardless of message delivery delay. As a DAG task runs on a single platform, and ksof tirqd takes less time than individual nodes, its time is not considered when calculating the response time.</p><formula xml:id="formula_20">G with V = {v 1 , v 2 , v 3 } and E = {(v 1 , v 2 ), (v 1 , v 3 )}. Fig.</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Multiple-Instance Aware Priority Assignment</head><p>The policy for assigning node priorities is crucial for improving response time. In ROS systems, all messages are processed on the same nodes, making it difficult to determine which instance the incoming message belongs to. Additionally, dynamically changing node priority is expensive. Therefore, we use a static node priority assignment algorithm. Intuitively, the prior instance with smaller k should run earlier than the following instances to reduce worst-case response time. Conventional algorithms prioritize nodes close to v src , which prevents the following nodes from not running due to precedence constraints. However, if multiple instances of τ run simultaneously, it can increase the response time because an instance with a higher instance number interferes smaller one. For example, in Fig 2 <ref type="figure">,</ref><ref type="figure">v</ref> 1 in τ j gets the highest priority because it is the source node. Therefore, τ j interferes with τ i and delays the finish time of τ i . If this situation is repeated, in the worst-case scenario, each time a new instance is created, the previous instance cannot run in the CPU and can eventually miss the deadline. This motivated us to think of an algorithm that prioritizes nodes in reverse topological order.</p><p>Algorithm 4 is a pseudo-code for determining the priority of each node. It takes the task's graph representation as input and the node's priority as output. First, the length of each node is calculated (Line 1). Here, the node's length is the length of the longest complete path through each node. Then, after selecting all nodes which do not have descendants in V , we assign the node's priority based on their length (Line 4-9). The node which has a longer length gets high priority. Finally, the selected nodes and their related edges are removed from V and E, respectively (Line 10-11). We repeat this process until there are no nodes in V (Line 3).</p><p>Algorithm 5 uses dynamic programming to compute each node's length, which is used in Algorithm 4. First, we sort the nodes by topological order (Line 1). Then, in line 2-7, we traverse the DAG nodes by topological order while computing the lf of each node. Here, lf (v i ) is the longest path length that starts from v src and ends at v i ∈ V . Similarly, we can compute the lb of each node by traversing the DAG node in reverse topological order, where lb(v i ) is the length of the Algorithm 4 Node Priority Assignment Input : DAG G = (V, E); every node v i ∈ V has its CE i , DE i and T i Output : P (G) = {p(v 1 ), p(v 2 ), ..., p(v n )} that lists the priority of each node</p><formula xml:id="formula_21">1: G ← ComputeLength(G) 2: p ← 0 3: while V = ∅ do 4: A, A 0 ← {v i |∀v i ∈ V ∧ succ(v i ) = ∅} 5: while A = ∅ do 6: v ← argmax vi {l(v i )|∀v i ∈ A} 7: p(v) ← p; p ← p + 1 8: A ← A\v 9:</formula><p>end while 10:</p><formula xml:id="formula_22">V ← V \A 0 11: E ← {(v x , v y )|∀(v x , v y ) ∈ E ∧ v x , v y / ∈ A 0 } 12: end while 13: return P (G) Algorithm 5 Procedure ComputeLength(G) Input : DAG G = (V, E); every node v i ∈ V has its CE i , DE i and T i Output : G = (V, E); every node v i ∈ V has its l(v i ) 1: σ ← T opologicalOrder(G) 2: lf (v src ) ← CE src 3: for v i ∈ σ from v src to v sink do 4: if v i = v src then 5: lf (v i ) ← T i + CE i + max vj ∈pred(vi) {lf (v j )} 6:</formula><p>end if 7: end for 8: lb(v sink ) ← CE sink 9: for v i ∈ σ from v sink to v src do 10:</p><formula xml:id="formula_23">if v i = v sink then 11: lb(v i ) ← CE i + max vj ∈succ(vi) {lb(v j ) + T j } 12: end if 13: l(v i ) ← lf (v i ) + lb(v i ) -CE i 14:</formula><p>end for 15: return G longest path connecting v i and v sink (Line 8-14). Finally, the length of v i is obtained by using lf (v i ) and lb(v i ) (Line 13). It is similar to the algorithm used in <ref type="bibr" target="#b6">[7]</ref> except that we should consider the node's misalignment delay in this case. Note that the critical nodes' length is the same as the critical path length. The complexity of Algorithm 4 is O(|V + E|). We give an example to illustrate our algorithm.</p><p>Example 2. Consider a DAG structure in Fig. <ref type="figure" target="#fig_2">1(a)</ref>. It has 9 nodes and critical path λ * = {v 1 , v 3 , v 4 , v 5 , v 6 , v 7 , v 9 } is indicated with bold arrows. At first, since v 9 is the only node that does not have descendants, v 9 gets the highest priority. After removing v 9 from V , v 7 and v 8 are nodes that do not have descendants. Since v 7 has a longer path than v 8 , v 7 gets higher priority. After iterating this process until the end, v 1 gets the lowest priority. Note that we say node v i has higher priority than node v j , if p(v i ) &lt; p(v j ). We write the priority values together under each node in Fig. <ref type="figure" target="#fig_2">1(a)</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EVALUATIONS</head><p>In this section, we evaluate the performance of our optimization methods through four parts. First, in subsection A, we assess the improvement in end-to-end response time when each optimization method is applied. Then, we compare our spin rate optimization method to Park2022 (the only paper dealing with spin rate optimization) to prove its superiority <ref type="bibr" target="#b15">[16]</ref>. Subsection C evaluates our node priority assignment algorithm by comparing it with the algorithm used in He2019 <ref type="bibr" target="#b6">[7]</ref>. The experiments in these three sections are based on randomly generated DAG tasks, similar to the technique used in <ref type="bibr" target="#b8">[9]</ref>. Lastly, in subsection D, we present the results of optimizing and running Autoware, an open-source ROS-based autonomous driving software, on an embedded board.</p><p>In this study, 100 directed acyclic graph (DAG) tasks were generated using the methodology described in <ref type="bibr" target="#b8">[9]</ref>. The generator starts with a source node, adds subsequent layers of nodes and ends with a sink node. The maximum depth (number of layers excluding the source and sink node) is randomly chosen from a range of 3 to 7. The number of nodes in each layer is limited to a parallelism parameter of 4 in this experiment. The source node is connected to nodes in the first layer, and nodes in the last layer are connected to the sink node. Any remaining open-ended nodes are connected to nodes in other layers with a probability of 0.05, repeating the process until there are no more open-ended nodes. Execution times CE and DE are randomly assigned to nodes with each execution time falling within a range of 1ms to 40ms and 0.01ms to 0.03ms, respectively. This process is repeated until the total sum of CE falls within a range of 220ms to 280ms. Each node v i has a single callback function that is executed only when all messages have been received from pre(v i ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Evaluation of the End-to-End Response Time</head><p>We use Intel i7-8700 CPU as a reference computing platform and execute ROS tasks on Linux with an additional PRE-EMPT RT patch. Furthermore, since we use a measurementbased method that executes a ROS task on the CPU rather than simulation, we isolate only 4-cores out of 12-cores for accurate evaluation. A process with higher priority always preempts a lower priority process and processes with the same priority run in a round-robin scheduling policy with a 1ms time slice.</p><p>In this experiment, there are two parts: single-instance and multiple-instance. In the single-instance scenario, T src is set to 1s so that instances do not overlap. In the multiple-instance scenario, T src is set to 100ms so that multiple instances running simultaneously. In order to evaluate the performance improvement from each optimization method, the experiment was conducted with 8 cases for single-instance and 8 cases for multiple-instance, for a total of 16 settings. The response time was measured by running each DAG task for 25 seconds, eight times, and taking the worst-case value. The spin rate   80% 20.7% 20.5% 13.6% 0% A+B+C 0% 34.5% 28.2% 13.6% 20% optimization parameters were set as follows: The number of iterations, N = 50. The parameters for simulated annealing, (α, β, γ, ℃) = (0.5, 1.3, 0.9, 100). The results are shown in Fig. <ref type="figure" target="#fig_5">6</ref>, with the normalized response time values by setting the response time to 1.0 when no optimization methods are applied. Optimization A, B, and C correspond to methods presented in Section IV.A, IV.B, and IV.C, respectively.</p><formula xml:id="formula_24">(Optimization A, Optimization B, Optimization C) (X,X,X) (X,X,X) (X,X,O) (X,X,O) (X,O,X) (X,O,X) (X,O,O) (X,O,O) (O,X,X) (O,X,X) (O,X,O) (O,X,O) (O,O,X) (O,O,X) (O,O,O) (O,O,O) (a) Single-Instance Experiment (b) Multiple-Instance Experiment</formula><p>When evaluating single-instance cases, the highest performance is achieved when only spin rate optimization is applied, reducing the response time to 0.36 times the unoptimized value. It is noteworthy that other optimization techniques do not improve performance but rather increase the worst-case response time. This is because optimization methods B and C are more suitable for multiple-instance cases than singleinstance ones. Our proposed priority assignment algorithm gives higher priorities to subsequent nodes considering the overlapping instances, which results in increasing the length of the single instance. In this case, it is practical to use techniques such as <ref type="bibr" target="#b6">[7]</ref> and <ref type="bibr" target="#b8">[9]</ref>, which have been studied extensively. In addition, in the current single-instance experimental setting, TCP/IP does not have to be processed first because there are relatively large available rooms left on the CPU. Although we ignored the time consumed by TCP/IP, in real-world environments, the execution of each node is interfered with TCP/IP, resulting in an additional misalignment delay. Therefore, as seen in Fig. <ref type="figure" target="#fig_5">6</ref>(a), without spin rate optimization, the response time increases by almost 1.5 times.</p><p>In the multiple-instance case evaluation, all three optimization techniques showed improved performance. The best results were achieved when optimization A and optimization C were applied together, reducing the worst-case response time to 0.37 times the unoptimized value. The application of optimization B and C improved performance, but when both were applied together, performance slightly decreased on average. To understand this, we analyzed the best performance setting for each task and categorized them as Table <ref type="table" target="#tab_2">I</ref> based on their response time. For instance, 80% of tasks near 0.12s in response time have the best performance when optimization A and C are applied simultaneously. Here, the response time is an actual value in seconds, not a normalized value. Since the spinning period of v src is fixed to 100ms, the overlapping interval between the instances increases as moving to the right in the table. From the result, as the overlapping interval between instances increases, the ratio of optimization C, in this case, the sum of A+C and A+B+C in Table <ref type="table" target="#tab_2">I</ref>, decreases. On the contrary, the ratio of optimization B, the sum of A+B and A+B+C, increases as the response time increases.</p><p>The intuition behind the observation is that with an increased portion of overlapped intervals, the number of nodes that have to run callback increases. In the case of a single instance, a relatively small number of nodes perform a callback simultaneously because the nodes are executed step by step from the earlier nodes. However, if multiple instances overlap, each instance wants to run different parts of the DAG. For example, in Fig. <ref type="figure">2</ref>, τ i wants to execute nodes from v 6 to v 9 , but τ j wants to execute nodes from v 1 to v 5 in the overlapping interval. Therefore, it increases the need for TCP/IP to run first. Contrariwise, if the overlapping intervals are small, the effect of missing polling time increases due to the time to execute TCP/IP, as in single-instance cases.</p><p>Next, the structure of the DAG significantly affects optimization C. Since the sum of the total CE is restricted to a specific range in our experiment, tasks with a short response time have more parallelizable nodes, while tasks with a long response time have deeper layers. Tasks with many parallelizable nodes put a strain on the limited number of cores, reducing the ability to run new instances. Tasks with a deep depth, however, have less need to run preceding instances first as there are enough cores to run a new instance. Thus, the optimal setting varies based on the instance length and DAG structure, making it important to choose an optimization method considering these factors.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Effectiveness of the Proposed Spin Rate Optimization Technique</head><p>In this experiment, our proposed spin rate optimization algorithm is compared with the existing spin rate assignment technique. Park2022 assumes a round-robin scheduling and minimizes the critical length by complete search. Starting from the source node, it finds the spinning period of critical nodes that makes the critical length shortest by considering all possible spinning periods. Here, we assign each node a period in the range of 0.2ms to 100ms. It focuses on reducing the critical length rather than the overall response time because it assumes that the callback functions of each node are separate for each message and that the critical nodes play the most crucial role among the nodes. For a fair comparison, we use the same experiment setting and tasks used in subsection V.A.</p><p>The results of comparing our proposed spin rate optimization algorithm and the existing spin rate assignment technique (Park2022) are shown in the first row of Table <ref type="table" target="#tab_3">II</ref>. The comparison is made based on single-instance cases where no optimization has been applied, and optimization B and C are not considered to see only the effect of spin rate optimization. The results show that while Park2022 reduces the response time by 30% on average, our algorithm is almost half as short. This indicates that our algorithm is more effective. Additionally, Park2022 is only applicable to round-robin scheduling systems, but our algorithm has a broader scope, covering other scheduling policies. Furthermore, Park2022's assumption that the critical chain solely determines the system performance is not valid for general DAG tasks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Effectiveness of the Proposed Node Priority Assignment Technique</head><p>In this subsection, our proposed node priority assignment algorithm is compared against the start-of-art priority assignment algorithm. He2019 assigns the priority of each node while satisfying two properties. First, they assign priorities to nodes in the topological order (or descending order), which means a node can get priority after all of its ancestor nodes have been assigned priority. It is contrary to our proposed algorithm, which assigns priority in reversed topological order. Second, as in our proposed algorithm, they assign nodes with longer l(v i ) higher priorities. The same settings and tasks were used as in previous experiments.</p><p>The priority assignment algorithm is compared only for multiple-instance cases, as its main focus is to handle such cases. In addition, spin rate optimization was applied to create a more hard situation. In other words, the baseline of multiple-instance cases and Ours in the second row of Table II corresponds to A and A+C in Fig. <ref type="figure" target="#fig_5">6</ref>, respectively. In the case of He2019, the result shows that the performance is improved by about 9 percent over the basic setting because it effectively reduces the length of an instance while quickly satisfying the execution conditions of each node. Our algorithm has improved performance by about 20% because it is possible to reduce the worst-case and average response time by executing the previous instance first. As we described in subsection V.A, our algorithm is ineffective for single-instance cases. However, in situations where multiple instances overlap, our algorithm can be more effective than conventional algorithms.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Implementing Autonomous Software on Board</head><p>Our proposed algorithms are shown to be effective on realworld software, using an Nvidia Jetson AGX Xavier with an 8-core Armv8.2 64-bit CPU and Linux PC with Intel i7-8700 CPU. The Xavier runs Autoware in a Linux environment with PREEMPT RT patch, while the Linux PC runs a real-time simulation in the simulated physical environment provided by SVL <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b17">[18]</ref>. The response time was measured during a simple lane-keeping scenario while isolating 4-cores out of 8-cores to eliminate interference from other processes. Fig. <ref type="figure" target="#fig_6">7</ref> shows the DAG structure of Autoware <ref type="bibr" target="#b1">[2]</ref>. The lidar republisher node publishes LIDAR data every 100ms and serves as the source node, while the twist gate node functions as the sink node. Table III displays the measurements of CE i and DE i for each node on the Xavier board. Most nodes have a longer CE i than DE i , but planning nodes like op global planner, op trajectory generator, and op behavior selector have the same length. This is due to the fact that they only receive messages and finish the callback routine in a brief manner.</p><p>Since Autoware has a deep DAG structure with few parallelizable nodes, spin rate optimization and TCP/IP optimization were applied without assigning priority to the nodes (refer to subsection V.A). In the baseline setting, planning nodes had a low spinning period while other nodes had a high spinning period, but this was changed in the optimization results to give the planning nodes a high spinning period as they had a relatively large DE i (Table <ref type="table" target="#tab_4">III</ref>). In Fig. <ref type="figure" target="#fig_6">7</ref>, solid lines represent critical nodes, and dotted lines represent non-critical nodes. Table <ref type="table" target="#tab_5">IV</ref> shows end-to-end response time results by running a simulation. The average response time and worstcase response time before optimization are considerable but reduced by nearly half after optimization. This shows that our algorithm not only improved the average performance but also the worst-case scenario, which is critical in real-time systems.   In this paper, we propose optimization techniques aimed at reducing the response time of ROS, a widely used tool in robotics. Our methods consist of three optimizations: (i) spin rate optimization, (ii) high ksof tirqd thread priority, and (iii) multiple-instance aware priority assignment. Our experiments, using both randomly generated tasks and real-world software with simulation, show that our approach effectively reduces the average and worst-case response time of tasks. To the best of our knowledge, this is the first paper to propose a mathematical optimization method for the response time that considers misalignment delay and handles overlapping multiple-instance cases. In future work, we will focus on a detailed response time analysis for multiple-instance cases to achieve accurate spin rate optimization.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head></head><label></label><figDesc>Fig. 1: ROS Structure</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head></head><label></label><figDesc>as illustrated in Eq. (2). Here, R ROS k denotes the response time bound of a ROS task, W DE i (R ROS k ) calculates the interference from DE i , and R ROS k within W DE i (R ROS k ) represents the analysis window length. Theorem 2. The response time of a ROS-based DAG task τ k is bounded by the equation below.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>1 :</head><label>1</label><figDesc>SimulatedAnnealing(G, R) 11: end for 12: return T min The pseudo-code for determining the spinning period of each node is shown in Algorithm 1. It takes a task's graph representation as input and each node's spinning period as output. First, the period of each node is initialized to T initial Algorithm 2 Procedure ComputeLocalM inimum(G, M ) Input : DAG G = (V, E); every node v i ∈ V has its CE i , DE i and T i ; the number of cores M Output : T = {T src , ..., T sink } that lists the spinning period of each node; the response time of task R ROS k R ← ∞ 2: λ * ← CriticalP ath(G) 3: R new ← ResponseT ime(G, M, λ * ) 4: while R &gt; R new do 5: R ← R new ; T old ← T 6:</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: A Scheduling Diagram Example with TCP/IP</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 6 :</head><label>6</label><figDesc>Fig. 6: Improvement in End-to-End Response Time</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 7 :</head><label>7</label><figDesc>Fig. 7: Autoware's Node Structure</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>)</head><label></label><figDesc>Proof. Due to the Definition 2, Lemma 2 and Theorem 1, the preceding two terms of the above formula upper bounds the basic response time caused by CE i and MD i . Since the DE i does not execute while CE i is running, a more pessimistic bound can be obtained by calculating the response time as DE i occurs at every polling time of each node. Since the worst scenario occurs when DE i runs in all cores, W DE In Fig.4, there are three types of interfering workloads in DE, namely carry-in, carry-out, and body jobs. The carry-in job refers to the first instance of DE i that starts before the The carry-out job refers to the last instance of DE i that finishes after the window of interest, and all other instances are considered body jobs. A lemma is provided to give a safe upper bound on the interference of default routines within a window length of L.Lemma 3. An upper bound on the interference of default routines DE i in the window length L is given by the formula below.</figDesc><table><row><cell></cell><cell></cell><cell>Ti</cell></row><row><cell></cell><cell>Carry-In</cell><cell></cell><cell>Carry-Out</cell></row><row><cell></cell><cell>t</cell><cell>Analysis Window</cell><cell>t + L</cell></row><row><cell></cell><cell cols="2">Fig. 4: Interfering Workload of DE</cell></row><row><cell></cell><cell>window of interest.</cell><cell></cell></row><row><cell>i</cell><cell>should be</cell><cell></cell></row><row><cell>divided by the number of cores.</cell><cell></cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head>TABLE I :</head><label>I</label><figDesc>Optimization Setting with the Best Performance</figDesc><table><row><cell></cell><cell></cell><cell cols="3">Response Time (s)</cell><cell></cell></row><row><cell></cell><cell>0.12</cell><cell>0.16</cell><cell>0.20</cell><cell>0.24</cell><cell>0.28</cell></row><row><cell>A</cell><cell>0%</cell><cell>6.9%</cell><cell>0%</cell><cell>0%</cell><cell>0%</cell></row><row><cell>A+B</cell><cell cols="5">20% 37.9% 51.3% 72.8% 80%</cell></row><row><cell>A+C</cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head>TABLE II :</head><label>II</label><figDesc>Percentage of Reduction in Response Time</figDesc><table><row><cell></cell><cell cols="3">Park2022 He2019 Ours</cell></row><row><cell>Single-Instance</cell><cell>30%</cell><cell>-</cell><cell>64%</cell></row><row><cell>Multiple-Instance</cell><cell>-</cell><cell>9%</cell><cell>20%</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head>TABLE III :</head><label>III</label><figDesc>Execution Times and Spinning Period for Autoware's Nodes Property of Each Node (in milliseconds) CE i 0.007 1.942 120.25 416.01 7.875 6.138 23.386 1.841 7.65 250.12 17.022 1.967 0.482 0.381 DE i 0.001 0.028 0.032 0.021 0.009 6.138 0.007 0.215 7.</figDesc><table><row><cell></cell><cell>v 1</cell><cell>v 2</cell><cell>v 3</cell><cell>v 4</cell><cell>v 5</cell><cell>v 6</cell><cell>v 7</cell><cell>v 8</cell><cell>v 9</cell><cell>v 10</cell><cell>v 11</cell><cell>v 12</cell><cell>v 13</cell><cell>v 14</cell></row><row><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell></cell><cell>65</cell><cell cols="3">52.46 17.022 0.31</cell><cell cols="2">0.073 0.006</cell></row><row><cell cols="2">T ori 100</cell><cell>100</cell><cell>100</cell><cell>100</cell><cell>100</cell><cell>40</cell><cell>100</cell><cell>40</cell><cell>10</cell><cell>10</cell><cell>10</cell><cell>33</cell><cell>100</cell><cell>100</cell></row><row><cell>T i</cell><cell>100</cell><cell>2.6</cell><cell>4.1</cell><cell>2.4</cell><cell>4.2</cell><cell>49.8</cell><cell>3.9</cell><cell>9.7</cell><cell>61.7</cell><cell>72.5</cell><cell>56.3</cell><cell>6.3</cell><cell>3</cell><cell>0.8</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>TABLE IV :</head><label>IV</label><figDesc>End-to-End Response Time of Autoware</figDesc><table><row><cell></cell><cell cols="2">Baseline Optimization Result</cell></row><row><cell>Average</cell><cell>306 ms</cell><cell>145 ms</cell></row><row><cell cols="2">Worst-Case 548 ms</cell><cell>274 ms</cell></row><row><cell></cell><cell cols="2">VI. CONCLUSION</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 10,2026 at 20:48:45 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGEMENT</head><p>This work was supported by the <rs type="funder">National Research Foundation of Korea(NRF)</rs> grant funded by the <rs type="funder">Korea government(MSIT)</rs> (No. <rs type="grantNumber">2023R1A2C3003007</rs> and No. <rs type="grantNumber">RS-2023-00220985</rs>).</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_UCMPCBE">
+					<idno type="grant-number">2023R1A2C3003007</idno>
+				</org>
+				<org type="funding" xml:id="_Xhtk3vh">
+					<idno type="grant-number">RS-2023-00220985</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">ROS: an open-source robot operating system</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Quigley</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ICRA workshop on open source software</title>
+		<meeting><address><addrLine>Kobe, Japan</addrLine></address></meeting>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="page">5</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Autoware on board: Enabling autonomous vehicles with embedded systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 ACM/IEEE 9th International Conference on Cyber-Physical Systems (ICCPS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<biblScope unit="page" from="287" to="296" />
+		</imprint>
+	</monogr>
+	<note>Conference Proceedings</note>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Exploring the performance of ROS2</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Maruyama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 13th International Conference on Embedded Software, Conference Proceedings</title>
+		<meeting>the 13th International Conference on Embedded Software, Conference Proceedings</meeting>
+		<imprint>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<author>
+			<persName><forename type="first">T</forename><surname>Foote</surname></persName>
+		</author>
+		<ptr target="http://download.ros.org/downloads/metrics/metrics-report-2021-07.pdf" />
+		<title level="m">ROS community metrics report 2021</title>
+		<imprint>
+			<date type="published" when="2021-08">August 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Response-time analysis of conditional dag tasks in multiprocessor systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Melani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2015 27th Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="page" from="211" to="221" />
+		</imprint>
+	</monogr>
+	<note>IEEE, Conference Proceedings</note>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Improved response time analysis of sporadic dag tasks for global FP scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Fonseca</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Nélis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th international conference on real-time networks and systems, Conference Proceedings</title>
+		<meeting>the 25th international conference on real-time networks and systems, Conference Proceedings</meeting>
+		<imprint>
+			<biblScope unit="page" from="28" to="37" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Intra-task priority assignment in real-time scheduling of dag tasks on multi-cores</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Guo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="2283" to="2295" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">HLBS: Heterogeneous laxitybased scheduling algorithm for DAG-based real-time computing</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Suzuki</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 IEEE 4th International Conference on Cyber-Physical Systems, Networks, and Applications</title>
+		<imprint>
+			<publisher>CPSNA</publisher>
+			<biblScope unit="page" from="83" to="88" />
+		</imprint>
+	</monogr>
+	<note>IEEE, Conference Proceedings</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">DAG scheduling and analysis on multiprocessor systems: Exploitation of parallelism and dependency</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Dai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Chang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2020 IEEE Real-Time Systems Symposium (RTSS</title>
+		<imprint>
+			<biblScope unit="page" from="128" to="140" />
+		</imprint>
+	</monogr>
+	<note>IEEE, Conference Proceedings</note>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">RT-ROS: A real-time ROS architecture on multi-core processors</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Wei</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Future Generation Computer Systems</title>
+		<imprint>
+			<biblScope unit="volume">56</biblScope>
+			<biblScope unit="page" from="171" to="178" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Autonomous vehicles: disengagements, accidents and reaction times</title>
+		<author>
+			<persName><forename type="first">V</forename><forename type="middle">V</forename><surname>Dixit</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chand</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">J</forename><surname>Nair</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">PLoS one</title>
+		<imprint>
+			<biblScope unit="volume">11</biblScope>
+			<biblScope unit="issue">12</biblScope>
+			<biblScope unit="page">e0168054</biblScope>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Bounds on multiprocessing timing anomalies</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">L</forename><surname>Graham</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIAM journal on Applied Mathematics</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="416" to="429" />
+			<date type="published" when="1969">1969</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">A ROS2 response-time analysis exploiting starvation freedom and execution-time variance</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bozhko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE Real-Time Systems Symposium (RTSS</title>
+		<imprint>
+			<biblScope unit="page" from="41" to="53" />
+		</imprint>
+	</monogr>
+	<note>IEEE, Conference Proceedings</note>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">PiCAS: New design of priority-driven chain-aware scheduling for ROS2</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2021 IEEE 27th Real-Time and Embedded Technology and Applications Symposium (RTAS</title>
+		<imprint>
+			<biblScope unit="page" from="251" to="263" />
+		</imprint>
+	</monogr>
+	<note>IEEE, Conference Proceedings</note>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<monogr>
+		<title level="m" type="main">Data distribution service (DDS)</title>
+		<author>
+			<persName><forename type="first">O</forename><forename type="middle">M</forename><surname>Group</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">System optimization of ROS-based open source autonomous driving platform on embedded board environment</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Park</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C.-G</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 6th International Conference on Algorithms, Computing and Systems</title>
+		<meeting>the 6th International Conference on Algorithms, Computing and Systems</meeting>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="1" to="7" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Simulated annealing algorithms: An overview</title>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">A</forename><surname>Rutenbar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Circuits and Devices magazine</title>
+		<imprint>
+			<biblScope unit="volume">5</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="19" to="26" />
+			<date type="published" when="1989">1989</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Lgsvl simulator: A high fidelity simulator for autonomous driving</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Rong</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2020 IEEE 23rd International conference on intelligent transportation systems (ITSC)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="1" to="6" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

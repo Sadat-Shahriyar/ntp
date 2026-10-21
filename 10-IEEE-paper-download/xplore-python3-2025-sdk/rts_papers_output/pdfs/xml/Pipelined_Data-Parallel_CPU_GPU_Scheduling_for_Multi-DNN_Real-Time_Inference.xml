@@ -1,0 +1,1045 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Pipelined Data-Parallel CPU/GPU Scheduling for Multi-DNN Real-Time Inference</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Yecheng</forename><surname>Xiang</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">University of California</orgName>
+								<address>
+									<settlement>Riverside</settlement>
+								</address>
+							</affiliation>
+						</author>
+						<author role="corresp">
+							<persName><forename type="first">Hyoseung</forename><surname>Kim</surname></persName>
+							<email>hyoseung@ucr.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">University of California</orgName>
+								<address>
+									<settlement>Riverside</settlement>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Pipelined Data-Parallel CPU/GPU Scheduling for Multi-DNN Real-Time Inference</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">1C2342A95555D31FB5A75B71FF487B5B</idno>
+					<idno type="DOI">10.1109/RTSS46320.2019.00042</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T15:55+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Deep neural networks (DNNs) have been showing significant success in various applications, such as autonomous driving, mobile devices, and Internet of Things. Although much research has been conducted to optimize the structure of DNNs, limited attention has been given to their timely execution, specifically on the scheduling of real-time inference requests to various DNN models. For instance, existing DNN frameworks, such as Caffe, TensorFlow and Torch, only provide a single-level priority, one-DNN-per-process execution model and sequential inference interfaces. They can be particularly problematic when used in edge computing and in-vehicle intelligence systems for multiple DNNs, as response time may become unpredictably long in the worst case while leaving system resources underutilized. This paper presents DART, a DNN scheduling framework that offers deterministic response time to real-time tasks and increased throughput to best-effort tasks. DART employs a pipeline-based scheduling architecture with data parallelism, where heterogeneous CPUs and GPUs are arranged into nodes with different parallelism levels. DART also includes pipeline stage design and node configuration schemes, admission control, execution time profiling, and runtime enforcement techniques. We evaluated DART on Intel x86 Xeon and Nvidia ARM platforms with GPUs. Experimental results indicate that DART significantly outperforms the existing approaches, by up to 98.5% shorter worst-case response time for real-time tasks while simultaneously achieving up to 17.9% higher throughput for best-effort tasks. 392 2019 IEEE Real-Time Systems Symposium (RTSS)</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Deep neural networks (DNNs) have shown great potential for the use in many Internet of Things (IoT) and Cyber-Physical Systems (CPS), such as autonomous driving <ref type="bibr" target="#b8">[9,</ref><ref type="bibr" target="#b31">32]</ref>, smart robotics <ref type="bibr" target="#b10">[11]</ref>, and precision agriculture <ref type="bibr" target="#b44">[45]</ref>. Such systems often have multiple sensing tasks that capture raw sensor data and issue DNN inference requests (jobs) to various pretrained DNN models in order to obtain a high-level representation of the environment. In the meanwhile, due to size, weight, power and cost constraints, running multiple DNN applications concurrently on a single hardware platform is gaining much interest. To ensure the usefulness and correctness of the obtained information, both timely and accurate response of these DNN jobs needs to be provided. A deterministic tail latency bound, i.e., the guaranteed worst-case response time, is particularly important for safety-critical applications as it is closely related to the performance, correctness, and even safety of individual components as well as the entire system.</p><p>The current state-of-art DNN frameworks, such as Caffe <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b21">22]</ref>, TensorFlow <ref type="bibr" target="#b3">[4]</ref>, and Torch <ref type="bibr" target="#b2">[3]</ref>, handle inference jobs in a sequential manner with a single process per DNN model. This approach is useful to achieve high throughput in handling batch jobs. However, they lack consideration for periodic or sporadic jobs with different timing requirements, which are crucial in many IoT and CPS applications. Moreover,</p><formula xml:id="formula_0">( §IV-A) ( §IV-B) ( §IV-C)</formula><p>Fig. <ref type="figure">1</ref>: DART framework overview while multi-core CPUs and hardware accelerators like GPUs have been used to improve the average-case response time of inference jobs, they are often underutilized when multiple DNN models are concurrently requested and their benefits in the worst case are not as significant as in the average case. Since recent embedded hardware platforms are increasingly equipped with heterogeneous CPU and GPU cores, it is important to enable scalable improvement in both the worstcase response time and the overall throughput of DNN tasks by utilizing all computing resources available in the system.</p><p>In this paper, we propose DART, a DNN scheduling framework with Analyzable Real-Time guarantee. The primary goals of DART are (a) to ensure the timing constraints of realtime DNN inference tasks while minimizing their response time, and (b) to maximize the throughput of best-effort DNN tasks by improving the utilization of heterogeneous CPU and GPU cores. To achieve those goals, we have designed DART as illustrated in Fig. <ref type="figure">1</ref>. DART provides a unified runtime environment for the concurrent execution of tasks accessing diverse DNN models and addresses the limitations of the stateof-the-art. DART currently supports CPU and GPU cores on ARM and Intel platforms, e.g., Cortex-A57, Denver, and Xeon CPUs and Nvidia integrated and discrete GPUs, but the design of DART can also be applied to other processor architectures. DART consists of (i) a scheduling architecture integrating inter-node pipelining and intra-node data parallelism with multi-class task support, (ii) resource management with node configuration and DNN partitioning, and (iii) other miscellaneous components including layer execution time profiling, admission control, and task run-time enforcement. We will present the details of these components in Sec. IV.</p><p>We have implemented DART on x86 and ARM platforms equipped with Nvidia GPUs. To realize our design, we have also developed OpenBLAS-rt, an extension of the standard OpenBLAS library with real-time priority and CPU affinity support. Experiments are conducted using this implementation and the run-time overhead is found to be acceptably small.</p><p>It is worth noting that our work does not claim to overcome timing jitters originated from underlying OS or drivers. Instead, the notion of guarantee in this paper is the bound on delays possibly caused by scheduling policies and resource arbitration rules when utilizing heterogeneous processors. Contributions. The overarching contribution of this paper is the runtime framework design which brings algorithmic improvements into the real-time DNN scheduling problem. Our work extends existing knowledge in several ways: adding new system abstractions that do not exist in the current DNN frameworks, developing resource allocation schemes for the proposed abstractions, and presenting analytical extensions to bridge the gap between DNN execution and schedulability analysis. There may be other ways to utilize heterogeneous resources better than ours while ensuring analyzable real-time guarantees, but to the best of our knowledge, this paper is the first work to do so. Below are the detailed contributions:</p><p>• We introduce new abstractions to deal with the different resource requirements of individual layers of DNNs and to facilitate the co-utilization of CPU and GPU in inference job execution. A subset of DNN layers is grouped into task-level stages and allocated to node-level workers which form the foundations to achieve pipeline and data parallelism. • We give a systematic formulation of the real-time DNN scheduling problem as a distributed acyclic scheduling problem. Our analysis captures DNN job execution over the proposed abstractions of stages, nodes, and workers, and takes into account system overheads including inter-node communication, GPU preemption, and data copy time. • We develop resource management algorithms that (i) create the pipeline stages of each task in a way to balance the contention across a given set of processors, and (ii) allocate processor resources to meet timing constraints and to minimize task response time. • From our experimental results, we found that DART significantly outperformed the existing representative methods, by up to 98.5% shorter worst-case latency for real-time tasks while simultaneously achieving up to 17.9% higher throughput for best-effort tasks. DART also dominated the existing methods in DNN taskset schedulability.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND AND MOTIVATION</head></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Deep Neural Networks</head><p>A DNN model can be viewed as a data-flow graph, where artificial neurons and their connections are represented in layers. Fig. <ref type="figure">2</ref> illustrates a general DNN model composed of one input layer taking raw data, one output layer extracting inference results, and multiple hidden layers in between responsible for capturing the features of data. From a highlevel view, working with a DNN has a two-step process. First, training a DNN: it learns weight parameters from provided input training data and their associated output labels. Next, running inference from the trained DNN: it uses its trained parameters to classify, recognize, and process unknown inputs. While training typically takes enormous time even in cloud servers, inference from a trained model is deemed feasible and increasingly required in embedded systems. We thus focus on the timely execution of DNN inference jobs in this work. Fig. <ref type="figure">2</ref>: An example DNN model with one input layer, several hidden layers, and one output layer</p><p>The execution pattern of a DNN inference job can be viewed as forward propagation: input data is processed through an input layer, hidden layers, and an output layer in a layerwise manner. Note that the execution of layers during a single inference job must be done in order. For instance, the first hidden layer can only be executed after the completion of the input layer, otherwise it would propagate erroneous results to its subsequent layers.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. The Status Quo and Challenges</head><p>Modern deep learning frameworks, e.g., Torch, TensorFlow, and Caffe, have become popular in the research community and industry due to their convenience and portability. They handle inference jobs in a sequential manner using a separate process per DNN model. This means, if a system uses m distinct DNN models, at least m instances of the framework need to be created as separate processes. Also, they do not provide prioritization or real-time support for inference tasks. When multiple inference tasks with different timing constraints are given to such a framework, real-time tasks may experience nondeterministic delay and thus the schedulability of tasks is hard to be analyzed. This is a major limiting factor for the use of existing frameworks in safety-critical applications where a deadline miss may cause a huge loss in quality or stability. Let us consider a self-driving car using computer vision algorithms, e.g., <ref type="bibr" target="#b8">[9,</ref><ref type="bibr" target="#b31">32]</ref>, where DNNs are used to detect physical objects and lane markings by analyzing images produced by multiple cameras mounted on the front, side, and rear of the car (Fig. <ref type="figure" target="#fig_0">3</ref>). We refer to each task generating a DNN inference job as a sensor client and a DNN framework handing such a job as an in-vehicle server. Once a client collects an image from a camera, it sends an inference job to the server and waits for the completion of the job. Timely response is a necessity because each job has a deadline and its result is used as input for other components of the car. Given that the car moves forward most time, high priority can be assigned to a task for the front camera, medium for the side ones, and low for the rear ones. There also exist other DNN tasks running with no real-time requirements, i.e., best-effort tasks, such as for monitoring human driver's engagement <ref type="bibr" target="#b13">[14]</ref>.</p><p>Suppose that the low-priority task for the rear-view camera or best-effort tasks generate inference jobs in a burst manner, and the high-priority task for the front camera issues an inference job at the same time. Without real-time scheduling support in the server's framework, the response time of the high-priority job can become unpredictably long and even miss its deadline This can lead to a failure in the timely detection of objects from front-road images, thereby jeopardizing the driving context of the car. As more cameras are being used for wider coverage and other types of DNN tasks, e.g., motion planner <ref type="bibr" target="#b38">[39]</ref>, are introduced, such a timing problem will become more significant in future self-driving systems.</p><p>There are also other issues with the CPU and GPU scheduling of the existing frameworks, which lead to long response time and resource underutilization. We will discuss the details of such issues in Sec. IV-A with a comparison to our work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. SYSTEM MODEL</head><p>This work considers a heterogeneous multi-core system where the main memory is shared among all CPUs. The system R is equipped with one or more types of CPU cores and GPU devices, i.e., R = {c 1 , c 2 , ..., c r } where c i is either a CPU core or GPU. In such a system, our framework constructs a set of nodes for DNN task execution. Each node p k is a disjoint partition of R. Hence, R = p k , and if i = j, p i ∩ p j = ∅. Each node is either a CPU or GPU node. If p k is a CPU node, it has only one type of CPU cores, following the homogeneity assumption commonly made by real-time parallel scheduling work <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b25">26,</ref><ref type="bibr" target="#b29">30]</ref>. <ref type="foot" target="#foot_0">1</ref> If p k is a GPU node, it has one GPU as well as one CPU core to support GPU-related operations, which will be discussed in Sec. IV-A2. We let P denote the entire set of nodes, i.e., P = {p k } = {p 1 , p 2 , ..., p k }. Given all the CPUs and GPUs available in the system R, there can be multiple possible ways to group them into nodes. We define each of such ways as a node configuration P .</p><p>DNN inference tasks are characterized by the sporadic task model <ref type="bibr" target="#b34">[35]</ref> which is widely used and accepted in the realtime systems community and industry. In this model, a task is a sequence of recurring jobs with the minimum inter-arrival time between any two consecutive jobs. We assume each task uses one DNN model and makes one inference request per job. If an application uses multiple DNN models, it can be represented as multiple tasks in our system model. A task τ i is characterized by:</p><formula xml:id="formula_1">τ i := (C i , T i , D i , L i )</formula><p>• C i : the worst-case execution time (WCET) of a single job when it runs in isolation (i.e., no extrinsic temporal interference imposed by other tasks) • T i : the minimum inter-arrival time • D i : the relative deadline of each job • L i : the number of layers of the DNN model used by τ i This work considers two types of DNN tasks: real-time (RT) and best-effort (BE). If τ i is an RT task, it has a constrained deadline, i.e., D i ≤ T i , and the deadline should be strictly met all the time once the task is admitted to the system. If τ i is a BE task, its deadline may be missed by some jobs. When there is no specific deadline required for a BE task τ i , the deadline D i can be set to ∞.</p><p>The execution of a job of τ i can be decomposed into a sequence of L i layers of the DNN model used by it. Due to data dependency, the latter layer can be executed only after the completion of the previous one. The execution time of each layer depends on the node where it executes. Hence, we use τ i,j to denote the j-th layer of τ i and C i,j (p k ) to represent the execution time of τ i,j on a node p k . If p k is a CPU node consisting of more than one CPU core, BLAS multithreading is used and C i,j (p k ) is determined by the slowest thread. If p k is a GPU node, C i,j (p k ) is further decomposed as follows:</p><formula xml:id="formula_2">C i,j (p k ) := (G hd i,j (p k ), G e i,j (p k ), G m i,j (p k ), G dh i,j (p k )) • G hd i,j (p k ):</formula><p>the maximum memory copy time from the host to the device before GPU kernel execution • G e i,j (p k ): the worst-case GPU kernel execution time • G dh i,j (p k ): the maximum memory copy time from the device to the host after GPU kernel execution • G m i,j (p k ): the WCET of miscellaneous CPU operations in τ i,j , e.g., kernel launch preparation This GPU execution model follows the latest real-time GPU work <ref type="bibr" target="#b24">[25,</ref><ref type="bibr" target="#b37">38]</ref>, except that we distinguish memory copy time and miscellaneous CPU operation time. C i,j (p k ) is the sum of all these components. Thus,</p><formula xml:id="formula_3">C i,j (p k ) = G hd i,j (p k ) + G e i,j (p k ) + G m i,j (p k ) + G dh i,j (p k</formula><p>). The worst-case execution time of a job of a task τ i is therefore given by C i = Li j=1 C i,j (p ki,j ), where L i is the number of layers of a DNN model used by τ i and p ki,j is the node assigned for the execution of the j-th layer.</p><p>IV. DART FRAMEWORK This section presents the detailed design of the DART framework. We first introduce the scheduling architecture with CPU and GPU node scheduling, and then explain the resource management algorithms for pipeline stage design, and node configuration and the other components including execution time profiling, admission control and runtime enforcement.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Scheduling Architecture</head><p>DART introduces several system abstractions to exploit pipeline and data parallelism over heterogeneous resources. Hence, we begin with defining the key abstractions as follows.</p><p>Def. 1. The stage s of a task τ i is a subset of consecutive layers of the corresponding DNN model used by the job of τ i . Hence, the entire set of stages of τ i includes all the layers of τ i , i.e., ∪s = ∪τ i,j , and tasks may have a different number and set of stages even if they use the same DNN model. Def. 3. A worker is a scheduler unit that executes per-task stages arriving on the corresponding node. At the same time, the worker is a scheduling entity of the underlying OS, i.e., thread, meaning that the OS schedules workers on nodes.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Def. 2. The execution pipeline of a task τ i is a sequence of stages executed over nodes following their precedence</head><p>DART partitions the DNN inference execution of each task into stages. The stages are then assigned to different nodes and executed by the workers of the nodes in a pipeline manner. The main reasoning behind these abstractions is that each layer of a DNN task may have different sensitivity to the parallelization levels provided by heterogeneous computing resources. For instance, within a single DNN model, some layers may gain large performance improvement with more CPU cores and some others may not exhibit noticeable benefits. If a task using such a DNN model is simply allocated to only one type of resources, which is the case of the current DNN frameworks, the system may become underutilized and inefficient. The use of stages gives flexibility in allocating individual layers of a task to different resources for better utilization. The detailed steps on node configuration, stage partitioning, and resource allocation will be presented in the next subsection.</p><p>Each CPU and GPU node supports scheduling classes for intra-node task scheduling. DART currently has two classes, real-time (RT) and best-effort (BE), in accordance with our system model, but more classes can be added to achieve a finer classification of tasks. The RT class is strictly prioritized over the BE class. DART correspondingly creates two sets of workers, and assigns Linux real-time priority to RT workers and fair-share (normal) priority to BE workers. Then a pair of RT and BE workers is statically allocated to each node for the execution of RT and BE tasks by their respective workers. Each worker has a priority queue for pending tasks. In RT workers, we use the deadline-monotonic (DM) priority assignment for the queue as it gives deterministic guarantees even under overload conditions. In BE workers, we use the earliest-deadline-first (EDF) policy as it is known to achieve higher utilization than DM. While an RT worker can preempt a BE worker on the same node at any time, task execution within each worker is non-preemptive. The reason for the choice of non-preemptive scheduling within a worker is primarily due to the lack of fine-grained priority-based preemption Fig. <ref type="figure">5</ref>: OpenBLAS-rt workflow support in the latest GPUs. <ref type="foot" target="#foot_2">2</ref> Moreover, it helps reduce memory consumption as it does not require each worker to store intermediate computation results of multiple preempted tasks. Fig. <ref type="figure" target="#fig_1">4</ref> illustrates the example of the DART scheduling architecture. In this example, there are one RT and one BE tasks. The RT task has two stages: the first stage is assigned to Node 1 and the second stage to Node 3; Node 2 is not used by the RT task. On the other hand, the BE task has three stages and each allocated to a different node. Although Nodes 1 and 3 are used by both tasks, the RT task is not delayed by the BE task as RT workers can preempt BE workers. Node 1 has two CPU cores and the RT and BE workers of Node 1 each have two BLAS threads for intra-node data parallelism. Node 2 has only one CPU core. Node 3 is a GPU node and each worker on Node 3 has a set of CUDA streams. We below explain more details of CPU and GPU node scheduling in DART.</p><p>1) CPU Node Scheduling: Multi-thread BLAS libraries, such as ATLAS and OpenBLAS, can achieve data parallelism in DNN inference tasks, but they provide only limited control over BLAS thread scheduling. For example, in the latest version of OpenBLAS (v0.3.5), the number of threads and their CPU allocation cannot be configured for individual BLAS operations, but only the total number of threads to be spawned can be set at the time of launching a target process. General multi-threading libraries such as OpenMP cannot be used since they do not support BLAS operations natively and designers have to implement them from scratch.</p><p>To address such limitations and achieve intra-node data parallelism in DART, we have developed OpenBLAS-rt, which is an extension of the existing OpenBLAS library. Fig. <ref type="figure">5</ref> depicts how workers work with OpenBLAS-rt. OpenBLASrt creates two sets of BLAS threads (RT and BE), following the scheduling class design of DART, and assigns Linux realtime priority to RT BLAS threads and normal priority to BE BLAS threads. Also, for incoming BLAS requests, it provides an interface to tell their task class and node information. With OpenBLAS-rt, the number of BLAS threads on a node p k is determined by the number of CPU cores of p k , and each thread is strictly mapped to one core to prevent potential overhead caused by thread migration.</p><p>As an example, Fig. <ref type="figure">6</ref> compares CPU scheduling under three scenarios: (a) launching multiple instances of an existing DNN framework to utilize all CPUs in the system without a multi-threaded BLAS library, (b) a single-process with an existing multi-threaded BLAS library, and (c) DART with OpenBLAS-rt. In this figure, there are four tasks, one RT and three BE, and all of them use the same DNN model consisting of two layers. The system has three CPUs. Layer 1 does not yield much speed-up with more CPUs but layer 2 does. Note that these reflect typical speed-up patterns of DNN workloads which we will show in the evaluation section. All the three BE tasks arrive at time 0. The RT task arrives at 1 and has an absolute deadline at 11. In both (a) and (b), the RT task misses the deadline as the existing framework is oblivious of the priority of DNN tasks. The total completion time of all tasks in (b) is even greater than in (a), because the existing BLAS library always uses a pre-configured number of threads regardless of the presence of diminishing speed-ups. In contrast, DART meets the deadline by RT worker preemption and achieves shorter total completion time. Although DART uses a 2-node configuration in this example, it subsumes the other configurations used in (a) and (b) as those can be found by the resource management schemes of DART.</p><p>2) GPU Node Scheduling: In DART, each GPU node is configured to have one CPU core and one GPU device. The reason for this is because a GPU needs CPU operations, such as for launching a kernel and transmitting data, and any unnecessary delay on the CPU side can cause long idle time to the GPU. The workers of a GPU node makes use of the CUDA stream prioritization and thread-level preemption of Nvidia Pascal and later architectures. Hence, RT and BE workers use CUDA high-priority and low-priority streams, respectively, to execute the GPU kernels of tasks.</p><p>The RT worker executes one kernel at a time and determines the execution order of kernels using the priority of their tasks. This approach follows the majority of existing real-time GPU schemes <ref type="bibr" target="#b11">[12,</ref><ref type="bibr" target="#b24">25,</ref><ref type="bibr" target="#b37">38]</ref> in order not to cause nondeterministic slowdown from concurrent kernel execution <ref type="bibr" target="#b36">[37,</ref><ref type="bibr" target="#b47">48]</ref>. Hence, each RT worker utilizes one high-priority CUDA stream. On the other hand, each BE worker uses multiple low-priority streams in the same CUDA context to maximize the par-  This enables multiple BE kernels to concurrently execute as long as the GPU resources permit, thereby improving overall throughput and GPU utilization. The number of CUDA streams per BE worker is configurable and can be determined by kernel parameters and the compute capability of GPU, e.g., thread block size and maximum resident threads. Fig. <ref type="figure" target="#fig_4">7</ref> compares the GPU scheduling of DART with the two possible cases of the status quo. For simplicity, we skip the time for memory copies in this figure. Existing DNN frameworks, such as Caffe <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b21">22]</ref>, use only one default CUDA stream with no kernel prioritization. Hence, if one instance of the framework is launched, which is the case (a) in the figure, all operations on CPU and GPU are serialized. One may launch multiple instances of the existing DNN framework, which is the case (b). It is worth noting that this is the only way to serve two or more DNN models using the existing framework, including the latest real-time DNN inference work <ref type="bibr" target="#b51">[52]</ref>. Then some operations on the CPU side can be overlapped with GPU kernel execution due to the CPU concurrency provided by multiple processes. However, while the BE kernels have low GPU utilization, e.g., only 25% of the GPU is used by τ BE2 and τ BE3 , this approach cannot support the concurrent execution of the BE kernels as they are launched from different CUDA contexts. Moreover, the execution of the RT kernel is delayed by the BE kernels. In case of DART, all the BE kernels run concurrently, achieving high GPU utilization, and the RT kernel preempts the BE kernels immediately, resulting in short response time.</p><p>One may question if the problems can be addressed in existing frameworks by simply assigning different CUDA streams to different models. However, it does not work because CUDA stream priority is effective only within a given context and does not work across different contexts. In addition, kernels from different CUDA contexts do not execute concurrently and each CUDA context time-shares the GPU, thereby leading to long waiting time and low utilization in GPU execution.  3) Batched Execution: The batched execution of multiple DNN requests is a well-known optimization technique to increase throughput <ref type="bibr" target="#b27">[28,</ref><ref type="bibr" target="#b33">34,</ref><ref type="bibr" target="#b51">52]</ref>. However, it is not suitable for RT tasks since they may suffer from unpredictable delay to fill the batch queue due to their sporadic arrival patterns. Therefore, we allow the batched execution only for BE tasks in DART. The batch size can be configured offline by the user. If the batch size is greater than one, batched execution is enabled and BE workers execute the entire batch of BE jobs as a single large request. This approach can bring higher throughput and better resource utilization to BE tasks, while minimizing interference on the execution of RT workers and the response time of RT tasks. We will discuss the effect of batching in RT task schedulability in the next subsection and present experimental results in Sec. VI.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Resource Management</head><p>The resource management scheme of the DART framework includes two algorithms. The one is to design the stages of one DNN task, either RT or BE, for a given node configuration, and to allocate the stages to the nodes. Using this, the other one is to find a node configuration that satisfies the timing constraints of all RT tasks and minimizes their response time. We first analyze the schedulability of RT tasks in our framework and then present the details of the two algorithms.</p><p>1) Schedulability Analysis: Before analyzing RT task schedulability, we define the stage execution time of a task and the overhead incurred by our framework for stage execution. The execution time of a stage of a task τ i assigned to a node p k , C i,k , is the cumulative execution time of the corresponding layers on p k plus overhead. Thus, C i,k is given by:</p><formula xml:id="formula_4">C i,k = τi,j ∈p k C i,j (p k ) + i,k , : ∃τ i,j ∈ p k 0 : otherwise<label>(1)</label></formula><p>where τ i,j ∈ p k denotes all the layers of τ i execute on p k , and i,k is the total amount of overhead for stage execution on the node p k (will be analyzed later). While Eq. ( <ref type="formula" target="#formula_4">1</ref>) can be used for both CPU and GPU nodes, we can reduce pessimism on GPU nodes. Fig. <ref type="figure" target="#fig_6">8</ref> shows the execution time of a GPU stage comprising three layers. Each layer has memory copies (G hd and G dh ), kernel execution (G e ), and miscellaneous CPU operations (G m ). Eq. ( <ref type="formula" target="#formula_4">1</ref>) captures the execution time of all these segments (shown as (a) in the figure). However, if multiple adjacent layers are executed on the same GPU node, the output of an intermediate layer can remain on the GPU memory and be directly used as input to the next layer. This eliminates the need for unnecessary memory copy and thus reduces the stage execution time. Based on this observation, we compute the stage execution time C i,k on a GPU node p k as follows:</p><formula xml:id="formula_5">C i,k = τi,j ∈p k G e i,j (p k )+G m i,j (p k ) +G hd i,j1 (p k )+G dh i,j2 (p k )+ i,k</formula><p>(2) where j1 and j2 denote the first and the last layers of τ i on the node p k , respectively.</p><p>The overhead i,k mainly comprises four factors: (i) the inter-node communication overhead s i,k , which accounts for the time for signaling from the current node p k of τ i to its next node p k 3 , (ii) the CPU preemption overhead cp k , which is the time to preempt the BE-class worker (and OpenBLAS threads if exist), (iii) the GPU preemption overhead gp k for preempting BE-class CUDA streams while they are executing kernels, and (iv) the non-preemptive CUDA memory copy blocking time caused by BE tasks, gm k , since CUDA stream preemption does not occur during memory copy. The first three factors need to be measured from the implementation. On the other hand, the last factor gm k can be obtained using task parameters:</p><formula xml:id="formula_6">gm k = max τ l ∈p k ∧τ l ∈Γ BE max 1≤j≤L l (G dh l,j (p k ), G hd l,j (p k ))<label>(3)</label></formula><p>This equation takes the longest memory copy time among the layers of all BE tasks running on the GPU node p k because once the memory copy that has been already executing finishes, the CUDA stream of an RT task can start. If batched execution is enabled, the memory copy time should be captured as the cumulative amount of copy time for b BE tasks where b is the batch size. Therefore, RT tasks may experience higher overhead if a larger BE batch size is used. Based on these, we can capture the total overhead i,k as follows: In DART, the stages of RT tasks on each node are scheduled non-preemptively (although they can preempt those of BE tasks on the same node) and the execution sequence of stages of a task across nodes can be modeled as a directed acyclic path in a graph of nodes. Hence, we use the schedulability analysis in <ref type="bibr" target="#b20">[21]</ref> which is developed for non-preemptive distributed acyclic system scheduling. This analysis is based on the non-preemptive DAG delay composition theorem, and reduces the DAG into an equivalent uniprocessor system <ref type="bibr" target="#b20">[21]</ref>. The analysis bounds the worst-case response time R i of a task τ i by the following iterative equation:</p><formula xml:id="formula_7">i,k = s i,k + cp k + max( gp k , gm k )<label>(4</label></formula><formula xml:id="formula_8">R (0) i = C * e (i); R (k) i = C * e (i) + τ h ∈hp(τi) R (k-1) i T h C * h (5)</formula><p>where C * h is the maximum stage execution time of a task τ h 3 s i,k is zero if p k is the node that executes the last stage of a task τ i .</p><p>among all of its stages (denoted as C h,max ), hp(i) is the set of higher-priority RT tasks than τ i , and C * e (i) is given by:</p><formula xml:id="formula_9">C * e (i) = τw∈hep(i) (C w,max + C w,max • SM w,i ) + p k ∈pathi∧ k≤NP -1 max τu∈Γ RT C u,k + p k ∈pathi max τ l ∈lp(i) C l,max<label>(6)</label></formula><p>where SM w,i denotes the total number of splits-and-merges between the paths of τ w and τ i , path i is the set of nodes visited by τ i , hep(i) is the set of RT tasks with priority higher than or equal to τ i , lp(i) is the set of lower-priority RT tasks than τ i , Γ RT is the set of all RT tasks. Eq.( <ref type="formula">5</ref>) finishes when R</p><formula xml:id="formula_10">(k) i = R (k-1) i and the task τ i is schedulable if R (k) i ≤ D i .</formula><p>2) Designing Task Pipeline Stages: Consider a task τ i using an DNN model m that has L i layers. The system has a node configuration P consisting of N P nodes, i.e., P = ∪ NP k {p k } where p k is the k-th node. There may be stages of other tasks that have been already allocated to these nodes. The goal here is to construct the stages of τ i for its L i layers and to allocate each stage to a node in P so that the utilization of N P nodes is balanced after the allocation. The number of stages of τ i can be smaller than or equal to N P , and the stage execution order has to be maintained due to the data dependency between layers. The reason for balancing utilization is to reduce contention on nodes. If one node is particularly contended for by many DNN tasks, it can be a bottleneck in the pipeline of nodes, thereby increasing the response time of RT tasks and reducing the throughput of BE tasks.</p><p>To solve this problem, we present an algorithm by extending the dynamic programming approach for the list partition problem <ref type="bibr" target="#b40">[41]</ref>. Our algorithm aims at minimizing the maximum utilization of a node in the presence of other pre-allocated tasks. Let M [n, k] denote the the utilization of the most loaded node when the first n layers of a task τ i are allocated to the first k nodes, i.e., p 1 , p 2 , ..., p k . The recurrence of the dynamic programming algorithm is given by:</p><formula xml:id="formula_11">M [n, k] = n min x=0 max(M [x, k -1], w[k]+ n y=x+1 U i,y (p k )) (7)</formula><p>where w[k] represents the utilization of a node p k with preallocated tasks (given as input), and U i,y (p k ) is the utilization of the layer y of τ i when it executes on p k , i.e., U i,y (p k ) = C i,y (p k )/T i . The initial conditions are:</p><formula xml:id="formula_12">M [0, k] = 0, M [1, k] = k min q=1 (w[q] + U i,1 (p q ))<label>(8)</label></formula><p>With Eq. ( <ref type="formula">7</ref>), the stage allocation of a task τ i yielding balanced node utilization is found by</p><formula xml:id="formula_13">M [n = L i , k = N P ].</formula><p>3) Finding a Node Configuration for Tasks: Alg. 1 shows the procedure to find a node configuration for all RT and BE tasks in the system. It takes as input a taskset, Γ, and a set of candidate node configurations to be explored, P. For each configuration P ∈ P, the algorithm sorts tasks in descending order of of their average utilization, U avg i , which is computed as</p><formula xml:id="formula_14">U avg i = (1/k) • U i (p k ).</formula><p>Then, it allocates the tasks to the nodes of P by using the dynamic programming approach given Algorithm 1 Find a Node Configuration for Tasks Require: Γ = {τ1, τ2, τ3, ..., τn}: taskset Require: P: a set of candidate node configurations Ensure: P sol : a node config. found (solution); P sol = ∅, if failed.</p><p>1: function FIND NODE CONFIGURATION(Γ, P)</p><p>2:</p><formula xml:id="formula_15">P sol = ∅ /* initialization */ 3:</formula><p>W sol = ∞ /* weighted response time of RT tasks for P sol 4:</p><p>for all P ∈ P do for all τi ∈ Γ in descending order of U avg i do 8:</p><p>Li = the number of layers of τi 9:</p><p>Compute M [Li, NP ] for τi by Eq. ( <ref type="formula">7</ref>)</p><p>10:</p><p>Store the stage-to-node allocation of τi Γ RT = a set of all RT tasks in Γ 13:</p><p>if ∀τi ∈ Γ RT passes the schedulability test of Eq. ( <ref type="formula">5</ref>) then for all V ∈ V do </p><formula xml:id="formula_16">P = {[c1...c θ 1 -1 ], [c θ 1 ...c θ 2 -1 ], ..., [c θ k-1 ...c |V | ]} 10:</formula><p>if all nodes ∈ P satisfies the system model then 11:</p><p>P = P ∪ P return P 12: end function in (7) (line 9 of Alg. 1), and updates the w array based on the resulting allocation of each task. The algorithm checks if all RT tasks can meet their deadlines under this configuration, by using the schedulability test given by Eq. ( <ref type="formula">5</ref>). If they pass the test, it computes the sum of the weighted worstcase response time of all RT tasks (line 15). The weight is a normalized weight computed as π i /|Γ RT |, where π i is the relative order of τ i 's real-time priority and |Γ RT | is the number of RT tasks. The algorithm uses this weight to better represent the relative importance of each RT task's response time and to quantitatively compare different node configurations. Finally, the algorithm chooses the one with the minimum sum of weight response time and returns it. If it cannot find any configuration that satisfies the schedulability of RT tasks, an empty set is returned as failure.</p><p>To generate candidate node configurations, P, we present Alg. 2 which takes two input parameters: R, a set of CPU cores and GPU devices available in the system, and N max P , the maximum number of nodes allowed for each configuration. In R, each GPU has been already paired with one CPU core and that CPU core is not present. N max P can be chosen considering system parameters, e.g., the number of CPU clusters and the number of GPUs. However, since the delay caused by lowerpriority tasks in non-preemptive scheduling is proportional to the the number of nodes (not the number of lower-priority tasks) <ref type="bibr" target="#b20">[21]</ref>, it is better not to use an overly large N max P . The algorithm first obtains distinct permutations of R considering the same type of CPU cores as duplicates. For example, for an Nvidia TX2 platform with 1 GPU pre-paired with 1 A57 core, 3 other A57 cores, and 2 Denver cores, the number of permutations is (1 + 3 + 2)!/(3! • 2!) = 60. Then, for each permutation V , it splits V into k nodes, where 1 ≤ k ≤ N max P , by considering the combinations of k -1 partitions between nodes (line 6). If the resulting node configuration P satisfies our system model where a CPU node has only one type of cores and a GPU node has no other CPU core rather than its pre-paired one, P is considered legal and added to P.</p><p>DART uses the above two algorithms in the initialization phase with a static taskset. In the runtime phase, DART can accept new tasks via admission control, but does not change the node configuration, as doing so may cause excessive overhead and affect other tasks being executed. To reduce such overhead and enable runtime node re-configuration, one may consider other heuristics or manual tuning, instead of Alg. 2.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Other Miscellaneous Components 1) Layer-wise Execution Time Profiling:</head><p>To perform resource management and check task schedulability, the worstcase execution time (WCET) of individual layers of DNN models on each node needs to be estimated. DART takes a measurement-based approach for WCET estimation using a layer-wise profiling mechanism. Fig. <ref type="figure">9</ref> illustrates the procedure of the profiling mechanism. When DART starts, it first checks if a profile database exists for all DNN models it supports. If not, it executes all the supported models on all nodes of candidate node configurations (from Alg. 2), and measures their execution time by running n times that the user can choose. Then it estimates the WCET by taking the maximum among the observed execution time history. After this, DART enters the runtime phase and starts accepting inference jobs.</p><p>Note that the WCET estimated by the above procedure may be violated at any time when longer execution time is observed. To mitigate this problem, DART continuously updates the profile database at runtime. Upon the completion of each layer execution, DART checks if the execution time exceeds the WCET observed before. If so, DART updates the WCET for that layer and triggers run-time task enforcement. The profiling mechanism of DART also allows using more robust WCET estimation methods, e.g., extreme value theory <ref type="bibr" target="#b30">[31]</ref>, as it stores historical execution time data in the database. This is an interesting topic but beyond the scope of this paper.</p><p>2) Admission Control: DART includes an admission control mechanism to ensure that all accepted RT tasks can meet their deadlines. The schedulability of RT tasks is analyzed by using Eq. ( <ref type="formula">5</ref>), and it is used by Alg. 1 to find a node configuration for a static taskset during the initialization phase. Fig. <ref type="figure">9</ref>: Procedure of layer-wise execution time profiling At runtime, when there is a new task, the admission control first determines the stage-to-node allocation of the new task using Eq. 7, and then checks if the new task is RT or BE. In case of RT, the task is accepted only when all RT tasks including the new one are schedulable. In case of BE, it is accepted as long as its longest GPU memory copy time is smaller than or equal to the existing g k m value, because the other parts of the BE task will not delay existing RT tasks due to the scheduling class design of DART. It is worth noting that the runtime admission control executes with normal priority and thus does not interfere with RT workers.</p><p>3) Run-time Task Enforcement: The execution time of each layer is monitored at runtime by the profiling mechanism. If it exceeds the WCET previously recorded in the database and is caused by an RT task, DART immediately demotes the task to BE and executes the subsequent layers of that task in the BE scheduling class. If the WCET exceedance is caused by a BE task, its deadline is changed to infinite so as to minimize the negative impact on other BE tasks. Then DART performs the schedulability test of RT tasks with the new WCET value. If all RT tasks remain schedulable, the task demoted to the BE class is recovered to the RT class. Otherwise, the user is alerted that the system can no longer meet the deadlines of all RT tasks and needs to be reconfigured.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. IMPLEMENTATION</head><p>DART is implemented for Intel Xeon and Nvidia TX2 platforms running Ubuntu 16.04. We used Caffe v1.0 <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b21">22]</ref> as our implementation basis and CUDA 9.0 for GPU programming <ref type="foot" target="#foot_3">4</ref> . The WCET database of the profiling mechanism, taskset information, and node configurations are managed in the JSON format for convenience.</p><p>The stock version of Caffe allocates memory for a Net instance, which stores trained network model parameters and intermediate computation results together in the same data structure. When multiple tasks use the same DNN model, each task needs to have its own Net instance, but it causes memory wastage because multiple copies of the same model parameters are created. To address this issue, our implementation introduces a new dataNet class that allows the separation of the computation results from the model parameters. Hence, for tasks using the same DNN model, only one memory instance of model parameters can be allocated and shared by the tasks, thereby saving memory.</p><p>We designed a custom application-level messaging protocol based on TCP/IP so that DART can accept new tasks at runtime and receive inference jobs of admitted RT/BE tasks. With this protocol, both local and remote tasks can be served by DART. The protocol includes: i) messages sent from tasks to DART for timing constraints, DNN models to use, and input data for inference, and ii) messages sent from DART to tasks for admission control results, inference output, and plain text for user alerts. For the synchronization of workers, we implemented an event notification mechanism using condition_variable from C++11 std library.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. EVALUATION A. Experiment Setup</head><p>We evaluate DART against two baselines: BaseCPU and BaseGPU. These represent the state-of-the-art DNN inference frameworks supporting multiple DNNs, such as TensorRT Inference Server<ref type="foot" target="#foot_4">5</ref> and Tensorflow Serving<ref type="foot" target="#foot_5">6</ref> , which are frontend services using Caffe or Tensorflow as back-end. BaseCPU and BaseGPU each have a single run queue for each model to distribute workload across different processors. To make a fair comparison with DART, we also add priority queues to the two baselines, so that when multiple tasks are waiting for the start of execution, real-time tasks can be prioritized over besteffort ones. Then we create one process for each DNN model used since the state-of-the-art frameworks support one DNN model per process by default. <ref type="foot" target="#foot_6">7</ref> BaseCPU performs all of its operations on CPUs by the multi-thread OpenBLAS library, and BaseGPU uses the GPU. The two baselines are implemented based on stock Caffe V1.0. We evaluate DART and the two baselines on Intel Xeon and Nvidia TX2 platforms. The Xeon platform has an 8-core 2.1GHz Intel Xeon E2620 v4 CPU and an Nvidia GTX 1080 discrete GPU. The TX2 platform is equipped with an SoC that has a quad-core ARM Cortex-A57 CPU cluster, a dual-core Denver CPU cluster, and an integrated GPU. Four DNN models are considered in the evaluation: Alexnet <ref type="bibr" target="#b27">[28]</ref>, LeNet <ref type="bibr" target="#b28">[29]</ref>, VGGnet <ref type="bibr" target="#b1">[2]</ref>, for object classification, and Pilotnet <ref type="bibr" target="#b8">[9]</ref>, for self-driving. All the CPUs and GPUs on both platforms are configured to run at their maximum clock frequency. Unrelated system services, e.g. WiFi and lightDM, are disabled to avoid potential interference. Runtime Overhead. Recall that, under DART, when the execution flow moves from one stage to another one, only a signal is sent to the next node. There is no performance loss due to cache refills since each node executes different part of layers and does not reuse the cache blocks of the previous node. Switching from CPU to GPU nodes requires memory copy, which is captured in our system model and in Eq. ( <ref type="formula">2</ref>).</p><p>The major runtime overhead introduced by DART is therefore the time for synchronization and communication among  nodes. This overhead may vary depending on the architecture type of CPU cores. Hence, we measured the overhead on the TX2 platform which has two different core types. The results are shown in Table <ref type="table" target="#tab_3">I</ref>. We hypothesized that the communication overhead between different types of cores would be larger than that between the same type of cores, but it turned out the time between two Denver cores were the highest. However, these costs are acceptably small or marginal, compared with the typical layer execution time of DNN tasks and the improvement achieved by DART. Table <ref type="table" target="#tab_4">II</ref> shows the GPU kernel preemption overhead caused by CUDA priority stream. We observe that such preemption overhead is relatively small, yet we already take into account by modeling it as the gp term in Eq. ( <ref type="formula" target="#formula_7">4</ref>).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. DNN Execution Time Profiling</head><p>For all the DNN models used for evaluation, we have estimated the worst-case execution time of each layer under different node configurations by using the profiling mechanism of DART. Due to the space limit, we report only one of the results, LeNet on TX2, in Fig. <ref type="figure">10</ref>. Three ARM A57 cores are shown here as one ARM core is paired with the GPU. The execution time of layers 1, 7, 8, and 9 are too small, compared to the others, and not discernible in this figure. We observe that the speed-up from an increased number of CPU cores varies significantly by layers. For example, layers 3 and 5 do not gain any noticeable benefit by increasing the number of A57 cores from one to three; on the other hand, layers 2 and 4 have speedups with more CPUs. In general, the speedup gradually diminishes on both Xeon and TX2 platforms as the number of cores increases. We also observe the performance characteristics of different types of processors. On both platforms, the GPU takes much less execution time than CPUs on most layers, but there are cases where the GPU is only &lt; 2 times faster than CPUs, e.g., ARM*3 for layer 2 in the figure. Denver CPU cores overall perform better than ARM A57 CPUs. The results show the potential resource inefficiency that can be caused when resources are assigned blindly, and thus motivate the support for heterogeneous resources provided by DART.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Schedulability Experiments</head><p>Based on the collected layer WCET profiles, we have conducted schedulability experiments using randomly-generated bi-modal tasksets. The parameters we consider to generate tasksets are the number of tasks, periods (= deadlines), DNN models, and the ratio of tasks using heavy models to all tasks in a taskset. Based on the execution time measurement of the DNN model, we consider tasks using VGGnet and Alexnet as heavy-model tasks, and those using Pilotnet and LeNet as light-model tasks. Since our focus is on schedulability, Fig. <ref type="figure">10</ref>: LeNet layer execution time profile on TX2 only RT tasks are considered and no BE tasks are used here. The two baselines are both single-node systems and thus can be modeled as uni-processor systems with faster processors. Hence, we apply the standard iterative response time test to check schedulability of the taskset. For DART, we apply the schedulability analysis introduced in the previous section. Xeon and TX2 platforms. The task deadlines are randomly chosen between 300 and 500 ms. Each taskset has 10 RT tasks. We observe that, with higher heavy-model task ratios, the percentage of schedulable tasksets decreases for all the three approaches since the tasks with longer execution time are harder to meet deadlines. Xeon has higher schedulability than TX2 because the same taskset parameters are used on both platforms and Xeon is more computationally powerful than TX2. However, DART dominates the other two in all experimental conditions. Specifically, on Xeon with the ratio of 0.6, DART schedules about 90% of tasksets while the other two schedule none of them. We then change the number of tasks per taskset and compare the taskset schedulability. Fig. <ref type="figure">12</ref> depict the results on Xeon and TX2. As can be seen, tasksets become harder to schedule as more tasks exist in the system. DART, however, still always outperforms the two baselines. The results indicate that DART effectively utilizes given CPU and GPU resources and its benefit is significant in scheduling real-time DNN tasks.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Response Time and Throughput</head><p>To understand the performance characteristics of DNN frameworks in response time and throughput, we have conducted a case study with a mixture of real-time (RT) and best-effort (BE) tasks on Xeon and TX2 platforms. The taskset we used is given in Table <ref type="table" target="#tab_5">III</ref>. There are four RT tasks, two using pilotnet and the other two using alexnet. The deadlines of the RT tasks are set equal to their periods, and with tiebreaking, pilot_rt_1 has the highest priority. There are also three BE tasks, each of which uses a different DNN model. The jobs of the BE tasks arrive in a back-to-back manner, i.e., a new job arrives as soon as the previous one finishes, in order to overload the system. All the BE and RT tasks are located in different machines and make requests to the system running a DNN framework over an Ethernetbased local area network (LAN). Note that the amount of input data and output results are considerably small compared to the bandwidth of the network (&lt; 1%). We also consider batched execution with the representative batch sizes of 8, 16 and 32 to evaluate their effects in response time and throughput. The batch size n is denoted as a suffix _bn in the label, e.g., BaseGPU_b1 and BaseGPU_b16 mean BaseGPU without batching and with the batch size of 16, respectively. For BaseCPU, we present only the results without batched execution as we observed inappreciable improvement in throughput but significant deterioration in response time when batching was enabled.</p><p>In this environment, we measure the end-to-end response time of RT tasks and the throughput of BE tasks under the Fig. <ref type="figure">15</ref>: Throughput of BE tasks three different DNN frameworks. Fig. <ref type="figure" target="#fig_0">13</ref> and Fig. <ref type="figure" target="#fig_1">14</ref> show the response time CDF of pilot_rt_2 and alexnet_rt_2 on Xeon and TX2, respectively (x-axis in log scale). These tasks have the second highest and lowest real-time priority in the taskset, which are good to demonstrate the impact of interference from higher-priority RT tasks and other BE tasks.</p><p>Overall, DART gives much smaller tail latency than the others at the respective batch size. The tail latency increases with the batch size under all approaches, but such slowdown is much less in DART than BaseGPU. In case of alexnet_rt_2 on TX2 with the batch size of 32, DART achieves 98.5% reduction in the maximum observed response time over BaseGPU. This is not only due to the RT and BE worker design of DART, but also due to its GPU node scheduling which uses separate streams for RT and BE kernels with CUDA stream prioritization. Conversely, under BaseGPU, an RT job may need to wait until the batch is filled up, and RT kernels may be delayed by BE kernels that have arrived earlier and been already executing. Even without batching, DART achieves 89.9% reduction in the maximum observed response time.</p><p>We have also measured the throughput of the BE tasks while the above four RT tasks are concurrently running in the same environment. Fig. <ref type="figure">15</ref> shows the throughput of each BE task on Xeon and TX2. Batched execution significantly improves the throughput under both DART and BaseGPU. However, the improvement diminishes after the batch size reaches 16. For all the BE tasks, DART gives the highest throughput, with as much as 17.9% higher throughput than BaseGPU for lenet_be_1 on TX2 with the batch size of 32. This improvement of DART comes from two factors: the use of CPU cores together with the GPU for DNN inference tasks, and the use of multiple CUDA streams for concurrent kernel execution. In summary, the results give strong evidence that the efficient utilization of heterogeneous CPU and GPU resources is crucial in both low latency and high throughput.</p><p>DART achieves these two simultaneously and dominates the other baselines that are representative of the state-of-the-art.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. RELATED WORK</head><p>DNN Inference Frameworks. As DNNs have been widely adopted in real-time applications such as <ref type="bibr" target="#b8">[9,</ref><ref type="bibr" target="#b10">11,</ref><ref type="bibr" target="#b42">43,</ref><ref type="bibr" target="#b44">45]</ref>, much effort has been invested in improving the performance of DNN inference. DeepSense <ref type="bibr" target="#b49">[50]</ref> utilizes a GPU to speed up DNN computation. Glimpse <ref type="bibr" target="#b9">[10]</ref> and MCDNN <ref type="bibr" target="#b15">[16]</ref> are realtime mobile DNN frameworks collaborating with the cloud. Neurosurgeon <ref type="bibr" target="#b22">[23]</ref> is a distributed inference framework with a light-weight scheduler, which partitions DNN computation between local and cloud machines in a layer granularity to improve latency. DART can be extended for such edgecomputing scenarios by modeling a remote machine or cloud server as yet another node, but network delay needs to be taken into account. DeepEye <ref type="bibr" target="#b33">[34]</ref> is developed to achieve DNN inference on a memory-limited embedded device by using model-compression and layer-interleaving. DeepMon <ref type="bibr" target="#b17">[18]</ref> implements layer caching, decomposition and multiplication techniques to achieve a low-latency mobile-GPU DNN framework. S 3 DNN [52] is developed for real-time workloads and improves average-case response time by applying supervised streaming and scheduling on GPUs. The work in <ref type="bibr" target="#b48">[49]</ref> recently presents a case study on pipelining, parallelism, and image composition techniques for autonomous driving DNN applications. Note that both <ref type="bibr" target="#b51">[52]</ref> and <ref type="bibr" target="#b48">[49]</ref> assume only one type of DNN model, YOLO, and thus can be subject to the same problem as the status quo, when multiple DNN models are concurrently used. While all of the aforementioned frameworks have targeted on lowering inference latency, they do not focus on ensuring the timing constraints of DNN tasks in the worst-case scenario. In other words, they are not amenable to real-time schedulability analysis and do not offer deterministic worst-case response time while improving throughput. These limitations are addressed in this paper. DNN Optimization Techniques. Much work has focused on compressing DNN models or layers <ref type="bibr" target="#b12">[13,</ref><ref type="bibr" target="#b14">15,</ref><ref type="bibr" target="#b26">27,</ref><ref type="bibr" target="#b45">46,</ref><ref type="bibr" target="#b50">51]</ref>. They are motivated by trading-off output accuracy for performance gain. Some of these techniques achieve great speed-up, e.g., a 94.5% improvement in execution time without significant loss of accuracy <ref type="bibr" target="#b50">[51]</ref>. Such optimization techniques can also be applied to DART to achieve shorter execution time of each DNN model and a more balanced pipeline, which helps improve latency and throughput.</p><p>Pipeline and GPU Scheduling. Jayachandran et al. proposed the delay composition theorem to analyze real-time pipelines under preemptive and non-preemptive scheduling <ref type="bibr" target="#b19">[20]</ref> and then later extended it to DAG tasks <ref type="bibr" target="#b20">[21]</ref>. DART utilizes the DAG-version of the theorem to check the schedulability of real-time tasks. However, other approaches, such as local deadline assignment <ref type="bibr" target="#b16">[17]</ref>, can also be potentially used in our framework and we wish to investigate it in the future. Real-time GPU scheduling has been extensively investigated in the literature. Many earlier schemes <ref type="bibr" target="#b11">[12,</ref><ref type="bibr" target="#b24">25,</ref><ref type="bibr" target="#b37">38]</ref> launch one kernel at a time to guarantee bounded response time. Recent studies <ref type="bibr" target="#b36">[37,</ref><ref type="bibr" target="#b47">48]</ref> report that the concurrent execution of multiple kernels can improve throughput and GPU utilization, but at the cost of predictability. To achieve better performance isolation, techniques to split a GPU into multiple partitions have been proposed <ref type="bibr" target="#b18">[19,</ref><ref type="bibr" target="#b39">40]</ref>. Nvidia Multi-Process Service (MPS) <ref type="bibr" target="#b35">[36]</ref> is a middleware that facilitates concurrent kernel execution when kernels are launched from different processes or CUDA contexts. However, at the time of writing, it is available only on x86 architectures and does not provide a direct control over the CUDA stream priority of real-time kernels. The GPU node scheduling of DART is designed to take the best of both predictability-and throughput-oriented approaches.</p><p>Memory-induced Interference. Temporal interference caused by shared memory resources, such as caches, DRAM, and memory buses, has been considered a serious problem in multi-core real-time systems <ref type="bibr" target="#b5">[6,</ref><ref type="bibr" target="#b23">24,</ref><ref type="bibr" target="#b32">33,</ref><ref type="bibr" target="#b41">42,</ref><ref type="bibr" target="#b43">44,</ref><ref type="bibr" target="#b46">47]</ref>. Recent work <ref type="bibr" target="#b4">[5]</ref> reports that such memory-induced interference can cause as much as 3× slowdown to GPU kernel execution in CPU-GPU integrated SoCs like Nvidia TX2, when memorybandwidth-intensive synthetic tasks are co-scheduled on CPUs. In this paper, we did not focus on this problem since our primary goal was to establish a real-time DNN framework with improvements on scheduling algorithms and abstractions. We also did not observe any significant slowdown of DNN tasks in our experiments. However, due to the increasing complexity of DNN models, memory interference may soon become a limiting factor in real-time DNN systems. We believe a more sophisticated system addressing such issues can be built upon DART. For instance, software techniques to protect against DoS attacks on the last-level cache shared among CPUs <ref type="bibr" target="#b7">[8]</ref> and to partition the compute and memory resources of GPUs including streaming multiprocessors, caches, and DRAM <ref type="bibr" target="#b18">[19]</ref> can be integrated into the CPU and GPU nodes of DART to achieve a higher degree of performance isolation.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. CONCLUSIONS</head><p>In this paper, we presented DART, a real-time DNN framework that offers deterministic response time to real-time DNN inference tasks and supports concurrent execution of various types of DNN models. We have implemented the scheduling architecture of DART and its key components, including pipeline stage design, node configuration, execution time profiling, admission control, and runtime enforcement, on Intel Xeon and Nvidia TX2 platforms. Experiment results show that DART yields significant improvement in the maximum response time and throughput over the status quo, and gains substantial benefit from heterogeneous CPU and GPU resources.</p><p>The inter-node pipelining and intra-node parallelism design of DART offers several interesting directions for future work. First, remote machines can be modeled as one of the nodes in the pipeline and can be utilized to address the computational limit of local hardware. Second, other types of hardware accelerators, such as FPGAs, can be co-used with CPUs and GPUs for larger DNNs. Third, shared memory resources, such as caches and memory buses, and their performance interference are worth investigating to improve performance isolation in CPU and GPU parallelization. We plan to explore these topics in the future.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: A self-driving car with front, side, rear-view cameras and field of view Example: Self-driving Car.Let us consider a self-driving car using computer vision algorithms, e.g.,<ref type="bibr" target="#b8">[9,</ref><ref type="bibr" target="#b31">32]</ref>, where DNNs are used to detect physical objects and lane markings by analyzing images produced by multiple cameras mounted on the front, side, and rear of the car (Fig.3). We refer to each task generating a DNN inference job as a sensor client and a DNN framework handing such a job as an in-vehicle server. Once a client collects an image from a camera, it sends an inference job to the server and waits for the completion of the job. Timely response is a necessity because each job has a deadline and its result is used as input for other components of the car. Given that the car moves forward most time, high priority can be assigned to a task for the front camera, medium for the side ones, and low for the rear ones. There also exist other DNN tasks running</figDesc><graphic coords="2,447.48,486.31,105.22,72.13" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: DART scheduling architecture constraints, e.g., the next stage of a task τ i on a node p k is eligible to run once the execution of its previous stage completes on the other node p q .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head></head><label></label><figDesc>Fig. 6: CPU scheduling in the status quo and DART</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head></head><label></label><figDesc>(a) Status quo: single CUDA stream (single-process) (b) Status quo: different CUDA contexts (multi-process) (c) DART: shared CUDA context with stream prioritization</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 7 :</head><label>7</label><figDesc>Fig.7: GPU scheduling in the status quo and DART allelism provided by internal computing units of the GPU. This enables multiple BE kernels to concurrently execute as long as the GPU resources permit, thereby improving overall throughput and GPU utilization. The number of CUDA streams per BE worker is configurable and can be determined by kernel parameters and the compute capability of GPU, e.g., thread block size and maximum resident threads. Fig.7compares the GPU scheduling of DART with the two possible cases of the status quo. For simplicity, we skip the time for memory copies in this figure. Existing DNN frameworks, such as Caffe<ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b21">22]</ref>, use only one default CUDA stream with no kernel prioritization. Hence, if one instance of the framework is launched, which is the case (a) in the figure, all operations on CPU and GPU are serialized. One may launch multiple instances of the existing DNN framework, which is the case (b). It is worth noting that this is the only way to serve two or more DNN models using the existing framework, including the latest real-time DNN inference work<ref type="bibr" target="#b51">[52]</ref>. Then some operations on the CPU side can be overlapped with GPU kernel execution due to the CPU concurrency provided by multiple processes. However, while the BE kernels have low GPU utilization, e.g., only 25% of the GPU is used by τ BE2 and τ BE3 , this approach cannot support the concurrent execution of the BE kernels as they are launched from different CUDA contexts. Moreover, the execution of the RT kernel is delayed by the BE kernels. In case of DART, all the BE kernels run concurrently, achieving high GPU utilization, and the RT kernel preempts the BE kernels immediately, resulting in short response time.One may question if the problems can be addressed in existing frameworks by simply assigning different CUDA streams to different models. However, it does not work because CUDA stream priority is effective only within a given context and does not work across different contexts. In addition, kernels from different CUDA contexts do not execute concurrently and each CUDA context time-shares the GPU, thereby leading to long waiting time and low utilization in GPU execution.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: GPU stage execution time</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head></head><label></label><figDesc>) It is worth noting that the equation takes the maximum of gp k and gm k as they do not occur simultaneously.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>5 : 6 : 7 :</head><label>567</label><figDesc>for k = 1 to N max P do /* number of nodes per config */ for all case Θ of |V | k-1 do /* split V into k nodes */ Θ = {θ1, θ2, ..., θ k-1 } 8: /* each bracket [] in P indicates a node */ 9:</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Fig. 11 :</head><label>11</label><figDesc>Fig. 11: Schedulability w.r.t. the ratio of heavy-model tasks</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_11"><head>(a) CDF of pilot rt 2 (b) CDF of alexnet rt 2 Fig. 13 : 2 Fig. 14 :</head><label>2213214</label><figDesc>Fig. 13: Response time CDF of real-time tasks on Xeon</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head>TABLE I :</head><label>I</label><figDesc>Inter-node communication overhead on TX2</figDesc><table><row><cell cols="5">Time (us) A57-A57 A57-Den Den-A57 Den-Den</cell></row><row><cell>Average</cell><cell>20.83</cell><cell>36.33</cell><cell>42.58</cell><cell>51.45</cell></row><row><cell>Maximum</cell><cell>48</cell><cell>69</cell><cell>82</cell><cell>102</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head>TABLE II :</head><label>II</label><figDesc>CUDA stream kernel preemption overhead</figDesc><table><row><cell cols="3">Time (us) GTX 1080 TX2</cell></row><row><cell>Average</cell><cell>17.87</cell><cell>28.76</cell></row><row><cell>Maximum</cell><cell>52</cell><cell>121</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_5"><head>TABLE III :</head><label>III</label><figDesc>Taskset information on Xeon and TX2</figDesc><table><row><cell>Task name</cell><cell cols="4">DNN model Deadline Class RT Prio</cell></row><row><cell>pilot_rt_1</cell><cell>Pilotnet</cell><cell>150 ms</cell><cell>RT</cell><cell>90</cell></row><row><cell>pilot_rt_2</cell><cell>Pilotnet</cell><cell>150 ms</cell><cell>RT</cell><cell>89</cell></row><row><cell>alexnet_rt_1</cell><cell>Alexnet</cell><cell>200 ms</cell><cell>RT</cell><cell>88</cell></row><row><cell>alexnet_rt_2</cell><cell>Alexnet</cell><cell>200 ms</cell><cell>RT</cell><cell>87</cell></row><row><cell>pilot_be_1</cell><cell>Pilotnet</cell><cell>-</cell><cell>BE</cell><cell>-</cell></row><row><cell>alexnet_be_1</cell><cell>Alexnet</cell><cell>-</cell><cell>BE</cell><cell>-</cell></row><row><cell>lenet_be_1</cell><cell>LeNet</cell><cell>-</cell><cell>BE</cell><cell>-</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>One of the challenges is that if workload on one parallel segment is distributed into threads on heterogeneous cores, e.g., fast and slow cores, it is hard to predictably bound and ensure the benefit of fast cores unless assuming that the workload can be perfectly load-balanced.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_1"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 11,2026 at 23:58:43 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_2"><p>GPUs using the Nvidia Pascal architecture, e.g., TX2 and GTX 1080, support only two priority levels for kernel preemption.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_3"><p>We have chosen Caffe to implement DART as Caffe has been one of the most widely used frameworks driven by academia. It is implemented in C++. It also has less dependencies compared to Tensorflow or Pytorch.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_4"><p>https://github.com/NVIDIA/tensorrt-inference-server</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="6" xml:id="foot_5"><p>https://github.com/tensorflow/serving</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="7" xml:id="foot_6"><p>This is the case for the latest version of TensorRT Inference Server. While it allows creating more processes per model for better throughput, doing so may negatively affect the latency of other models.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<ptr target="http://caffe.berkeleyvision.org" />
+		<title level="m">Caffe</title>
+		<imprint>
+			<date type="published" when="2019-03-30">2019-03-30</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<monogr>
+		<ptr target="https://gist.github.com/ksimonyan/" />
+		<title level="m">Ilsvrc-2014 model (vgg team) with 16 weight layers</title>
+		<imprint>
+			<date>211839e770f7b538e2d8</date>
+			<biblScope unit="page" from="2019" to="2022" />
+		</imprint>
+	</monogr>
+	<note># file-readme-md</note>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<ptr target="http://torch.ch" />
+		<title level="m">Torch</title>
+		<imprint>
+			<date type="published" when="2019-03-30">2019-03-30</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<monogr>
+		<title level="m" type="main">TensorFlow: Large-scale machine learning on heterogeneous systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Abadi</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+	<note>Software available from tensorflow.org</note>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Protecting real-time GPU applications on integrated CPU-GPU SoC platforms</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Ali</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of tasks with corunnerdependent execution times</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><forename type="middle">D</forename><surname>Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lehoczky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Embedded Computing Systems (TECS)</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page">71</biblScope>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Response-time analysis of parallel fork-join workloads with real-time constraints</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Axer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Denial-of-service attacks on shared cache in multicore: Analysis and prevention</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bechtel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title level="m" type="main">End to end learning for self-driving cars</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bojarski</surname></persName>
+		</author>
+		<idno>CoRR, abs/1604.07316</idno>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Glimpse: Continuous, real-time object recognition on mobile devices</title>
+		<author>
+			<persName><forename type="first">T</forename><forename type="middle">Y</forename></persName>
+		</author>
+		<author>
+			<persName><forename type="first">-H</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM Conf. on Embedded Networked Sensor Systems (SenSys)</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Grasping virtual fish: A step towards robotic deep learning from demonstration in virtual reality</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">S</forename><surname>Dyrstad</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">R</forename><surname>Mathiassen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Conference on Robotics and Biomimetics</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">GPUSync: A framework for real-time GPU management</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">Dynamic network surgery for efficient dnns</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Guo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Yao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Chen</surname></persName>
+		</author>
+		<idno>CoRR, abs/1608.04493</idno>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Prediction of driver&apos;s drowsy and alert states from EEG signals with deep learning</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hajinoroozi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Workshop on Computational Advances in Multi-Sensor Adaptive Processing</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<monogr>
+		<title level="m" type="main">Deep compression: Compressing deep neural network with pruning, trained quantization and huffman coding</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Han</surname></persName>
+		</author>
+		<idno>CoRR, abs/1510.00149</idno>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">MCDNN: An approximation-based execution framework for deep stream processing under resource constraints</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Han</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Mobile Systems, Applications, and Services (MobiSys)</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Meeting end-to-end deadlines through distributed local deadline assignments</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Hong</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">DeepMon: Mobile GPU-based deep learning framework for continuous vision applications</title>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">N</forename><surname>Huynh</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Mobile Systems, Applications, and Services (MobiSys)</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Fractional GPUs: Software-based compute and memory bandwidth reservation for GPUs</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Jain</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Baek</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Delay composition in preemptive and non-preemptive real-time pipelines</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Jayachandran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Abdelzaher</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">40</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="290" to="320" />
+			<date type="published" when="2008-12">Dec 2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Transforming distributed acyclic systems into equivalent uniprocessors under preemptive and non-preemptive scheduling</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Jayachandran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Abdelzaher</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Caffe: Convolutional architecture for fast feature embedding</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Jia</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM International Conference on Multimedia (MM)</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Neurosurgeon: Collaborative intelligence between the cloud and mobile edge</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Kang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIGARCH Comput. Archit. News</title>
+		<imprint>
+			<biblScope unit="volume">45</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="615" to="629" />
+			<date type="published" when="2017-04">Apr. 2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Bounding memory interference delay in cotsbased multi-core systems</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Mutlu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">A server-based approach for predictable GPU access control</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTCSA</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Parallel scheduling for cyber-physical systems: Analysis and case study on a self-driving car</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE/ACM International Conference on Cyber-Physical Systems (ICCPS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<monogr>
+		<title level="m" type="main">Compression of deep convolutional neural networks for fast and low power mobile applications</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Kim</surname></persName>
+		</author>
+		<idno>CoRR, abs/1511.06530</idno>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Imagenet classification with deep convolutional neural networks</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Krizhevsky</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Advances in neural information processing systems</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Gradientbased learning applied to document recognition</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Lecun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Bottou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Bengio</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Haffner</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Proceedings of the IEEE</title>
+		<imprint>
+			<biblScope unit="volume">86</biblScope>
+			<biblScope unit="issue">11</biblScope>
+			<biblScope unit="page" from="2278" to="2324" />
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Analysis of federated and global scheduling for parallel realtime tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">J</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="85" to="96" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Extreme value theory for estimating task execution time bounds: A careful look</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lima</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dias</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Barros</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">The architectural implications of autonomous driving: Constraints and acceleration</title>
+		<author>
+			<persName><forename type="first">S.-C</forename><surname>Lin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Real-time cache management framework for multi-core architectures</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Mancuso</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Dudko</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Betti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cesati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">DeepEye: Resource efficient local execution of multiple deep vision models using wearable commodity hardware</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Mathur</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Annual International Conference on Mobile Systems, Applications, and Services (MobiSys)</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<monogr>
+		<title level="m" type="main">Fundamental design problems of distributed systems for the hard real-time environment</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">K</forename><surname>Mok</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1983">1983</date>
+		</imprint>
+		<respStmt>
+			<orgName>Massachusetts Institute of Technology</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">PhD Thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">Multi-process service</title>
+		<author>
+			<persName><surname>Nvidia</surname></persName>
+		</author>
+		<ptr target="https://docs.nvidia.com/deploy/pdf" />
+	</analytic>
+	<monogr>
+		<title level="s">CUDA Multi Process Service Overview.pdf</title>
+		<imprint>
+			<date type="published" when="2019-08-20">2019-08-20</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">An evaluation of the NVIDIA TX1 for supporting real-time computer-vision workloads</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Analytical enhancements and practical insights for MPCP with self-suspensions</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Patel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">From perception to decision: A data-driven approach to end-to-end motion planning for autonomous ground robots</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Pfeiffer</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Conference on Robotics and Automation (ICRA)</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">STGM : Spatio-Temporal GPU Management for Real-Time Tasks</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">K</forename><surname>Saha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTCSA</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<monogr>
+		<title level="m" type="main">The algorithm design manual</title>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">S</forename><surname>Skiena</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+			<publisher>Springer</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<analytic>
+		<title level="a" type="main">Coordinated bank and cache coloring for temporal protection of memory accesses</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Suzuki</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Wrage</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Klein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE International Conference on Embedded Software and Systems (ICESS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">On removing routing protocol from future wireless networks: A real-time deep learning approach for intelligent traffic control</title>
+		<author>
+			<persName><forename type="first">F</forename><surname>Tang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Wireless Communications</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="154" to="160" />
+			<date type="published" when="2018-02">February 2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<analytic>
+		<title level="a" type="main">Taming non-blocking caches to improve isolation in multicore real-time systems</title>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">K</forename><surname>Valsan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Yun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Farshchi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b44">
+	<analytic>
+		<title level="a" type="main">Farmbeats: An IoT platform for data-driven agriculture</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Vasisht</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">NSDI</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b45">
+	<analytic>
+		<title level="a" type="main">CNNPack: Packing convolutional neural networks in the frequency domain</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Wang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Advances in neural information processing systems</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b46">
+	<analytic>
+		<title level="a" type="main">vCAT: Dynamic cache management using CAT virtualization</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Xu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Thi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Phan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H.-Y</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b47">
+	<analytic>
+		<title level="a" type="main">Avoiding pitfalls when using Nvidia GPUs for real-time tasks in autonomous systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b48">
+	<analytic>
+		<title level="a" type="main">Re-thinking CNN frameworks for time-sensitive autonomous-driving applications: Addressing an industrial challenge</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b49">
+	<monogr>
+		<title level="m" type="main">Deepsense: A unified deep learning framework for time-series mobile sensing data processing</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Yao</surname></persName>
+		</author>
+		<idno>CoRR, abs/1611.01942</idno>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b50">
+	<monogr>
+		<title level="m" type="main">Compressing deep neural network structures for sensing systems with a compressor-critic framework</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Yao</surname></persName>
+		</author>
+		<idno>CoRR, abs/1706.01215</idno>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b51">
+	<analytic>
+		<title level="a" type="main">S3DNN: Supervised streaming and scheduling for GPU-accelerated real-time DNN workloads</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bateni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

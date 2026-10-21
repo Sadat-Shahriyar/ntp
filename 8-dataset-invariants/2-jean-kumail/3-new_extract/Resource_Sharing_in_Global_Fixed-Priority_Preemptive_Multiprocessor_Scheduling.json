@@ -1,0 +1,525 @@
+{
+  "paper_name": "Resource_Sharing_in_Global_Fixed-Priority_Preemptive_Multiprocessor_Scheduling",
+  "paper_description": "This paper introduces a new resource-sharing protocol called PARALLEL-PCP (P-PCP) and develops schedulability tests for both P-PCP and the Priority Inheritance Protocol (PIP) under global fixed-priority preemptive multiprocessor scheduling. It extends existing response-time analysis to account for resource sharing, aiming to provide pre-runtime guarantees for deadline satisfaction, especially for tasks with short resource usage durations.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Definition 1",
+      "formal_description": {
+        "statement": "A sporadic task tau_i is characterized as (T_i, C_i, D_i), where T_i is the minimum inter-arrival time, C_i is the worst-case execution time, and D_i is the relative deadline. Jobs of task tau_i require C_i units of processing capacity within D_i time units from release, and successive jobs must be released at least T_i time units apart. The system considers constrained-deadline tasks, meaning D_i <= T_i for all i.",
+        "variables": {
+          "tau_i": "sporadic task i",
+          "T_i": "minimum inter-arrival time of task tau_i",
+          "C_i": "worst-case execution time of task tau_i",
+          "D_i": "relative deadline of task tau_i"
+        },
+        "assumptions": [],
+        "conclusion": "Defines the fundamental properties of a sporadic task in the system model."
+      },
+      "informal_sketch": {
+        "intuition": "This defines what a task is in this real-time system. Each task has a timing behavior (how often it arrives and how long it needs to run) and a deadline by which it must complete.",
+        "steps": [
+          "Define task parameters: T_i (period), C_i (execution time), D_i (deadline).",
+          "Jobs of task tau_i must finish within D_i of their arrival.",
+          "Jobs of task tau_i arrive at least T_i apart.",
+          "Deadlines are no longer than periods (D_i <= T_i)."
+        ],
+        "pseudocode": "class Task:\n    def __init__(self, T, C, D):\n        self.T = T  # minimum inter-arrival time\n        self.C = C  # worst-case execution time\n        self.D = D  # relative deadline\n        if D > T:\n            # This paper focuses on constrained deadlines, though the definition itself doesn't strictly enforce it.\n            # For analysis, D_i <= T_i is assumed.\n            pass",
+        "key_insights": [
+          "Specifies the workload and timing constraints of each task."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 2",
+      "formal_description": {
+        "statement": "A job J of task tau_i is directly blocked at time t on a request for resource R_k if: 1) at time t, job J is one of the m highest effective-priority jobs with remaining execution time; 2) at time t, resource R_k is locked by a job having lower base-priority than J; and 3) job J made a request for resource R_k and this request has not been granted until time t.",
+        "variables": {
+          "J": "a job of task tau_i",
+          "tau_i": "task i",
+          "t": "current time",
+          "R_k": "resource k",
+          "m": "number of processors",
+          "effective_priority": "priority of a job considering potential boosts",
+          "base_priority": "inherent priority of a task",
+          "J_lower_priority": "a job with lower base-priority than J"
+        },
+        "assumptions": [
+          "global fixed-priority preemptive scheduling",
+          "resource sharing protocol"
+        ],
+        "conclusion": "Defines the condition under which a job is prevented from executing due to a lower-priority job holding a required resource."
+      },
+      "informal_sketch": {
+        "intuition": "This defines a specific type of delay called 'direct blocking'. It happens when a job needs a resource, but that resource is currently held by another job that has a lower priority. This is a key source of pessimism in schedulability analysis.",
+        "steps": [
+          "Consider a job J of task tau_i that needs resource R_k.",
+          "Check if J is among the 'top m' jobs that are ready to run (highest effective priorities).",
+          "Check if R_k is currently held by a job with a lower base priority than J.",
+          "Check if J's request for R_k has been made but not yet granted.",
+          "If all conditions are met, J is directly blocked."
+        ],
+        "pseudocode": "def is_directly_blocked(job_J, resource_Rk, current_time, ready_queue, resource_locks):\n    # Assume ready_queue is sorted by effective_priority (highest first)\n    # Assume resource_locks maps resource_id to holding_job_id\n    \n    # Condition 1: J is among the m highest effective-priority jobs\n    if job_J not in ready_queue[:m]:\n        return False\n    \n    # Condition 2: R_k is held by a lower base-priority job\n    if resource_Rk in resource_locks:\n        holding_job = resource_locks[resource_Rk]\n        if holding_job.base_priority < job_J.base_priority:\n            # Condition 3: J requested R_k and it's not granted\n            if job_J.requested_resource == resource_Rk and not job_J.resource_granted:\n                return True\n    \n    return False",
+        "key_insights": [
+          "Direct blocking is a specific form of priority inversion where a higher-priority job is stalled by a lower-priority job holding a resource.",
+          "It's a critical factor in calculating worst-case response times."
+        ]
+      },
+      "dependencies": [
+        "Definition 1"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 3",
+      "formal_description": {
+        "statement": "A job J of task tau_i is said to be ready for execution whenever it is not directly blocked and not requesting a resource locked by a higher-base-priority job.",
+        "variables": {
+          "J": "a job of task tau_i",
+          "tau_i": "task i",
+          "resource_locked_by_higher_priority": "a resource requested by J that is locked by a job with higher base-priority"
+        },
+        "assumptions": [
+          "global fixed-priority preemptive scheduling",
+          "resource sharing protocol"
+        ],
+        "conclusion": "Defines the state of a job being able to execute."
+      },
+      "informal_sketch": {
+        "intuition": "A job is 'ready' to run if it's not waiting for anything that would prevent its execution. This means it's not directly blocked (as defined previously) and it's not waiting for a resource that is currently held by a higher-priority job (which is a standard preemptive scheduling scenario, not a blocking scenario).",
+        "steps": [
+          "A job J is ready if it is NOT directly blocked.",
+          "A job J is ready if it is NOT requesting a resource that is currently locked by a higher-base-priority job."
+        ],
+        "pseudocode": "def is_job_ready(job_J, resource_locks, higher_priority_resource_requests):\n    # Assume is_directly_blocked is a function that checks Definition 2\n    if is_directly_blocked(job_J, ...):\n        return False\n    \n    # Check if job_J is requesting a resource held by a higher priority job\n    # This is a simplification; the actual check would involve looking at job_J's requests\n    # and comparing with resource_locks for higher priority jobs.\n    if job_J.requested_resource in higher_priority_resource_requests:\n        return False\n        \n    return True",
+        "key_insights": [
+          "Distinguishes between delays due to priority inversion (blocking) and standard preemptive delays."
+        ]
+      },
+      "dependencies": [
+        "Definition 2"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 4",
+      "formal_description": {
+        "statement": "For a task tau_i, N_i,k is the maximum number of times a single job of tau_i can request resource R_k. C_i,k is the maximum worst-case resource usage time for resource R_k by any single request of tau_i. C_Ti,k is the maximum total resource usage time for resource R_k by any single job of tau_i (sum of usage times over all requests for R_k). RS_i is the set of all resources accessed by jobs of tau_i. L_k is the largest base-priority among all tasks that access resource R_k.",
+        "variables": {
+          "tau_i": "task i",
+          "N_i_k": "max number of requests for R_k by a job of tau_i",
+          "C_i_k": "max usage time of R_k per request by tau_i",
+          "C_Ti_k": "max total usage time of R_k by a job of tau_i",
+          "RS_i": "set of resources accessed by tau_i",
+          "R_k": "resource k",
+          "L_k": "highest base-priority of a task accessing R_k"
+        },
+        "assumptions": [],
+        "conclusion": "Defines parameters related to resource access patterns and characteristics for each task."
+      },
+      "informal_sketch": {
+        "intuition": "These definitions quantify how tasks interact with shared resources. They specify how many times a task might need a resource, how long it uses it for each request, and the total time it uses it per job. They also define the highest priority task that uses a given resource.",
+        "steps": [
+          "N_i,k: How many times can a job of tau_i ask for R_k?",
+          "C_i,k: What's the longest a single use of R_k by tau_i can take?",
+          "C_Ti,k: What's the total time a job of tau_i spends using R_k across all its requests for it?",
+          "RS_i: Which resources does tau_i use?",
+          "L_k: What's the highest priority among all tasks that use R_k?"
+        ],
+        "pseudocode": "class Task:\n    def __init__(self, T, C, D):\n        self.T = T\n        self.C = C\n        self.D = D\n        self.resource_accesses = {}\n        # resource_accesses: dict mapping resource_id to AccessInfo\n\nclass AccessInfo:\n    def __init__(self, max_requests, max_usage_per_request, max_total_usage):\n        self.N_i_k = max_requests\n        self.C_i_k = max_usage_per_request\n        self.C_Ti_k = max_total_usage\n\n# Global data structure to store highest priority for each resource\nresource_highest_priority = {}\n\ndef initialize_task_resources(tasks):\n    for task_i in tasks:\n        for resource_k, access_info in task_i.resource_accesses.items():\n            if resource_k not in resource_highest_priority:\n                resource_highest_priority[resource_k] = task_i.base_priority\n            else:\n                resource_highest_priority[resource_k] = min(resource_highest_priority[resource_k], task_i.base_priority)\n\n# L_k would be resource_highest_priority[R_k]",
+        "key_insights": [
+          "Quantifies resource contention and usage patterns.",
+          "L_k is crucial for protocols like PCP and P-PCP."
+        ]
+      },
+      "dependencies": [
+        "Definition 1"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 5",
+      "formal_description": {
+        "statement": "A task set T is schedulable on m processors if for every task tau_i in T, its worst-case response time R_i is less than or equal to its deadline D_i.",
+        "variables": {
+          "T": "set of tasks",
+          "m": "number of processors",
+          "tau_i": "task i",
+          "R_i": "worst-case response time of task tau_i",
+          "D_i": "deadline of task tau_i"
+        },
+        "assumptions": [
+          "global fixed-priority preemptive scheduling",
+          "resource sharing protocol"
+        ],
+        "conclusion": "Defines the condition for schedulability of a task set."
+      },
+      "informal_sketch": {
+        "intuition": "A system is considered schedulable if every single task within it can meet its deadline under the worst possible conditions. The worst-case response time is the longest time a job of that task might take to finish.",
+        "steps": [
+          "For each task tau_i in the task set T:",
+          "Calculate its worst-case response time, R_i.",
+          "Check if R_i is less than or equal to its deadline, D_i.",
+          "If this holds for all tasks, the task set T is schedulable."
+        ],
+        "pseudocode": "def is_task_set_schedulable(task_set, num_processors):\n    for task_i in task_set:\n        R_i = calculate_worst_case_response_time(task_i, task_set, num_processors)\n        if R_i > task_i.D:\n            return False\n    return True",
+        "key_insights": [
+          "Schedulability is determined by the worst-case behavior of each individual task.",
+          "The core problem is accurately calculating R_i."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 3"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 1",
+      "formal_description": {
+        "statement": "The response time R_i of a task tau_i can be calculated using the iterative equation: R_i = C_i + DB_i + T_Vhp_dsr_i + W_hp_osr_i + W_hp_nsr_i + W_lpi_m, where: C_i is the task's execution time, DB_i is the upper bound on direct blocking, T_Vhp_dsr_i is the upper bound on execution by higher-priority tasks holding resources also used by tau_i, W_hp_osr_i is the upper bound on execution by higher-priority tasks holding other resources, W_hp_nsr_i is the upper bound on execution by higher-priority tasks not holding any resources, and W_lpi_m is the upper bound on execution by lower-priority tasks with effective-priority higher than tau_i, divided by m.",
+        "variables": {
+          "R_i": "worst-case response time of task tau_i",
+          "tau_i": "task i",
+          "C_i": "worst-case execution time of task tau_i",
+          "DB_i": "upper bound on direct blocking for tau_i",
+          "T_Vhp_dsr_i": "upper bound on execution by higher-priority tasks on shared resources used by tau_i",
+          "W_hp_osr_i": "upper bound on execution by higher-priority tasks on other shared resources",
+          "W_hp_nsr_i": "upper bound on execution by higher-priority tasks not holding any resources",
+          "W_lpi_m": "upper bound on execution by lower-priority tasks with effective-priority > tau_i, divided by m",
+          "m": "number of processors"
+        },
+        "assumptions": [
+          "global fixed-priority preemptive scheduling",
+          "resource sharing protocol",
+          "non-nested resource accesses"
+        ],
+        "conclusion": "Provides a structural decomposition of the worst-case response time into its constituent components."
+      },
+      "informal_sketch": {
+        "intuition": "This claim breaks down the total time a job of task tau_i might take to finish (its response time) into several distinct parts. It's the task's own execution time plus various forms of interference and blocking from other tasks.",
+        "steps": [
+          "Start with the task's own execution time (C_i).",
+          "Add the maximum possible direct blocking time (DB_i).",
+          "Add interference from higher-priority tasks that are using resources tau_i also needs (T_Vhp_dsr_i).",
+          "Add interference from higher-priority tasks using other resources (W_hp_osr_i).",
+          "Add interference from higher-priority tasks not using any resources (W_hp_nsr_i).",
+          "Add interference from lower-priority tasks that might have their priority boosted (W_lpi_m), considering the multiprocessor nature (division by m)."
+        ],
+        "pseudocode": "def calculate_response_time_iterative(task_i, task_set, num_processors):\n    # Initial guess for R_i (e.g., C_i)\n    R_i_current = task_i.C\n    \n    while True:\n        # Calculate each component based on R_i_current\n        DB_i = calculate_direct_blocking(task_i, task_set, R_i_current)\n        T_Vhp_dsr_i = calculate_hp_dsr_interference(task_i, task_set, R_i_current)\n        W_hp_osr_i = calculate_hp_osr_interference(task_i, task_set, R_i_current)\n        W_hp_nsr_i = calculate_hp_nsr_interference(task_i, task_set, R_i_current)\n        W_lpi_m = calculate_lpi_multiprocessor_interference(task_i, task_set, R_i_current, num_processors)\n        \n        R_i_next = task_i.C + DB_i + T_Vhp_dsr_i + W_hp_osr_i + W_hp_nsr_i + W_lpi_m\n        \n        if R_i_next == R_i_current:\n            return R_i_next\n        R_i_current = R_i_next\n        # Add a safeguard for non-convergence if needed",
+        "key_insights": [
+          "Response time is a sum of self-work and interference/blocking from others.",
+          "The iterative approach is necessary because interference terms depend on the response time itself."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 2",
+        "Definition 3",
+        "Definition 5"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 6",
+      "formal_description": {
+        "statement": "N_z(t, x) denotes the total number of jobs of task tau_z whose x relevant units completely execute within an interval of length t (including the carry-in job). W_z(t, x) gives the total workload of jobs of task tau_z, considering that x of the C_z execution units are relevant for this computation. W_z(t, x) = x * N_z(t, x) + min(x, t - x + D_z - T_z * N_z(t, x)).",
+        "variables": {
+          "N_z_t_x": "number of jobs of tau_z with x relevant units in interval t",
+          "W_z_t_x": "total workload of tau_z jobs in interval t, considering x relevant units",
+          "tau_z": "task z",
+          "t": "interval length",
+          "x": "number of relevant execution units",
+          "C_z": "worst-case execution time of task tau_z",
+          "D_z": "deadline of task tau_z",
+          "T_z": "period of task tau_z"
+        },
+        "assumptions": [
+          "sporadic tasks",
+          "specific worst-case execution pattern (carry-in late, others early)"
+        ],
+        "conclusion": "Defines functions to calculate the number of jobs and total workload of a task within a given time interval, considering a specific portion of its execution as 'relevant'."
+      },
+      "informal_sketch": {
+        "intuition": "These functions help estimate how much work a task can contribute within a specific time window. They are designed to capture the worst-case scenario where jobs arrive and execute in a way that maximizes their contribution to interference or blocking within that window.",
+        "steps": [
+          "N_z(t, x): Count how many jobs of task tau_z can fit their 'x' relevant execution units within time 't'. This uses the formula floor((t - x) / T_z) + 1 for the carry-in job and subsequent jobs.",
+          "W_z(t, x): Calculate the total execution time contributed by these jobs. It's the 'x' relevant units per job multiplied by the number of jobs (N_z(t, x)), plus any remaining execution time that can fit within the interval, capped by the task's deadline and period constraints."
+        ],
+        "pseudocode": "def calculate_N_z(task_z, t, x):\n    # Number of jobs of task_z whose x relevant units *completely* execute within t.\n    # This formula is derived from considering the worst-case arrival pattern.\n    # The carry-in job's x relevant units finish at or before t.\n    # Other jobs' x relevant units start as early as possible and finish at or before t.\n    # The formula floor((t - x) / T_z) + 1 is a common pattern for this.\n    return math.floor((t - x) / task_z.T) + 1\n\ndef calculate_W_z(task_z, t, x):\n    N_z = calculate_N_z(task_z, t, x)\n    # The workload is x units per job, for N_z jobs.\n    # Plus, there might be remaining execution time for the last job that fits.\n    # The term min(x, t - x + D_z - T_z * N_z) accounts for this remaining execution.\n    # It's the minimum of the relevant execution time 'x' and the remaining time in the interval 't'\n    # after accounting for the 'x' units of the carry-in job and the periods of other jobs.\n    # The '+ D_z - T_z * N_z' part is related to the deadline and period constraints.\n    return x * N_z + min(x, t - x + task_z.D - task_z.T * N_z)",
+        "key_insights": [
+          "Models worst-case job arrivals and execution within a time window.",
+          "The 'x' parameter allows focusing on specific parts of execution (e.g., resource usage)."
+        ]
+      },
+      "dependencies": [
+        "Definition 1"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 2",
+      "formal_description": {
+        "statement": "DB_i = sum_{k: R_k in RS_i} N_i,k * C_i,k. This is an upper bound on the total direct blocking time experienced by a job of task tau_i.",
+        "variables": {
+          "DB_i": "upper bound on direct blocking for task tau_i",
+          "tau_i": "task i",
+          "R_k": "resource k",
+          "RS_i": "set of resources accessed by tau_i",
+          "N_i_k": "max number of requests for R_k by a job of tau_i",
+          "C_i_k": "max usage time of R_k per request by tau_i"
+        },
+        "assumptions": [
+          "non-nested resource accesses",
+          "PIP or P-PCP"
+        ],
+        "conclusion": "Provides a formula for calculating the maximum direct blocking time."
+      },
+      "informal_sketch": {
+        "intuition": "Direct blocking occurs when a higher-priority task needs a resource held by a lower-priority task. This claim estimates the maximum time this can happen. It's the sum, over all resources tau_i uses, of the maximum number of times tau_i might request that resource, multiplied by the maximum time each request takes.",
+        "steps": [
+          "Iterate through all resources R_k that task tau_i accesses (R_k in RS_i).",
+          "For each resource R_k, find the maximum number of times a job of tau_i can request it (N_i,k).",
+          "For each request, find the maximum time it uses the resource (C_i,k).",
+          "Multiply N_i,k by C_i,k to get the maximum blocking time for R_k.",
+          "Sum these values over all resources R_k in RS_i to get the total maximum direct blocking time (DB_i)."
+        ],
+        "pseudocode": "def calculate_direct_blocking(task_i, task_set):\n    DB_i = 0\n    for resource_k in task_i.RS_i:\n        # Assuming task_i.resource_accesses[resource_k] contains N_i_k and C_i_k\n        access_info = task_i.resource_accesses[resource_k]\n        N_i_k = access_info.N_i_k\n        C_i_k = access_info.C_i_k\n        DB_i += N_i_k * C_i_k\n    return DB_i",
+        "key_insights": [
+          "Assumes worst-case: every request for a resource by tau_i is blocked by a lower-priority task holding it.",
+          "Non-nested access simplifies this calculation."
+        ]
+      },
+      "dependencies": [
+        "Definition 2",
+        "Definition 4"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 3",
+      "formal_description": {
+        "statement": "Ihp_dsr_i = sum_{k: R_k in RS_i} sum_{z: tau_z has higher base-priority than tau_i and R_k in RS_z} W_z(R_i, C_z). This is an upper bound on the execution by higher-priority tasks holding resources also used by tau_i.",
+        "variables": {
+          "Ihp_dsr_i": "upper bound on interference from higher-priority tasks on shared resources used by tau_i",
+          "tau_i": "task i",
+          "tau_z": "task z",
+          "R_k": "resource k",
+          "RS_i": "set of resources accessed by tau_i",
+          "RS_z": "set of resources accessed by tau_z",
+          "R_i": "current estimate of response time for tau_i",
+          "C_z": "worst-case execution time of task tau_z"
+        },
+        "assumptions": [
+          "global fixed-priority preemptive scheduling",
+          "resource sharing protocol",
+          "non-nested resource accesses"
+        ],
+        "conclusion": "Provides a formula for calculating interference from higher-priority tasks on shared resources that tau_i also uses."
+      },
+      "informal_sketch": {
+        "intuition": "This term accounts for the execution time of higher-priority tasks that are using resources that tau_i also needs. In the worst case, these higher-priority tasks might be executing their 'relevant' portion (which could be resource usage) during tau_i's response time window.",
+        "steps": [
+          "Iterate through all resources R_k that task tau_i accesses (R_k in RS_i).",
+          "For each such resource R_k, iterate through all tasks tau_z that have a higher base-priority than tau_i.",
+          "If tau_z also accesses R_k (R_k in RS_z):",
+          "Calculate the maximum workload of tau_z within the current response time window R_i, considering C_z as the 'relevant' execution time (W_z(R_i, C_z)).",
+          "Sum these workloads over all such tau_z and R_k to get Ihp_dsr_i."
+        ],
+        "pseudocode": "def calculate_hp_dsr_interference(task_i, task_set, R_i):\n    Ihp_dsr_i = 0\n    for resource_k in task_i.RS_i:\n        for task_z in task_set:\n            if task_z.base_priority < task_i.base_priority: # tau_z has higher priority\n                if resource_k in task_z.RS_z:\n                    # Here, C_z is considered the 'relevant' execution for W_z\n                    # This assumes that any execution of a higher-priority task using a shared resource\n                    # can potentially interfere. The 'x' in W_z(t,x) is C_z here.\n                    workload_z = calculate_W_z(task_z, R_i, task_z.C)\n                    Ihp_dsr_i += workload_z\n    return Ihp_dsr_i",
+        "key_insights": [
+          "Focuses on interference from higher-priority tasks on *contended* resources.",
+          "Uses the W_z(t, x) function to model worst-case workload within the response time window."
+        ]
+      },
+      "dependencies": [
+        "Definition 4",
+        "Definition 6",
+        "Claim 1"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 4",
+      "formal_description": {
+        "statement": "Ihp_osr_i = sum_{k: R_k not in RS_i} sum_{z: tau_z has higher base-priority than tau_i and R_k in RS_z} W_z(R_i, C_z). This is an upper bound on the execution by higher-priority tasks holding other shared resources.",
+        "variables": {
+          "Ihp_osr_i": "upper bound on interference from higher-priority tasks on other shared resources",
+          "tau_i": "task i",
+          "tau_z": "task z",
+          "R_k": "resource k",
+          "RS_i": "set of resources accessed by tau_i",
+          "RS_z": "set of resources accessed by tau_z",
+          "R_i": "current estimate of response time for tau_i",
+          "C_z": "worst-case execution time of task tau_z"
+        },
+        "assumptions": [
+          "global fixed-priority preemptive scheduling",
+          "resource sharing protocol",
+          "non-nested resource accesses"
+        ],
+        "conclusion": "Provides a formula for calculating interference from higher-priority tasks on shared resources that tau_i does NOT use."
+      },
+      "informal_sketch": {
+        "intuition": "This term accounts for the execution time of higher-priority tasks that are using resources that tau_i *does not* need. Even though tau_i doesn't use these resources, the higher-priority tasks using them can still preempt tau_i and contribute to its response time.",
+        "steps": [
+          "Iterate through all resources R_k in the system.",
+          "If R_k is NOT accessed by task tau_i (R_k not in RS_i):",
+          "Iterate through all tasks tau_z that have a higher base-priority than tau_i.",
+          "If tau_z accesses R_k (R_k in RS_z):",
+          "Calculate the maximum workload of tau_z within the current response time window R_i, considering C_z as the 'relevant' execution time (W_z(R_i, C_z)).",
+          "Sum these workloads over all such tau_z and R_k to get Ihp_osr_i."
+        ],
+        "pseudocode": "def calculate_hp_osr_interference(task_i, task_set, R_i, all_resources):\n    Ihp_osr_i = 0\n    for resource_k in all_resources:\n        if resource_k not in task_i.RS_i:\n            for task_z in task_set:\n                if task_z.base_priority < task_i.base_priority: # tau_z has higher priority\n                    if resource_k in task_z.RS_z:\n                        # Here, C_z is considered the 'relevant' execution for W_z\n                        workload_z = calculate_W_z(task_z, R_i, task_z.C)\n                        Ihp_osr_i += workload_z\n    return Ihp_osr_i",
+        "key_insights": [
+          "Accounts for interference from higher-priority tasks on resources not directly contended by tau_i.",
+          "Still models worst-case workload within the response time window."
+        ]
+      },
+      "dependencies": [
+        "Definition 4",
+        "Definition 6",
+        "Claim 1"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 5",
+      "formal_description": {
+        "statement": "Ihp_nsr_i = sum_{z: tau_z has higher base-priority than tau_i} W_z(R_i, C_z). This is an upper bound on the execution by higher-priority tasks not holding any shared resources.",
+        "variables": {
+          "Ihp_nsr_i": "upper bound on interference from higher-priority tasks not holding any resources",
+          "tau_i": "task i",
+          "tau_z": "task z",
+          "R_i": "current estimate of response time for tau_i",
+          "C_z": "worst-case execution time of task tau_z"
+        },
+        "assumptions": [
+          "global fixed-priority preemptive scheduling",
+          "resource sharing protocol"
+        ],
+        "conclusion": "Provides a formula for calculating interference from higher-priority tasks that are not using any shared resources."
+      },
+      "informal_sketch": {
+        "intuition": "This term accounts for the execution time of higher-priority tasks that are not using any shared resources at all. These tasks can still preempt tau_i and contribute to its response time.",
+        "steps": [
+          "Iterate through all tasks tau_z that have a higher base-priority than tau_i.",
+          "Calculate the maximum workload of tau_z within the current response time window R_i, considering C_z as the 'relevant' execution time (W_z(R_i, C_z)).",
+          "Sum these workloads over all such tau_z to get Ihp_nsr_i."
+        ],
+        "pseudocode": "def calculate_hp_nsr_interference(task_i, task_set, R_i):\n    Ihp_nsr_i = 0\n    for task_z in task_set:\n        if task_z.base_priority < task_i.base_priority: # tau_z has higher priority\n            # Here, C_z is considered the 'relevant' execution for W_z\n            workload_z = calculate_W_z(task_z, R_i, task_z.C)\n            Ihp_nsr_i += workload_z\n    return Ihp_nsr_i",
+        "key_insights": [
+          "Accounts for standard preemptive interference from higher-priority tasks.",
+          "Uses W_z(t, x) to model worst-case workload within the response time window."
+        ]
+      },
+      "dependencies": [
+        "Definition 6",
+        "Claim 1"
+      ]
+    },
+    {
+      "type": "claim",
+      "identifier": "Claim 6",
+      "formal_description": {
+        "statement": "W_lpi_m = (1/m) * sum_{z: tau_z has lower base-priority than tau_i and effective-priority > tau_i} W_z(R_i, C_z). This is an upper bound on the execution by lower-priority tasks with effective-priority higher than tau_i, divided by the number of processors m.",
+        "variables": {
+          "W_lpi_m": "upper bound on interference from lower-priority tasks with boosted priority, on m processors",
+          "tau_i": "task i",
+          "tau_z": "task z",
+          "R_i": "current estimate of response time for tau_i",
+          "C_z": "worst-case execution time of task tau_z",
+          "m": "number of processors"
+        },
+        "assumptions": [
+          "global fixed-priority preemptive scheduling",
+          "resource sharing protocol",
+          "effective priorities can be boosted"
+        ],
+        "conclusion": "Provides a formula for calculating interference from lower-priority tasks that have gained higher effective priorities, considering multiprocessor scheduling."
+      },
+      "informal_sketch": {
+        "intuition": "This term accounts for the execution of tasks that normally have lower priority than tau_i, but due to resource sharing protocols (like PIP or P-PCP), they might temporarily gain a higher effective priority. On a multiprocessor, this interference is averaged across all processors.",
+        "steps": [
+          "Iterate through all tasks tau_z that have a lower base-priority than tau_i.",
+          "Check if tau_z has an effective-priority higher than tau_i (this depends on the specific protocol and current system state, but for analysis, we consider the worst case).",
+          "Calculate the maximum workload of tau_z within the current response time window R_i, considering C_z as the 'relevant' execution time (W_z(R_i, C_z)).",
+          "Sum these workloads over all such tau_z.",
+          "Divide the total sum by the number of processors (m) to get the interference per processor."
+        ],
+        "pseudocode": "def calculate_lpi_multiprocessor_interference(task_i, task_set, R_i, num_processors):\n    total_lpi_workload = 0\n    for task_z in task_set:\n        if task_z.base_priority > task_i.base_priority: # tau_z has lower priority\n            # This is a simplification. In reality, 'effective_priority > tau_i' depends on the protocol.\n            # For analysis, we assume the worst case where lower priority tasks *can* gain higher effective priority.\n            # The W_z(R_i, C_z) calculation already models the worst-case execution within R_i.\n            workload_z = calculate_W_z(task_z, R_i, task_z.C)\n            total_lpi_workload += workload_z\n    \n    # Interference is averaged over m processors\n    return total_lpi_workload / num_processors",
+        "key_insights": [
+          "Models interference from 'priority-boosted' lower-priority tasks.",
+          "The division by 'm' is crucial for multiprocessor analysis."
+        ]
+      },
+      "dependencies": [
+        "Definition 6",
+        "Claim 1"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 1",
+      "formal_description": {
+        "statement": "The worst-case response time R_i of a task tau_i under global fixed-priority preemptive scheduling with non-nested resource accesses and PIP/P-PCP can be found by solving the following iterative equation for R_i: R_i = C_i + DB_i + Ihp_dsr_i + Ihp_osr_i + Ihp_nsr_i + W_lpi_m, where DB_i, Ihp_dsr_i, Ihp_osr_i, Ihp_nsr_i, and W_lpi_m are defined as in Claims 2, 3, 4, 5, and 6 respectively, and Ihp_dsr_i and Ihp_osr_i are calculated using W_z(R_i, C_z). The iteration converges if R_i <= D_i.",
+        "variables": {
+          "R_i": "worst-case response time of task tau_i",
+          "tau_i": "task i",
+          "C_i": "worst-case execution time of task tau_i",
+          "DB_i": "upper bound on direct blocking for tau_i",
+          "Ihp_dsr_i": "upper bound on interference from higher-priority tasks on shared resources used by tau_i",
+          "Ihp_osr_i": "upper bound on interference from higher-priority tasks on other shared resources",
+          "Ihp_nsr_i": "upper bound on interference from higher-priority tasks not holding any resources",
+          "W_lpi_m": "upper bound on interference from lower-priority tasks with boosted priority, on m processors",
+          "D_i": "deadline of task tau_i",
+          "m": "number of processors"
+        },
+        "assumptions": [
+          "global fixed-priority preemptive scheduling",
+          "non-nested resource accesses",
+          "PIP or P-PCP"
+        ],
+        "conclusion": "Provides a complete iterative response-time analysis equation for tasks with resource sharing under global fixed-priority scheduling."
+      },
+      "informal_sketch": {
+        "intuition": "This theorem consolidates all the pieces from the claims into a single, solvable equation for the worst-case response time. It states that we can find R_i by repeatedly plugging our current estimate of R_i back into the right-hand side of the equation until the value stabilizes. If the stabilized R_i is within the deadline D_i, the task is schedulable.",
+        "steps": [
+          "Initialize R_i to a starting value (e.g., C_i).",
+          "In each iteration, calculate the right-hand side of the equation using the current R_i:",
+          "  - DB_i (using Claim 2)",
+          "  - Ihp_dsr_i (using Claim 3, which uses W_z(R_i, C_z))",
+          "  - Ihp_osr_i (using Claim 4, which uses W_z(R_i, C_z))",
+          "  - Ihp_nsr_i (using Claim 5, which uses W_z(R_i, C_z))",
+          "  - W_lpi_m (using Claim 6)",
+          "Set the new R_i to the sum of these components plus C_i.",
+          "Repeat until R_i converges (R_i_new == R_i_old).",
+          "If the converged R_i <= D_i, the task is schedulable."
+        ],
+        "pseudocode": "import math\n\ndef calculate_W_z(task_z, t, x):\n    # Assuming this function is defined as in Definition 6\n    N_z = math.floor((t - x) / task_z.T) + 1\n    return x * N_z + min(x, t - x + task_z.D - task_z.T * N_z)\n\ndef calculate_direct_blocking(task_i, task_set):\n    DB_i = 0\n    for resource_k in task_i.RS_i:\n        access_info = task_i.resource_accesses[resource_k]\n        DB_i += access_info.N_i_k * access_info.C_i_k\n    return DB_i\n\ndef calculate_hp_dsr_interference(task_i, task_set, R_i):\n    Ihp_dsr_i = 0\n    for resource_k in task_i.RS_i:\n        for task_z in task_set:\n            if task_z.base_priority < task_i.base_priority:\n                if resource_k in task_z.RS_z:\n                    workload_z = calculate_W_z(task_z, R_i, task_z.C)\n                    Ihp_dsr_i += workload_z\n    return Ihp_dsr_i\n\ndef calculate_hp_osr_interference(task_i, task_set, R_i, all_resources):\n    Ihp_osr_i = 0\n    for resource_k in all_resources:\n        if resource_k not in task_i.RS_i:\n            for task_z in task_set:\n                if task_z.base_priority < task_i.base_priority:\n                    if resource_k in task_z.RS_z:\n                        workload_z = calculate_W_z(task_z, R_i, task_z.C)\n                        Ihp_osr_i += workload_z\n    return Ihp_osr_i\n\ndef calculate_hp_nsr_interference(task_i, task_set, R_i):\n    Ihp_nsr_i = 0\n    for task_z in task_set:\n        if task_z.base_priority < task_i.base_priority:\n            workload_z = calculate_W_z(task_z, R_i, task_z.C)\n            Ihp_nsr_i += workload_z\n    return Ihp_nsr_i\n\ndef calculate_lpi_multiprocessor_interference(task_i, task_set, R_i, num_processors):\n    total_lpi_workload = 0\n    for task_z in task_set:\n        if task_z.base_priority > task_i.base_priority:\n            workload_z = calculate_W_z(task_z, R_i, task_z.C)\n            total_lpi_workload += workload_z\n    return total_lpi_workload / num_processors\n\ndef calculate_worst_case_response_time(task_i, task_set, num_processors, all_resources):\n    R_i_current = task_i.C\n    while True:\n        DB_i = calculate_direct_blocking(task_i, task_set)\n        Ihp_dsr_i = calculate_hp_dsr_interference(task_i, task_set, R_i_current)\n        Ihp_osr_i = calculate_hp_osr_interference(task_i, task_set, R_i_current, all_resources)\n        Ihp_nsr_i = calculate_hp_nsr_interference(task_i, task_set, R_i_current)\n        W_lpi_m = calculate_lpi_multiprocessor_interference(task_i, task_set, R_i_current, num_processors)\n        \n        R_i_next = task_i.C + DB_i + Ihp_dsr_i + Ihp_osr_i + Ihp_nsr_i + W_lpi_m\n        \n        if R_i_next == R_i_current:\n            return R_i_next\n        if R_i_next > task_i.D: # Optimization: if it exceeds deadline, it's unschedulable\n            return R_i_next\n        R_i_current = R_i_next\n\ndef is_task_schedulable(task_i, task_set, num_processors, all_resources):\n    R_i = calculate_worst_case_response_time(task_i, task_set, num_processors, all_resources)\n    return R_i <= task_i.D",
+        "key_insights": [
+          "This is the core schedulability test derived from response-time analysis.",
+          "The iterative solution is necessary because the interference terms depend on the response time itself.",
+          "Convergence implies a stable worst-case response time."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 2",
+        "Definition 3",
+        "Definition 4",
+        "Definition 5",
+        "Definition 6",
+        "Claim 2",
+        "Claim 3",
+        "Claim 4",
+        "Claim 5",
+        "Claim 6"
+      ]
+    }
+  ],
+  "extracted_at": "2025-11-12T02:48:06.892061",
+  "xml_path": "papers\\xml\\Resource_Sharing_in_Global_Fixed-Priority_Preemptive_Multiprocessor_Scheduling.xml"
+}

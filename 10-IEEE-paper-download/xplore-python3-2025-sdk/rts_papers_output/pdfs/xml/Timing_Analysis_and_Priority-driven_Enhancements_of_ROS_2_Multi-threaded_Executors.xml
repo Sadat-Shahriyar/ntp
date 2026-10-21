@@ -1,0 +1,797 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Timing Analysis and Priority-driven Enhancements of ROS 2 Multi-threaded Executors</title>
+				<funder ref="#_rDDXNAw">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+				<funder ref="#_xxF3Wsq">
+					<orgName type="full">Office of Naval Research</orgName>
+					<orgName type="abbreviated">ONR</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Hoora</forename><surname>Sobhani</surname></persName>
+						</author>
+						<author>
+							<persName><forename type="first">Hyunjong</forename><surname>Choi</surname></persName>
+							<email>hyunjong.choi@sdsu.edu</email>
+							<affiliation key="aff1">
+								<orgName type="institution">San Diego State University</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Hyoseung</forename><surname>Kim</surname></persName>
+							<email>hyoseung@ucr.edu</email>
+						</author>
+						<author>
+							<affiliation key="aff0">
+								<orgName type="institution">University of California</orgName>
+								<address>
+									<settlement>Riverside</settlement>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Timing Analysis and Priority-driven Enhancements of ROS 2 Multi-threaded Executors</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">DA3ADC86FCF713C06D972BDA0DA06F99</idno>
+					<idno type="DOI">10.1109/RTAS58335.2023.00016</idno>
+					<note type="submission">Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 01:32:12 UTC from IEEE Xplore. Restrictions apply.</note>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T18:08+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>The second generation of Robotic Operating System, ROS 2, has gained much attention for its potential to be used for safety-critical robotic applications. The need to provide a solid foundation for timing correctness and scheduling mechanisms is therefore growing rapidly. Although there are some pioneering studies conducted on formally analyzing the response time of processing chains in ROS 2, the focus has been limited to singlethreaded executors, and multi-threaded executors, despite their advantages, have not been studied well. To fill this knowledge gap, in this paper, we propose a comprehensive response-time analysis framework for chains running on ROS 2 multi-threaded executors. We first analyze the timing behavior of the default scheduling scheme in ROS 2 multi-threaded executors, and then present priority-driven scheduling enhancements to address the limitations of the default scheme. Our framework can analyze chains with both arbitrary and constrained deadlines and also the effect of mutually-exclusive callback groups. Evaluation is conducted by a case study on NVIDIA Jetson AGX Xavier and schedulability experiments using randomly-generated chains. The results demonstrate that our analysis framework can safely upper-bound response times under various conditions and the priority-driven scheduling enhancements not only reduce the response time of critical chains but also improve analytical bounds.</p><p>106 2023 IEEE 29th Real-Time and Embedded Technology and Applications Symposium (RTAS)    </p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>The Robotic Operating System (ROS) is an open-source middleware framework that has been widely used for robotic systems in academia and industry. The software modularity and composability of ROS have helped the community achieve efficient and productive robotic software developments. However, the architecture limitations and several deep-rooted shortcomings of ROS had been unveiled over the decades, resulting in the development of its second generation, ROS 2, which is a complete refactoring of the previous version.</p><p>One of the major considerations in ROS 2 has been improving real-time capabilities while inheriting the successful concepts of its predecessor. As an example, to support realtime data distribution, ROS 2 employs the Data Distribution Service (DDS) as the underlying communication framework. Although ROS 2 has been shown to provide better realtime support for robotic systems, it is yet incomplete to be applicable to hard real-time or safety-critical applications. To guarantee stringent timing constraints in these applications, designers need to safely upper-bound the end-to-end latency (i.e., response time) of processing chains. Although there are many prior studies on the response-time analysis of chains, the unique scheduling behavior of ROS 2 calls for new formal modeling and analysis of its timing abstractions and scheduling architecture.</p><p>The pioneers in formally analyzing the response time of chains on ROS 2 are <ref type="bibr" target="#b0">[1]</ref><ref type="bibr" target="#b1">[2]</ref><ref type="bibr" target="#b2">[3]</ref>. As mentioned in these studies, ROS 2 introduces "executors" as the abstraction of operating system (OS) processes, providing two built-in types: singlethreaded and multi-threaded. A single-threaded executor executes callbacks sequentially, while a multi-threaded executor distributes pending callbacks across multiple threads (i.e., callbacks can execute in parallel). These studies focus on the response-time analysis of callbacks and chains only on single-threaded executors. Specifically, <ref type="bibr" target="#b0">[1]</ref> and <ref type="bibr" target="#b1">[2]</ref> mapped a single-threaded executor to a single reservation server to derive analysis; <ref type="bibr" target="#b2">[3]</ref> proposed priority-driven scheduling and executorto-core allocation but for single-threaded executors.</p><p>As of yet, the scheduling behavior of ROS 2 multi-threaded executors has not been studied well. However, plenty of studies in the real-time systems area have demonstrated that multi-threading improves system concurrency and throughput by effectively utilizing multiple processors while preserving timing correctness, e.g., real-time multi-threading in selfdriving cars <ref type="bibr" target="#b3">[4]</ref>. Therefore, in this paper, we aim to analyze and improve the timing behavior of ROS 2 multi-threaded executors. But, the tremendous amount of non-determinism in multi-threaded executors, such as an unpredictable distribution of callbacks across threads and unsynchronized polling points of threads, makes the analysis particularly challenging. In addition, the lack of systematic support for chain priority in ROS 2 prevents the effective utilization of parallel resources, resulting in delayed processing of critical chains.</p><p>This paper tackles the aforementioned issues. We first present a response-time analysis (RTA) framework for chains running on ROS 2 multi-threaded executors. To improve the end-to-end response time of critical chains, we also propose priority-driven scheduling enhancements that make the executor strictly respect the priority of the corresponding chain when scheduling individual callbacks. These enhancements bring significant benefits in timing analysis as well as observed performance on a real platform. The detailed contributions of our work are as follows:</p><p>• We discuss difficulties in analyzing the timing behavior of chains on multi-threaded executors (Sec. IV). In particular, we redefine the properties of two ROS-specific scheduling behaviors, polling points and processing windows, and ex-plain why the latest single-threaded analysis based on them is not applicable to multi-threaded executors. • We develop an RTA framework for ROS 2 multi-threaded executors (Sec. V). Our analysis considers chains with both constrained and arbitrary deadlines, and upper-bounds the response time of chains executed by multi-thread executors.</p><p>We also analyze the effects of callback groups that are used to control the concurrency of select callbacks. • We propose priority-driven scheduling enhancements and the corresponding analytical extensions to our RTA framework (Sec. V). The priority-driven scheduling approach mitigates the aforementioned non-determinism issues and the resulting analytical pessimism and helps reduce the response time of critical chains. • For evaluation, we performed a case study movitated by autonomous driving software on an embedded platform as well as schedulability experiments using randomly-generated workloads (Sec. VI). The results support the effectiveness of our RTA framework and demonstrate how priority-driven scheduling enhancements improve both observed and computer upper-bounds on the response time of chains</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. RELATED WORK</head><p>Many studies have been conducted on improving real-time capabilities <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b5">6]</ref> and evaluating the empirical real-time performance of ROS <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b7">8]</ref>. In <ref type="bibr" target="#b5">[6]</ref>, Wei et al. proposed to run two OSes on the same platform, i.e., real-time ROS nodes on Nuttx (RTOS) and non-real-time ones on Linux, to provide isolated execution environments. Saito et al. <ref type="bibr" target="#b4">[5]</ref> developed ROSCH-G, which is a real-time extension to ROS with a CPU/GPU coordination mechanism provided as a loadable kernel module. Carlos et al. <ref type="bibr" target="#b6">[7]</ref> measured the worst-case latency between two nodes and observed deadline miss behavior in a Linux system with the PREEMPT-RT patch. In <ref type="bibr" target="#b7">[8]</ref>, the effects of various QoS configurations under different vendor-specific DDS implementations were evaluated empirically. However, some of these studies were conducted on the first generation of ROS <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b5">6]</ref> and the others did not consider formal modeling or analysis of ROS 2 <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b7">8]</ref>.</p><p>Formal timing analysis of end-to-end latency has recently received much attention for processing chains that follow either the publisher-subscriber or read-execute-write model. Davare et al. <ref type="bibr" target="#b8">[9]</ref> and Schlatow et al. <ref type="bibr" target="#b9">[10]</ref> captured an upper bound on the end-to-end latency of a chain based on the worst-case response time of individual tasks. In <ref type="bibr" target="#b10">[11]</ref><ref type="bibr" target="#b11">[12]</ref><ref type="bibr" target="#b12">[13]</ref>, the authors proposed analytical methods to bound the end-toend latency of a chain for fixed-priority scheduling. Choi et al. <ref type="bibr" target="#b13">[14]</ref> focused on improving the end-to-end latency of chains and proposed chain-based fixed-priority scheduling. However, these approaches cannot be directly applied to ROS 2 due to discrepancies in the scheduling model.</p><p>The literature on the response-time analysis of processing chains on ROS 2 executors is quite limited. The first work that formally analyzed the timing behavior of ROS 2 executors is the work by Casini et al. <ref type="bibr" target="#b0">[1]</ref>. They unveiled the details of the ROS 2 callback scheduling policy implemented in singlethreaded executors and presented the response-time analysis of callbacks and processing chains on single-threaded executors. Tang et al. <ref type="bibr" target="#b1">[2]</ref> proposed an improved response-time analysis by characterizing the details of processing windows (we will revisit this in Sec. IV), and studied the effect of callback priorities under the standard ROS 2 scheduling policy that results in round-robin-like behavior <ref type="bibr" target="#b14">[15]</ref>. In <ref type="bibr" target="#b2">[3]</ref>, Choi et al. developed a priority-driven chain-aware scheduler, called PiCAS, which modifies the default ROS 2 policy to strictly follow assigned chain priorities. They also presented callback priority assignment, allocation of nodes to executors and executors to CPU cores, and response-time analysis under their scheduler. Unlike PiCAS which uses fixed-priority scheduling, Arafat et al. <ref type="bibr" target="#b15">[16]</ref> proposed a dynamic-priority scheduling scheme to improve chain latency, especially in an overloaded scenario. Teper at el. <ref type="bibr" target="#b16">[17]</ref> focused on cause-effect chains where intermediate callbacks can be released independently by their own timers, and proposed an end-to-end latency analysis of cause-effect chains in ROS 2. However, all of these focus on single-threaded executors, none on multi-threaded executors.</p><p>Both single-threaded and multi-threaded ROS 2 executors have yet another important feature called callback groups that have not been considered in the prior analysis work <ref type="bibr" target="#b0">[1]</ref><ref type="bibr" target="#b1">[2]</ref><ref type="bibr" target="#b2">[3]</ref><ref type="bibr" target="#b15">[16]</ref><ref type="bibr" target="#b16">[17]</ref><ref type="bibr" target="#b17">[18]</ref>. While the authors of <ref type="bibr" target="#b18">[19]</ref> explored the effect of callback groups in single-threaded Micro-ROS executors (a variant of ROS 2 for microcontrollers), they did not link this to formal timing analysis. In this paper, we take this into account in our RTA framework.</p><p>Recently, Jiang et al. <ref type="bibr" target="#b19">[20]</ref> presented response-time analysis for processing chains with constrained deadlines running on a ROS 2 multi-threaded executor. While the reader might find it similar to our work, we make unique contributions in that our work analyzes chains with both constrained and arbitrary deadlines and provides priority-driven scheduling enhancements and the corresponding analytical extensions to ROS 2 multi-threaded executors.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. BACKGROUND AND SYSTEM MODEL</head><p>In this section, we briefly review the ROS 2 architecture and introduce our system model.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. ROS 2 Architecture</head><p>Fig. <ref type="figure" target="#fig_1">1</ref> illustrates the ROS 2 middleware architecture that sits on top of the OS and provides a set of libraries and tools for robotic application development. In particular, the ROS 2 client library (rcl) consists of language-specific libraries (rclcpp and rclpy for C++ and Python, respectively), and the middleware library (rmw) provides publisher-subscriber interfaces for Data Distribution Service (DDS) and intraprocess communication.</p><p>ROS 2 applications consist of nodes, each of which in turn consists of a set of callbacks. ROS 2 callbacks are categorized into four types: timer callbacks are triggered when the timer period is up; subscription callbacks are triggered when a subscribed message arrives; service and client callbacks are A set of callbacks with data dependencies forms a processing chain, or simply called a chain. Each callback can be associated with one or more chains, and chains can be formed by callbacks from different nodes. We will give a more detailed explanation of chains in Sec. III-B.</p><p>An executor is the ROS 2 abstraction of OS-level scheduling entities and it executes callbacks assigned to it. Each executor maintains a ReadySet, which is a cached set of "ready" regular (non-timer) callbacks <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b1">2]</ref>. 1 The ReadySet is updated only when it is empty (or there is no callback in the set eligible to execute 2 ). This is the only point when the executor communicates with underlying layers, and is called a polling point in the literature. The time interval between two consecutive polling points is called a processing window, in which the executor processes regular callbacks in its ReadySet plus incoming timer callbacks. Therefore, callbacks released after one polling point are not processed until the next polling point, causing priority inversion. Also, the use of the ReadySet makes at most one instance of any callback be processed in one processing window. Hence, in addition to the priority inversion problem, a callback instance might be blocked for multiple processing windows before it gets scheduled if there are multiple pending instances of the same callback. Sec. IV discusses more details on these issues in the context of multi-threaded executors.</p><p>In addition, ROS 2 executors provide callback groups to control the concurrency of callback execution. There are two options: reentrant and mutually-exclusive. The reentrant call- 1 Timer callbacks are added to the ReadySet instantly after their release. 2 Ready callbacks in the ReadySet may not be eligible to run due to callback groups that enforce concurrency. We will explain more details later.</p><p>back group allows an executor to execute any ready callback with no other restriction. Hence, as long as a preceding callback in a chain has completed execution, the next callback becomes ready and can be considered for scheduling. On the other hand, the mutually-exclusive callback group limits any callback within this group not to be executed in parallel. In other words, the execution of callbacks within a mutuallyexclusive group is all serialized even if the executor has multiple threads. This could be a useful option if callbacks were originally programmed for a single-threaded environment but assigned to a multi-threaded executor, or they access shared data with no synchronization in mind. However, the use of mutually-exclusive groups introduces another type of dependency in callback scheduling. Our analysis in Sec. V takes into account the effects of these two options.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. System Model</head><p>We consider a ROS 2 system Γ running on a multi-core platform. The system Γ is composed of a set of independent chains, i.e., Γ = {Γ C , Γ C , Γ C , ...}. We present our model for callbacks, chains, and executors as below. Without loss of generality, we assume the discrete-time model in our system, in which a time interval is a non-negative integer multiplier of the system time unit (e.g., clock cycle).</p><p>Callbacks. A callback τ C,j is denoted as the j th callback of a chain Γ C , where 1 ≤ j ≤ Γ C . We characterize each callback τ C,j with:</p><p>• E C,j : The worst-case execution time (WCET) of an instance of a callback τ C,j . • π C,j : The priority of τ C,j (smaller values mean lower priority). Note that callbacks belonging to a chain do not have their own periods or deadlines since they follow their chain's timing constraints. If the system has a callback that does not belong to any chain but has a timing constraint, it can be modeled as a single-callback chain for analysis purposes.</p><formula xml:id="formula_0">Chains. A chain Γ C = {τ C,1 , τ C,2 , ..., τ C, Γ C } consists of Γ C callbacks</formula><p>with a sequential execution order, i.e., τ C,j+1 can start only after τ C,j finishes. The chain Γ C can be either timer-triggered (i.e., the first callback τ C,1 is a timer callback) or event-triggered (i.e., τ C,1 is a regular callback released by a periodic sensor input or message from other sub-systems). Due to data dependency, any subsequent callback becomes ready to run only when its predecessor finishes execution. For presentation simplicity, the periods of all subsequent callbacks are denoted with the same period as their chain. We characterize Γ C as follows:</p><formula xml:id="formula_1">Γ C := E C , T C , D C , π C • E C : The cumulative WCET of an instance of the chain Γ C , i.e., E C = Γ C j=1 E C,j . • T C : The period of an instance of Γ C . • D C : The relative deadline of an instance of Γ C . • π C :</formula><p>The priority of Γ C (smaller values mean lower priority). Following the criticality-as-priority assignment <ref type="bibr" target="#b20">[21]</ref>, we assume chains with higher criticality have higher priority.</p><p>We denote the i th instance of a chain Γ C and its callbacks as</p><formula xml:id="formula_2">Γ i C = {τ i C,1 , τ i C,2 , τ i C,3 , ..., τ i C, Γ C }.</formula><p>The response time of the chain Γ C is denoted as R C , which means the time from when the first callback τ C,1 is released until the last callback τ C, Γ C finishes execution. The chain is said to be schedulable if R C ≤ D C . By this model, a burst release of chain instances is possible depending on the period of the chain, i.e., the next chain instance can be released before the completion of the previous instance. In other words, the response time and the deadline of a chain, R C and D C respectively, can be greater than its period, T C . Later, we will first analyze the case for constrained deadlines (∀C : D C ≤ T C ) and then extend it to arbitrary deadlines (∃C :</p><formula xml:id="formula_3">D C &gt; T C ).</formula><p>Executors. We consider a multi-threaded executor Π consisting of m worker threads, i.e., Π = {r 1 , r 2 , ..., r m }. Each thread r k runs on a different CPU core to maximize concurrency and has a resource reservation for guaranteed resource supply. Hence, each thread is characterized by</p><formula xml:id="formula_4">r k = (C r k , T r k ) where 1 ≤ k ≤ m, meaning that r k provides C r k units of CPU time every T r k units. The supply bound function of r k , sbf * k (Δ)</formula><p>, which lower-bounds the amount of resource supply during an interval Δ, is given by <ref type="bibr" target="#b21">[22]</ref>:</p><formula xml:id="formula_5">sbf * k (Δ) = Δ -(κ + 1)(T r k -C r k ) if Δ ∈ [(κ+1)T r k -2•C r k , (κ+1)T r k -C r k ] (κ -1) • C r k otherwise<label>(1)</label></formula><p>where κ = max</p><formula xml:id="formula_6">Δ-(T r k -C r k ) T r k , 1</formula><p>. This captures the longest initial delay that the periodic resource reservation can incur, i.e., 2T r k -2C r k . For ease of integration with schedulability analysis, a linear approximation of the supply bound function has been widely used <ref type="bibr" target="#b21">[22]</ref>:</p><formula xml:id="formula_7">sbf k (Δ) = C r k T r k (Δ -2(T r k -C r k )) if Δ ≥ 2(T r k -C r k ) 0 otherwise<label>(2)</label></formula><p>Based on this, we can derive the following.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Def. 1 (sbf ). The supply bound function of a multi-threaded executor Π is given by</head><formula xml:id="formula_8">sbf Π (Δ) = r k ∈Π sbf k (Δ)<label>(3)</label></formula><p>Note that worker threads of an executor do not need to be released at the same time. As long as all threads have started before t = 0, Eq. (3) will hold.</p><p>To find the minimum time interval required to obtain a certain amount of resource supply x, we use the pseudoinverse function of sbf k (Δ).</p><p>Def. 2 (sbf k <ref type="bibr" target="#b22">[23]</ref>). The pseudo-inverse function of sbf k is defined as follows:</p><formula xml:id="formula_9">sbf k (x) = min{Δ|sbf k (Δ) = x} (<label>4</label></formula><formula xml:id="formula_10">)</formula><p>where x is the amount of resource that is needed.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. CHALLENGES IN MULTI-THREADED EXECUTOR RTA</head><p>As explained earlier, a ROS 2 executor has a ReadySet which is updated at a polling point (PP), and the time interval between two consecutive polling points is called a processing window (PW). The latest work <ref type="bibr" target="#b1">[2]</ref> derived the following lemmas on PWs in a single-threaded executor to improve analysis accuracy over <ref type="bibr" target="#b0">[1]</ref>.</p><p>• (Lemma 1 in <ref type="bibr" target="#b1">[2]</ref>) "At most one instance of a regular callback executes in a processing window." • (Lemma 2 in <ref type="bibr" target="#b1">[2]</ref>) "Let Γ C be an arbitrary chain. Suppose τ i C,1 (the first regular callback of the i th instance of the Γ C ) executes in processing window pw n , then the earliest processing window for</p><formula xml:id="formula_11">τ l C,1 (l &gt; i) to execute is pw n+l-i ." • (Lemma 3 in [2]</formula><p>) "At most one regular callback instance of a chain instance executes in a processing window." • (Lemma 4 in <ref type="bibr" target="#b1">[2]</ref>) "The regular callback instances of a chain instance execute in consecutive processing windows one by one."</p><p>The definitions of PP and PW are rather straightforward in a single-threaded executor as there is only one thread updating ReadySet. However, in a multi-threaded executor (implemented in the rclcpp package of ROS 2 Galactic and newer versions to date), the ReadySet is shared among all threads. Hence, one or more threads might become idle (i.e., ReadySet is empty or has no eligible callback to execute) and update ReadySet, while other threads are still executing their callbacks from the previous version of ReadySet. Those who were executing callbacks when ReadySet was updated cannot even notice such an update. Therefore, we need to revise the definitions of PP and PW for multi-threaded executors:</p><p>• Polling Point (PP): A time point when at least one thread becomes idle. • Processing Window (PW): The time interval between two consecutive PPs, regardless of which thread triggered the new PP. In the n th PW, pw n , there might be some threads that are still executing callbacks whose start times were in previous PWs, pw n-p . These callbacks are considered carryin callbacks for pw n . Also, some callbacks that started in pw n may continue to execute in pw n+q . Such callbacks are considered as carry-out callbacks for pw n . Based on the above definitions, some of the lemmas derived in <ref type="bibr" target="#b1">[2]</ref> are invalid or conditionally valid for a multi-threaded executor. Below we fix them or confirm their validity. • (Lemma 3 in <ref type="bibr" target="#b1">[2]</ref>) This lemma remains valid with the same proof as in <ref type="bibr" target="#b1">[2]</ref>. • (Lemma 4 in <ref type="bibr" target="#b1">[2]</ref>) This lemma is not valid anymore because the new definition of PP does not guarantee that all callbacks finish their execution when the new PW begins (i.e., the execution of some callbacks may span over multiple PWs). Hence, there is no guarantee on which PW the succeeding callback instance can get into ReadySet.</p><p>These revisions may help develop a timing analysis for a multi-threaded executor, by following the approach of <ref type="bibr" target="#b1">[2]</ref> that focuses on PW analysis. However, there are still many difficulties to be solved. At first, analyzing when a new PP happens and how long a PW takes is not as straightforward as in a single-threaded executor. Moreover, it would be hard to determine how many PWs each callback would take to complete its execution and how many PWs exist between two consecutive callbacks. The difficulty multiplies when chains with arbitrary deadlines are considered. Instead, in this paper, we take a different approach: analyzing the response time of a chain without having PW in mind. Our proposed analysis is built by extending the conventional non-preemptive global task scheduling analysis <ref type="bibr" target="#b23">[24]</ref> and taking into account semantic differences introduced by chains, callback dependencies, and the ReadySet management. This approach also allows us to incorporate priority-driven scheduling enhancements that yield a significant benefit to critical chains.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. PROPOSED RTA FRAMEWORK</head><p>This section presents our proposed response-time analysis (RTA) framework. We first review the conventional nonpreemptive fixed-priority (NP-FP) global task scheduling analysis developed for non-ROS systems (Sec. V-A). Then, for a single ROS 2 multi-threaded executor with reentrant callback groups, we analyze the response time of a chain with a constrained deadline (Sec. V-B). Based on this, we present priority-driven scheduling enhancements and the corresponding analysis (Sec. V-C), and extend these to chains with arbitrary deadlines (Sec. V-D). Finally, we relax our assumptions by incorporating the effects of mutually-exclusive callback groups into our analysis (Sec. V-E) and discussing how to analyze the end-to-end response time of a chain that spans across multiple executors regardless of their types (Sec. V-F).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Review of NP-FP Task Scheduling</head><p>According to the NP-FP global task scheduling analysis <ref type="bibr" target="#b24">[25]</ref>, to obtain the worst-case response time of a given non-preemptive task τ i , we need to find the latest time that a τ i 's job starts its first unit of execution. Assuming this first unit finishes after a time interval Δ from the release of the job, the response time of τ i is Δ+ sbf k (E i -1) where E i is the WCET of τ i and sbf k (E i -1) is the minimal time interval required by any processor (worker thread r k ) to execute E i -1. To find Δ, there should be enough resource supply for the system's demand. For at least one unit of workload of τ i to execute in Δ, the following inequality has to hold:</p><formula xml:id="formula_12">dbf (Δ) &lt; sbf Π (Δ)<label>(5)</label></formula><p>where dbf (Δ) and sbf Π (Δ) stand for the demand-bound function and the supply-bound function, respectively. Note that sbf Π (Δ) = m • Δ is the maximum resource supply in a mprocessor system.</p><p>To determine dbf (Δ), we first need to calculate the workload of other interfering tasks in Δ. Consider a set of nonpreemptive tasks with constrained deadlines. The workload of a task τ j with the WCET of E j , the period of T j , and the deadline of D j (i.e., τ j := E j , T j , D j ) during an arbitrary time interval Δ can be upper-bounded by the following, as proposed in <ref type="bibr" target="#b25">[26]</ref>:</p><p>Lemma 1 (Workload <ref type="bibr" target="#b25">[26]</ref>). In an arbitrary time interval Δ, the jobs of τ j with a constrained deadline can execute up to</p><formula xml:id="formula_13">W j (Δ, α) = Δ + α T j •E j +min E j , Δ- Δ + α T j •T j (6)</formula><p>where α is an extra time to capture carry-in jobs in Δ, i.e., α = R j -E j if the response time R j is known, and α = D j -E j otherwise.</p><p>Then blocking from lower-priority tasks needs to be considered in dbf (Δ). In <ref type="bibr" target="#b23">[24]</ref>, a NP-FP global scheduling analysis is provided for periodic non-preemptive tasks, which limits the number of carry-in jobs from lower-priority tasks that can block τ i in Δ by the number of processors, m.</p><p>Lemma 2 (LeSh <ref type="bibr" target="#b23">[24]</ref> in <ref type="bibr" target="#b24">[25]</ref>'s presentation). The response time of a periodic non-preemptive task</p><formula xml:id="formula_14">τ i = E i , T i is upper- bounded by R i = Δ+ sbf k (E i -1), if dbf (Δ) &lt; sbf Π (Δ)</formula><p>holds for the following dbf (Δ):</p><formula xml:id="formula_15">dbf (Δ) = τ h ∈hp(τi) W h (Δ, R h -E h ) + τ l ∈mlp(τi) min(E l -1, Δ)<label>(7)</label></formula><p>where hp(τ i ) is the set of higher-priority tasks than τ i , and mlp(τ i ) is the subset of lower-priority tasks than τ i that give the m largest min</p><formula xml:id="formula_16">(E l -1, Δ) values (i.e., |mlp(τ i )| = m).</formula><p>The first term of dbf (Δ) in Eq. ( <ref type="formula" target="#formula_15">7</ref>) upper-bounds the amount of interference from higher-priority tasks until τ i begins execution, and the second term captures the blocking time from lower-priority jobs that have started execution before Δ. If dbf (Δ) &lt; sbf Π (Δ) holds, at least one time unit is available in [t, t + Δ) for the job of a non-preemptive task τ i released at t to start its execution; hence, the response time is bounded by R i = Δ+ sbf k (E i -1). This equation can be solved by a fixed-point iteration, with Δ = 1 as a start condition.</p><p>Note that Eq. ( <ref type="formula" target="#formula_15">7</ref>) uses R h -E h for α of the workload function given in Eq. <ref type="bibr" target="#b5">(6)</ref>. To avoid the need to compute the response time of high-priority tasks in advance, R h -E h can be replaced with However, there are several differences to consider. The first issue is an additional blocking caused by the precedence dependencies between callbacks of the chain under analysis. This happens because the next callback cannot start execution until its previous callback is completed, even if there exist other idle threads in the executor. While these idle threads can be utilized by callbacks from other chains at runtime, for analysis purposes, such idle threads can be assumed to be occupied by an artificial workload that needs to be added to dbf (Δ).</p><formula xml:id="formula_17">D h -E h , where D h is the deadline of τ h , if τ h is schedulable (∵ D h ≥ R h ).</formula><p>Lemma 3. Consider two adjacent callbacks of a chain Γ C , τ C,j and τ C,j+1 , on a m-threaded executor. The precedencedependency blocking caused by τ C,j introduces an additional workload as interference to the start of τ C,j+1 , which is upper-bounded by</p><formula xml:id="formula_18">B C,j+1 = m • E C,j<label>(8)</label></formula><p>Proof. Suppose Γ C is the only chain in the system and we are interested in the latest time that τ C,2 can start its execution from the release time of Γ C . Since τ C,2 cannot start until τ C,1 completes, from τ C,2 's view, τ C,1 behaves as if it occupied all m threads. This artificial workload equals to m • E C,1 , which needs to be added to dbf of τ C,2 . By induction, as shown in Fig. <ref type="figure">2</ref>, the same happens for any callback τ C,j regardless of on which thread it is running.</p><p>Based on this, we can derive the following.</p><p>Lemma 4. For the last callback of a chain Γ C , the precedencedependency blocking caused by all of its preceding callbacks is given by m</p><formula xml:id="formula_19">• (E C -E C, Γ C ).</formula><p>Proof. By Lemma 3,</p><formula xml:id="formula_20">Γ C -1 j=1 m • E C,j = m • (E C - E C, Γ C ).</formula><p>The next issue is due to the ReadySet management. Since ReadySet is a cached set of ready callbacks and is updated only at PPs, the callbacks of the chain Γ C under analysis can be blocked multiple times by lower-priority callbacks of other chains during Γ C 's execution, and only the execution of the last callback of Γ C is not interfered due to the nature of non-preemptive scheduling <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b1">2]</ref>. Therefore, we need to treat the callback instances of all other chains (regardless of their priorities) as interfering callbacks, as if they had higher priority than any callback τ C,j ∈ Γ C . For each interfering callback, the task-level workload function given in Eq. ( <ref type="formula">6</ref>) can be used directly since a periodic non-preemptive task τ j in Eq. ( <ref type="formula">6</ref>) is equivalent to a callback in our model. The entire workload of an interfering chain Γ C can be upper-bounded as follows:</p><p>Lemma 5. In an arbitrary time interval Δ, the instances of a chain Γ C with a constrained deadline can execute up to</p><formula xml:id="formula_21">W C (Δ, α) = Δ + α T C • E C + min E C , Δ - Δ + α T C • T C (<label>9</label></formula><formula xml:id="formula_22">)</formula><p>where α is an extra time to capture carry-in instances of Γ C .</p><p>Proof. Similar to Eq. ( <ref type="formula">6</ref>), in the first term, the total number of instances of Γ C (including a carry-in) that contributes to the workload with its entire WCET (E C ) is obtained by Δ+α </p><formula xml:id="formula_23">dbf (Δ) = m • (E C -E C, Γ C )+ ∀Γx∈Γ-{Γ C } W x (Δ, D x -E x )<label>(10)</label></formula><p>dbf (Δ) can be solved by a fixed-point iteration with an initial condition of Δ = 1.</p><p>Proof. Eq. ( <ref type="formula" target="#formula_23">10</ref>) captures all possible workloads in [t, t + Δ), where t is the release time of an instance of Γ C , until the last callback of Γ C can start its first unit of execution. By Lemma 3, we know that the maximum workload caused by precedence dependencies is m</p><formula xml:id="formula_24">• (E C -E C, Γ C ).</formula><p>In addition, the maximum workload from the instances of other chains is upper-bounded by the sum of W x given by Lemma 5. As there is no other source of workloads in Δ, the last callback of Γ C can start at least one unit of its execution in Δ if dbf (Δ) &lt; sbf Π (Δ) holds, and the response time of Γ C is bounded by</p><formula xml:id="formula_25">Δ+ sbf k (E C, Γ C -1).</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Priority-Driven Enhancements</head><p>As explained earlier, the ReadySet management scheme of the standard ROS 2 multi-threaded executor requires our 6 analysis to capture all callback instances of other chains as interfering callbacks, regardless of their priorities. This is particularly problematic for critical chains as their response times could be unnecessarily penalized by non-critical chains. However, prior work on a single-threaded executor <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b17">18]</ref> demonstrated that assigning callback priorities based on their respective chain priorities and scheduling ready callbacks by strictly based on their priorities can alleviate analytical pessimism and improve chain response time. Hence, we apply this approach to multi-threaded executors and discuss its implications in analysis.</p><p>The implementation of priority-driven scheduling in a multithreaded executor is rather straightforward. Instead of having each thread look for ready callbacks in ReadySet and letting it update only when it is empty, we can modify the executor code such that each thread updates ReadySet whenever it needs to choose a ready callback to execute. As a result, a newlyarrived high-priority callback does not need to wait for the other callbacks already fetched in ReadySet to finish their executions so that the next PP is triggered. Updating ReadySet in this manner may seem like a lot of extra overhead, but we found the frequency of ReadySet updates in the prioritydriven multi-threaded executor is not much higher than in the standard one. Sec. VI-A analyzes this overhead.</p><p>For callback priority assignment, we directly adopt the chain-aware assignment scheme proposed by <ref type="bibr" target="#b2">[3]</ref>, shown in Alg. 1. Basically, it makes sure that callbacks from higherpriority chains get higher callback priority than those from lower-priority chains. Within each chain, earlier callbacks get lower priority than later callbacks, i.e., π C,j &lt; π C,j+1 . As discussed in Sec. III-B, we follow the criticality-as-priority assignment <ref type="bibr" target="#b20">[21]</ref> for chains; thus, this assignment yields higher priorities to callbacks from critical chains. Also, since the standard ROS 2 executor interface does not have APIs to set callback priorities (callback priorities are determined implicitly by declaration order), we also adopted such APIs from <ref type="bibr" target="#b2">[3]</ref> and applied them to the multi-threaded executor code base.</p><p>Algorithm 1 Chain-aware callback priority assignment <ref type="bibr" target="#b2">[3]</ref> 1: Input: Γ:chains 2: Γ ← sort in ascending order of chain priority π 3: p ← 1</p><p>Initialize current priority 4: for all Γ C ∈ Γ do 5:</p><formula xml:id="formula_26">for all τ C,j ∈ Γ C do 6: π C,j ← p 7: p ← p + 1</formula><p>With the executor modifications for strictly priority-driven callback scheduling and the callback priority assignment, a chain of interest is no longer blocked multiple times by callbacks from lower-priority chains. Now we provide a responsetime analysis for priority-driven multi-threaded executors.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Theorem 2. The response time of a chain Γ</head><formula xml:id="formula_27">C = {τ C,1 , τ C,2 , ..., τ C, Γ C } with a constrained deadline on a priority-driven ROS 2 multi-threaded executor with m threads is upper-bounded by R C = Δ+ sbf k (E C, Γ C -1), if dbf (Δ) &lt; sbf Π (Δ) holds for the following dbf (Δ): dbf (Δ) = m • (E C -E C, Γ C ) + ∀Γx∈Γ-{Γ C }∧πx&gt;π C W x (Δ, D x -E x ) + ∀τ l ∈mlp(τ C,1 ) min(E l -1, Δ)<label>(11)</label></formula><p>where mlp(τ C,1 ) returns at most m largest callbacks with lower-priority than τ C,1 where it includes only one callback from each chain (i.e., |mlp(τ C,1 )| = min(m, |{Γy|πy &lt; πC}|)).</p><p>Proof. In priority-driven scheduling, we need to upper-bound (i) the workload caused by precedence dependencies, (ii) the interference from higher-priority chain instances, (iii) and the blocking time from lower-priority chain instances. Item (i) remains the same as in Eq. ( <ref type="formula" target="#formula_23">10</ref>) since it is inherent to the chain under analysis, not subject to the scheduling policy used. By Alg. 1, all callbacks of a higher-priority chain have higher priorities than the chain of interest. Therefore, to upperbound (ii), the workload function in Lemma 5 can be used for higher-priority chains than Γ C , i.e., ∀Γ x ∈ Γ-{Γ C }∧π x &gt; π C .</p><p>For (iii), lower-priority callbacks can block the execution time of higher-priority callbacks only when they started execution at least for one unit before Δ. In a m-threaded executor, the number of lower-priority callbacks that can do so is up to m. Thus, to upper-bound the blocking time, we can find the m largest callbacks from other chains with lower callback priority than τ C,1 , which is the lowest-priority callback of Γ C by Alg. 1. Here, the precedence dependency within a chain limits up to one lower-priority callback from each chain can contribute to the blocking time. In other words, each chain cannot have more than one callback that has started before Δ and continues execution in Δ. This number is bounded by |{Γ y |π y &lt; π C }| since only chains with lower chain priority than Γ C have callbacks with lower callback priority than τ C,1 . As a result, the number of lower-priority callbacks τ l contributing to the blocking time is bounded by the minimum of these two conditions, and the total blocking time is obtained by summing min(E l -1, Δ) since those callbacks already started one unit of execution before Δ.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Chains with Arbitrary Deadlines</head><p>This section extends our response-time analysis to arbitrarydeadline chains, where new instances of a chain can arrive earlier than the completion of previous instances. First, we need to revise the workload function given in Lemma 5 because it is valid for constrained deadlines only. The implicit assumption made in that lemma (and also Lemma 1) is that each chain has only at most one instance as carry-in and at most one instance as carry-out in a time interval Δ. With arbitrary deadlines (T C &lt; D C ), a chain can have multiple of its previous or next instances as carry-in jobs or as carry-out jobs, respectively, as their executions can overlap. Therefore, the workload of an arbitrary-deadline chain should be captured solely based on its period. 7 Lemma 6. In an arbitrary time interval Δ, the instances of a chain Γ C with an arbitrary deadline can execute up to</p><formula xml:id="formula_28">W * C (Δ, α) = Δ + α T C • E C (<label>12</label></formula><formula xml:id="formula_29">)</formula><p>where α is an extra time to capture carry-in instances of Γ C .</p><p>Proof. The worst-case workload can be upper-bounded by capturing the maximum possible arrivals. Therefore, we replace the floor function in Lemma 5 with the ceiling function and the second term of Lemma 5 is no longer needed.</p><p>With the revised workload function, we can extend Theorem 1 to arbitrary deadlines as follows:</p><formula xml:id="formula_30">Theorem 3. The response time of a chain Γ C = {τ C,1 , τ C,2 , ..</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>., τ C, Γ C } with an arbitrary deadline on a standard ROS 2 multi-threaded executor with m threads is upper-bounded by</head><formula xml:id="formula_31">R C = Δ + sbf k (E C, Γ C -1), if dbf (Δ) &lt; sbf Π (Δ) holds for the following dbf (Δ): dbf (Δ) = m • (E C -E C, Γ C ) + ( ∀Γx∈Γ W * x (Δ, D x -E x )) -E C (<label>13</label></formula><formula xml:id="formula_32">)</formula><p>Proof. The difference from Theorem 1 is the second and third terms, which capture the maximum workload from interfering chain instances. Here, interfering chain instances include other instances of Γ C itself because they can cause self-interference to the instance being analyzed. By considering</p><formula xml:id="formula_33">Γ C in the summing term (∀Γ x ∈ Γ, instead of ∀Γ x ∈ Γ -{Γ C }), W * C (Δ, D C -E C )</formula><p>gives all instances of Γ C including the instance being analyzed. Therefore, to avoid double-counting, E C needs to be subtracted from dbf (Δ).</p><p>Next is the extension of Theorem 2 for priority-driven multithreaded executor analysis.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Theorem 4. The response time of a chain Γ</head><formula xml:id="formula_34">C = {τ C,1 , τ C,2 , ..</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>., τ C, Γ C } with an arbitrary deadline on a priority-driven ROS 2 multi-threaded executor with m threads is upper-bounded by R</head><formula xml:id="formula_35">C = Δ + sbf k (E C, Γ C -1), if dbf (Δ) &lt; sbf Π (Δ) holds for the following dbf (Δ): dbf (Δ) = m • (E C -E C, Γ C ) + ( ∀Γx∈Γ∧πx≥π C W * x (Δ, D x -E x )) -E C + ( ∀τ l ∈mlp * (τ C,1 ,Δ) min(E l -1, Δ)) (<label>14</label></formula><formula xml:id="formula_36">)</formula><p>where mlp * (τ )).</p><p>Proof. As explained in the proof of Theorem 3, interfering chain instances include other instances of Γ C itself. Hence, the second term considers Γ C by π x ≥ π C instead of π x &gt; π C . As in Eq. ( <ref type="formula" target="#formula_31">13</ref>), E C needs to be deducted to avoid double-counting.</p><p>For blocking time, we know that lower-priority callbacks can block higher-priority callbacks only when they started execution for at least one unit before Δ, and the maximum number of such callbacks is bounded to m. The difference from the constrained-deadline case is that each of such callbacks contributing to the blocking time can be originated from each instance of other chains because there may exist multiple outstanding instances of the same chain during Δ. This number is bounded by πy&lt;π C</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Δ+Dy-E-y Ty</head><p>. Hence, the number of lower-priority callbacks τ l contributing to the blocking time is bounded by the minimum of these two conditions, and the total blocking time can be obtained by maximizing the sum of min(E l -1, Δ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Mutually-Exclusive Callback Groups</head><p>Our analysis in the previous sections is for chains with reentrant callback groups. In this section, we study the effects of mutually-exclusive callback groups which introduce yet another type of precedence dependency in callback scheduling, adding more workload to dbf (Δ). As mentioned in Sec. III-A, the use of a mutually-exclusive callback group limits any callback within this group not to be executed in parallel. In other words, the execution of callbacks within a mutuallyexclusive group is all serialized.</p><p>If the mutually-exclusive callback group option is enabled for some callbacks, Theorems 1 and 3 (standard ROS 2 multithreaded executor) need to be extended as follows.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Theorem 5. With mutually-exclusive callback groups, the response time of a chain Γ</head><formula xml:id="formula_37">C = {τ C,1 , τ C,2 , ..., τ C, Γ C } on a standard ROS 2 multi-threaded executor with m threads is upper-bounded by R C = Δ+sbf k (E C, Γ C -1), if dbf (Δ) &lt; sbf Π (Δ) holds for the following dbf (Δ):</formula><p>dbf (Δ) = RHS of Eq. <ref type="bibr" target="#b9">(10)</ref> or Eq. ( <ref type="formula" target="#formula_31">13</ref>)</p><formula xml:id="formula_38">+ Γ C j=1 m • strangers in group(τ C,j )<label>(15)</label></formula><p>where strangers in group(τ C,j ) sums up the execution time of callbacks in the same mutually-exclusive group as τ C,j , except those from the chain under analysis, Γ C .</p><p>The pseudo-code of the strangers in group(τ C,j ) function is given by Alg. 2.</p><p>Algorithm 2 strangers in group(τ C,j )</p><formula xml:id="formula_39">1: retval = 0; 2: group = get callback group(τ C,j ) -{τ C,j }; 3: for all τ x,k ∈ group do 4: if x = C then 5: retval = retval + E x,k 6: return retval;</formula><p>Proof. This theorem differs from Theorem 1 or Theorem 3 by only the extra workload added to the end of dbf (Δ). So, we prove the necessity of the last term,</p><formula xml:id="formula_40">Γ C j=1 m • strangers in group(τ C,j ), in dbf (Δ).</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>8</head><p>Based on the characteristics of a mutually-exclusive callback group, once a callback τ k of the group G 1 executes, m • E k is the safe upper-bound on the blocking time that τ k causes to its group-mate callbacks in G 1 , as shown by Lemma 3. Thus, the maximum blocking to a callback τ j from all of its group-mates can be bounded by m• ∀τ k ∈G1∧j =k E k , where the term ∀τ k ∈G1∧j =k E k is the return value of strangers in group(τ j ).</p><p>The effect of mutually-exclusive callback groups on a chain Γ C is maximized when all callbacks of Γ C are in different groups and all of their group-mates block their execution as long as possible. Therefore, m • strangers in group(τ C,j ) should be considered as part of dbf (Δ) for each τ C,j ∈ Γ C .</p><p>As can be seen, strangers in group(τ C,j ) excludes the blocking from group-mate callbacks that are from Γ C , the chain under analysis (line 4 of Alg. 2). This is because the blocking effect from callbacks of the same chain has been already considered as precedence-dependency blocking in the first term of Eq. ( <ref type="formula" target="#formula_23">10</ref>) and Eq. ( <ref type="formula" target="#formula_31">13</ref>). Therefore, we avoid doublecounting them in Alg. 2.</p><p>Theorems 2 and 4 for priority-driven multi-threaded executors are changed as follows in the presence of mutuallyexclusive groups.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Theorem 6. With mutually-exclusive callback groups, the response time of a chain Γ</head><formula xml:id="formula_41">C = {τ C,1 , τ C,2 , ..., τ C, Γ C } on a priority-driven ROS 2 multi-threaded executor with m threads is upper-bounded by R C = Δ + sbf k (E C, Γ C -1), if dbf (Δ) &lt; sbf Π (Δ) holds for the following dbf (Δ):</formula><p>dbf (Δ) = RHS of Eq. <ref type="bibr" target="#b10">(11)</ref> or Eq. ( <ref type="formula" target="#formula_35">14</ref>)</p><formula xml:id="formula_42">+ Γ C j=1 m • hp strangers in group(τ C,j , Δ)<label>(16)</label></formula><p>where hp strangers in group(τ C,j , Δ) sums up the execution time of higher-priority callbacks instances than τ C,j in the same mutually-exclusive group as τ C,j except those from the chain under analysis, Γ C .</p><p>The hp strangers in group(τ C,j , Δ) function is given by Alg. 3.</p><p>Algorithm 3 hp strangers in group(τ C,j , Δ)</p><formula xml:id="formula_43">1: retval = 0; 2: group = get callback group(τ C,j ) -{τ C,j }; 3: for all τ x,k ∈ group do 4: if x = C ∧ π x,k &gt; π C,j then 5: retval = retval + Δ+Dx-Ex Tx • E x,k 6: return retval;</formula><p>Proof. The proof is similar to that for Theorem 5. The only difference here is that higher-priority group-mate callbacks are the ones who execute first and cause the blocking time to a callback of interest. Also, since a callback can be blocked by multiple instances of its higher-priority group-mates, we need to consider the maximum possible number of instances of higher-priority group-mates in the time interval Δ, which is bounded by Δ+Dx-Ex Tx for any chain Γ x as shown in Lemma 6.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>F. End-to-End Response Time across Executors</head><p>The previous sections focused on the response time of a chain on one multi-threaded executor. However, a chain may span across multiple executors where each executor can be either single-threaded or multi-threaded. To find the end-to-end response time of a chain spanning across multiple executors, one can utilize the Compositional Performance Analysis (CPA) approach, as discussed in <ref type="bibr" target="#b0">[1]</ref>. For a set of executors, we can assign a reservation to each single-threaded or multi-threaded executor. Then, we find the response time of individual subchain that is executed by one executor. The analysis of such sub-chains can be done using our analysis in this section if executed by a multi-threaded executor, or the analysis from previous work <ref type="bibr" target="#b0">[1]</ref><ref type="bibr" target="#b1">[2]</ref><ref type="bibr" target="#b2">[3]</ref> if executed by a single-threaded executor. One can also use our analysis with m = 1 for a single-threaded executor, though it would give a more pessimistic upper bound than those single-thread analyses. Then, to find the end-to-end response time of a chain across multiple executors, we can sum up the response time of all sub-chains associated with the chain of interest plus the propagation delay between executors. This works because the activation of each sub-chain is triggered by the completion of the preceding sub-chain and can be delayed by the amount of propagation delay. It is worth noting that sub-chains on subsequent executors can have release jitters at runtime, e.g., the preceding sub-chain finishes earlier than its worst-case response time. One might suspect that such jitters introduce more interference to the other chains; however, our analysis already captures the effect of jitters with α in the workload functions (Eq. ( <ref type="formula" target="#formula_21">9</ref>) and Eq. ( <ref type="formula" target="#formula_28">12</ref>)).</p><p>For example, consider a chain Γ C consisting of n sub-chains spanning across n different executors as shown in Fig. <ref type="figure" target="#fig_2">3</ref>. Due to precedence dependencies among callbacks inside the chain, callbacks of a sub-chain Γ Cn can not start their execution until the last callback of the preceding sub-chain Γ C(n-1) is finished. Once the sub-chain Γ C(n-1) finishes, it takes δ n-1 (the propagation delay between executors n -1 and n) for the first callback of Γ Cn to get ready. This pattern applies to all sub-chains of Γ C . Therefore, R C can be obtained by the sum of the response time of all sub-chains and their propagation delays, i.e.,</p><formula xml:id="formula_44">R C = n-1 i=1 (R Ci + δ i ) + R Cn .</formula><p>It is possible that two or more sub-chains of the same chain have been assigned to the same executor. If these subchains are adjacent to each other, they can be merged into a single sub-chain and analyzed. If they are not adjacent, we can treat them as two independent chains; hence, each sub-chain is considered an interfering chain to the other sub-chain for analysis purposes.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. EVALUATION</head><p>We evaluate our proposed work through a case study on a real platform and schedulability experiments using randomly-9 ………. ….    The purpose of this case study is to understand the performance characteristics of the ROS 2 multi-threaded executor and to compare the observed response time against the worstcase bounds obtained by analysis. Fig <ref type="figure">4</ref> depicts the chain set used here, which is inspired by an autonomous robotic system. It consists of four chains: Γ 1 (π 1 = 4; highest priority), Γ 2 (π 2 = 3), Γ 3 (π 3 = 2), and Γ 4 (π 4 = 1; lowest priority). We ran this chain set for 5 minutes on AGX under each executor configuration and took the 99th percentile as the maximum observed response time (MORT) of each chain. For the executor configurations, we considered a multi-threaded executor with m threads, where m ∈ {2, 4}. The executor is set to use cores equal to the number of threads they have; hence, sbf Π (Δ) = m • Δ. For each case, we also tested with and without our priority-driven scheduling enhancements and mutually-exclusive callback groups. We also considered cases where the chain set spans across two multi-threaded executors (each with two threads) with and without priority-driven enhancements. The total number of executor configurations is therefore 2 × 4 + 2 = 10.</p><p>For analytical bounds on the worst-case response time (WCRT), we considered our analyses for constrained-deadline chains on both standard (default) and priority-driven multithreaded executors, assuming all callbacks are in a reentrant callback group (Theorems 1 and 2). We also examined our analyses for mutually-exclusive callback group (Theorem. 5 and 6) by gathering callbacks of the chains Γ 1 and Γ 2 in a mutually-exclusive group and gathering callbacks of the chains Γ 3 and Γ 4 in a reentrant group. Also, to evaluate our end-to-end latency analysis for chains spanning across multiple executors (Sec. V-F), we assigned callbacks {τ 1 , τ 3 , τ 6 , τ 7 , τ 9 , τ 10 } to a 2-threaded executor and assigned the rest {τ 2 , τ 4 , τ 5 , τ 8 , τ 11 , τ 12 } to another 2-threaded executors. Since these two 2-threaded executors run on four cores of the same processor, we assumed the propagation delay between two executors is negligibly small. Figs. 5 and 6 compare the MORT and WCRT of each chain under different executor conditions. The caption of each sub-graph represents: the first part "R" and "ME" for the aforementioned settings of reentrant and mutually-exclusive callback groups, respectively; and, the following "D" and "P" for the ROS 2 default and the priority-driven scheduling 10</p><p>Response Time (ms) (d) Chain Γ 4 Fig. <ref type="figure">7</ref>: Observed response time of chains schemes. The legend denotes: "MT#" for a multi-threaded executor with # threads (e.g., MT4 is a 4-threaded executor); "2*MT2" for the case of two 2-threaded executors.</p><p>In all cases, our analysis could safely upper-bound the MORT. The priority-driven scheduling scheme outperforms the default ROS 2 scheduler in both reentrant and mutuallyexclusive callback groups, especially for high-priority chains. These results indicate that both MORT and WCRT are reduced for high-priority chains with priority-driven scheduling and this enhancement not only reduces analysis pessimism but also improves the response time of critical chains at runtime. Although the response time of low-priority chains slightly increases with priority-driven scheduling, this is the cost to improve the response time of high-priority ones. Fig. <ref type="figure">7</ref> illustrates more details on the observed response time distributions of the four chains under various executor configurations. It is clearly shown that the use of priority-driven scheduling reduces variations in the observed response time of critical (high-priority) chains, thereby improving perceived predictability.</p><p>To assess the overhead of our priority-driven scheduling scheme, we measured the number of ReadySet updates during 5 minutes of running the case study under various executor configurations. Fig. <ref type="figure" target="#fig_5">8</ref> illustrates the results. As can be seen, the priority-driven scheduling scheme introduces less than 10% of additional ReadySet updates compared to the default scheme.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Schedulability Experiments</head><p>In this section, we explore the schedulability ratio of the proposed RTA framework using randomly-generated chain sets with constrained and arbitrary deadlines. The following abbreviations are used for each of the analysis approaches:</p><p>• PWA CD: Proposed Worst-case Analysis (PWA) for chains with Constrained Deadlines (CD) -Theorem 1 • PPWA CD: Priority-driven PWA for CD -Theorem 2 • PWA AD: PWA for Arbitrary Deadlines (AD) -Theorem 3 • PPWA AD: Priority-driven PWA for AD -Theorem 4 We used the UUniFast algorithm <ref type="bibr" target="#b26">[27]</ref> with a total utilization from 0.8 to 4.0 with the step of 0.4 to generate 1,000 random chain sets, where each set includes 5 chains and each chain has 10 callbacks. At first, chains were generated for the constrained-deadline case with T C = D C using the UUniFast algorithm. Then, for arbitrary deadlines, we duplicated these chains and doubled their deadlines. The number of threads is set to m = 4.  <ref type="figure">9</ref> shows the schedulability ratio of chain sets by our four analysis approaches as the chain-set utilization increases. The schedulability ratio might be seen as rather low for the given utilization. However, it is worth noting that, in chain scheduling, the precedence dependencies among callbacks cause resource waste and therefore lead to a less schedulability ratio than conventional task scheduling with no dependencies. In general, priority-driven scheduling (PPWA CD and PPWA AD) significantly outperforms the default ROS 2 scheduling policy (PWA CD and PWA AD), with as much as 66% point higher in schedulability. This is primarily due to the fact that high-priority chains experience less delay from lowerpriority chains under PPWA since it fetches ready callbacks immediately and schedules them strictly based on their assigned priority. The results of PPWA CD and PPWA AD look similar in this figure. However, given that PPWA AD is tested with chain sets with doubled deadlines, it can be said that PPWA AD has much higher pessimism than PPWA CD. This is somewhat expected from our analysis in Theorem 4 which had to take into account multiple outstanding (= released and unfinished) instances of each chain.</p><p>We also explored the schedulability ratio of our analyses as the number of threads increases. Similar to above, we generated 1,000 random chain sets, each including 5 chains with 10 callbacks per chain. The utilization of each chainset is fixed at 1.0 in this experiment. The results are shown in Fig. <ref type="figure" target="#fig_1">10</ref>. Note that scheduling a chain set with a utilization equal to 1.0 on a single thread is almost infeasible due to the precedence dependencies among callbacks. The schedulability ratio improves with a more number of threads (m ≥ 2), but the degree of improvement appears differently for each analysis method. For PPWA CD and PPWA AD, the schedulability ratio increases sharply at m = 2 and becomes almost plateau afterward. On the other hand, the increase of PWA CD and PWA AD is slower and is almost linear to the number of threads. We can see that our proposed priority-driven enhancement can achieve better schedulability with a fewer number of threads. Lastly, we explored the impact of the number of chains on schedulability. Here, we kept the total utilization to 1 and varied only the number of chains. Each generated chain has 10 callbacks, regardless of how many chains are generated for each chain set. Fig. <ref type="figure" target="#fig_7">11</ref> depicts the results. The schedulability ratio decreases with the number of chains for all analysis methods, meaning interference increases with the number of chains although the total utilization remains the same. Recall that, due to precedence dependencies, only one callback of each chain instance can interfere with the chain under analysis. However, by increasing the number of chains, the number of callbacks from chains increases, and also the number of chain instances in a time interval Δ could increase. However, Fig. <ref type="figure" target="#fig_7">11</ref> shows that priority-driven scheduling is less affected by this issue because it limits the source of interference to only higherpriority chains. We therefore conclude that priority-driven scheduling brings a significant benefit to real-time chains on ROS 2 multi-threaded executors.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. CONCLUSION</head><p>In this paper, we proposed a comprehensive response-time analysis framework for chains running on ROS 2 multithreaded executors. We analyzed the timing behavior of the default scheduling scheme of ROS 2 multi-threaded executors and proposed priority-driven scheduling as an improvement over the default one. Our framework can analyze chains with both arbitrary and constrained deadlines and can take into account the effect of mutually-exclusive callback groups. We conducted the evaluation with a case study on NVIDIA Jetson AGX Xavier and schedulability experiments using randomlygenerated chains. The results demonstrate that our analysis framework can safely upper-bound response times under various conditions. In addition, our priority-driven scheduling for ROS 2 multi-threaded executors not only reduces the response time of critical chains but also improves analysis results.</p><p>As ROS 2 is becoming more popular in academia and industry for more complex robotic systems with safety-critical features, more active research efforts need to be made to ensure timing correctness and improve system efficiency in ROSbased systems. There are several interesting future directions, including real-time support for accelerators, synchronization, memory-induced interference, which have been studied for conventional systems but not in the context of ROS or similar middleware environments. We believe that our work fills an important knowledge gap in this area and more interesting work could be built upon our framework.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>5 110Fig. 2 :</head><label>52</label><figDesc>Fig. 2: Proof of Lemma 3B. Response Time of ChainsSince the ROS 2 multi-threaded executor follows global work-conserving non-preemptive scheduling, we can derive a response-time analysis for a chain Γ C with a constrained deadline in a similar form as in Lemma 2, by finding the longest time interval Δ such that the last callback of Γ C (τ C, Γ C ) has at least one unit of execution during [t, t + Δ) where t is the release time of Γ C . Then, the response time of the chain could be bounded by Δ+ sbf k (E C, Γ C -1), analogous to the case for NP-FP task scheduling.However, there are several differences to consider. The first issue is an additional blocking caused by the precedence dependencies between callbacks of the chain under analysis. This happens because the next callback cannot start execution until its previous callback is completed, even if there exist other idle threads in the executor. While these idle threads can be utilized by callbacks from other chains at runtime, for analysis purposes, such idle threads can be assumed to be occupied by an artificial workload that needs to be added to dbf (Δ).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Theorem 1 .</head><label>1</label><figDesc>T C and multiplied by E C . The workload of the carry-out instance is bounded by the second term. Based on Lemmas 3 and 5, we can obtain the following theorem to find the response time of a chain Γ C . The response time of a chain Γ C = {τ C,1 , τ C,2 , ..., τ C, Γ C } with a constrained deadline on a standard ROS 2 multi-threaded executor with m threads is upper bounded by R C = Δ+ sbf k (E C, Γ C -1), if dbf (Δ) &lt; sbf Π (Δ) holds for the following dbf (Δ):</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Fig. 3 :</head><label>3</label><figDesc>Fig. 3: Chain Γ C spanning across multiple executors</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 4 : 3 ChainFig. 5 :</head><label>435</label><figDesc>Fig.4: Chain set for case study generated workloads. For the case study, we used the Galactic version of ROS 2 on an NVIDIA Jetson AGX Xavier (AGX) platform. Four CPU cores were used in our experiments, each set to run at the maximum frequency (2.2 GHz). The proposed priority-driven scheduling enhancements for multithreaded executors were implemented as modifications to the rclcpp package of ROS 2.3   </figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 6 :</head><label>6</label><figDesc>Fig. 6: Chains across multiple executors A. Case Study on AGX</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: Overhead w.r.t. the number of polling points (PP)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 9 :Fig. 10 :</head><label>910</label><figDesc>Fig. 9: Varying utilization of chain sets</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 11 :</head><label>11</label><figDesc>Fig. 11: Varying number of chains</figDesc></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 01:32:12 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENT</head><p>This work was sponsored by the <rs type="funder">National Science Foundation (NSF)</rs> grant <rs type="grantNumber">1943265</rs> and the <rs type="funder">Office of Naval Research (ONR)</rs> grant <rs type="grantNumber">N00014-19-1-2496</rs>.</p><p>12</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_rDDXNAw">
+					<idno type="grant-number">1943265</idno>
+				</org>
+				<org type="funding" xml:id="_xxF3Wsq">
+					<idno type="grant-number">N00014-19-1-2496</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Responsetime analysis of ROS 2 processing chains under reservation-based scheduling</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lütkebohle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Euromicro Conference on Real-Time Systems (ECRTS)</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Response time analysis and priority assignment of processing chains on ROS2 executors</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Feng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lv</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Deng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">PiCAS: New design of priority-driven chain-aware scheduling for ROS2</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS)</title>
+		<imprint>
+			<biblScope unit="page">2021</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Parallel scheduling for cyber-physical systems: Analysis and case study on a self-driving car</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ACM/IEEE International Conference on Cyber-Physical Systems (ICCPS)</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">ROSCH: real-time scheduling framework for ros</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Saito</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Sato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Nishio</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 IEEE 24th International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="52" to="58" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">RT-ROS: A real-time ros architecture on multi-core processors</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Wei</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Shao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Tan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Shao</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Future Generation Computer Systems</title>
+		<imprint>
+			<biblScope unit="volume">56</biblScope>
+			<biblScope unit="page" from="171" to="178" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<monogr>
+		<title level="m" type="main">Towards a distributed and real-time framework for robots: Evaluation of ros 2.0 communications for real-time robotic applications</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">S V</forename><surname>Gutiérrez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">U S</forename><surname>Juan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><forename type="middle">Z</forename><surname>Ugarte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><forename type="middle">M</forename><surname>Vilches</surname></persName>
+		</author>
+		<idno type="arXiv">arXiv:1809.02595</idno>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">arXiv preprint</note>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Exploring the performance of ros2</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Maruyama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 13th International Conference on Embedded Software</title>
+		<meeting>the 13th International Conference on Embedded Software</meeting>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Period optimization for hard real-time distributed automotive systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Davare</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Zhu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Di Natale</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Pinello</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kanajan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Sangiovanni-Vincentelli</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 44th annual Design Automation Conference</title>
+		<meeting>the 44th annual Design Automation Conference</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="278" to="283" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Response-time analysis for task chains in communicating threads</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Schlatow</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Ernst</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 IEEE Real-Time and Embedded Technology and Applications Symposium (RTAS</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="1" to="10" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Worst-case cause-effect reaction latency in systems with non-blocking communication</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Abdullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Dai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2019 Design, Automation &amp; Test in Europe Conference &amp; Exhibition (DATE)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="1625" to="1630" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Synthesizing job-level dependencies for automotive multi-rate effect chains</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Becker</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Dasari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Mubeen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2016 IEEE 22nd International Conference on Embedded and Real-Time Computing Systems and Applications (RTCSA)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="159" to="169" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">Latency analysis for data chains of real-time periodic tasks</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Kloda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Bertout</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Sorel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2018 IEEE 23rd International Conference on Emerging Technologies and Factory Automation (ETFA)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="volume">1</biblScope>
+			<biblScope unit="page" from="360" to="367" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">Chain-based fixed-priority scheduling of loosely-dependent tasks</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Karimi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2020 IEEE The 38th IEEE International Conference on Computer Design (ICCD)</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Response time analysis of lazy round robin</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Feng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Design, Automation &amp; Test in Europe Conference &amp; Exhibition (DATE)</title>
+		<imprint>
+			<biblScope unit="page">2021</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Response time analysis for dynamic priority scheduling in ros2</title>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">A</forename><surname>Arafat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Vaidhun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">M</forename><surname>Wilson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Guo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 59th ACM/IEEE Design Automation Conference</title>
+		<meeting>the 59th ACM/IEEE Design Automation Conference</meeting>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="301" to="306" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">End-to-end timing analysis in ros2</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Teper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Günzel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Ueter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2022 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="53" to="65" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">Priority-driven real-time scheduling in ros 2: Potential and challenges</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Choi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Enright</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Sobhani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Kim</surname></persName>
+		</author>
+		<idno>RAGE 2022</idno>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page">28</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Exploring real-time executor on ros 2</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Azumi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2020 IEEE International Conference on Embedded Software and Systems (ICESS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="1" to="8" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling and analysis of processing chains on multi-threaded executor in ros 2</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ji</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Wang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2022 IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="27" to="39" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">On the scheduling of mixed-criticality real-time task sets</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>De Niz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Real-Time Systems Symposium (RTSS)</title>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Compositional real-time scheduling framework with periodic model</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Embedded Computing Systems (TECS)</title>
+		<imprint>
+			<biblScope unit="volume">7</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="1" to="39" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">General and efficient response time analysis for edf scheduling</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">2014 Design, Automation &amp; Test in Europe Conference &amp; Exhibition (DATE)</title>
+		<imprint>
+			<publisher>IEEE</publisher>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="1" to="6" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Improvement of real-time multicoreschedulability with forced non-preemption</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">G</forename><surname>Shin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Transactions on Parallel and Distributed Systems (TPDS)</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="page" from="1233" to="1243" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Improved schedulability analysis using carry-in limitation for non-preemptive fixed-priority multiprocessor scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">66</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="1816" to="1823" />
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of global scheduling algorithms on multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Cirinei</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Lipari</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IEEE Transactions on Parallel and Distributed Systems (TPDS)</title>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="volume">20</biblScope>
+			<biblScope unit="page" from="553" to="566" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Measuring the performance of schedulability tests</title>
+		<author>
+			<persName><forename type="first">E</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="129" to="154" />
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

@@ -1,0 +1,824 @@
+{
+  "paper_id": "10.1109_RTSS.2013.32",
+  "source": "ieee",
+  "title": "Segment-Fixed Priority Scheduling for Self-Suspending Real-Time Tasks",
+  "authors": [
+    "Junsung Kim",
+    "Björn Andersson",
+    "Dionisio de Niz",
+    "Ragunathan Raj Rajkumar"
+  ],
+  "published": "2013",
+  "pdf_path": "/lclhome/sshah169/Desktop/Sadat/0_phd/2_projects/4_neural_theorem_prover/10-IEEE-paper-download/xplore-python3-2025-sdk/rts_papers_output/pdfs/Segment-Fixed_Priority_Scheduling_for_Self-Suspending_Real-Time_Tasks.pdf",
+  "xml_path": "/lclhome/sshah169/Desktop/Sadat/0_phd/2_projects/4_neural_theorem_prover/10-IEEE-paper-download/xplore-python3-2025-sdk/rts_papers_output/pdfs/xml/Segment-Fixed_Priority_Scheduling_for_Self-Suspending_Real-Time_Tasks.xml",
+  "extraction": {
+    "paper_name": "Segment-Fixed Priority Scheduling for Self-Suspending Real-Time Tasks",
+    "paper_description": "This paper introduces segment-fixed priority scheduling for self-suspending tasks, modeling them as execution segments separated by suspensions. It provides schedulability analyses for Rate Monotonic Scheduling (RMS) under specific conditions, including utilization bounds. For general cases, it proposes a segment-fixed priority scheme with phase enforcement and an exact schedulability analysis using Mixed-Integer Linear Programming (MILP), along with heuristics for faster priority and phase assignment.",
+    "results": [
+      {
+        "type": "definition",
+        "identifier": "Task Model Parameters",
+        "formal_description": {
+          "statement": "A task `tau_i` consists of `s_i` computing segments `tau_i_j` (for `j=1..s_i`) with suspension between consecutive segments. The `j`-th computing segment of `tau_i` is `tau_i_j`. Its worst-case execution time is `C_i_j`. The suspension duration between `tau_i_j` and `tau_i_j+1` is `G_i_j`. The period of task `tau_i` is `T_i`. The relative deadline of task `tau_i` is `D_i`. The worst-case response time of task `tau_i` is `R_i`. The total worst-case execution time of `tau_i` is `C_i = sum_{j=1}^{s_i} C_i_j`. The total suspension time of `tau_i` is `G_i = sum_{j=1}^{s_i-1} G_i_j`. The slack of task `tau_i` is `L_i = T_i - R_i`.",
+          "variables": {
+            "tau_i": "Task i",
+            "s_i": "Number of segments in task i",
+            "tau_i_j": "j-th segment of task i",
+            "C_i_j": "Worst-case execution time of segment tau_i_j",
+            "G_i_j": "Suspension duration between segment tau_i_j and tau_i_j+1",
+            "T_i": "Period of task tau_i",
+            "D_i": "Relative deadline of task tau_i",
+            "R_i": "Worst-case response time of task tau_i",
+            "C_i": "Total worst-case execution time of task tau_i",
+            "G_i": "Total suspension time of task tau_i",
+            "L_i": "Slack of task tau_i"
+          },
+          "assumptions": [
+            "Tasks are sporadic or periodic.",
+            "Constrained-deadline: D_i <= T_i.",
+            "Implicit-deadline: D_i = T_i.",
+            "In Section III, G_i_j is constant (G_Min_i_j = G_Max_i_j) and C_i_j is fixed. In Section IV, G_Min_i_j <= G_Max_i_j and C_i_j can vary in [0, C_i_j].",
+            "Tasks are sorted by period: T_1 <= T_2 <= ... <= T_n."
+          ],
+          "conclusion": "Defines the fundamental parameters and characteristics of self-suspending tasks."
+        },
+        "informal_sketch": {
+          "intuition": "This defines the building blocks of our system: tasks are made of computing parts (segments) and waiting parts (suspensions). Each part has a maximum duration. Tasks repeat with a period and must finish by a deadline. We also define total execution, total suspension, and the maximum time a task might take to complete (response time).",
+          "steps": [
+            "A task `tau_i` is a sequence of `s_i` segments: `tau_i_1`, `tau_i_2`, ..., `tau_i_s_i`.",
+            "Each segment `tau_i_j` has a maximum execution time `C_i_j`.",
+            "Between `tau_i_j` and `tau_i_j+1`, there's a suspension `G_i_j`.",
+            "The task repeats every `T_i` time units and must finish within `D_i` from its arrival.",
+            "We calculate `C_i` as the sum of all `C_i_j` for task `tau_i`.",
+            "We calculate `G_i` as the sum of all `G_i_j` for task `tau_i`.",
+            "The worst-case response time `R_i` is the longest time a job of `tau_i` can take to complete.",
+            "Slack `L_i` is the remaining time in the period after the task's response time."
+          ],
+          "pseudocode": "class Task:\n    def __init__(self, id, segments, period, deadline):\n        self.id = id\n        self.segments = segments  # List of (C_i_j, G_i_j) tuples, G_i_s_i is 0\n        self.period = period\n        self.deadline = deadline\n        self.s_i = len(segments)\n        self.C_i = sum(seg.C_i_j for seg in segments)\n        self.G_i = sum(seg.G_i_j for seg in segments[:-1]) # Sum of G_i_j for j=1 to s_i-1\n        self.R_i = 0 # To be calculated by analysis\n        self.L_i = self.period - self.R_i\n\nclass Segment:\n    def __init__(self, id, C_i_j, G_i_j):\n        self.id = id\n        self.C_i_j = C_i_j\n        self.G_i_j = G_i_j # Suspension *after* this segment",
+          "key_insights": [
+            "Self-suspending tasks are explicitly modeled as alternating execution and suspension phases.",
+            "Total execution and suspension times are aggregate properties of the task."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "Segment-Level Parameters for MILP",
+        "formal_description": {
+          "statement": "The release time of the `s`-th segment of task `tau_i` relative to the arrival of its job is `phi_i_s_minus_1` (with `phi_i_0 = 0`). The response time of the `s`-th segment of task `tau_i`, counted from the arrival time of the job of `tau_i`, is `R_i_s`. The worst-case execution time of segment `tau_i_s` including all higher-priority interference is `w_i_s`. The total interference that segment `tau_i_s` suffers from task `tau_j` is `I_i_s_j`. The total interference from task `tau_j` on segment `tau_i_s` when segment `tau_j_s_prime` arrives simultaneously with `tau_i_s` is `I_sum_s_prime_i_s_j`. The interference caused by a specific segment `tau_j_s_double_prime` on `tau_i_s`, under the alignment condition where `tau_j_s_prime` aligns with `tau_i_s`, is `I_term_s_prime_i_s_j_s_double_prime`. The number of jobs of segment `tau_j_s_double_prime` that interfere with `tau_i_s` under the alignment condition where `tau_j_s_prime` aligns with `tau_i_s` is `n_jobs_s_prime_i_s_j_s_double_prime`. A binary variable `x_i_s_j_s_prime` is `1` if `tau_j_s_prime` has priority greater than or equal to `tau_i_s`, `0` otherwise. A binary variable `y_i_s_p` is `1` if segment `tau_i_s` is assigned priority level `p`, `0` otherwise.",
+          "variables": {
+            "phi_i_s_minus_1": "Phase offset of segment tau_i_s relative to job arrival",
+            "R_i_s": "Response time of segment tau_i_s (from job arrival)",
+            "w_i_s": "Worst-case execution time of segment tau_i_s including interference",
+            "I_i_s_j": "Total interference from task tau_j on segment tau_i_s",
+            "I_sum_s_prime_i_s_j": "Interference from task tau_j on segment tau_i_s when tau_j_s_prime aligns with tau_i_s",
+            "I_term_s_prime_i_s_j_s_double_prime": "Interference from segment tau_j_s_double_prime on tau_i_s when tau_j_s_prime aligns with tau_i_s",
+            "n_jobs_s_prime_i_s_j_s_double_prime": "Number of interfering jobs of segment tau_j_s_double_prime",
+            "x_i_s_j_s_prime": "Binary variable for priority relationship (tau_j_s_prime >= tau_i_s)",
+            "y_i_s_p": "Binary variable for priority assignment (tau_i_s assigned priority p)"
+          },
+          "assumptions": [
+            "phi_i_0 = 0 (first segment arrives with the job)."
+          ],
+          "conclusion": "Defines segment-level parameters and binary variables for priority assignment and interference calculation in the MILP formulation."
+        },
+        "informal_sketch": {
+          "intuition": "When we break tasks into segments and assign individual priorities, we need more detailed variables. These define when a segment is allowed to start (phase), how long it takes to finish (segment response time), how much other segments delay it (interference), and how we represent priority assignments for the solver.",
+          "steps": [
+            "Each segment `tau_i_s` has a `phi_i_s_minus_1` which is its earliest release time relative to its task's job arrival. `phi_i_0` is always 0.",
+            "`R_i_s` measures how long it takes for `tau_i_s` to complete, starting from the task's job arrival.",
+            "`w_i_s` is the actual busy time on the CPU for `tau_i_s`, including its own execution and any higher-priority work that preempts it.",
+            "`I_i_s_j` aggregates all delays `tau_i_s` experiences from *any* segment of task `tau_j`.",
+            "`I_sum_s_prime_i_s_j` is a specific interference value when `tau_i_s` starts at the same time as `tau_j_s_prime`.",
+            "`I_term_s_prime_i_s_j_s_double_prime` is the contribution of a single interfering segment `tau_j_s_double_prime` to `I_sum_s_prime_i_s_j`.",
+            "`n_jobs_s_prime_i_s_j_s_double_prime` counts how many times `tau_j_s_double_prime` executes during the busy period of `tau_i_s`.",
+            "`x_i_s_j_s_prime` is a flag: 1 if `tau_j_s_prime` has higher or equal priority than `tau_i_s`, 0 otherwise.",
+            "`y_i_s_p` is a flag: 1 if `tau_i_s` is assigned priority `p`, 0 otherwise."
+          ],
+          "pseudocode": "class SegmentParameters:\n    def __init__(self, task_id, segment_id):\n        self.phi_s_minus_1 = 0 # Phase offset, phi_i_0 = 0\n        self.R_s = 0 # Response time from job arrival\n        self.w_s = 0 # Busy time on CPU\n        self.I_s_j = {} # Interference from other tasks\n        self.I_sum_s_prime_s_j = {} # Interference for specific alignments\n        self.I_term_s_prime_s_j_s_double_prime = {} # Individual segment interference\n        self.n_jobs_s_prime_s_j_s_double_prime = {} # Number of interfering jobs\n        self.x_s_j_s_prime = {} # Priority relationship (binary)\n        self.y_s_p = {} # Priority assignment (binary)",
+          "key_insights": [
+            "Detailed segment-level modeling is crucial for segment-fixed priority scheduling.",
+            "Binary variables are used to represent discrete choices like priority assignments and relationships, suitable for MILP."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "Heuristic Parameters",
+        "formal_description": {
+          "statement": "The ratio of `G_1` to `T_1` is `k = G_1 / T_1`. A segment-level deadline of `tau_i_j` relative to its release time is `D_i_j`. The segment density `nu_i_j` is the ratio of the worst-case execution time of the task segment to the task period, `nu_i_j = C_i_j / D_i_j`. The total utilization of the `j`-th segments of all tasks is `U_Tot_j = sum_{i=1}^{n} C_i_j / T_i`.",
+          "variables": {
+            "k": "Ratio of G_1 to T_1",
+            "D_i_j": "Segment-level relative deadline of tau_i_j",
+            "nu_i_j": "Segment density of tau_i_j",
+            "U_Tot_j": "Total utilization of the j-th segments across all tasks"
+          },
+          "assumptions": [],
+          "conclusion": "Defines additional parameters used in specific analyses and heuristics."
+        },
+        "informal_sketch": {
+          "intuition": "These are specific metrics used to simplify or optimize priority and deadline assignments. 'k' helps characterize the suspension overhead of the highest priority task. 'D_i_j' and 'nu_i_j' are used when we assign deadlines to individual segments, which then determine their priorities. 'U_Tot_j' helps understand the load from a specific segment across all tasks.",
+          "steps": [
+            "Calculate `k` for the highest priority task `tau_1` as `G_1 / T_1`.",
+            "For each segment `tau_i_j`, assign a relative deadline `D_i_j`.",
+            "Compute `nu_i_j` as `C_i_j / D_i_j`.",
+            "Compute `U_Tot_j` by summing `C_i_j / T_i` for all tasks `i`."
+          ],
+          "pseudocode": "def calculate_k(task_1):\n    return task_1.G_i / task_1.period\n\ndef calculate_nu_i_j(segment, D_i_j):\n    return segment.C_i_j / D_i_j\n\ndef calculate_U_Tot_j(task_set, j):\n    total_util = 0\n    for task in task_set:\n        if j < len(task.segments):\n            total_util += task.segments[j].C_i_j / task.period\n    return total_util",
+          "key_insights": [
+            "Derived parameters simplify analysis and guide heuristic design.",
+            "Segment-level deadlines are key to segment-fixed priority scheduling."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters"
+        ]
+      },
+      {
+        "type": "theorem",
+        "identifier": "Theorem 1",
+        "formal_description": {
+          "statement": "For `Gamma_1s1n` (a taskset with one self-suspending task `tau_1ss` and one non-suspending task `tau_2`), a critical instant happens when `tau_2` arrives at the same time as one of the segments of `tau_1ss`.",
+          "variables": {
+            "Gamma_1s1n": "Taskset with one self-suspending task and one non-suspending task",
+            "tau_1ss": "The self-suspending task (highest priority)",
+            "tau_2": "The non-suspending task"
+          },
+          "assumptions": [
+            "tau_1ss is the highest priority task.",
+            "tau_1ss is periodic.",
+            "G_i_j is constant (G_Min_i_j = G_Max_i_j).",
+            "C_i_j is fixed."
+          ],
+          "conclusion": "The worst-case response time of `tau_2` occurs when its release is aligned with a segment release of `tau_1ss`."
+        },
+        "informal_sketch": {
+          "intuition": "For a non-suspending task `tau_2` being interfered by a higher-priority self-suspending task `tau_1ss`, the worst-case delay for `tau_2` doesn't necessarily happen when both tasks start at the same time. Instead, it happens when `tau_2` starts exactly when one of `tau_1ss`'s execution segments begins, maximizing the preemption.",
+          "steps": [
+            "Identify `tau_1ss` (highest priority, self-suspending) and `tau_2` (lower priority, non-suspending).",
+            "Consider all possible release offsets `phi_2` for `tau_2` relative to `tau_1ss`'s job arrival.",
+            "The proof shows that the maximum interference on `tau_2` occurs when `phi_2` coincides with the start of any segment `tau_1ss_j`.",
+            "This means we only need to check a finite set of alignment points for `tau_2`."
+          ],
+          "pseudocode": "def find_critical_instant_1s1n(tau_1ss, tau_2):\n    # tau_1ss is highest priority, tau_2 is non-suspending\n    # Assume tau_1ss job arrives at time 0\n    \n    # Possible segment release offsets for tau_1ss's first job\n    segment_release_offsets = [0]\n    current_offset = 0\n    for j in range(tau_1ss.s_i - 1):\n        current_offset += tau_1ss.segments[j].C_i_j + tau_1ss.segments[j].G_i_j\n        segment_release_offsets.append(current_offset)\n    \n    # The critical instant for tau_2 occurs when its arrival aligns with one of these offsets\n    # The worst-case response time R_2 will be max(R_2(phi)) for phi in segment_release_offsets\n    return segment_release_offsets",
+          "key_insights": [
+            "Self-suspension breaks the traditional critical instant assumption (all tasks arrive simultaneously).",
+            "The critical instant for a lower-priority task is tied to the release of segments of the higher-priority self-suspending task."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters"
+        ]
+      },
+      {
+        "type": "corollary",
+        "identifier": "Corollary 1",
+        "formal_description": {
+          "statement": "For `Gamma_1s1n`, the worst-case response time of `tau_2` is given as `R_2 = max_{phi_in_Phi_2} R_2(phi)`, where `Phi_2` is a set that has each segment release offset of the first job of `tau_1ss` and `R_2(phi)` returns the response time of `tau_2` under the given release offset `phi`.",
+          "variables": {
+            "Gamma_1s1n": "Taskset with one self-suspending task and one non-suspending task",
+            "tau_2": "The non-suspending task",
+            "R_2": "Worst-case response time of tau_2",
+            "phi": "Release offset of tau_2 relative to tau_1ss's job arrival",
+            "Phi_2": "Set of segment release offsets of tau_1ss's first job",
+            "R_2_phi": "Response time of tau_2 for a given offset phi"
+          },
+          "assumptions": [
+            "Follows from Theorem 1."
+          ],
+          "conclusion": "The worst-case response time of `tau_2` can be found by evaluating its response time at a finite set of critical offsets."
+        },
+        "informal_sketch": {
+          "intuition": "Building on Theorem 1, this corollary states that to find the absolute worst-case response time for `tau_2`, we just need to calculate its response time for each of the critical alignment points identified in Theorem 1 and pick the maximum.",
+          "steps": [
+            "Determine the set `Phi_2` of critical offsets for `tau_2` (these are the segment release times of `tau_1ss`).",
+            "For each `phi` in `Phi_2`, calculate `R_2(phi)` using a response time analysis equation (e.g., Equation 1 from the paper).",
+            "The maximum of these `R_2(phi)` values is the worst-case response time `R_2`."
+          ],
+          "pseudocode": "def calculate_R2_phi(tau_1ss, tau_2, phi):\n    # This function would implement Equation (1) or a similar response time equation\n    # It calculates the busy period for tau_2 starting at phi, considering tau_1ss's preemptions\n    # For simplicity, assume it's an iterative fixed-point calculation\n    R_2_current = tau_2.C_i\n    while True:\n        interference = 0\n        # Interference from tau_1ss segments\n        for j in range(tau_1ss.s_i):\n            segment_release_time_relative_to_job = sum(s.C_i_j + s.G_i_j for s in tau_1ss.segments[:j])\n            # Number of jobs of tau_1ss_j that interfere\n            num_jobs = ceil((R_2_current + phi - segment_release_time_relative_to_job) / tau_1ss.period)\n            if num_jobs > 0:\n                interference += num_jobs * tau_1ss.segments[j].C_i_j\n        \n        R_2_next = tau_2.C_i + interference\n        if R_2_next == R_2_current:\n            break\n        R_2_current = R_2_next\n    return R_2_current\n\ndef calculate_WCRT_tau2(tau_1ss, tau_2):\n    critical_offsets = find_critical_instant_1s1n(tau_1ss, tau_2) # From Theorem 1\n    max_R_2 = 0\n    for phi in critical_offsets:\n        max_R_2 = max(max_R_2, calculate_R2_phi(tau_1ss, tau_2, phi))\n    return max_R_2",
+          "key_insights": [
+            "Reduces the search space for worst-case response time to a finite, manageable set of offsets.",
+            "Directly applies the finding of Theorem 1 to a practical calculation."
+          ]
+        },
+        "dependencies": [
+          "Theorem 1"
+        ]
+      },
+      {
+        "type": "lemma",
+        "identifier": "Lemma 1",
+        "formal_description": {
+          "statement": "Consider a taskset having a self-suspending task with two segments `tau_1ss`: `((C_1_1, G_1_1, C_1_2), T_1)` and a non-suspending task `tau_2`: `(C_2, T_2)`. Then, the taskset is compatible with RMS if `C_1_1 >= C_1_2` and `C_1_2 + L_1 >= C_1_1 + G_1_1`, where `T_1 = C_1_1 + G_1_1 + C_1_2 + L_1`.",
+          "variables": {
+            "tau_1ss": "Self-suspending task with two segments",
+            "C_1_1": "WCET of first segment of tau_1ss",
+            "G_1_1": "Suspension after first segment of tau_1ss",
+            "C_1_2": "WCET of second segment of tau_1ss",
+            "T_1": "Period of tau_1ss",
+            "tau_2": "Non-suspending task",
+            "C_2": "WCET of tau_2",
+            "T_2": "Period of tau_2",
+            "L_1": "Slack of tau_1ss"
+          },
+          "assumptions": [
+            "tau_1ss is the highest priority task.",
+            "tau_1ss has two segments.",
+            "G_i_j is constant, C_i_j is fixed."
+          ],
+          "conclusion": "Under these conditions, the critical scheduling instant for the taskset happens when `tau_1ss` and `tau_2` arrive at the same time, making it compatible with conventional RMS analysis."
+        },
+        "informal_sketch": {
+          "intuition": "This lemma identifies specific conditions under which a self-suspending task behaves 'nicely' enough that the standard RMS critical instant (all tasks released simultaneously) still holds. It's about ensuring that aligning `tau_2` with the first segment of `tau_1ss` is indeed the worst case, even with suspension.",
+          "steps": [
+            "Assume `tau_1ss` has two segments `C_1_1` and `C_1_2` separated by `G_1_1`.",
+            "The two critical offsets for `tau_2` (from Theorem 1) are `phi=0` (aligned with `C_1_1`) and `phi=C_1_1+G_1_1` (aligned with `C_1_2`).",
+            "The lemma states that if `C_1_1 >= C_1_2` (first segment is longer or equal) AND `C_1_2 + L_1 >= C_1_1 + G_1_1` (a condition relating the second segment's execution, slack, and the first segment's execution and suspension), then the `phi=0` alignment is always the worst case.",
+            "This means the taskset can be analyzed as if `tau_1ss` were a non-suspending task with total execution `C_1_1 + C_1_2` and `tau_2` arrives simultaneously."
+          ],
+          "pseudocode": "def check_rms_compatibility_lemma1(tau_1ss, tau_2):\n    # tau_1ss must have 2 segments\n    if tau_1ss.s_i != 2:\n        return False\n    \n    C_1_1 = tau_1ss.segments[0].C_i_j\n    G_1_1 = tau_1ss.segments[0].G_i_j\n    C_1_2 = tau_1ss.segments[1].C_i_j\n    \n    # L_1 is T_1 - R_1. For this lemma, R_1 is assumed to be C_1_1 + G_1_1 + C_1_2\n    # This is an implicit assumption for the 'slack' definition in this context.\n    # The paper defines L_1 = T_1 - R_1, and then uses T_1 = C_1_1 + G_1_1 + C_1_2 + L_1\n    # This implies R_1 = C_1_1 + G_1_1 + C_1_2, which is the minimum response time if no other tasks interfere.\n    # This is a bit circular, but for the purpose of the lemma, we can assume L_1 is the remaining time in the period.\n    # Let's use the definition from the paper: T_1 = C_1_1 + G_1_1 + C_1_2 + L_1 => L_1 = T_1 - (C_1_1 + G_1_1 + C_1_2)\n    L_1 = tau_1ss.period - (C_1_1 + G_1_1 + C_1_2)\n\n    condition1 = (C_1_1 >= C_1_2)\n    condition2 = (C_1_2 + L_1 >= C_1_1 + G_1_1)\n    \n    return condition1 and condition2",
+          "key_insights": [
+            "Provides specific, testable conditions for when RMS can be applied to a simple self-suspending taskset without modification.",
+            "Relates segment execution times, suspension, and task slack to determine critical instant behavior."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters",
+          "Theorem 1"
+        ]
+      },
+      {
+        "type": "lemma",
+        "identifier": "Lemma 2",
+        "formal_description": {
+          "statement": "For a taskset having a self-suspending task with two segments `tau_1ss`: `((C_1_1, G_1_1, C_1_2), T_1)` and a non-suspending task `tau_2`: `(C_2, T_2)`. Then, the taskset is compatible with RMS if `C_1_1 < C_1_2` and `G_1_1 <= C_2 < L_1`.",
+          "variables": {
+            "tau_1ss": "Self-suspending task with two segments",
+            "C_1_1": "WCET of first segment of tau_1ss",
+            "G_1_1": "Suspension after first segment of tau_1ss",
+            "C_1_2": "WCET of second segment of tau_1ss",
+            "T_1": "Period of tau_1ss",
+            "tau_2": "Non-suspending task",
+            "C_2": "WCET of tau_2",
+            "T_2": "Period of tau_2",
+            "L_1": "Slack of tau_1ss"
+          },
+          "assumptions": [
+            "tau_1ss is the highest priority task.",
+            "tau_1ss has two segments.",
+            "G_i_j is constant, C_i_j is fixed."
+          ],
+          "conclusion": "Under these conditions, the critical scheduling instant for the taskset happens when `tau_1ss` and `tau_2` arrive at the same time, making it compatible with conventional RMS analysis."
+        },
+        "informal_sketch": {
+          "intuition": "This lemma provides another set of conditions for RMS compatibility, specifically when the second segment of the self-suspending task is longer than the first. It ensures that even with this configuration, the worst-case for `tau_2` still occurs when it aligns with the first segment of `tau_1ss`.",
+          "steps": [
+            "Assume `tau_1ss` has two segments `C_1_1` and `C_1_2` separated by `G_1_1`.",
+            "The lemma states that if `C_1_1 < C_1_2` (first segment is shorter) AND `G_1_1 <= C_2 < L_1` (a condition relating suspension, `tau_2`'s execution, and `tau_1ss`'s slack), then the `phi=0` alignment is still the worst case.",
+            "This means the taskset can be analyzed as if `tau_1ss` were a non-suspending task with total execution `C_1_1 + C_1_2` and `tau_2` arrives simultaneously."
+          ],
+          "pseudocode": "def check_rms_compatibility_lemma2(tau_1ss, tau_2):\n    # tau_1ss must have 2 segments\n    if tau_1ss.s_i != 2:\n        return False\n    \n    C_1_1 = tau_1ss.segments[0].C_i_j\n    G_1_1 = tau_1ss.segments[0].G_i_j\n    C_1_2 = tau_1ss.segments[1].C_i_j\n    \n    # L_1 = T_1 - (C_1_1 + G_1_1 + C_1_2)\n    L_1 = tau_1ss.period - (C_1_1 + G_1_1 + C_1_2)\n\n    condition1 = (C_1_1 < C_1_2)\n    condition2 = (G_1_1 <= tau_2.C_i and tau_2.C_i < L_1)\n    \n    return condition1 and condition2",
+          "key_insights": [
+            "Extends RMS compatibility conditions to scenarios where the second segment is longer.",
+            "Highlights the interplay between suspension duration, lower-priority task execution, and slack in determining critical instants."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters",
+          "Theorem 1"
+        ]
+      },
+      {
+        "type": "proposition",
+        "identifier": "Proposition 1",
+        "formal_description": {
+          "statement": "Consider a taskset `Gamma_1s` that has one self-suspending task `tau_1ss` (highest priority) and `n-1` non-suspending tasks `tau_i` (where `1 < i <= n`, and `tau_i` has higher priority than `tau_j` if `i < j`). Let `phi_star_i` denote the phasing of `tau_i` and `tau_1ss` that causes the worst-case response time of `tau_i`. Then, `phi_star_i` may not be the same as `phi_star_j` when `i < j`. The set of arrival times for segments of the first job of `tau_1ss` is `Phi_1ss = {0, (C_1_1 + G_1_1), ..., sum_{j=1}^{s_1-1} (C_1_j + G_1_j)}`. The response time of `tau_i` for a given offset vector `phi_i = (phi_2, phi_3, ..., phi_i)` (where `phi_j` is `tau_j`'s offset to `tau_1ss` and `phi_j in Phi_1ss`) is given by: `R_i(phi_i) = C_i + sum_{j=1}^{s_1} ceil((R_i(phi_i) + phi_i - sum_{k=0}^{j-1} (C_1_k + G_1_k)) / T_1) * C_1_j + sum_{j=2}^{i-1} ceil((R_i(phi_i) + phi_i - phi_j) / T_j) * C_j - E_i(phi_i)`, where `E_i(phi_i)` is the CPU execution time incurred by tasks with higher priority than `tau_i` between the time origin and `tau_i`'s arrival at `phi_i` (calculated by Algorithm 1). `R_i(phi_i)` can be solved using Algorithm 2.",
+          "variables": {
+            "Gamma_1s": "Taskset with one self-suspending task and n-1 non-suspending tasks",
+            "tau_1ss": "The self-suspending task (highest priority)",
+            "tau_i": "A non-suspending task (1 < i <= n)",
+            "phi_star_i": "Worst-case phasing for tau_i",
+            "Phi_1ss": "Set of segment release offsets for tau_1ss's first job",
+            "C_1_k": "WCET of segment k of tau_1ss",
+            "G_1_k": "Suspension after segment k of tau_1ss",
+            "s_1": "Number of segments in tau_1ss",
+            "R_i_phi_i": "Response time of tau_i for offset vector phi_i",
+            "phi_i": "Offset vector (phi_2, ..., phi_i)",
+            "C_i": "WCET of tau_i",
+            "T_1": "Period of tau_1ss",
+            "T_j": "Period of tau_j",
+            "C_j": "WCET of tau_j",
+            "E_i_phi_i": "CPU execution time by higher priority tasks before tau_i's arrival"
+          },
+          "assumptions": [
+            "tau_1ss has the highest priority.",
+            "Priorities among non-suspending tasks are rate-monotonic (i < j implies tau_i has higher priority than tau_j).",
+            "G_i_j is constant, C_i_j is fixed.",
+            "The first job of tau_1ss arrives at time origin."
+          ],
+          "conclusion": "The critical instant for a lower-priority non-suspending task `tau_i` in a system with one highest-priority self-suspending task and other non-suspending tasks is complex; it depends on the specific phasing of all higher-priority tasks, and the worst-case phasing for different tasks may differ. The response time can be calculated iteratively."
+        },
+        "informal_sketch": {
+          "intuition": "When there are many non-suspending tasks, and one high-priority self-suspending task, finding the worst-case scenario for any given non-suspending task becomes very complicated. It's not just about aligning with the self-suspending task's segments, but also how all other higher-priority non-suspending tasks are phased. The worst-case phasing for one task might not be the worst-case for another.",
+          "steps": [
+            "Recognize that the critical instant for `tau_i` is not simply `phi=0` or a single alignment.",
+            "The set `Phi_1ss` defines all possible segment release points for `tau_1ss`.",
+            "For each `tau_i`, we need to consider an offset vector `phi_i` where each `phi_j` (for `j < i`) is chosen from `Phi_1ss`.",
+            "The response time `R_i(phi_i)` is calculated using a recurrence relation (Equation 5) that accounts for interference from `tau_1ss` (all its segments) and all higher-priority non-suspending tasks `tau_j` (for `j=2..i-1`).",
+            "A term `E_i(phi_i)` is subtracted, representing CPU time consumed by higher-priority tasks *before* `tau_i`'s arrival, which effectively reduces the busy window.",
+            "Algorithm 1 computes `E_i(phi_i)` by tracking idle times and higher-priority executions.",
+            "Algorithm 2 iteratively solves the recurrence relation for `R_i(phi_i)`.",
+            "To find the true `R_i`, one must check all combinations of `phi_i` (which is exponential)."
+          ],
+          "pseudocode": "def CPU_Execution_Before_Arrival(task_set, i, phi_i):\n    # task_set: list of tasks, tau_1ss is task_set[0]\n    # i: index of current task tau_i\n    # phi_i: offset vector (phi_2, ..., phi_i)\n    \n    tau_1ss = task_set[0]\n    \n    # Determine n_phi_i: largest n such that phi_i >= sum_{k=0}^{n} (C_1_k + G_1_k)\n    n_phi_i = 0\n    current_sum_C_G = 0\n    for k in range(tau_1ss.s_i):\n        if current_sum_C_G + tau_1ss.segments[k].C_i_j + tau_1ss.segments[k].G_i_j <= phi_i[i-2]: # phi_i[i-2] is the offset for tau_i\n            current_sum_C_G += tau_1ss.segments[k].C_i_j + tau_1ss.segments[k].G_i_j\n            n_phi_i = k\n        else:\n            break\n            \n    idle_times = [0] * (n_phi_i + 2) # Represents G_1,0, G_1,1, ..., G_1,n_phi_i, and a potential partial suspension\n    for l in range(n_phi_i + 1):\n        idle_times[l] = tau_1ss.segments[l].G_i_j # Assuming G_1,0 = 0\n    idle_times[n_phi_i + 1] = max(0, phi_i[i-2] - current_sum_C_G - tau_1ss.segments[n_phi_i].C_i_j)\n    \n    # Consider execution times of non-suspending tasks\n    E_i = 0\n    for l_task_idx in range(1, i):\n        tau_l = task_set[l_task_idx]\n        phi_l = phi_i[l_task_idx-1] # Offset for tau_l\n        \n        # This part of Algorithm 1 is underspecified in the paper for how it interacts with idle_times array\n        # It seems to imply that if tau_l arrives before phi_i, its execution might reduce idle time.\n        # A simplified interpretation for E_i(phi_i) is the sum of C_j for j < i that arrive before phi_i\n        # and are not preempted by tau_1ss's segments that finish before phi_i.\n        # Given the complexity, the pseudocode here is a high-level interpretation.\n        \n        # For a more direct interpretation of E_i(phi_i) from the equation:\n        # E_i(phi_i) is the total execution of higher-priority tasks (tau_1ss segments and tau_2..tau_{i-1})\n        # that occurs *before* tau_i's arrival at phi_i, and is subtracted from the busy window.\n        # This is essentially the work done by higher-priority tasks that is 'out of the way' before tau_i starts.\n        \n        # The paper's Algorithm 1 is for 'CPU execution time caused by the tasks that have higher priority than tau_i before tau_i arrives at phi_i'\n        # This is a complex calculation involving the actual schedule up to phi_i.\n        # For a simplified sketch, let's assume E_i is the sum of C_j for tasks j < i that complete before phi_i.\n        # However, the formal equation (5) uses E_i(phi_i) as a term that reduces the right-hand side, \n        # implying it's work done by higher-priority tasks that *doesn't* interfere with tau_i's busy window.\n        # The proof of Theorem 1 suggests it's the work of tau_1ss segments that finish before phi_2.\n        # For Proposition 1, it's more general.\n        \n        # Let's assume E_i(phi_i) is the sum of C_1_k for segments of tau_1ss that complete before phi_i\n        # and C_j for tasks tau_j (j < i) that complete before phi_i, considering their offsets.\n        # This is a simplification for the sketch.\n        E_i_val = 0\n        # For tau_1ss\n        for k in range(tau_1ss.s_i):\n            segment_release = sum(s.C_i_j + s.G_i_j for s in tau_1ss.segments[:k])\n            segment_finish = segment_release + tau_1ss.segments[k].C_i_j\n            if segment_finish <= phi_i[i-2]: # If segment finishes before tau_i arrives\n                E_i_val += tau_1ss.segments[k].C_i_j\n        # For other higher-priority non-suspending tasks (j=2 to i-1)\n        for j_idx in range(1, i-1):\n            tau_j = task_set[j_idx]\n            phi_j = phi_i[j_idx-1]\n            # This is a very rough approximation. Actual E_i(phi_i) is complex.\n            # If tau_j arrives at phi_j and finishes before phi_i[i-2]\n            # This would require a full schedule simulation up to phi_i[i-2]\n            # For the sketch, we'll leave it as a placeholder for the complex Algorithm 1.\n            pass\n    return E_i_val\n\ndef Response_Time(task_set, i, phi_i):\n    tau_i = task_set[i-1]\n    tau_1ss = task_set[0]\n    \n    E_i_val = CPU_Execution_Before_Arrival(task_set, i, phi_i) # Call Algorithm 1\n    \n    W_current = tau_i.C_i + sum(t.C_i for t in task_set[1:i-1]) # Initial guess: sum of higher priority WCETs\n    \n    while True:\n        interference_tau1ss = 0\n        for j_seg in range(tau_1ss.s_i):\n            segment_release_offset = sum(s.C_i_j + s.G_i_j for s in tau_1ss.segments[:j_seg])\n            # The term (R_i(phi_i) + phi_i - segment_release_offset) is the length of the window for tau_1ss_j\n            # phi_i here refers to the offset of tau_i itself, which is phi_i[i-2] in the vector\n            window_length = W_current + phi_i[i-2] - segment_release_offset\n            if window_length > 0:\n                interference_tau1ss += ceil(window_length / tau_1ss.period) * tau_1ss.segments[j_seg].C_i_j\n        \n        interference_higher_priority_non_suspending = 0\n        for j_task_idx in range(1, i-1): # For tasks tau_2 to tau_{i-1}\n            tau_j = task_set[j_task_idx]\n            phi_j = phi_i[j_task_idx-1] # Offset for tau_j\n            window_length = W_current + phi_i[i-2] - phi_j\n            if window_length > 0:\n                interference_higher_priority_non_suspending += ceil(window_length / tau_j.period) * tau_j.C_i\n        \n        W_next = tau_i.C_i + interference_tau1ss + interference_higher_priority_non_suspending - E_i_val\n        \n        if W_next == W_current:\n            break\n        W_current = W_next\n    return W_current\n\ndef find_worst_case_response_time_proposition1(task_set):\n    tau_1ss = task_set[0]\n    Phi_1ss = [0]\n    current_offset = 0\n    for j in range(tau_1ss.s_i - 1):\n        current_offset += tau_1ss.segments[j].C_i_j + tau_1ss.segments[j].G_i_j\n        Phi_1ss.append(current_offset)\n    \n    max_R_i_overall = 0\n    # This part is exponential. Iterate through all combinations of phi_j for j=2 to i\n    # For each tau_i, iterate through all possible (i-1)-dimensional vectors phi_i\n    # This is a conceptual sketch, actual implementation would use recursion or itertools.product\n    \n    # Example for tau_2:\n    tau_2 = task_set[1]\n    max_R_2 = 0\n    for phi_2_val in Phi_1ss:\n        phi_2_vector = [phi_2_val] # phi_i for i=2 is just [phi_2]\n        R_2_current = Response_Time(task_set, 2, phi_2_vector)\n        max_R_2 = max(max_R_2, R_2_current)\n    \n    # For tau_3, it would be for phi_2 in Phi_1ss, for phi_3 in Phi_1ss:\n    #   R_3 = Response_Time(task_set, 3, [phi_2, phi_3])\n    # This shows the exponential complexity.\n    return max_R_i_overall # Placeholder for actual max over all tasks and phases",
+          "key_insights": [
+            "The critical instant for lower-priority tasks becomes a complex multi-dimensional search problem due to self-suspension and multiple interfering tasks.",
+            "The response time equation is an extension of classical busy-period analysis, incorporating segment-specific interference and phase offsets.",
+            "The exponential complexity highlights the need for simpler conditions or heuristics."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters"
+        ]
+      },
+      {
+        "type": "corollary",
+        "identifier": "Corollary 2",
+        "formal_description": {
+          "statement": "For `Gamma_1s1n` that has a self-suspending task with two segments and a non-suspending task, a critical instant occurs when all the tasks are released at the same time when `R_1 = C_1_1 + G_1_1 + C_1_2 < C_2 <= L_1`.",
+          "variables": {
+            "Gamma_1s1n": "Taskset with one self-suspending task (two segments) and one non-suspending task",
+            "R_1": "Worst-case response time of tau_1ss",
+            "C_1_1": "WCET of first segment of tau_1ss",
+            "G_1_1": "Suspension after first segment of tau_1ss",
+            "C_1_2": "WCET of second segment of tau_1ss",
+            "C_2": "WCET of tau_2",
+            "L_1": "Slack of tau_1ss"
+          },
+          "assumptions": [
+            "tau_1ss is the highest priority task.",
+            "tau_1ss has two segments.",
+            "G_i_j is constant, C_i_j is fixed."
+          ],
+          "conclusion": "If the conditions are met, the critical instant is the conventional one (all tasks released simultaneously), simplifying schedulability analysis."
+        },
+        "informal_sketch": {
+          "intuition": "This corollary combines the insights from Lemma 1 and Lemma 2. It states that if the self-suspending task's total execution and suspension time is less than the non-suspending task's execution time, and `tau_2`'s execution fits within `tau_1ss`'s slack, then the simple critical instant (all tasks start at time zero) applies. This is a very useful condition for simplifying analysis.",
+          "steps": [
+            "Check if `tau_1ss` has two segments.",
+            "Calculate `R_1` as `C_1_1 + G_1_1 + C_1_2` (this is the minimum response time of `tau_1ss` if it runs without interference).",
+            "Calculate `L_1` as `T_1 - R_1`.",
+            "Verify the condition: `R_1 < C_2 <= L_1`.",
+            "If this condition holds, then both Lemma 1 and Lemma 2 imply RMS compatibility, meaning the critical instant is when both tasks arrive at time 0."
+          ],
+          "pseudocode": "def check_rms_compatibility_corollary2(tau_1ss, tau_2):\n    if tau_1ss.s_i != 2:\n        return False\n    \n    C_1_1 = tau_1ss.segments[0].C_i_j\n    G_1_1 = tau_1ss.segments[0].G_i_j\n    C_1_2 = tau_1ss.segments[1].C_i_j\n    \n    R_1_min = C_1_1 + G_1_1 + C_1_2\n    L_1 = tau_1ss.period - R_1_min\n    \n    condition = (R_1_min < tau_2.C_i and tau_2.C_i <= L_1)\n    \n    return condition",
+          "key_insights": [
+            "Provides a strong, easily verifiable condition for RMS compatibility in a specific two-task scenario.",
+            "Simplifies the critical instant problem to the conventional one, avoiding complex phase analysis."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters",
+          "Lemma 1",
+          "Lemma 2"
+        ]
+      },
+      {
+        "type": "theorem",
+        "identifier": "Theorem 2",
+        "formal_description": {
+          "statement": "For `Gamma_1s` (a taskset with one self-suspending task `tau_1ss` and many non-suspending tasks), a critical instant occurs when all the tasks are released at the same time if `R_1 = C_1 + G_1 < C_i <= L_1` for `i in {i | i in Z+ and 1 < i <= n}` is satisfied.",
+          "variables": {
+            "Gamma_1s": "Taskset with one self-suspending task and many non-suspending tasks",
+            "R_1": "Worst-case response time of tau_1ss",
+            "C_1": "Total WCET of tau_1ss",
+            "G_1": "Total suspension time of tau_1ss",
+            "C_i": "WCET of non-suspending task tau_i",
+            "L_1": "Slack of tau_1ss",
+            "n": "Number of tasks"
+          },
+          "assumptions": [
+            "tau_1ss is the highest priority task.",
+            "G_i_j is constant, C_i_j is fixed.",
+            "The worst-case execution time of each task is greater than the response time of tau_1ss (implied by C_i > R_1)."
+          ],
+          "conclusion": "If the conditions are met, the critical instant for all tasks is when they are all released simultaneously, allowing for conventional fixed-priority schedulability analysis."
+        },
+        "informal_sketch": {
+          "intuition": "This theorem generalizes Corollary 2 to multiple non-suspending tasks. If the highest-priority self-suspending task's total execution and suspension time is less than the execution time of *any* lower-priority non-suspending task, and all lower-priority tasks can fit within the self-suspending task's slack, then the simple critical instant (all tasks released at time zero) holds for the entire taskset. This is a powerful simplification.",
+          "steps": [
+            "Calculate `R_1` as `C_1 + G_1` (minimum response time of `tau_1ss`).",
+            "Calculate `L_1` as `T_1 - R_1`.",
+            "For every non-suspending task `tau_i` (where `i > 1`), check if `R_1 < C_i <= L_1`.",
+            "If this condition holds for all `tau_i`, then the worst-case scenario for all tasks is when they are all released at the same time.",
+            "The proof relies on showing that any offset for a non-suspending task would only decrease its response time, making simultaneous release the true worst case."
+          ],
+          "pseudocode": "def check_rms_compatibility_theorem2(task_set):\n    tau_1ss = task_set[0]\n    \n    R_1_min = tau_1ss.C_i + tau_1ss.G_i\n    L_1 = tau_1ss.period - R_1_min\n    \n    for i in range(1, len(task_set)): # Iterate through non-suspending tasks (tau_2 to tau_n)\n        tau_i = task_set[i]\n        # Assuming tau_i.C_i is the WCET of the non-suspending task\n        if not (R_1_min < tau_i.C_i and tau_i.C_i <= L_1):\n            return False\n            \n    return True",
+          "key_insights": [
+            "Extends the conventional critical instant to a multi-task system with a self-suspending task under specific conditions.",
+            "The conditions ensure that the self-suspending behavior does not 'shift' the critical instant away from simultaneous release.",
+            "Crucial for applying standard RMS analysis to a subset of self-suspending tasksets."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters",
+          "Proposition 1"
+        ]
+      },
+      {
+        "type": "theorem",
+        "identifier": "Theorem 3",
+        "formal_description": {
+          "statement": "For a taskset `Gamma_star_1s` with implicit deadlines, `Gamma_star_1s` is schedulable if the total utilization of the taskset is less than or equal to `U_RM_SS(n, k) = n * (2 + 2k)^(1/n) - 1 - k`, where `n` is the number of tasks in `Gamma_star_1s`, and `k` is the ratio of `G_1` to `T_1` and lies in the range of `0` to `(T_2 - T_1) / T_1 - 1`.",
+          "variables": {
+            "Gamma_star_1s": "Taskset satisfying conditions of Theorem 2",
+            "U_RM_SS_n_k": "Utilization bound for RMS with self-suspending tasks",
+            "n": "Number of tasks in the taskset",
+            "k": "Ratio G_1 / T_1",
+            "G_1": "Total suspension time of tau_1ss",
+            "T_1": "Period of tau_1ss",
+            "T_2": "Period of tau_2"
+          },
+          "assumptions": [
+            "The taskset `Gamma_star_1s` satisfies the conditions given in Theorem 2 (i.e., critical instant is simultaneous release).",
+            "Implicit deadlines (D_i = T_i).",
+            "All non-suspending task periods are less than `2*T_1` (relaxed later in the proof, but used for derivation).",
+            "Tasks are scheduled under Rate Monotonic Scheduling (RMS)."
+          ],
+          "conclusion": "Provides a utilization-based schedulability test for a specific class of self-suspending tasksets under RMS, extending the Liu & Layland bound."
+        },
+        "informal_sketch": {
+          "intuition": "This theorem gives a 'utilization bound' for self-suspending tasks, similar to the famous Liu & Layland bound for non-suspending tasks. If the total CPU utilization of the tasks is below this bound, the taskset is guaranteed to be schedulable under RMS. The bound depends on the number of tasks (`n`) and the suspension ratio (`k`) of the highest-priority task.",
+          "steps": [
+            "Assume the taskset meets Theorem 2's conditions, so the critical instant is simultaneous release.",
+            "Assume implicit deadlines (`D_i = T_i`).",
+            "Define `k = G_1 / T_1`.",
+            "The proof constructs a 'worst-case taskset' (similar to Liu & Layland) where tasks are designed to maximize utilization while still being schedulable.",
+            "It then derives the total utilization `U` of this worst-case taskset as a function of `n` and `k` (Equation 7).",
+            "By finding the minimum value of this `U` (using partial derivatives), the least upper bound `U_RM_SS(n, k)` is obtained (Equation 8).",
+            "If the actual total utilization of a given taskset is less than or equal to `U_RM_SS(n, k)`, it is schedulable."
+          ],
+          "pseudocode": "def calculate_URM_SS_bound(n, k):\n    # n: number of tasks\n    # k: G_1 / T_1\n    if n <= 0:\n        return 0\n    if k < 0:\n        raise ValueError(\"k must be non-negative\")\n    \n    # The formula is n * (2 + 2k)^(1/n) - 1 - k\n    bound = n * ((2 + 2 * k)**(1.0/n)) - 1 - k\n    return bound\n\ndef is_schedulable_theorem3(task_set, k):\n    # Assumes task_set satisfies Theorem 2 conditions and has implicit deadlines\n    n = len(task_set)\n    total_utilization = sum(task.C_i / task.period for task in task_set)\n    \n    utilization_bound = calculate_URM_SS_bound(n, k)\n    \n    return total_utilization <= utilization_bound",
+          "key_insights": [
+            "Extends the concept of utilization bounds to self-suspending tasks under specific conditions.",
+            "The bound explicitly incorporates the impact of suspension time (`k`) on schedulability.",
+            "Shows that self-suspension can sometimes lead to higher utilization bounds than non-suspending tasks due to idle periods."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters",
+          "Heuristic Parameters",
+          "Theorem 2"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Schedulability Condition (MILP Constraint 12)",
+        "formal_description": {
+          "statement": "`forall i in {1, ..., n}, (forall s in {1, ..., s_i-1}: R_i_s + G_i_s <= phi_i_s) AND (R_i_s_i <= D_i)`",
+          "variables": {
+            "R_i_s": "Response time of segment tau_i_s (from job arrival)",
+            "G_i_s": "Suspension duration after segment tau_i_s",
+            "phi_i_s": "Phase offset of segment tau_i_s+1 relative to job arrival",
+            "s_i": "Number of segments in task tau_i",
+            "D_i": "Deadline of task tau_i"
+          },
+          "assumptions": [
+            "Constrained deadlines are assumed.",
+            "Phase enforcement scheme is used to guarantee segment arrival after `phi_i_s`."
+          ],
+          "conclusion": "A task `tau_i` is schedulable if all its intermediate segments complete in time for their subsequent segments (considering suspension), and its last segment completes by the task's deadline."
+        },
+        "informal_sketch": {
+          "intuition": "For a self-suspending task to be schedulable, two things must happen: 1) Each segment must finish early enough so that the subsequent segment can start on time after its suspension. 2) The very last segment of the task must finish before the task's overall deadline.",
+          "steps": [
+            "For each segment `tau_i_s` (except the last one):",
+            "  Calculate its response time `R_i_s` (from the job's arrival).",
+            "  Add the suspension time `G_i_s` that follows it.",
+            "  This sum (`R_i_s + G_i_s`) must be less than or equal to the enforced phase `phi_i_s` of the next segment `tau_i_s+1`.",
+            "For the last segment `tau_i_s_i`:",
+            "  Calculate its response time `R_i_s_i`.",
+            "  This must be less than or equal to the task's deadline `D_i`."
+          ],
+          "pseudocode": "def check_task_schedulability_milp(task, segment_params):\n    # task: Task object\n    # segment_params: Dictionary of SegmentParameters objects for this task\n    \n    # Check intermediate segments\n    for s in range(task.s_i - 1):\n        R_i_s = segment_params[s].R_s\n        G_i_s = task.segments[s].G_i_j # Suspension after segment s\n        phi_i_s = segment_params[s+1].phi_s_minus_1 # Phase of next segment\n        if R_i_s + G_i_s > phi_i_s:\n            return False # Intermediate segment constraint violated\n            \n    # Check last segment\n    R_i_s_i = segment_params[task.s_i - 1].R_s\n    if R_i_s_i > task.deadline:\n        return False # Deadline constraint violated\n        \n    return True",
+          "key_insights": [
+            "Schedulability for self-suspending tasks requires meeting both intermediate timing constraints (for phase enforcement) and the final deadline.",
+            "Phase enforcement is critical to control jitters caused by variable suspension times."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters",
+          "Segment-Level Parameters for MILP"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Segment Response Time Calculation (MILP Constraint 14)",
+        "formal_description": {
+          "statement": "`forall i in {1, ..., n}, forall s in {1, ..., s_i}: R_i_s = phi_i_s_minus_1 + w_i_s`",
+          "variables": {
+            "R_i_s": "Response time of segment tau_i_s (from job arrival)",
+            "phi_i_s_minus_1": "Phase offset of segment tau_i_s relative to job arrival",
+            "w_i_s": "Worst-case execution time of segment tau_i_s including interference"
+          },
+          "assumptions": [
+            "phi_i_0 = 0 (first segment arrives with the job)."
+          ],
+          "conclusion": "The response time of a segment, relative to its job's arrival, is its enforced release phase plus the actual time it spends executing on the CPU (including preemptions)."
+        },
+        "informal_sketch": {
+          "intuition": "A segment `tau_i_s` can only start at or after its enforced phase `phi_i_s_minus_1`. Once it starts, it takes `w_i_s` time on the CPU (which includes its own execution and any higher-priority tasks that preempt it). So, its completion time relative to the job's arrival is simply its enforced start time plus its busy execution time.",
+          "steps": [
+            "Identify the enforced phase `phi_i_s_minus_1` for segment `tau_i_s`.",
+            "Calculate `w_i_s`, the total time `tau_i_s` occupies the CPU, considering its own WCET and all interference from higher-priority segments.",
+            "Sum these two values to get `R_i_s`."
+          ],
+          "pseudocode": "def calculate_segment_response_time(segment_params):\n    # segment_params: SegmentParameters object for tau_i_s\n    segment_params.R_s = segment_params.phi_s_minus_1 + segment_params.w_s",
+          "key_insights": [
+            "Phase enforcement directly impacts the segment's response time.",
+            "The `w_i_s` term encapsulates all scheduling delays experienced by the segment."
+          ]
+        },
+        "dependencies": [
+          "Segment-Level Parameters for MILP"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Segment Busy Time Calculation (MILP Constraint 15)",
+        "formal_description": {
+          "statement": "`forall i in {1, ..., n}, forall s in {1, ..., s_i}: w_i_s = C_i_s + sum_{j=1..n, j!=i} I_i_s_j`",
+          "variables": {
+            "w_i_s": "Worst-case execution time of segment tau_i_s including interference",
+            "C_i_s": "Worst-case execution time of segment tau_i_s",
+            "I_i_s_j": "Total interference from task tau_j on segment tau_i_s"
+          },
+          "assumptions": [
+            "C_i_s is the maximum execution time of segment tau_i_s."
+          ],
+          "conclusion": "The total time a segment `tau_i_s` occupies the CPU is its own worst-case execution time plus the sum of all interference it receives from other tasks."
+        },
+        "informal_sketch": {
+          "intuition": "When a segment `tau_i_s` is ready to run, it needs its own execution time `C_i_s`. However, it might be preempted by other higher-priority segments from other tasks. The total time it 'feels' like it's running (its busy time) is its own work plus all that preemption time.",
+          "steps": [
+            "Start with the segment's own worst-case execution time `C_i_s`.",
+            "For every other task `tau_j` in the system:",
+            "  Calculate the total interference `I_i_s_j` that `tau_j` causes on `tau_i_s`.",
+            "  Add `I_i_s_j` to `C_i_s`.",
+            "The sum is `w_i_s`."
+          ],
+          "pseudocode": "def calculate_segment_busy_time(segment_params, C_i_s, all_tasks_segment_params):\n    # segment_params: SegmentParameters object for tau_i_s\n    # C_i_s: WCET of tau_i_s\n    # all_tasks_segment_params: Dictionary of SegmentParameters for all segments in the system\n    \n    total_interference = 0\n    for j_task_id in all_tasks_segment_params:\n        if j_task_id != segment_params.task_id:\n            # I_i_s_j needs to be pre-calculated or calculated here\n            # This is a placeholder, as I_i_s_j itself is complex (Constraint 16)\n            total_interference += segment_params.I_s_j.get(j_task_id, 0)\n            \n    segment_params.w_s = C_i_s + total_interference",
+          "key_insights": [
+            "This is the core of response time analysis: own execution plus interference.",
+            "Interference is aggregated from all other tasks, not just a single higher-priority task."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters",
+          "Segment-Level Parameters for MILP"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Total Interference from Task (MILP Constraint 16)",
+        "formal_description": {
+          "statement": "`forall i in {1, ..., n}, forall s in {1, ..., s_i}, forall j in {1, ..., n} such that j != i: I_i_s_j = max_{s_prime in {1, ..., s_j}} I_sum_s_prime_i_s_j`",
+          "variables": {
+            "I_i_s_j": "Total interference from task tau_j on segment tau_i_s",
+            "s_prime": "Index of a segment of task tau_j",
+            "s_j": "Number of segments in task tau_j",
+            "I_sum_s_prime_i_s_j": "Interference from task tau_j on segment tau_i_s when tau_j_s_prime aligns with tau_i_s"
+          },
+          "assumptions": [
+            "The maximum response time of a segment job of task tau_i occurs when it arrives at a time when a segment of another task tau_j arrives."
+          ],
+          "conclusion": "The worst-case total interference from task `tau_j` on segment `tau_i_s` is found by considering all possible alignments of `tau_j`'s segments with `tau_i_s` and taking the maximum interference among these scenarios."
+        },
+        "informal_sketch": {
+          "intuition": "Since `tau_j` is also a self-suspending task, its segments can start at different offsets relative to `tau_i_s`. To find the absolute worst-case interference `tau_j` can cause on `tau_i_s`, we must check every possible scenario where one of `tau_j`'s segments starts at the exact same time as `tau_i_s` and pick the one that causes the most delay.",
+          "steps": [
+            "For a given `tau_i_s` and interfering task `tau_j`:",
+            "  Initialize `max_interference_from_tau_j = 0`.",
+            "  For each segment `tau_j_s_prime` of `tau_j`:",
+            "    Calculate `I_sum_s_prime_i_s_j`, which is the total interference `tau_j` causes on `tau_i_s` *assuming* `tau_j_s_prime` aligns with `tau_i_s`.",
+            "    Update `max_interference_from_tau_j = max(max_interference_from_tau_j, I_sum_s_prime_i_s_j)`.",
+            "Set `I_i_s_j = max_interference_from_tau_j`."
+          ],
+          "pseudocode": "def calculate_I_i_s_j(segment_i_s_params, task_j, all_segment_params):\n    # segment_i_s_params: SegmentParameters for tau_i_s\n    # task_j: Task object for tau_j\n    # all_segment_params: Dictionary of SegmentParameters for all segments\n    \n    max_I_sum = 0\n    for s_prime_idx in range(task_j.s_i):\n        # Calculate I_sum_s_prime_i_s_j (Constraint 17)\n        # This would involve summing I_term_s_prime_i_s_j_s_double_prime for all s_double_prime\n        # For simplicity, assume I_sum_s_prime_i_s_j is available or calculated recursively\n        I_sum_current = calculate_I_sum_s_prime_i_s_j(segment_i_s_params, task_j, s_prime_idx, all_segment_params)\n        max_I_sum = max(max_I_sum, I_sum_current)\n    \n    segment_i_s_params.I_s_j[task_j.id] = max_I_sum",
+          "key_insights": [
+            "The worst-case interference from a self-suspending task is not fixed but depends on the relative phasing of its segments.",
+            "This requires exploring multiple alignment scenarios to find the true maximum interference."
+          ]
+        },
+        "dependencies": [
+          "Segment-Level Parameters for MILP"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Sum of Interference Terms (MILP Constraint 17)",
+        "formal_description": {
+          "statement": "`forall i in {1, ..., n}, forall s in {1, ..., s_i}, forall j in {1, ..., n}, forall s_prime in {1, ..., s_j} such that j != i: I_sum_s_prime_i_s_j = sum_{s_double_prime in {1, ..., s_j}} I_term_s_prime_i_s_j_s_double_prime`",
+          "variables": {
+            "I_sum_s_prime_i_s_j": "Interference from task tau_j on segment tau_i_s when tau_j_s_prime aligns with tau_i_s",
+            "s_double_prime": "Index of a segment of task tau_j",
+            "s_j": "Number of segments in task tau_j",
+            "I_term_s_prime_i_s_j_s_double_prime": "Interference from segment tau_j_s_double_prime on tau_i_s when tau_j_s_prime aligns with tau_i_s"
+          },
+          "assumptions": [
+            "j != i (task j is not task i)."
+          ],
+          "conclusion": "The total interference from task `tau_j` on `tau_i_s` (for a specific alignment `s_prime`) is the sum of interference contributions from all individual segments of `tau_j`."
+        },
+        "informal_sketch": {
+          "intuition": "When `tau_j` interferes with `tau_i_s`, it's not just one segment of `tau_j` that causes the problem. All segments of `tau_j` that have higher priority than `tau_i_s` can potentially preempt `tau_i_s`. So, we sum up the interference from each of `tau_j`'s segments.",
+          "steps": [
+            "For a given `tau_i_s` and `tau_j`, and a specific alignment where `tau_j_s_prime` starts with `tau_i_s`:",
+            "  Initialize `total_interference_for_alignment = 0`.",
+            "  For each segment `tau_j_s_double_prime` of `tau_j`:",
+            "    Calculate `I_term_s_prime_i_s_j_s_double_prime`, which is the interference caused by this specific segment `tau_j_s_double_prime`.",
+            "    Add `I_term_s_prime_i_s_j_s_double_prime` to `total_interference_for_alignment`.",
+            "Set `I_sum_s_prime_i_s_j = total_interference_for_alignment`."
+          ],
+          "pseudocode": "def calculate_I_sum_s_prime_i_s_j(segment_i_s_params, task_j, s_prime_idx, all_segment_params):\n    # segment_i_s_params: SegmentParameters for tau_i_s\n    # task_j: Task object for tau_j\n    # s_prime_idx: Index of segment tau_j_s_prime that aligns with tau_i_s\n    # all_segment_params: Dictionary of SegmentParameters for all segments\n    \n    total_interference_terms = 0\n    for s_double_prime_idx in range(task_j.s_i):\n        # Calculate I_term_s_prime_i_s_j_s_double_prime (Constraint 18)\n        I_term_current = calculate_I_term_s_prime_i_s_j_s_double_prime(\n            segment_i_s_params, task_j, s_prime_idx, s_double_prime_idx, all_segment_params\n        )\n        total_interference_terms += I_term_current\n    return total_interference_terms",
+          "key_insights": [
+            "Interference is a cumulative effect of all higher-priority segments of an interfering task.",
+            "This breaks down the complex interference calculation into manageable, individual segment contributions."
+          ]
+        },
+        "dependencies": [
+          "Segment-Level Parameters for MILP"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Individual Interference Term (MILP Constraint 18)",
+        "formal_description": {
+          "statement": "`forall i in {1, ..., n}, forall s in {1, ..., s_i}, forall j in {1, ..., n}, forall s_prime in {1, ..., s_j} such that j != i: I_term_s_prime_i_s_j_s_double_prime = n_jobs_s_prime_i_s_j_s_double_prime * C_j_s_double_prime * x_i_s_j_s_double_prime`",
+          "variables": {
+            "I_term_s_prime_i_s_j_s_double_prime": "Interference from segment tau_j_s_double_prime on tau_i_s when tau_j_s_prime aligns with tau_i_s",
+            "n_jobs_s_prime_i_s_j_s_double_prime": "Number of interfering jobs of segment tau_j_s_double_prime",
+            "C_j_s_double_prime": "WCET of segment tau_j_s_double_prime",
+            "x_i_s_j_s_double_prime": "Binary variable for priority relationship (1 if tau_j_s_double_prime >= tau_i_s, 0 otherwise)"
+          },
+          "assumptions": [
+            "j != i (task j is not task i)."
+          ],
+          "conclusion": "The interference caused by a specific segment `tau_j_s_double_prime` on `tau_i_s` is its total execution time (number of jobs * WCET) only if `tau_j_s_double_prime` has higher or equal priority than `tau_i_s`."
+        },
+        "informal_sketch": {
+          "intuition": "Only higher-priority segments can preempt `tau_i_s`. So, for each segment `tau_j_s_double_prime` of an interfering task `tau_j`, we calculate how much time it would execute during `tau_i_s`'s busy period. If `tau_j_s_double_prime` has lower priority, it causes no interference, so its contribution is zero.",
+          "steps": [
+            "Determine `x_i_s_j_s_double_prime`: is `tau_j_s_double_prime` higher or equal priority than `tau_i_s`? If not, `I_term` is 0.",
+            "If it is higher priority, calculate `n_jobs_s_prime_i_s_j_s_double_prime`, the number of times `tau_j_s_double_prime` executes during `tau_i_s`'s busy period (Constraints 19 & 20).",
+            "Multiply `n_jobs` by `C_j_s_double_prime` (its WCET) to get the total interference from this specific segment."
+          ],
+          "pseudocode": "def calculate_I_term_s_prime_i_s_j_s_double_prime(\n    segment_i_s_params, task_j, s_prime_idx, s_double_prime_idx, all_segment_params\n):\n    # segment_i_s_params: SegmentParameters for tau_i_s\n    # task_j: Task object for tau_j\n    # s_prime_idx: Index of segment tau_j_s_prime that aligns with tau_i_s\n    # s_double_prime_idx: Index of segment tau_j_s_double_prime that is interfering\n    # all_segment_params: Dictionary of SegmentParameters for all segments\n    \n    tau_j_s_double_prime_segment = task_j.segments[s_double_prime_idx]\n    \n    # Check priority relationship (x_i_s_j_s_double_prime)\n    # This requires looking up priorities from y_i_s_p variables\n    # For sketch, assume a function get_priority_relationship(prio_i_s, prio_j_s_double_prime)\n    # x_val = get_priority_relationship(segment_i_s_params.priority, all_segment_params[task_j.id][s_double_prime_idx].priority)\n    # For MILP, x_i_s_j_s_double_prime is a binary variable linked to y_i_s_p\n    x_val = segment_i_s_params.x_s_j_s_prime.get((task_j.id, s_double_prime_idx), 0) # Placeholder\n    \n    if x_val == 0:\n        return 0 # No interference if lower priority\n        \n    # Calculate n_jobs_s_prime_i_s_j_s_double_prime (Constraints 19 & 20)\n    n_jobs_val = calculate_n_jobs_s_prime_i_s_j_s_double_prime(\n        segment_i_s_params, task_j, s_prime_idx, s_double_prime_idx\n    )\n    \n    return n_jobs_val * tau_j_s_double_prime_segment.C_i_j * x_val",
+          "key_insights": [
+            "Priority assignment is fundamental: only higher-priority work causes interference.",
+            "The calculation of `n_jobs` is critical for accurately quantifying interference."
+          ]
+        },
+        "dependencies": [
+          "Segment-Level Parameters for MILP"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Number of Interfering Jobs (MILP Constraint 19)",
+        "formal_description": {
+          "statement": "`forall i in {1, ..., n}, forall s in {1, ..., s_i}, forall j in {1, ..., n}, forall s_prime in {1, ..., s_j}, forall s_double_prime in {1, ..., s_j} such that (j != i) AND (s_double_prime >= s_prime): n_jobs_s_prime_i_s_j_s_double_prime = ceil((w_i_s - (phi_j_s_double_prime_minus_1 - phi_j_s_prime_minus_1)) / T_j)`",
+          "variables": {
+            "n_jobs_s_prime_i_s_j_s_double_prime": "Number of interfering jobs of segment tau_j_s_double_prime",
+            "w_i_s": "Worst-case execution time of segment tau_i_s including interference",
+            "phi_j_s_double_prime_minus_1": "Phase offset of segment tau_j_s_double_prime relative to job arrival",
+            "phi_j_s_prime_minus_1": "Phase offset of segment tau_j_s_prime relative to job arrival",
+            "T_j": "Period of task tau_j"
+          },
+          "assumptions": [
+            "j != i (task j is not task i).",
+            "s_double_prime >= s_prime (the interfering segment `tau_j_s_double_prime` arrives at or after the aligned segment `tau_j_s_prime` within the same job).",
+            "The critical instant is when `tau_i_s` and `tau_j_s_prime` arrive simultaneously."
+          ],
+          "conclusion": "Calculates the number of jobs of `tau_j_s_double_prime` that interfere with `tau_i_s` within its busy window, considering the relative offset of `tau_j_s_double_prime` from the aligned segment `tau_j_s_prime`."
+        },
+        "informal_sketch": {
+          "intuition": "When `tau_i_s` starts, and `tau_j_s_prime` also starts at the same time, we need to count how many times *other* segments of `tau_j` (specifically `tau_j_s_double_prime`) will execute during `tau_i_s`'s busy period `w_i_s`. This formula handles the case where `tau_j_s_double_prime` appears later in the same job of `tau_j` as `tau_j_s_prime`.",
+          "steps": [
+            "Assume `tau_i_s` starts at time 0 (relative to its busy window).",
+            "Assume `tau_j_s_prime` also starts at time 0 (relative to its job).",
+            "The relative offset of `tau_j_s_double_prime` from `tau_j_s_prime` is `delta_phi = phi_j_s_double_prime_minus_1 - phi_j_s_prime_minus_1`.",
+            "The effective start of `tau_j_s_double_prime` within `tau_i_s`'s busy window is `delta_phi`.",
+            "The length of the window available for `tau_j_s_double_prime` to interfere is `w_i_s - delta_phi`.",
+            "Divide this length by `T_j` and take the ceiling to get the number of interfering jobs."
+          ],
+          "pseudocode": "def calculate_n_jobs_case1(\n    w_i_s, phi_j_s_double_prime_minus_1, phi_j_s_prime_minus_1, T_j\n):\n    # s_double_prime >= s_prime\n    delta_phi = phi_j_s_double_prime_minus_1 - phi_j_s_prime_minus_1\n    window_for_interference = w_i_s - delta_phi\n    if window_for_interference <= 0:\n        return 0\n    return ceil(window_for_interference / T_j)",
+          "key_insights": [
+            "Accurately counts interfering jobs by considering their relative offsets within the interfering task's period.",
+            "The busy window `w_i_s` is the key duration over which interference is accumulated."
+          ]
+        },
+        "dependencies": [
+          "Segment-Level Parameters for MILP"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Number of Interfering Jobs (MILP Constraint 20)",
+        "formal_description": {
+          "statement": "`forall i in {1, ..., n}, forall s in {1, ..., s_i}, forall j in {1, ..., n}, forall s_prime in {1, ..., s_j}, forall s_double_prime in {1, ..., s_j} such that (j != i) AND (s_double_prime <= s_prime - 1): n_jobs_s_prime_i_s_j_s_double_prime = ceil((w_i_s - (T_j - (phi_j_s_prime_minus_1 - phi_j_s_double_prime_minus_1))) / T_j)`",
+          "variables": {
+            "n_jobs_s_prime_i_s_j_s_double_prime": "Number of interfering jobs of segment tau_j_s_double_prime",
+            "w_i_s": "Worst-case execution time of segment tau_i_s including interference",
+            "T_j": "Period of task tau_j",
+            "phi_j_s_prime_minus_1": "Phase offset of segment tau_j_s_prime relative to job arrival",
+            "phi_j_s_double_prime_minus_1": "Phase offset of segment tau_j_s_double_prime relative to job arrival"
+          },
+          "assumptions": [
+            "j != i (task j is not task i).",
+            "s_double_prime <= s_prime - 1 (the interfering segment `tau_j_s_double_prime` arrives before the aligned segment `tau_j_s_prime` within the same job, potentially from a previous job instance).",
+            "The critical instant is when `tau_i_s` and `tau_j_s_prime` arrive simultaneously."
+          ],
+          "conclusion": "Calculates the number of jobs of `tau_j_s_double_prime` that interfere with `tau_i_s` within its busy window, considering that `tau_j_s_double_prime` might be from a previous job instance of `tau_j` relative to the aligned `tau_j_s_prime`."
+        },
+        "informal_sketch": {
+          "intuition": "This formula handles the case where the interfering segment `tau_j_s_double_prime` actually comes *before* the aligned segment `tau_j_s_prime` in the task `tau_j`'s sequence. This means `tau_j_s_double_prime` might be from an earlier job of `tau_j` that 'wraps around' the period `T_j` to interfere with `tau_i_s`.",
+          "steps": [
+            "Assume `tau_i_s` starts at time 0 (relative to its busy window).",
+            "Assume `tau_j_s_prime` also starts at time 0 (relative to its job).",
+            "The relative offset of `tau_j_s_double_prime` from `tau_j_s_prime` is `delta_phi = phi_j_s_prime_minus_1 - phi_j_s_double_prime_minus_1`.",
+            "Since `tau_j_s_double_prime` comes before `tau_j_s_prime`, its effective start within `tau_i_s`'s busy window is `T_j - delta_phi` (it's from the previous job of `tau_j`).",
+            "The length of the window available for `tau_j_s_double_prime` to interfere is `w_i_s - (T_j - delta_phi)`.",
+            "Divide this length by `T_j` and take the ceiling to get the number of interfering jobs."
+          ],
+          "pseudocode": "def calculate_n_jobs_case2(\n    w_i_s, T_j, phi_j_s_prime_minus_1, phi_j_s_double_prime_minus_1\n):\n    # s_double_prime <= s_prime - 1\n    delta_phi = phi_j_s_prime_minus_1 - phi_j_s_double_prime_minus_1\n    effective_start_offset = T_j - delta_phi\n    window_for_interference = w_i_s - effective_start_offset\n    if window_for_interference <= 0:\n        return 0\n    return ceil(window_for_interference / T_j)",
+          "key_insights": [
+            "Handles 'carry-in' interference where an interfering segment from a previous job instance affects the current busy window.",
+            "Correctly accounts for the periodic nature of tasks and segment offsets within a period."
+          ]
+        },
+        "dependencies": [
+          "Segment-Level Parameters for MILP"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Algorithm 3: ED (Equal Density) Heuristic",
+        "formal_description": {
+          "statement": "The ED (Equal Density) heuristic assigns segment-level deadlines `D_i_j` and phase offsets `phi_i_j` for a task `tau_i` such that all segment densities `nu_i_j = C_i_j / D_i_j` for `tau_i` are equal. Specifically, `D_i_j = (C_i_j * (D_i - G_i)) / C_i` and `phi_i_j = phi_i_j_minus_1 + D_i_j + G_i_j`.",
+          "variables": {
+            "Gamma": "Set of n self-suspending tasks",
+            "Delta": "Set of segment-level relative deadlines",
+            "Phi": "Set of segment-level phase offsets",
+            "tau_i": "Task i",
+            "D_i": "Deadline of task tau_i",
+            "G_i": "Total suspension time of task tau_i",
+            "C_i": "Total WCET of task tau_i",
+            "C_i_j": "WCET of segment tau_i_j",
+            "D_i_j": "Segment-level relative deadline of tau_i_j",
+            "phi_i_j": "Phase offset of segment tau_i_j+1",
+            "phi_i_j_minus_1": "Phase offset of segment tau_i_j",
+            "G_i_j": "Suspension duration after segment tau_i_j"
+          },
+          "assumptions": [
+            "phi_i_0 = 0 (first segment arrives at time 0).",
+            "The total available CPU time for task `tau_i` is `D_i - G_i`."
+          ],
+          "conclusion": "Provides a fast heuristic to assign segment deadlines and phases, aiming to balance the 'density' of work across segments, which can improve schedulability under Deadline-Monotonic Scheduling."
+        },
+        "informal_sketch": {
+          "intuition": "The Equal Density (ED) heuristic tries to make all parts of a task equally 'urgent' by assigning segment deadlines such that the ratio of a segment's execution time to its assigned deadline is the same for all segments within a task. This helps distribute the task's overall slack proportionally to its segments' computational demands.",
+          "steps": [
+            "For each task `tau_i`:",
+            "  Calculate the 'actual CPU time' available for `tau_i` by subtracting its total suspension time from its deadline: `D_i_prime = D_i - G_i`.",
+            "  For each segment `tau_i_j` (except the last one):",
+            "    Assign a segment deadline `D_i_j` such that `C_i_j / D_i_j` is constant across all segments. This is done by `D_i_j = (C_i_j * D_i_prime) / C_i`.",
+            "    Determine the phase offset for the next segment `tau_i_j+1` as `phi_i_j = phi_i_j_minus_1 + D_i_j + G_i_j`.",
+            "  For the last segment `tau_i_s_i`:",
+            "    Its deadline `D_i_s_i` is the remaining time until the task's deadline, considering previous segments' deadlines and suspensions: `D_i_s_i = D_i + G_i - phi_i_s_i_minus_1`.",
+            "The assigned `D_i_j` values determine priorities under DMS (shorter deadline = higher priority)."
+          ],
+          "pseudocode": "def ED_heuristic(task_set):\n    Delta = {}\n    Phi = {}\n    \n    for task in task_set:\n        D_i_prime = task.deadline - task.G_i\n        Phi[task.id] = {0: 0} # phi_i_0 = 0\n        \n        current_phi = 0\n        for j in range(task.s_i - 1):\n            segment = task.segments[j]\n            D_i_j = (segment.C_i_j * D_i_prime) / task.C_i\n            Delta[(task.id, j)] = D_i_j\n            \n            current_phi = current_phi + D_i_j + segment.G_i_j\n            Phi[task.id][j+1] = current_phi\n            \n        # Last segment's deadline\n        D_i_s_i = task.deadline + task.G_i - Phi[task.id][task.s_i - 1]\n        Delta[(task.id, task.s_i - 1)] = D_i_s_i\n        \n    return Delta, Phi",
+          "key_insights": [
+            "Aims to balance the 'load' of each segment relative to its assigned deadline.",
+            "Distributes slack proportionally to segment execution times.",
+            "Provides a fast, polynomial-time method for assigning parameters, contrasting with the exponential MILP."
+          ]
+        },
+        "dependencies": [
+          "Task Model Parameters",
+          "Heuristic Parameters"
+        ]
+      }
+    ],
+    "xml_path": "/lclhome/sshah169/Desktop/Sadat/0_phd/2_projects/4_neural_theorem_prover/10-IEEE-paper-download/xplore-python3-2025-sdk/rts_papers_output/pdfs/xml/Segment-Fixed_Priority_Scheduling_for_Self-Suspending_Real-Time_Tasks.xml",
+    "extracted_at": "2026-02-15T18:50:29.777069"
+  },
+  "error": null,
+  "ieee_doi": "10.1109/RTSS.2013.32",
+  "article_number": "6728879"
+}

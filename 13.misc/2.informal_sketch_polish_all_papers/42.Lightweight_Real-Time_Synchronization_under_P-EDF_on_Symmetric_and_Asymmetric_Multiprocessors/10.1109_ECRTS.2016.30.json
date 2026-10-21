@@ -1,0 +1,1550 @@
+{
+  "paper_id": "10.1109_ECRTS.2016.30",
+  "source": "ieee",
+  "title": "Lightweight Real-Time Synchronization under P-EDF on Symmetric and Asymmetric Multiprocessors",
+  "authors": [
+    "Alessandro Biondi",
+    "Björn B. Brandenburg"
+  ],
+  "published": "2016",
+  "pdf_path": "/lclhome/sshah169/Desktop/Sadat/0_phd/2_projects/4_neural_theorem_prover/10-IEEE-paper-download/xplore-python3-2025-sdk/rts_papers_output/pdfs/Lightweight_Real-Time_Synchronization_under_P-EDF_on_Symmetric_and_Asymmetric_Multiprocessors.pdf",
+  "xml_path": "/lclhome/sshah169/Desktop/Sadat/0_phd/2_projects/4_neural_theorem_prover/10-IEEE-paper-download/xplore-python3-2025-sdk/rts_papers_output/pdfs/xml/Lightweight_Real-Time_Synchronization_under_P-EDF_on_Symmetric_and_Asymmetric_Multiprocessors.xml",
+  "extraction": {
+    "paper_name": "Lightweight Real-Time Synchronization under P-EDF on Symmetric and Asymmetric Multiprocessors",
+    "paper_description": "This paper presents the first inflation-free schedulability analysis framework for P-EDF in the presence of synchronization delays. It develops new schedulability tests and matching bounds for worst-case synchronization delays for four lightweight synchronization mechanisms: preemptive/non-preemptive lock-free synchronization and preemptive/non-preemptive FIFO spin locks. The analysis uses linear optimization techniques (ILP/MILP) to account for retry and blocking delays without inflating task parameters, and introduces a novel fixed-point iteration approach to determine the maximum busy-period length for schedulability testing.",
+    "results": [
+      {
+        "type": "definition",
+        "identifier": "Resource Set Partition",
+        "formal_description": {
+          "statement": "Q_l intersect Q_g = empty_set and Q_l union Q_g = Q.",
+          "variables": {
+            "Q_l": "Set of local resources, accessed only by tasks on the same processor.",
+            "Q_g": "Set of global resources, accessed by tasks on different processors.",
+            "Q": "Total set of shared resources."
+          },
+          "assumptions": [],
+          "conclusion": "The total set of shared resources Q is partitioned into disjoint sets of local (Q_l) and global (Q_g) resources."
+        },
+        "informal_sketch": {
+          "intuition": "Shared resources are categorized into two types: those used only within a single processor (local) and those used across multiple processors (global). These categories are mutually exclusive and cover all shared resources.",
+          "steps": [
+            "Identify all shared resources in the system, forming set Q.",
+            "Identify resources accessed only by tasks on the same processor, forming set Q_l.",
+            "Identify resources accessed by tasks on different processors, forming set Q_g.",
+            "Verify that no resource is in both Q_l and Q_g (disjoint).",
+            "Verify that every resource in Q is either in Q_l or Q_g (union covers Q)."
+          ],
+          "pseudocode": "def check_resource_partition(Q, Q_l, Q_g):\n    # Check disjoint property\n    if not set(Q_l).isdisjoint(set(Q_g)):\n        return False\n    # Check union property\n    if not (set(Q_l).union(set(Q_g)) == set(Q)):\n        return False\n    return True",
+          "key_insights": [
+            "Clear categorization of resources simplifies synchronization protocol design and analysis.",
+            "Local resources can often use simpler, uniprocessor-specific protocols (e.g., SRP), while global resources require multiprocessor-aware mechanisms (e.g., spin locks, lock-free)."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "Definition 1 (deadline busy-period)",
+        "formal_description": {
+          "statement": "An interval [t_0, t_0 + t] of length t is a deadline busy-period iff (i) t_0 + t is the absolute deadline of some job, and (ii) t_0 is the last time before t_0 + t such that there are no pending jobs with a release date before t_0 and an absolute deadline before or at t_0 + t.",
+          "variables": {
+            "t_0": "Start time of the interval.",
+            "t": "Length of the interval.",
+            "t_0_plus_t": "End time of the interval, which is an absolute deadline."
+          },
+          "assumptions": [],
+          "conclusion": "Defines a specific type of busy-period relevant for EDF schedulability analysis, where the interval ends precisely at a job's deadline and starts when the processor becomes 'idle' with respect to jobs ending by that deadline."
+        },
+        "informal_sketch": {
+          "intuition": "A deadline busy-period is a continuous stretch of time where the processor is busy processing jobs that must complete by a certain deadline, and this period ends exactly at that deadline. It starts at the latest possible moment before the deadline where no jobs with deadlines up to that point are pending.",
+          "steps": [
+            "Identify a job's absolute deadline, let it be D_abs.",
+            "Consider intervals ending at D_abs.",
+            "Find the latest time t_0 before D_abs where the processor is idle, or only jobs with deadlines strictly after D_abs are pending.",
+            "The interval [t_0, D_abs] is a deadline busy-period of length t = D_abs - t_0."
+          ],
+          "pseudocode": "def is_deadline_busy_period(interval_start, interval_end, all_jobs):\n    t_0 = interval_start\n    t_0_plus_t = interval_end\n\n    # Condition (i): t_0_plus_t is the absolute deadline of some job\n    deadline_met = False\n    for job in all_jobs:\n        if job.absolute_deadline == t_0_plus_t:\n            deadline_met = True\n            break\n    if not deadline_met:\n        return False\n\n    # Condition (ii): t_0 is the last time before t_0_plus_t such that no pending jobs\n    # with release before t_0 and deadline <= t_0_plus_t\n    # This is harder to check directly without a full schedule simulation.\n    # Conceptually, it means the processor is continuously busy with relevant jobs\n    # from t_0 to t_0_plus_t, and t_0 is the 'start' of this continuous demand.\n    # For analysis, we typically iterate over possible t_0 and t_0_plus_t values.\n    return True # Simplified for conceptual sketch",
+          "key_insights": [
+            "This definition is crucial for the processor demand criterion (PDC) because it defines the exact intervals over which cumulative execution demand must be checked.",
+            "It isolates critical scenarios where a job might miss its deadline due to accumulated work."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "B_t_non_preemptive_blocking",
+        "formal_description": {
+          "statement": "B_t = max {Z_x | d_x > t}",
+          "variables": {
+            "B_t": "Upper-bound on the maximum arrival blocking experienced in any deadline busy-period of length t.",
+            "Z_x": "Length of the maximum non-preemptive section of task T_x.",
+            "d_x": "Relative deadline of task T_x.",
+            "t": "Length of the deadline busy-period."
+          },
+          "assumptions": [
+            "Non-preemptive blocking scenario."
+          ],
+          "conclusion": "The maximum arrival blocking in a deadline busy-period of length t is the length of the longest non-preemptive section among tasks whose relative deadline is greater than t."
+        },
+        "informal_sketch": {
+          "intuition": "If a task is executing a non-preemptive section, it can block higher-priority tasks. However, for a deadline busy-period of length 't', only tasks with deadlines *longer* than 't' can cause arrival blocking that extends into this busy-period. The blocking is limited to the single longest non-preemptive section from such a task.",
+          "steps": [
+            "Identify all tasks T_x whose relative deadline d_x is greater than the busy-period length t.",
+            "For each such task T_x, find its maximum non-preemptive section length Z_x.",
+            "The maximum B_t is the largest of these Z_x values."
+          ],
+          "pseudocode": "def calculate_B_t_non_preemptive(t, task_set):\n    max_blocking = 0\n    for task_x in task_set:\n        if task_x.d > t:\n            # Z_x is the max non-preemptive section length for task_x\n            max_blocking = max(max_blocking, task_x.Z)\n    return max_blocking",
+          "key_insights": [
+            "Arrival blocking is only relevant from lower-priority tasks (those with longer deadlines) in the context of a deadline busy-period.",
+            "Only one such blocking instance can occur at the start of a deadline busy-period."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "pc_t",
+        "formal_description": {
+          "statement": "pc_t = {q in Q_l | pi_q >= min {pi_x | d_x <= t}}",
+          "variables": {
+            "pc_t": "Set of local resources whose ceiling is conflicting with at least one task that has a relative deadline of length at most t.",
+            "Q_l": "Set of local resources.",
+            "q": "A specific resource.",
+            "pi_q": "Resource ceiling of resource q.",
+            "pi_x": "Preemption level of task T_x.",
+            "d_x": "Relative deadline of task T_x.",
+            "t": "Length of the deadline busy-period."
+          },
+          "assumptions": [
+            "Stack Resource Policy (SRP) is used for local resources.",
+            "Preemption levels are ordered inversely with respect to relative deadlines (pi_i > pi_j <=> d_i < d_j)."
+          ],
+          "conclusion": "Defines the set of local resources that can cause ceiling blocking for tasks relevant to a deadline busy-period of length t."
+        },
+        "informal_sketch": {
+          "intuition": "Under SRP, a task can be blocked if it tries to access a resource whose ceiling is higher than or equal to its own preemption level, and that resource is currently held by a lower-priority task. This definition identifies resources whose ceilings are high enough to block *any* task that could contribute to the demand in a busy-period of length 't'.",
+          "steps": [
+            "Identify all tasks T_x whose relative deadline d_x is less than or equal to t.",
+            "Find the minimum preemption level among these tasks: min_pi_relevant = min {pi_x | d_x <= t}.",
+            "For each local resource q in Q_l, check if its resource ceiling pi_q is greater than or equal to min_pi_relevant.",
+            "Collect all such resources q into the set pc_t."
+          ],
+          "pseudocode": "def calculate_pc_t(t, Q_l, task_set):\n    min_pi_relevant = float('inf')\n    for task_x in task_set:\n        if task_x.d <= t:\n            min_pi_relevant = min(min_pi_relevant, task_x.pi)\n\n    pc_t = set()\n    if min_pi_relevant == float('inf'): # No relevant tasks\n        return pc_t\n\n    for q in Q_l:\n        if q.pi >= min_pi_relevant:\n            pc_t.add(q)\n    return pc_t",
+          "key_insights": [
+            "SRP blocking depends on preemption levels and resource ceilings.",
+            "Only resources with sufficiently high ceilings can block tasks that are 'active' within the busy-period of length t.",
+            "This helps to precisely identify which resources can contribute to ceiling blocking."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "B_t_ceiling_blocking",
+        "formal_description": {
+          "statement": "B_t = max {L_x_q | d_x > t and q in pc_t}",
+          "variables": {
+            "B_t": "Upper-bound on the maximum arrival blocking experienced in any deadline busy-period of length t.",
+            "L_x_q": "Maximum critical section length of task T_x when accessing resource q.",
+            "d_x": "Relative deadline of task T_x.",
+            "t": "Length of the deadline busy-period.",
+            "pc_t": "Set of local resources whose ceiling is conflicting with at least one task that has a relative deadline of length at most t."
+          },
+          "assumptions": [
+            "Ceiling blocking scenario (SRP is used for local resources)."
+          ],
+          "conclusion": "The maximum arrival blocking in a deadline busy-period of length t is the length of the longest critical section for a resource in pc_t, accessed by a task whose relative deadline is greater than t."
+        },
+        "informal_sketch": {
+          "intuition": "Similar to non-preemptive blocking, ceiling blocking for a busy-period of length 't' can only be caused by tasks with deadlines *longer* than 't'. Additionally, the resource causing the blocking must be one that could potentially block a task relevant to the busy-period (i.e., in pc_t). The blocking duration is the length of the critical section.",
+          "steps": [
+            "Calculate the set pc_t using Definition 'pc_t'.",
+            "Identify all tasks T_x whose relative deadline d_x is greater than t.",
+            "For each such task T_x and for each resource q in pc_t, if T_x accesses q, consider its critical section length L_x_q.",
+            "The maximum B_t is the largest of these L_x_q values."
+          ],
+          "pseudocode": "def calculate_B_t_ceiling(t, task_set, Q_l):\n    pc_t_set = calculate_pc_t(t, Q_l, task_set) # Depends on pc_t definition\n    max_blocking = 0\n    for task_x in task_set:\n        if task_x.d > t:\n            for q in pc_t_set:\n                # Assuming task_x.L_q is L_x_q\n                max_blocking = max(max_blocking, task_x.L_q_map.get(q, 0))\n    return max_blocking",
+          "key_insights": [
+            "Combines the concepts of relevant blocking tasks (d_x > t) and relevant blocking resources (q in pc_t).",
+            "The blocking duration is directly tied to the critical section length, not just the presence of a conflict."
+          ]
+        },
+        "dependencies": [
+          "pc_t"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Observation O1",
+        "formal_description": {
+          "statement": "Arrival blocking in a deadline busy-period of length t is caused only by tasks with a relative deadline larger than t.",
+          "variables": {
+            "t": "Length of the deadline busy-period."
+          },
+          "assumptions": [
+            "EDF scheduling with arrival blocking."
+          ],
+          "conclusion": "Tasks with relative deadlines less than or equal to t cannot cause arrival blocking within a deadline busy-period of length t."
+        },
+        "informal_sketch": {
+          "intuition": "Arrival blocking occurs when a higher-priority job is delayed by a lower-priority job. In an EDF system, a job with a shorter deadline has higher priority. If a job's deadline is within or at the end of a busy-period of length 't', any blocking it experiences must come from a job that effectively has lower priority, meaning a longer deadline. If a job causing blocking had a deadline <= t, it would be considered part of the demand within the busy-period, not an external blocker.",
+          "steps": [
+            "Consider a deadline busy-period [t_0, t_0 + t].",
+            "Any job causing arrival blocking must be executing non-preemptively or holding a resource that blocks a higher-priority job.",
+            "If this blocking job had a relative deadline d_x <= t, its absolute deadline would be <= t_0 + t. Under EDF, it would have higher or equal priority to jobs released at t_0 with deadline t_0 + t.",
+            "Therefore, it would be part of the demand that defines the busy-period, not an external blocker.",
+            "Thus, only jobs with d_x > t can cause arrival blocking that extends into the busy-period from before t_0."
+          ],
+          "pseudocode": "def check_blocking_source(blocking_task, busy_period_length):\n    if blocking_task.d > busy_period_length:\n        return \"Can cause arrival blocking\"\n    else:\n        return \"Cannot cause arrival blocking\"",
+          "key_insights": [
+            "EDF's priority assignment (shorter deadline = higher priority) is key.",
+            "Arrival blocking is fundamentally about a higher-priority job being delayed by a lower-priority one.",
+            "This observation simplifies the search space for blocking terms by filtering out tasks that cannot be the source of arrival blocking for a given busy-period length."
+          ]
+        },
+        "dependencies": [
+          "Definition 1 (deadline busy-period)"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Observation O2",
+        "formal_description": {
+          "statement": "Only a single blocking request can cause arrival blocking.",
+          "variables": {},
+          "assumptions": [
+            "EDF scheduling with arrival blocking (either non-preemptive or ceiling blocking)."
+          ],
+          "conclusion": "The total arrival blocking is limited to the duration of a single blocking instance."
+        },
+        "informal_sketch": {
+          "intuition": "Arrival blocking, by definition, occurs at the *start* of a deadline busy-period (t_0). It represents a single instance where a higher-priority job is delayed. Once that single blocking instance completes, the busy-period truly begins, and subsequent blocking would be accounted for differently (e.g., as spin delay or retry delay within the busy-period, or as part of the demand).",
+          "steps": [
+            "Recall Definition 1: t_0 is the *last* time before t_0 + t where there are no pending jobs with release before t_0 and deadline <= t_0 + t.",
+            "This implies that any blocking occurring *before* t_0 that delays jobs with deadlines <= t_0 + t would shift t_0 earlier.",
+            "Therefore, any arrival blocking *at* t_0 must be a single, contiguous block of time caused by one non-preemptive section or one resource hold.",
+            "Multiple blocking requests would imply either a longer single blocking period or an earlier t_0."
+          ],
+          "pseudocode": "def calculate_total_arrival_blocking(B_t_non_preemptive, B_t_ceiling):\n    # B_t_non_preemptive and B_t_ceiling already represent single max blocking instances\n    return max(B_t_non_preemptive, B_t_ceiling)",
+          "key_insights": [
+            "This observation is a direct consequence of the definition of a deadline busy-period and how arrival blocking is modeled.",
+            "It significantly simplifies the calculation of B_t by allowing us to take the maximum of individual blocking sources rather than summing them."
+          ]
+        },
+        "dependencies": [
+          "Definition 1 (deadline busy-period)"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "L_max_busy_period_length",
+        "formal_description": {
+          "statement": "L = max(max{d_i}, (1 / (1 - U)) * sum_{i=1 to n} (u_i * max(0, p_i - d_i)))",
+          "variables": {
+            "L": "Maximum deadline busy-period length.",
+            "d_i": "Relative deadline of task T_i.",
+            "U": "Total utilization of the task set (sum u_i).",
+            "u_i": "Utilization of task T_i (e_i / p_i).",
+            "p_i": "Minimum inter-arrival time (period) of task T_i."
+          },
+          "assumptions": [
+            "This bound is valid only if U < 1 (processor is not overloaded).",
+            "No synchronization delays are considered (contention-free WCETs)."
+          ],
+          "conclusion": "Provides an upper bound on the length of any deadline busy-period in a contention-free P-EDF system, which is used to limit the search space for schedulability analysis."
+        },
+        "informal_sketch": {
+          "intuition": "This formula provides a theoretical upper limit on how long a processor can remain continuously busy under EDF scheduling, assuming no synchronization delays. It's based on the total utilization and the 'carry-in' demand from tasks whose deadlines are shorter than their periods. If utilization is too high (U >= 1), the busy-period can be unbounded.",
+          "steps": [
+            "Calculate the total utilization U = sum(e_i / p_i) for all tasks.",
+            "If U >= 1, the bound is invalid (busy-period can be infinite).",
+            "Find the maximum relative deadline among all tasks: max_d_i = max{d_i}.",
+            "Calculate the second term: sum_term = sum(u_i * max(0, p_i - d_i)).",
+            "Calculate the utilization factor: util_factor = 1 / (1 - U).",
+            "The bound L is the maximum of max_d_i and (util_factor * sum_term)."
+          ],
+          "pseudocode": "def calculate_L_bound(task_set):\n    U = sum(task.e / task.p for task in task_set)\n    if U >= 1:\n        return float('inf') # Unbounded busy-period\n\n    max_d_i = max(task.d for task in task_set)\n    \n    sum_term = 0\n    for task in task_set:\n        sum_term += (task.e / task.p) * max(0, task.p - task.d)\n    \n    util_factor = 1 / (1 - U)\n    \n    return max(max_d_i, util_factor * sum_term)",
+          "key_insights": [
+            "The bound L is critical for making the PDC schedulability test practical by limiting the range of 't' values to check.",
+            "It highlights the problem of 'WCET inflation' where synchronization delays could push U >= 1, invalidating this bound."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "Definition 2 (busy-period)",
+        "formal_description": {
+          "statement": "An interval [t_0, t_0 + t] of length t is a busy-period iff, for all t_prime in (t_0, t_0 + t), there is at least one job pending at time t_prime that was released before time t_prime.",
+          "variables": {
+            "t_0": "Start time of the interval.",
+            "t": "Length of the interval.",
+            "t_0_plus_t": "End time of the interval.",
+            "t_prime": "Any time point within the open interval (t_0, t_0 + t)."
+          },
+          "assumptions": [],
+          "conclusion": "Defines a general busy-period where the processor is continuously occupied by jobs, regardless of their deadlines, and the interval starts at an idle point."
+        },
+        "informal_sketch": {
+          "intuition": "A busy-period is a continuous stretch of time where the processor is never idle. It starts when the processor becomes busy after being idle, and ends when the processor becomes idle again. All jobs released before or during this period contribute to keeping the processor busy.",
+          "steps": [
+            "Identify a time t_0 where the processor is idle, and then a job is released, making the processor busy.",
+            "The processor remains busy until some time t_0 + t, at which point all pending jobs complete, and the processor becomes idle again.",
+            "The interval [t_0, t_0 + t] is a busy-period."
+          ],
+          "pseudocode": "def is_busy_period(interval_start, interval_end, schedule):\n    t_0 = interval_start\n    t_end = interval_end\n\n    # Check if processor is idle at t_0 (or just before)\n    # (This part is conceptual, requires schedule history)\n\n    # Check if processor is busy throughout (t_0, t_end)\n    for t_prime in range(t_0 + 1, t_end): # Simplified discrete check\n        if not schedule.is_processor_busy(t_prime):\n            return False\n\n    # Check if processor is idle at t_end (or just after)\n    # (This part is conceptual)\n\n    return True",
+          "key_insights": [
+            "This is a more general definition than a deadline busy-period.",
+            "The maximum busy-period length (L_plus) is known to upper-bound the maximum deadline busy-period length, making it useful for bounding the search space.",
+            "Arrival blocking is irrelevant for bounding the maximum busy-period of sporadic tasks, simplifying its calculation (B_AC_t does not include arrival blocking)."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "L_plus_max_busy_period_length",
+        "formal_description": {
+          "statement": "L_plus = min {t > 0 | sum_{T_i in tau_P_star} (floor(t / p_i) * e_i) + B_AC_t = t}",
+          "variables": {
+            "L_plus": "Bound on the maximum busy-period length for processor P_star.",
+            "t": "Length of the busy-period.",
+            "tau_P_star": "Set of tasks allocated to processor P_star.",
+            "p_i": "Minimum inter-arrival time (period) of task T_i.",
+            "e_i": "Contention-free worst-case execution time (WCET) of task T_i.",
+            "B_AC_t": "Upper-bound on the total synchronization delay (retry or spin delay) imposed on all jobs released in any busy-period of length t."
+          },
+          "assumptions": [
+            "The task set is not in overload (U < 1), otherwise L_plus is unbounded.",
+            "B_AC_t reflects only retry and spin delay, not arrival blocking."
+          ],
+          "conclusion": "Defines the maximum busy-period length as the smallest 't' where the cumulative execution demand (including synchronization delays) equals the interval length, indicating the first idle time."
+        },
+        "informal_sketch": {
+          "intuition": "This equation finds the longest possible continuous period where the processor is busy. It works by summing up the execution time of all jobs that could be released and execute within an interval of length 't', plus any synchronization delays (retry/spin). The busy-period ends when this total demand is exactly equal to 't', meaning the processor becomes idle.",
+          "steps": [
+            "Start with a small value for t (e.g., min e_i).",
+            "Iteratively calculate the demand for the current t: Demand(t) = sum(floor(t / p_i) * e_i) + B_AC_t.",
+            "If Demand(t) > t, it means the processor is still busy, so increase t and repeat.",
+            "The smallest t for which Demand(t) = t (or Demand(t) <= t and Demand(t-epsilon) > t-epsilon) is L_plus.",
+            "This is typically solved using a fixed-point iteration: L_new = Demand(L_old) until L_new = L_old."
+          ],
+          "pseudocode": "def calculate_L_plus(tau_P_star, B_AC_function):\n    L_current = min(task.e for task in tau_P_star) # Initial guess\n    while True:\n        demand = 0\n        for task_i in tau_P_star:\n            demand += (math.floor(L_current / task_i.p) * task_i.e)\n        demand += B_AC_function(L_current) # B_AC_t is a function of t\n        \n        if demand == L_current:\n            return L_current # Fixed point found\n        elif demand < L_current:\n            # This implies the processor is idle before L_current, so L_plus is smaller\n            # In practice, the iteration L_new = Demand(L_old) converges or diverges.\n            # If it converges, L_current will eventually equal demand.\n            return L_current # Or the last L_current before demand < L_current\n        else:\n            L_current = demand # Continue iteration with new demand as next L_current",
+          "key_insights": [
+            "This is a fixed-point equation, commonly used in real-time analysis to find busy-period lengths.",
+            "It explicitly incorporates synchronization delays (B_AC_t) without inflating WCETs, which is a key contribution of the paper.",
+            "The iteration converges if the processor is not overloaded (U < 1)."
+          ]
+        },
+        "dependencies": [
+          "Definition 2 (busy-period)",
+          "B_AC_t (conceptually, its computation is detailed later)"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "Definition 3 (c_i causes T_x to incur retry delay)",
+        "formal_description": {
+          "statement": "We say that c_i causes T_x to incur retry delay if c_i has been the last commit to modify q when c_x fails.",
+          "variables": {
+            "c_i": "Commit loop executed by task T_i.",
+            "c_x": "Commit loop executed by task T_x.",
+            "q": "Shared resource being accessed."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "Commit operations are atomic (e.g., CAS)."
+          ],
+          "conclusion": "Defines the specific condition under which one commit loop is responsible for another commit loop's retry."
+        },
+        "informal_sketch": {
+          "intuition": "In lock-free synchronization, a task might fail its commit (e.g., CAS fails) if the shared resource it's trying to update has been modified by another task since it read the resource. This definition states that the *last* successful commit is the one that 'causes' the retry of a conflicting, failed commit.",
+          "steps": [
+            "Task T_x starts a commit loop c_x for resource q.",
+            "Task T_i concurrently (or interleaved) executes a commit loop c_i for resource q.",
+            "Commit c_i successfully modifies q.",
+            "Later, commit c_x attempts to finalize its update but fails because q was modified by c_i.",
+            "In this scenario, c_i is said to cause T_x to incur retry delay."
+          ],
+          "pseudocode": "def causes_retry_delay(commit_i, commit_x, resource_q, commit_history):\n    # Check if commit_x failed\n    if not commit_x.succeeded:\n        # Check if commit_i was the last successful commit to resource_q\n        # before commit_x's failure attempt\n        last_modifier = commit_history.get_last_modifier(resource_q, commit_x.failure_time)\n        if last_modifier == commit_i:\n            return True\n    return False",
+          "key_insights": [
+            "This definition is fundamental for quantifying retry delays in lock-free algorithms.",
+            "It clarifies that only the *last* successful conflicting commit is responsible for a retry, not all overlapping commits."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "Y_L_i_j_q_t_and_Y_R_i_q_t",
+        "formal_description": {
+          "statement": "Y_L_i_j_q_t >= 0, an integer variable that counts the number of local conflicts incurred by T_i while accessing q due to jobs of T_j in a deadline busy-period of length t. \n Y_R_i_q_t >= 0, an integer variable that counts the number of remote conflicts incurred by T_i while accessing q in a deadline busy-period of length t.",
+          "variables": {
+            "Y_L_i_j_q_t": "Number of local conflicts for T_i on q caused by T_j.",
+            "Y_R_i_q_t": "Number of remote conflicts for T_i on q.",
+            "T_i": "Task under analysis (on P_star).",
+            "T_j": "Local conflicting task (on P_star).",
+            "q": "Shared resource.",
+            "t": "Length of the deadline busy-period."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "P_star is the processor under analysis."
+          ],
+          "conclusion": "These variables quantify the number of retries due to local and remote conflicts, respectively, for use in an ILP formulation to maximize total retry delay."
+        },
+        "informal_sketch": {
+          "intuition": "To calculate the total retry delay, we need to count how many times tasks have to re-execute their commit loops. These variables are counters: Y_L counts retries caused by other tasks on the *same* processor (due to preemption), and Y_R counts retries caused by tasks on *other* processors (remote conflicts).",
+          "steps": [
+            "For a given deadline busy-period of length t:",
+            "Initialize Y_L_i_j_q_t and Y_R_i_q_t to 0 for all i, j, q.",
+            "Simulate or analyze all possible schedules.",
+            "Whenever T_i's commit loop for q fails due to T_j (local conflict), increment Y_L_i_j_q_t.",
+            "Whenever T_i's commit loop for q fails due to a remote task (remote conflict), increment Y_R_i_q_t.",
+            "The ILP will find the maximum possible values for these counters subject to constraints."
+          ],
+          "pseudocode": "class ConflictCounters:\n    def __init__(self):\n        self.Y_L = {}\n        self.Y_R = {}\n\n    def increment_local_conflict(self, task_i, task_j, resource_q, busy_period_t):\n        key = (task_i, task_j, resource_q, busy_period_t)\n        self.Y_L[key] = self.Y_L.get(key, 0) + 1\n\n    def increment_remote_conflict(self, task_i, resource_q, busy_period_t):\n        key = (task_i, resource_q, busy_period_t)\n        self.Y_R[key] = self.Y_R.get(key, 0) + 1",
+          "key_insights": [
+            "These variables are the core of the ILP formulation for lock-free analysis.",
+            "By maximizing their weighted sum (weighted by L_i_q), we find the worst-case retry delay.",
+            "They are integer variables because they count discrete events (retries)."
+          ]
+        },
+        "dependencies": [
+          "Definition 3 (c_i causes T_x to incur retry delay)"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "B_t_lock_free_objective",
+        "formal_description": {
+          "statement": "B_t = sum_{T_i in tau_P_star} sum_{q in Q} (Y_R_i_q_t + sum_{T_j in tau_P_star} Y_L_i_j_q_t) * L_i_q",
+          "variables": {
+            "B_t": "Total retry delay in a deadline busy-period of length t.",
+            "tau_P_star": "Set of tasks allocated to processor P_star.",
+            "Q": "Set of all shared resources.",
+            "Y_R_i_q_t": "Number of remote conflicts incurred by T_i while accessing q.",
+            "Y_L_i_j_q_t": "Number of local conflicts incurred by T_i while accessing q due to T_j.",
+            "L_i_q": "Maximum commit loop length of task T_i for resource q."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "P_star is the processor under analysis."
+          ],
+          "conclusion": "Defines the objective function for the ILP, which aims to maximize the total retry delay experienced by tasks on processor P_star within a deadline busy-period of length t."
+        },
+        "informal_sketch": {
+          "intuition": "The total retry delay is the sum of all individual retry delays. Each retry for a specific task T_i on resource q contributes L_i_q time units to the delay. We sum up the number of remote retries (Y_R) and local retries (Y_L) for each task and resource, multiply by the commit loop length, and sum across all tasks and resources on the processor.",
+          "steps": [
+            "For each task T_i on P_star and each resource q:",
+            "Sum the number of remote conflicts Y_R_i_q_t.",
+            "Sum the number of local conflicts Y_L_i_j_q_t for all local tasks T_j.",
+            "Multiply this total conflict count by the commit loop length L_i_q.",
+            "Sum these products over all T_i and q to get the total B_t."
+          ],
+          "pseudocode": "def calculate_B_t_objective_lock_free(tau_P_star, Q, Y_R_map, Y_L_map, L_map, t):\n    total_retry_delay = 0\n    for task_i in tau_P_star:\n        for resource_q in Q:\n            remote_conflicts = Y_R_map.get((task_i, resource_q, t), 0)\n            local_conflicts_sum = 0\n            for task_j in tau_P_star:\n                local_conflicts_sum += Y_L_map.get((task_i, task_j, resource_q, t), 0)\n            \n            commit_loop_length = L_map.get((task_i, resource_q), 0)\n            total_retry_delay += (remote_conflicts + local_conflicts_sum) * commit_loop_length\n    return total_retry_delay",
+          "key_insights": [
+            "This objective function directly translates the number of retries into a total delay, using the actual commit loop lengths.",
+            "It's designed to be maximized by an ILP solver, finding the worst-case combination of conflicts."
+          ]
+        },
+        "dependencies": [
+          "Y_L_i_j_q_t_and_Y_R_i_q_t"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "Definition 4 (W_P_i_q)",
+        "formal_description": {
+          "statement": "We let W_P_i_q denote an upper bound on the commit-loop response time, which is defined as follows: if T_i enters a commit loop to update q at time t_e, and if T_i completes the commit at time t_c, then t_c - t_e <= W_P_i_q.",
+          "variables": {
+            "W_P_i_q": "Upper bound on the commit-loop response time for task T_i accessing resource q.",
+            "T_i": "Task.",
+            "q": "Resource.",
+            "t_e": "Time T_i enters a commit loop.",
+            "t_c": "Time T_i completes the commit."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "Commit loops can be preempted."
+          ],
+          "conclusion": "Defines the maximum duration from when a task starts a commit loop until it successfully completes, including any retries and preemption times."
+        },
+        "informal_sketch": {
+          "intuition": "This is like a worst-case response time, but specifically for a commit loop. It's not just the raw execution time (L_i_q), but also includes any time spent waiting due to preemption or re-executing due to retries. It's the total wall-clock time a task might spend 'inside' a commit loop operation.",
+          "steps": [
+            "Consider a task T_i starting a commit loop for resource q.",
+            "This loop might be preempted by other tasks.",
+            "It might also fail and need to retry multiple times.",
+            "W_P_i_q is the maximum possible duration from the very first instruction of the commit loop until the final successful commit, accounting for all these delays."
+          ],
+          "pseudocode": "def calculate_W_P_i_q(task_i, resource_q, system_parameters):\n    # This is a complex calculation, typically involving iterative analysis\n    # similar to response time analysis, but focused on the commit loop.\n    # It would consider:\n    #   - L_i_q (base execution time)\n    #   - Preemption delays from higher priority tasks\n    #   - Retry delays from local and remote conflicts\n    #   - Number of retries (which depends on other tasks' W_P_x_q)\n    # This is often a recursive or fixed-point calculation.\n    # For this sketch, assume it's pre-calculated or derived from a sub-analysis.\n    return pre_calculated_W_P_i_q_value",
+          "key_insights": [
+            "This bound is crucial for limiting the number of remote conflicts (Constraint 7).",
+            "It captures the 'effective' duration of a lock-free operation, which is longer than its raw execution time due to contention and preemption."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "X_S_i_q_t_X_A_i_q_t_A_q",
+        "formal_description": {
+          "statement": "X_S_i_q_t >= 0, a real variable expressing the contribution of requests for q issued by T_i to the spin delay incurred by jobs with release time and absolute deadline in any deadline busy-period of length t and that execute on P_star. \n X_A_i_q_t >= 0, a real variable expressing the contribution of requests for q issued by T_i to the arrival blocking suffered by tasks on P_star in a deadline busy-period of length t. \n A_q in [0, 1], a binary variable such that A_q = 1 if and only if arrival blocking is caused by requests for q.",
+          "variables": {
+            "X_S_i_q_t": "Fraction of T_i's requests for q contributing to spin delay.",
+            "X_A_i_q_t": "Fraction of T_i's requests for q contributing to arrival blocking.",
+            "A_q": "Binary indicator for arrival blocking caused by resource q.",
+            "T_i": "Task.",
+            "q": "Shared resource.",
+            "t": "Length of the deadline busy-period.",
+            "P_star": "Processor under analysis."
+          },
+          "assumptions": [
+            "Spin locks are used.",
+            "Variables model fractions of time, hence real variables."
+          ],
+          "conclusion": "These variables quantify the contribution of tasks to spin delay and arrival blocking, and indicate if a resource causes arrival blocking, for use in an MILP formulation to maximize total blocking."
+        },
+        "informal_sketch": {
+          "intuition": "For spin locks, blocking depends on critical section lengths. Instead of counting retries, we model the *fraction* of a task's critical section that contributes to either spin delay (when a task busy-waits) or arrival blocking (when a non-preemptive section delays a higher-priority task). A_q is a flag to indicate if a specific resource is involved in arrival blocking.",
+          "steps": [
+            "For a given deadline busy-period of length t:",
+            "Initialize X_S_i_q_t, X_A_i_q_t to 0, A_q to 0.",
+            "If T_i's request for q causes spin delay for a task on P_star, a fraction of L_i_q contributes to X_S_i_q_t.",
+            "If T_i's request for q causes arrival blocking for a task on P_star, a fraction of L_i_q contributes to X_A_i_q_t.",
+            "If any X_A_i_q_t > 0 for resource q, then A_q must be 1."
+          ],
+          "pseudocode": "class BlockingVariables:\n    def __init__(self):\n        self.X_S = {}\n        self.X_A = {}\n        self.A = {}\n\n    def set_spin_contribution(self, task_i, resource_q, busy_period_t, fraction):\n        self.X_S[(task_i, resource_q, busy_period_t)] = fraction\n\n    def set_arrival_contribution(self, task_i, resource_q, busy_period_t, fraction):\n        self.X_A[(task_i, resource_q, busy_period_t)] = fraction\n        if fraction > 0:\n            self.A[resource_q] = 1\n\n    def get_A_q(self, resource_q):\n        return self.A.get(resource_q, 0)",
+          "key_insights": [
+            "These variables are the core of the MILP formulation for spin lock analysis.",
+            "They are real variables because a critical section might partially contribute to blocking.",
+            "A_q is a binary variable to enforce that only one resource can cause arrival blocking (Observation O2)."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "definition",
+        "identifier": "B_t_spin_lock_objective",
+        "formal_description": {
+          "statement": "B_t = sum_{T_i in tau} sum_{q in Q} (X_S_i_q_t + X_A_i_q_t) * L_i_q",
+          "variables": {
+            "B_t": "Total blocking delay in a deadline busy-period of length t.",
+            "tau": "Set of all tasks in the system.",
+            "Q": "Set of all shared resources.",
+            "X_S_i_q_t": "Fraction of T_i's requests for q contributing to spin delay.",
+            "X_A_i_q_t": "Fraction of T_i's requests for q contributing to arrival blocking.",
+            "L_i_q": "Maximum critical section length of task T_i for resource q."
+          },
+          "assumptions": [
+            "Spin locks are used.",
+            "P_star is the processor under analysis."
+          ],
+          "conclusion": "Defines the objective function for the MILP, which aims to maximize the total blocking delay (spin delay + arrival blocking) experienced by tasks on processor P_star within a deadline busy-period of length t."
+        },
+        "informal_sketch": {
+          "intuition": "The total blocking delay is the sum of all spin delays and arrival blocking delays. For each task T_i and resource q, we sum the fractions of its critical section that contribute to spin delay (X_S) and arrival blocking (X_A), multiply by the critical section length L_i_q, and sum these products over all tasks and resources.",
+          "steps": [
+            "For each task T_i (local or remote) and each resource q:",
+            "Sum the spin delay contribution X_S_i_q_t and arrival blocking contribution X_A_i_q_t.",
+            "Multiply this sum by the critical section length L_i_q.",
+            "Sum these products over all T_i and q to get the total B_t."
+          ],
+          "pseudocode": "def calculate_B_t_objective_spin_lock(tau, Q, X_S_map, X_A_map, L_map, t):\n    total_blocking_delay = 0\n    for task_i in tau:\n        for resource_q in Q:\n            spin_contribution = X_S_map.get((task_i, resource_q, t), 0)\n            arrival_contribution = X_A_map.get((task_i, resource_q, t), 0)\n            \n            critical_section_length = L_map.get((task_i, resource_q), 0)\n            total_blocking_delay += (spin_contribution + arrival_contribution) * critical_section_length\n    return total_blocking_delay",
+          "key_insights": [
+            "This objective function directly translates the fractional contributions of critical sections into a total delay.",
+            "It's designed to be maximized by an MILP solver, finding the worst-case combination of spin and arrival blocking."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q"
+        ]
+      },
+      {
+        "type": "definition",
+        "identifier": "Phi_k_PDC_evaluation_points",
+        "formal_description": {
+          "statement": "Phi_k is the union of the following contributing sets: \n (i) union_{T_i in tau_P_k} {j*p_i + d_i | j in N_greater_equal_0} \n (ii) union_{T_i in tau \\ tau_P_k} {j*p_i + d_i | j in N_greater_equal_1} \n (iii) union_{T_i in tau_P_k} {j*p_i | j in N_greater_equal_1}",
+          "variables": {
+            "Phi_k": "Set of deadline busy-period lengths (t values) to be tested for processor P_k.",
+            "tau_P_k": "Set of tasks allocated to processor P_k.",
+            "tau": "Set of all tasks in the system.",
+            "p_i": "Minimum inter-arrival time (period) of task T_i.",
+            "d_i": "Relative deadline of task T_i.",
+            "j": "Non-negative integer index.",
+            "N_greater_equal_0": "Set of non-negative integers.",
+            "N_greater_equal_1": "Set of positive integers."
+          },
+          "assumptions": [
+            "PDC analysis is used.",
+            "B_PDC_t (the blocking term) can introduce additional discontinuities."
+          ],
+          "conclusion": "Defines the discrete set of time points 't' at which the PDC schedulability condition must be checked, ensuring all discontinuities in the demand function are covered."
+        },
+        "informal_sketch": {
+          "intuition": "The processor demand criterion (PDC) needs to be checked for all possible lengths of deadline busy-periods. However, checking all continuous 't' values is impossible. This definition identifies a finite, discrete set of 'critical' time points where the demand function's behavior might change (i.e., its discontinuities), thus guaranteeing that if the system is schedulable at these points, it's schedulable everywhere.",
+          "steps": [
+            "Generate points from (i): For each task T_i on P_k, generate points j*p_i + d_i for j = 0, 1, 2, ... These are standard EDF check-points.",
+            "Generate points from (ii): For each remote task T_i, generate points j*p_i + d_i for j = 1, 2, ... These reflect discontinuities from remote task demand (nrjobs_T_i_t).",
+            "Generate points from (iii): For each task T_i on P_k, generate points j*p_i for j = 1, 2, ... These reflect discontinuities from the t/p_i term in Constraint 6.",
+            "Combine all these points into a single set Phi_k.",
+            "Filter Phi_k to only include points up to the maximum busy-period length L_plus."
+          ],
+          "pseudocode": "def generate_Phi_k(tau_P_k, tau_R, L_plus):\n    Phi_k = set()\n    \n    # (i) Standard PDC check-points for local tasks\n    for task_i in tau_P_k:\n        j = 0\n        while True:\n            point = j * task_i.p + task_i.d\n            if point > L_plus: break\n            Phi_k.add(point)\n            j += 1\n            \n    # (ii) Discontinuities from remote task demand (nrjobs)\n    for task_i in tau_R:\n        j = 1\n        while True:\n            point = j * task_i.p + task_i.d # This is actually nrjobs(T_i, t) = (t + d_i)/p_i\n            # The paper states {j*p_i + d_i | j >= 1} for nrjobs, which is slightly different\n            # from the formula (t+d_i)/p_i. Assuming the formula's steps are meant.\n            # The steps of (t+d_i)/p_i are at t = k*p_i - d_i. Let's use the paper's text.\n            point = j * task_i.p # This is a simplification, the actual steps are more complex for nrjobs\n            if point > L_plus: break\n            Phi_k.add(point)\n            j += 1\n\n    # (iii) Discontinuities from t/p_i term in Constraint 6\n    for task_i in tau_P_k:\n        j = 1\n        while True:\n            point = j * task_i.p\n            if point > L_plus: break\n            Phi_k.add(point)\n            j += 1\n            \n    return sorted(list(Phi_k))",
+          "key_insights": [
+            "The set Phi_k ensures the schedulability test is sound by covering all critical points where the demand function might change its value.",
+            "It extends Baruah's original set of check-points to account for the complexities introduced by synchronization delays and their ILP-based computation."
+          ]
+        },
+        "dependencies": [
+          "L_plus_max_busy_period_length"
+        ]
+      },
+      {
+        "type": "lemma",
+        "identifier": "Lemma 1",
+        "formal_description": {
+          "statement": "A commit loop is re-executed at most once per each conflicting commit loop that causes retry delay.",
+          "variables": {
+            "c_i": "An arbitrary commit loop.",
+            "c_x": "Another arbitrary commit loop (c_x != c_i)."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "Simultaneous commits are impossible (guaranteed by atomic operations like CAS)."
+          ],
+          "conclusion": "Each specific conflicting commit loop can cause at most one retry of another commit loop."
+        },
+        "informal_sketch": {
+          "intuition": "If two tasks try to update the same resource, only one can succeed atomically. If task A's commit fails because task B just succeeded, task A retries. But task B has already succeeded, so it won't cause task A to retry *again* for that *same* successful commit. Task A might retry due to *another* task's commit, but not the same one twice.",
+          "steps": [
+            "Consider two commit loops, c_i and c_x, attempting to modify the same resource.",
+            "Scenario 1: c_i commits before c_x. In this case, c_i completes successfully and does not retry due to c_x.",
+            "Scenario 2: c_x commits before c_i. If c_i was in progress and then fails due to c_x's commit, c_i will retry. However, c_x has now completed. So, c_x cannot cause c_i to retry *again* for that specific successful commit of c_x.",
+            "Therefore, any single successful commit can cause at most one retry of another specific commit loop."
+          ],
+          "pseudocode": "def analyze_retry_causation(commit_i, commit_x):\n    if commit_i.succeeded:\n        return \"commit_i does not retry due to commit_x\"\n    elif commit_x.succeeded:\n        # If commit_i fails due to commit_x, it retries once.\n        # commit_x is now done, so it cannot cause further retries for this specific instance.\n        return \"commit_x causes at most one retry of commit_i\"\n    else:\n        return \"No direct retry causation between these two specific instances\"",
+          "key_insights": [
+            "This lemma is a fundamental property of lock-free algorithms with atomic commit operations.",
+            "It limits the number of retries, preventing unbounded retry chains from a single conflict source.",
+            "It's crucial for bounding the Y_L and Y_R variables in the ILP."
+          ]
+        },
+        "dependencies": [
+          "Definition 3 (c_i causes T_x to incur retry delay)"
+        ]
+      },
+      {
+        "type": "lemma",
+        "identifier": "Lemma 2",
+        "formal_description": {
+          "statement": "A job incurs at most one local conflict each time that a local higher-priority job is released.",
+          "variables": {
+            "J": "An arbitrary job.",
+            "T_j": "A local higher-priority job (of task T_j)."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "Jobs are sequential.",
+            "Commit loops are not nested.",
+            "No self-suspensions."
+          ],
+          "conclusion": "The number of local conflicts a job experiences is bounded by the number of preemptions caused by higher-priority jobs."
+        },
+        "informal_sketch": {
+          "intuition": "If a job is executing a commit loop and gets preempted by a higher-priority job on the same processor, that preemption might lead to a retry when the preempted job resumes. However, a single preemption event can only interrupt one commit attempt. When the higher-priority job finishes, the original job resumes and might retry. This single preemption event causes at most one retry for that specific commit attempt.",
+          "steps": [
+            "Job J starts a commit attempt.",
+            "A higher-priority job T_j is released and preempts J.",
+            "J's commit attempt is now 'in-progress' but stalled.",
+            "When T_j completes, J resumes. If T_j modified the shared resource, J's commit attempt might fail and cause a retry.",
+            "This single preemption by T_j leads to at most one retry for J's *current* commit attempt.",
+            "Since commit loops are not nested, J only has one active commit attempt at any time of preemption."
+          ],
+          "pseudocode": "def count_local_conflicts_per_job(job_J, local_higher_priority_jobs_released):\n    num_conflicts = 0\n    for h_p_job in local_higher_priority_jobs_released:\n        # Each release of a higher-priority job can cause at most one preemption\n        # which in turn can cause at most one local conflict for job_J's current commit.\n        num_conflicts += 1\n    return num_conflicts",
+          "key_insights": [
+            "This lemma links local conflicts directly to preemption events.",
+            "It simplifies bounding Y_L_i_j_q_t by focusing on the number of preemptions rather than complex interaction patterns.",
+            "The non-nesting of commit loops is critical here."
+          ]
+        },
+        "dependencies": []
+      },
+      {
+        "type": "lemma",
+        "identifier": "Lemma 3",
+        "formal_description": {
+          "statement": "A job causes at most one local conflict per each resource that it accesses.",
+          "variables": {
+            "J": "An arbitrary job.",
+            "q": "An arbitrary resource.",
+            "C_q": "Set of in-progress commit loops related to q that have been preempted while J executes."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "Tasks do not self-suspend."
+          ],
+          "conclusion": "A single job J, when executing, can cause at most one retry for any specific preempted commit loop related to a resource q."
+        },
+        "informal_sketch": {
+          "intuition": "If job J executes and modifies a resource q, it might cause other jobs (that were preempted while accessing q) to retry when they resume. However, once J completes its modification to q, it becomes the 'last modifier'. Any *one* of the preempted jobs for q might then retry and succeed. Once that one succeeds, it becomes the new 'last modifier', and J is no longer the cause of retries for *other* preempted jobs for q.",
+          "steps": [
+            "Job J executes and accesses resource q.",
+            "While J executes, other commit loops (in C_q) related to q are preempted.",
+            "When J completes its access to q, it has potentially modified q.",
+            "One of the preempted commit loops, say c_1 in C_q, resumes and retries due to J's modification. If it succeeds, it becomes the new 'last modifier'.",
+            "Any other commit loop c_2 in C_q (c_2 != c_1) that subsequently resumes will not retry due to J, but potentially due to c_1 (if c_1 succeeded).",
+            "Thus, J's execution causes at most one retry for any specific resource q among the set of preempted commit loops."
+          ],
+          "pseudocode": "def analyze_local_conflict_causation_by_job(job_J, resource_q, preempted_commit_loops_for_q):\n    if not job_J.accesses_resource(resource_q):\n        return 0 # No conflict caused\n\n    num_conflicts_caused = 0\n    # Conceptually, job_J's completion makes it the 'last modifier' for a moment.\n    # Only one of the waiting commit loops can retry and succeed due to J.\n    if len(preempted_commit_loops_for_q) > 0:\n        num_conflicts_caused = 1 # At most one retry caused by J for this resource\n    return num_conflicts_caused",
+          "key_insights": [
+            "This lemma provides another bound on local conflicts, this time from the perspective of the *causing* job.",
+            "It leverages Definition 3 (last commit to modify q) to limit the impact of a single job's execution on multiple preempted commit loops.",
+            "Combined with Lemma 2, it helps to tightly bound Y_L_i_j_q_t."
+          ]
+        },
+        "dependencies": [
+          "Definition 3 (c_i causes T_x to incur retry delay)"
+        ]
+      },
+      {
+        "type": "lemma",
+        "identifier": "Lemma 4",
+        "formal_description": {
+          "statement": "A remote commit loop c_x (on any processor other than P_star) causes at most one remote conflict on processor P_star.",
+          "variables": {
+            "c_x": "A commit loop executed by a remote task T_x (on P_k where P_k != P_star).",
+            "P_star": "Processor under analysis.",
+            "C": "Set of commit attempts on processor P_star that overlap in time with c_x."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "Commit attempts must overlap in time to conflict."
+          ],
+          "conclusion": "Each successful remote commit can cause at most one retry for any commit loop on the local processor P_star."
+        },
+        "informal_sketch": {
+          "intuition": "Similar to Lemma 1, but specifically for remote conflicts. If a remote task successfully commits, it can cause a local task's commit to fail and retry. But once that remote commit is done, it cannot cause *another* retry for the *same* local commit attempt. And if multiple local commit attempts were overlapping with the remote one, only one of them would retry due to *that specific* remote commit.",
+          "steps": [
+            "A remote commit loop c_x executes and eventually succeeds.",
+            "During c_x's execution, several local commit attempts (in C) on P_star might overlap with it.",
+            "Any local attempts that succeed *before* c_x completes do not conflict with c_x.",
+            "For the remaining local attempts that are still in progress when c_x completes: c_x becomes the 'last modifier' for a moment.",
+            "Only one of these local attempts can retry and succeed due to c_x. Once it succeeds, it becomes the new 'last modifier'.",
+            "Therefore, c_x causes at most one retry for any commit loop on P_star."
+          ],
+          "pseudocode": "def analyze_remote_conflict_causation(remote_commit_x, local_overlapping_commits):\n    if not remote_commit_x.succeeded:\n        return 0 # No conflict caused if remote commit failed\n\n    num_conflicts_caused = 0\n    # If remote_commit_x succeeded, it can cause at most one retry\n    # among all local_overlapping_commits that were still pending.\n    if len(local_overlapping_commits) > 0:\n        num_conflicts_caused = 1\n    return num_conflicts_caused",
+          "key_insights": [
+            "This lemma is crucial for bounding the Y_R_i_q_t variables.",
+            "It extends the 'at most one retry per conflicting commit' principle to the multiprocessor, remote conflict scenario.",
+            "It simplifies the analysis by limiting the impact of each remote commit."
+          ]
+        },
+        "dependencies": [
+          "Definition 3 (c_i causes T_x to incur retry delay)",
+          "Lemma 1"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 1",
+        "formal_description": {
+          "statement": "For all q in Q, for all T_i in tau_P_star such that N_i_q = 0, Y_R_i_q_t + sum_{T_j in tau_P_star} Y_L_i_j_q_t = 0.",
+          "variables": {
+            "q": "Shared resource.",
+            "T_i": "Task on processor P_star.",
+            "N_i_q": "Maximum number of accesses by T_i to q.",
+            "Y_R_i_q_t": "Number of remote conflicts for T_i on q.",
+            "Y_L_i_j_q_t": "Number of local conflicts for T_i on q due to T_j.",
+            "tau_P_star": "Set of tasks on processor P_star."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "P_star is the processor under analysis."
+          ],
+          "conclusion": "If a task T_i does not access a resource q (N_i_q = 0), then it cannot incur any retry delays related to that resource."
+        },
+        "informal_sketch": {
+          "intuition": "This is a basic sanity check. If a task never tries to use a resource, it can't possibly experience conflicts or retries related to that resource. So, the conflict counters for that task and resource must be zero.",
+          "steps": [
+            "Check if N_i_q (number of accesses by T_i to q) is 0.",
+            "If it is, then T_i cannot perform any commit loops for q.",
+            "Therefore, T_i cannot incur any local or remote conflicts for q.",
+            "Set Y_R_i_q_t and all Y_L_i_j_q_t (for that T_i and q) to 0."
+          ],
+          "pseudocode": "def apply_constraint_1(task_i, resource_q, N_i_q_map, Y_R_map, Y_L_map, t):\n    if N_i_q_map.get((task_i, resource_q), 0) == 0:\n        Y_R_map[(task_i, resource_q, t)] = 0\n        for task_j in all_local_tasks:\n            Y_L_map[(task_i, task_j, resource_q, t)] = 0",
+          "key_insights": [
+            "Eliminates impossible scenarios from the ILP, reducing its complexity and improving accuracy.",
+            "Ensures that the model adheres to fundamental system properties."
+          ]
+        },
+        "dependencies": [
+          "Y_L_i_j_q_t_and_Y_R_i_q_t"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 2",
+        "formal_description": {
+          "statement": "For all q in Q, for all T_j in tau_P_star such that N_j_q = 0, for all T_i in tau_P_star, Y_L_i_j_q_t = 0.",
+          "variables": {
+            "q": "Shared resource.",
+            "T_j": "Local task on processor P_star.",
+            "N_j_q": "Maximum number of accesses by T_j to q.",
+            "T_i": "Local task on processor P_star.",
+            "Y_L_i_j_q_t": "Number of local conflicts for T_i on q due to T_j."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "P_star is the processor under analysis."
+          ],
+          "conclusion": "If a local task T_j does not access a resource q (N_j_q = 0), then it cannot cause any local conflicts for other tasks T_i related to that resource."
+        },
+        "informal_sketch": {
+          "intuition": "Similar to Constraint 1, if a task T_j never uses a resource q, it cannot modify q. If it doesn't modify q, it cannot be the 'last commit to modify q' (Definition 3) and thus cannot cause another task T_i to retry its commit for q.",
+          "steps": [
+            "Check if N_j_q (number of accesses by T_j to q) is 0.",
+            "If it is, then T_j cannot perform any commit loops for q.",
+            "Therefore, T_j cannot cause any local conflicts for any other task T_i on q.",
+            "Set Y_L_i_j_q_t to 0 for all T_i (for that T_j and q)."
+          ],
+          "pseudocode": "def apply_constraint_2(task_j, resource_q, N_j_q_map, Y_L_map, t):\n    if N_j_q_map.get((task_j, resource_q), 0) == 0:\n        for task_i in all_local_tasks:\n            Y_L_map[(task_i, task_j, resource_q, t)] = 0",
+          "key_insights": [
+            "Another constraint to prune the search space of the ILP.",
+            "Ensures that only tasks actively using a resource can cause conflicts related to it."
+          ]
+        },
+        "dependencies": [
+          "Y_L_i_j_q_t_and_Y_R_i_q_t",
+          "Definition 3 (c_i causes T_x to incur retry delay)"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 3",
+        "formal_description": {
+          "statement": "For all q in Q, sum_{T_i in tau_P_star} Y_R_i_q_t <= sum_{T_x in tau_R} nrjobs_T_x_t * N_x_q.",
+          "variables": {
+            "q": "Shared resource.",
+            "T_i": "Task on processor P_star.",
+            "Y_R_i_q_t": "Number of remote conflicts for T_i on q.",
+            "tau_P_star": "Set of tasks on processor P_star.",
+            "T_x": "Remote task (on any processor other than P_star).",
+            "tau_R": "Set of remote tasks.",
+            "nrjobs_T_x_t": "Upper bound on the number of jobs of remote task T_x pending in an interval of length t.",
+            "N_x_q": "Maximum number of accesses by T_x to q."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "P_star is the processor under analysis.",
+            "Lemma 1 and Lemma 4 hold."
+          ],
+          "conclusion": "The total number of remote conflicts incurred by all local tasks for a resource q is bounded by the total number of accesses to q by all remote tasks."
+        },
+        "informal_sketch": {
+          "intuition": "Each remote commit loop can cause at most one retry on the local processor (Lemma 4). So, the total number of remote retries experienced by *all* local tasks for a given resource 'q' cannot exceed the total number of times remote tasks *access* that resource 'q'.",
+          "steps": [
+            "Calculate the maximum number of jobs of each remote task T_x that can be pending in an interval of length t (nrjobs_T_x_t).",
+            "For each remote task T_x, multiply nrjobs_T_x_t by N_x_q (max accesses per job) to get the total remote accesses to q.",
+            "Sum these total remote accesses over all remote tasks T_x.",
+            "This sum provides an upper bound on the total number of remote conflicts that can be caused for resource q.",
+            "The sum of Y_R_i_q_t for all local tasks T_i must be less than or equal to this bound."
+          ],
+          "pseudocode": "def apply_constraint_3(resource_q, tau_P_star, tau_R, nrjobs_map, N_map, Y_R_map, t):\n    total_remote_accesses_to_q = 0\n    for task_x in tau_R:\n        total_remote_accesses_to_q += nrjobs_map.get((task_x, t), 0) * N_map.get((task_x, resource_q), 0)\n\n    sum_Y_R_i_q_t = 0\n    for task_i in tau_P_star:\n        sum_Y_R_i_q_t += Y_R_map.get((task_i, resource_q, t), 0)\n\n    # Constraint: sum_Y_R_i_q_t <= total_remote_accesses_to_q\n    # In an ILP, this would be an inequality constraint.",
+          "key_insights": [
+            "This constraint directly applies Lemma 4 to aggregate remote conflicts.",
+            "It provides a global upper bound on remote conflicts for a resource, preventing the ILP from finding an unrealistically high number of retries.",
+            "nrjobs_T_x_t is a key component, bounding the activity of remote tasks."
+          ]
+        },
+        "dependencies": [
+          "Y_L_i_j_q_t_and_Y_R_i_q_t",
+          "Lemma 4"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 4",
+        "formal_description": {
+          "statement": "For all T_i in tau_P_star such that nljobs_T_i_t = 0, sum_{q in Q} (Y_R_i_q_t + sum_{T_j in tau_P_star} Y_L_i_j_q_t) = 0.",
+          "variables": {
+            "T_i": "Task on processor P_star.",
+            "nljobs_T_i_t": "Maximum number of jobs of a local task T_i that have both release times and deadlines in an interval of length t.",
+            "q": "Shared resource.",
+            "Y_R_i_q_t": "Number of remote conflicts for T_i on q.",
+            "Y_L_i_j_q_t": "Number of local conflicts for T_i on q due to T_j.",
+            "tau_P_star": "Set of tasks on processor P_star."
+          },
+          "assumptions": [
+            "Lock-free synchronization is used.",
+            "Preemptive commit loops are assumed (no arrival blocking from commit loops).",
+            "P_star is the processor under analysis."
+          ],
+          "conclusion": "If a task T_i has no jobs that are both released and have a deadline within the busy-period of length t, then it cannot incur any retry delays within that busy-period."
+        },
+        "informal_sketch": {
+          "intuition": "The PDC analysis focuses on jobs whose release and deadline are within the busy-period. If a task T_i has no such jobs (nljobs_T_i_t = 0), it means any jobs of T_i active in the busy-period either started before or end after. Since commit loops are preemptive, these jobs don't cause arrival blocking. Therefore, they cannot contribute to the retry delay *within* the busy-period as defined by the PDC.",
+          "steps": [
+            "Check if nljobs_T_i_t (number of jobs of T_i fully contained in the busy-period) is 0.",
+            "If it is, then T_i's jobs are not considered 'active' in the PDC sense for this busy-period.",
+            "Since commit loops are preemptive, T_i cannot cause arrival blocking.",
+            "Therefore, T_i cannot incur any retry delays that contribute to B_PDC_t.",
+            "Set all Y_R_i_q_t and Y_L_i_j_q_t (for that T_i) to 0."
+          ],
+          "pseudocode": "def apply_constraint_4(task_i, nljobs_map, Q, Y_R_map, Y_L_map, t):\n    if nljobs_map.get((task_i, t), 0) == 0:\n        for resource_q in Q:\n            Y_R_map[(task_i, resource_q, t)] = 0\n            for task_j in all_local_tasks:\n                Y_L_map[(task_i, task_j, resource_q, t)] = 0",
+          "key_insights": [
+            "This constraint is specific to preemptive commit loops and the PDC framework.",
+            "It leverages the definition of nljobs_T_i_t to filter out tasks that are not relevant for retry delay calculation in the current busy-period context.",
+            "It highlights the distinction between B_PDC_t (which considers nljobs) and B_AC_t (which considers all jobs)."
+          ]
+        },
+        "dependencies": [
+          "Y_L_i_j_q_t_and_Y_R_i_q_t"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 5",
+        "formal_description": {
+          "statement": "For all T_i in tau_P_star, for all T_j in tau_P_star, sum_{q in Q} Y_L_i_j_q_t <= max(0, (d_i - d_j) / p_j) * nljobs_T_i_t.",
+          "variables": {
+            "T_i": "Task on processor P_star.",
+            "T_j": "Local task on processor P_star.",
+            "d_i": "Relative deadline of T_i.",
+            "d_j": "Relative deadline of T_j.",
+            "p_j": "Period of T_j.",
+            "nljobs_T_i_t": "Maximum number of jobs of T_i fully contained in busy-period t.",
+            "Y_L_i_j_q_t": "Number of local conflicts for T_i on q due to T_j."
+          },
+          "assumptions": [
+            "Lock-free synchronization with preemptive commit loops.",
+            "P_star is the processor under analysis.",
+            "Lemma 2 and Lemma 3 hold."
+          ],
+          "conclusion": "The total number of local conflicts incurred by task T_i due to task T_j is bounded by the number of times T_j can preempt T_i, multiplied by the number of T_i's jobs relevant to the busy-period."
+        },
+        "informal_sketch": {
+          "intuition": "Task T_j can only preempt T_i if T_j has a shorter deadline (higher priority). The term `max(0, (d_i - d_j) / p_j)` estimates how many jobs of T_j can be released and preempt T_i within a relevant interval. By Lemma 2 and 3, each such preemption can cause at most one local conflict. This constraint combines this preemption count with the number of T_i's jobs that are active in the busy-period.",
+          "steps": [
+            "Identify tasks T_j that have a shorter relative deadline than T_i (d_j < d_i). If d_j >= d_i, T_j cannot preempt T_i, so the RHS is 0.",
+            "Calculate the maximum number of jobs of T_j that can preempt T_i: `preemptions = max(0, (d_i - d_j) / p_j)`.",
+            "Multiply this by `nljobs_T_i_t` to account for all relevant jobs of T_i.",
+            "The sum of Y_L_i_j_q_t over all resources q must be less than or equal to this product."
+          ],
+          "pseudocode": "def apply_constraint_5(task_i, task_j, nljobs_map, Q, Y_L_map, t):\n    if task_j.d >= task_i.d:\n        max_preemptions = 0\n    else:\n        max_preemptions = math.floor((task_i.d - task_j.d) / task_j.p)\n    \n    bound = max_preemptions * nljobs_map.get((task_i, t), 0)\n\n    sum_Y_L_i_j_q_t = 0\n    for resource_q in Q:\n        sum_Y_L_i_j_q_t += Y_L_map.get((task_i, task_j, resource_q, t), 0)\n\n    # Constraint: sum_Y_L_i_j_q_t <= bound",
+          "key_insights": [
+            "This constraint provides a tighter bound on local conflicts by considering the relative priorities (deadlines) of tasks.",
+            "It directly applies Lemma 2 and 3 by linking conflicts to preemption events.",
+            "The `(d_i - d_j) / p_j` term is a common way to bound interference from higher-priority tasks in EDF analysis."
+          ]
+        },
+        "dependencies": [
+          "Y_L_i_j_q_t_and_Y_R_i_q_t",
+          "Lemma 2",
+          "Lemma 3"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 6",
+        "formal_description": {
+          "statement": "For all T_j in tau_P_star, for all q in Q, sum_{T_i in tau_P_star} Y_L_i_j_q_t <= t / p_j.",
+          "variables": {
+            "T_j": "Local task on processor P_star.",
+            "q": "Shared resource.",
+            "t": "Length of the deadline busy-period.",
+            "p_j": "Period of T_j.",
+            "Y_L_i_j_q_t": "Number of local conflicts for T_i on q due to T_j."
+          },
+          "assumptions": [
+            "Lock-free synchronization with preemptive commit loops.",
+            "P_star is the processor under analysis.",
+            "Lemma 2 and Lemma 3 hold."
+          ],
+          "conclusion": "The total number of local conflicts caused by task T_j for a resource q (across all tasks T_i) is bounded by the maximum number of jobs of T_j that can be released in the busy-period."
+        },
+        "informal_sketch": {
+          "intuition": "Task T_j can cause a local conflict for resource q at most once per job of T_j (Lemma 3). The maximum number of jobs of T_j that can be released in an interval of length 't' is `t / p_j`. Therefore, T_j can cause at most `t / p_j` conflicts for resource q in total, across all tasks T_i that it might preempt.",
+          "steps": [
+            "Calculate the maximum number of jobs of T_j that can be released in an interval of length t: `max_jobs_T_j = t / p_j`.",
+            "By Lemma 3, each job of T_j causes at most one local conflict per resource it accesses.",
+            "Therefore, the total number of local conflicts caused by T_j for resource q (summed over all T_i) cannot exceed `max_jobs_T_j`."
+          ],
+          "pseudocode": "def apply_constraint_6(task_j, resource_q, tau_P_star, Y_L_map, t):\n    bound = math.floor(t / task_j.p)\n\n    sum_Y_L_i_j_q_t = 0\n    for task_i in tau_P_star:\n        sum_Y_L_i_j_q_t += Y_L_map.get((task_i, task_j, resource_q, t), 0)\n\n    # Constraint: sum_Y_L_i_j_q_t <= bound",
+          "key_insights": [
+            "This constraint provides another upper bound on local conflicts, this time from the perspective of the *causing* task T_j.",
+            "It uses the task's period to limit its overall activity within the busy-period.",
+            "It complements Constraint 5 by bounding the total impact of T_j, rather than the impact on a specific T_i."
+          ]
+        },
+        "dependencies": [
+          "Y_L_i_j_q_t_and_Y_R_i_q_t",
+          "Lemma 2",
+          "Lemma 3"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 7",
+        "formal_description": {
+          "statement": "For all T_i in tau_P_star, for all q in Q, Y_R_i_q_t <= nljobs_T_i_t * N_i_q * sum_{T_x in tau_R} (nrjobs_T_x_W_P_i_q * N_x_q).",
+          "variables": {
+            "T_i": "Task on processor P_star.",
+            "q": "Shared resource.",
+            "Y_R_i_q_t": "Number of remote conflicts for T_i on q.",
+            "nljobs_T_i_t": "Maximum number of jobs of T_i fully contained in busy-period t.",
+            "N_i_q": "Maximum number of accesses by T_i to q.",
+            "tau_R": "Set of remote tasks.",
+            "T_x": "Remote task.",
+            "nrjobs_T_x_W_P_i_q": "Upper bound on the number of jobs of remote task T_x pending in an interval of length W_P_i_q.",
+            "N_x_q": "Maximum number of accesses by T_x to q.",
+            "W_P_i_q": "Upper bound on the commit-loop response time for T_i accessing q."
+          },
+          "assumptions": [
+            "Lock-free synchronization with preemptive commit loops.",
+            "P_star is the processor under analysis.",
+            "Lemma 4 holds."
+          ],
+          "conclusion": "The number of remote conflicts incurred by task T_i for resource q is bounded by the total number of T_i's accesses to q, multiplied by the total number of remote accesses to q that can occur during T_i's commit loop response time."
+        },
+        "informal_sketch": {
+          "intuition": "Each time task T_i accesses resource q, it enters a commit loop that can last up to W_P_i_q. During this interval, remote tasks can also access q. Each remote access can cause at most one retry for T_i (Lemma 4). So, the total remote conflicts for T_i on q are bounded by the number of times T_i accesses q, multiplied by the total number of remote accesses to q that can happen during *one* of T_i's commit loop durations.",
+          "steps": [
+            "Calculate the total number of accesses to q by T_i within the busy-period: `local_accesses = nljobs_T_i_t * N_i_q`.",
+            "For each remote task T_x, calculate the maximum number of its accesses to q that can occur within an interval of length W_P_i_q: `remote_accesses_per_W_P = nrjobs_T_x_W_P_i_q * N_x_q`.",
+            "Sum `remote_accesses_per_W_P` over all remote tasks T_x to get `total_remote_accesses_during_W_P`.",
+            "The bound for Y_R_i_q_t is `local_accesses * total_remote_accesses_during_W_P`."
+          ],
+          "pseudocode": "def apply_constraint_7(task_i, resource_q, nljobs_map, N_map, tau_R, nrjobs_map_W_P, W_P_map, Y_R_map, t):\n    local_accesses = nljobs_map.get((task_i, t), 0) * N_map.get((task_i, resource_q), 0)\n    \n    total_remote_accesses_during_W_P = 0\n    W_P_i_q_val = W_P_map.get((task_i, resource_q), 0)\n    for task_x in tau_R:\n        total_remote_accesses_during_W_P += nrjobs_map_W_P.get((task_x, W_P_i_q_val), 0) * N_map.get((task_x, resource_q), 0)\n\n    bound = local_accesses * total_remote_accesses_during_W_P\n\n    # Constraint: Y_R_map.get((task_i, resource_q, t), 0) <= bound",
+          "key_insights": [
+            "This constraint is crucial for bounding remote conflicts, as it considers the actual duration of lock-free operations (W_P_i_q).",
+            "It combines the local task's activity with the remote tasks' activity during the critical window of a commit loop.",
+            "The use of W_P_i_q (Definition 4) is key to making this bound effective."
+          ]
+        },
+        "dependencies": [
+          "Y_L_i_j_q_t_and_Y_R_i_q_t",
+          "Definition 4 (W_P_i_q)",
+          "Lemma 4"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 8",
+        "formal_description": {
+          "statement": "For all T_i in tau_P_star such that d_i <= t, for all q in Q, X_A_i_q_t = 0.",
+          "variables": {
+            "T_i": "Task on processor P_star.",
+            "d_i": "Relative deadline of T_i.",
+            "t": "Length of the deadline busy-period.",
+            "q": "Shared resource.",
+            "X_A_i_q_t": "Fraction of T_i's requests for q contributing to arrival blocking."
+          },
+          "assumptions": [
+            "Spin locks are used.",
+            "P_star is the processor under analysis.",
+            "Observation O1 holds."
+          ],
+          "conclusion": "Tasks on the processor under analysis whose relative deadline is less than or equal to the busy-period length cannot cause arrival blocking."
+        },
+        "informal_sketch": {
+          "intuition": "This is a direct application of Observation O1. Arrival blocking for a busy-period of length 't' can only be caused by tasks with deadlines *longer* than 't'. Therefore, any task T_i on the local processor P_star with d_i <= t cannot be the source of arrival blocking.",
+          "steps": [
+            "Check if T_i is on P_star and its relative deadline d_i is less than or equal to t.",
+            "If so, by Observation O1, T_i cannot cause arrival blocking for this busy-period.",
+            "Set X_A_i_q_t to 0 for all resources q."
+          ],
+          "pseudocode": "def apply_constraint_8(task_i, t, Q, X_A_map):\n    if task_i.is_on_P_star and task_i.d <= t:\n        for resource_q in Q:\n            X_A_map[(task_i, resource_q, t)] = 0",
+          "key_insights": [
+            "Directly uses Observation O1 to simplify the MILP for spin locks.",
+            "Filters out irrelevant blocking sources based on deadline properties."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q",
+          "Observation O1"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 9",
+        "formal_description": {
+          "statement": "For all T_i in tau_P_star, sum_{q in Q} X_S_i_q_t = 0.",
+          "variables": {
+            "T_i": "Task on processor P_star.",
+            "q": "Shared resource.",
+            "X_S_i_q_t": "Fraction of T_i's requests for q contributing to spin delay."
+          },
+          "assumptions": [
+            "Spin locks are used.",
+            "P_star is the processor under analysis."
+          ],
+          "conclusion": "Tasks executing on the processor under analysis cannot cause spin delay for other tasks on the same processor."
+        },
+        "informal_sketch": {
+          "intuition": "Spin delay occurs when a task busy-waits for a resource held by a task on *another* processor. If a task T_i is on P_star, and another task on P_star holds a resource, that's a local resource access, typically managed by SRP, not spin locks. Spin locks are for global resources, and the spinning task waits for a *remote* holder. Therefore, a local task cannot cause spin delay for another local task.",
+          "steps": [
+            "Consider a task T_i on P_star.",
+            "Spin delay is defined as busy-waiting for a resource held by a task on a *different* processor.",
+            "Therefore, T_i cannot cause spin delay for any task on P_star.",
+            "Set X_S_i_q_t to 0 for all resources q."
+          ],
+          "pseudocode": "def apply_constraint_9(task_i, Q, X_S_map, t):\n    if task_i.is_on_P_star:\n        for resource_q in Q:\n            X_S_map[(task_i, resource_q, t)] = 0",
+          "key_insights": [
+            "This constraint clarifies the nature of spin delay in a partitioned multiprocessor system.",
+            "It distinguishes between local resource contention (managed by SRP) and global resource contention (managed by spin locks)."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 10",
+        "formal_description": {
+          "statement": "For all T_i in tau_R, for all q in Q, X_S_i_q_t + X_A_i_q_t <= nrjobs_T_i_t * N_i_q.",
+          "variables": {
+            "T_i": "Remote task (on P_k where P_k != P_star).",
+            "q": "Shared resource.",
+            "X_S_i_q_t": "Fraction of T_i's requests for q contributing to spin delay.",
+            "X_A_i_q_t": "Fraction of T_i's requests for q contributing to arrival blocking.",
+            "nrjobs_T_i_t": "Upper bound on the number of jobs of remote task T_i pending in an interval of length t.",
+            "N_i_q": "Maximum number of accesses by T_i to q."
+          },
+          "assumptions": [
+            "Spin locks are used.",
+            "P_star is the processor under analysis.",
+            "Spin delay and arrival blocking never coincide for the same request."
+          ],
+          "conclusion": "The total contribution of a remote task T_i's requests for resource q to spin delay and arrival blocking cannot exceed the total number of times T_i accesses q."
+        },
+        "informal_sketch": {
+          "intuition": "A single request by a remote task T_i for resource q can either cause spin delay (if a local task is waiting for it) or arrival blocking (if T_i is executing non-preemptively and delays a higher-priority local task). It cannot cause both simultaneously for the *same* fraction of its critical section. The total 'impact' of T_i's accesses to q is bounded by the total number of times T_i accesses q.",
+          "steps": [
+            "Calculate the maximum number of accesses to q by T_i in an interval of length t: `max_accesses = nrjobs_T_i_t * N_i_q`.",
+            "The sum of the fractional contributions to spin delay (X_S_i_q_t) and arrival blocking (X_A_i_q_t) for T_i on q must be less than or equal to `max_accesses`.",
+            "This ensures that each access is counted at most once for its blocking effect."
+          ],
+          "pseudocode": "def apply_constraint_10(task_i, resource_q, nrjobs_map, N_map, X_S_map, X_A_map, t):\n    max_accesses = nrjobs_map.get((task_i, t), 0) * N_map.get((task_i, resource_q), 0)\n    \n    sum_contributions = X_S_map.get((task_i, resource_q, t), 0) + X_A_map.get((task_i, resource_q, t), 0)\n\n    # Constraint: sum_contributions <= max_accesses",
+          "key_insights": [
+            "This constraint prevents double-counting of blocking effects from a single critical section.",
+            "It uses `nrjobs_T_i_t` to bound the total activity of remote tasks.",
+            "It's a fundamental conservation-of-blocking constraint."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 11",
+        "formal_description": {
+          "statement": "sum_{q in Q} A_q <= 1.",
+          "variables": {
+            "A_q": "Binary indicator for arrival blocking caused by resource q."
+          },
+          "assumptions": [
+            "Spin locks are used.",
+            "P_star is the processor under analysis.",
+            "Observation O2 holds."
+          ],
+          "conclusion": "At most one resource can cause arrival blocking in any given deadline busy-period."
+        },
+        "informal_sketch": {
+          "intuition": "This is a direct application of Observation O2. Arrival blocking is defined as a single instance of blocking at the start of a deadline busy-period. This means only one resource can be responsible for that single blocking instance.",
+          "steps": [
+            "Recall Observation O2: Only a single blocking request can cause arrival blocking.",
+            "This implies that at most one resource q can be involved in causing this single arrival blocking instance.",
+            "Therefore, at most one A_q variable can be 1; all others must be 0."
+          ],
+          "pseudocode": "def apply_constraint_11(Q, A_map):\n    sum_A_q = 0\n    for resource_q in Q:\n        sum_A_q += A_map.get(resource_q, 0)\n\n    # Constraint: sum_A_q <= 1",
+          "key_insights": [
+            "Directly implements Observation O2 in the MILP.",
+            "Significantly reduces the complexity of modeling arrival blocking by limiting the number of active A_q variables."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q",
+          "Observation O2"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 12",
+        "formal_description": {
+          "statement": "For all q in Q_l \\ pc_t, A_q = 0.",
+          "variables": {
+            "q": "Shared resource.",
+            "Q_l": "Set of local resources.",
+            "pc_t": "Set of local resources whose ceiling is conflicting with at least one task that has a relative deadline of length at most t.",
+            "A_q": "Binary indicator for arrival blocking caused by resource q."
+          },
+          "assumptions": [
+            "Spin locks are used.",
+            "P_star is the processor under analysis.",
+            "Ceiling blocking definition (B_t_ceiling_blocking) holds."
+          ],
+          "conclusion": "Local resources that are not in the set pc_t cannot cause arrival blocking."
+        },
+        "informal_sketch": {
+          "intuition": "The set pc_t identifies local resources that have a high enough ceiling to potentially cause blocking for tasks relevant to the busy-period. If a local resource 'q' is *not* in pc_t, its ceiling is too low to block any relevant task, or no relevant task accesses it. Therefore, it cannot cause arrival blocking.",
+          "steps": [
+            "Calculate the set pc_t (Definition 'pc_t').",
+            "For any local resource q that is not in pc_t, set A_q to 0.",
+            "This means such resources cannot be the source of arrival blocking."
+          ],
+          "pseudocode": "def apply_constraint_12(Q_l, pc_t_set, A_map):\n    for resource_q in Q_l:\n        if resource_q not in pc_t_set:\n            A_map[resource_q] = 0",
+          "key_insights": [
+            "Directly applies the definition of pc_t to filter out irrelevant local resources for arrival blocking.",
+            "Further prunes the search space for the MILP."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q",
+          "pc_t"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 13",
+        "formal_description": {
+          "statement": "For all q in Q, A_q <= sum_{T_i in tau_P_star | d_i > t} N_i_q.",
+          "variables": {
+            "q": "Shared resource.",
+            "A_q": "Binary indicator for arrival blocking caused by resource q.",
+            "T_i": "Task on processor P_star.",
+            "d_i": "Relative deadline of T_i.",
+            "t": "Length of the deadline busy-period.",
+            "N_i_q": "Maximum number of accesses by T_i to q."
+          },
+          "assumptions": [
+            "Spin locks are used.",
+            "P_star is the processor under analysis.",
+            "Observation O1 holds."
+          ],
+          "conclusion": "If a resource q causes arrival blocking (A_q = 1), then there must be at least one task T_i on P_star with a relative deadline greater than t that accesses q."
+        },
+        "informal_sketch": {
+          "intuition": "If a resource 'q' is causing arrival blocking (A_q = 1), it means some task on P_star is being blocked by a critical section for 'q'. By Observation O1, the task *causing* this blocking must have a relative deadline longer than 't'. Therefore, if A_q is 1, there must be at least one such task T_i (d_i > t) that accesses 'q'.",
+          "steps": [
+            "If A_q is 1, then arrival blocking is occurring due to resource q.",
+            "By Observation O1, this blocking must be caused by a task T_i with d_i > t.",
+            "Therefore, there must be at least one such T_i that accesses q (N_i_q > 0).",
+            "The sum `sum_{T_i in tau_P_star | d_i > t} N_i_q` will be greater than 0 if such a task exists."
+          ],
+          "pseudocode": "def apply_constraint_13(resource_q, Q, A_map, tau_P_star, N_map, t):\n    sum_N_i_q_for_blocking_tasks = 0\n    for task_i in tau_P_star:\n        if task_i.d > t:\n            sum_N_i_q_for_blocking_tasks += N_map.get((task_i, resource_q), 0)\n\n    # Constraint: A_map.get(resource_q, 0) <= sum_N_i_q_for_blocking_tasks",
+          "key_insights": [
+            "Links the binary variable A_q to the actual task workload characteristics.",
+            "Ensures that arrival blocking is only considered for resources that are actually accessed by tasks capable of causing such blocking."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q",
+          "Observation O1"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 14",
+        "formal_description": {
+          "statement": "For all q in Q, for all T_i in tau_P_star, X_A_i_q_t <= A_q.",
+          "variables": {
+            "q": "Shared resource.",
+            "T_i": "Task on processor P_star.",
+            "X_A_i_q_t": "Fraction of T_i's requests for q contributing to arrival blocking.",
+            "A_q": "Binary indicator for arrival blocking caused by resource q."
+          },
+          "assumptions": [
+            "Spin locks are used.",
+            "P_star is the processor under analysis.",
+            "Observation O2 holds."
+          ],
+          "conclusion": "A task T_i can only contribute to arrival blocking for resource q if resource q is indeed causing arrival blocking (A_q = 1)."
+        },
+        "informal_sketch": {
+          "intuition": "This constraint links the fractional blocking variable X_A_i_q_t to the binary indicator A_q. If A_q is 0, it means resource q is not causing arrival blocking, so no task T_i can contribute to arrival blocking for q (X_A_i_q_t must be 0). If A_q is 1, then resource q *is* causing arrival blocking, and T_i's contribution is then bounded by other constraints (e.g., Observation O2 implies only one task's request can cause the blocking).",
+          "steps": [
+            "If A_q is 0, then by definition, no arrival blocking is caused by q. Therefore, X_A_i_q_t must be 0 for all T_i.",
+            "If A_q is 1, then q is causing arrival blocking. X_A_i_q_t can be positive, but its total sum (over T_i) is limited by Observation O2 (at most one request causes blocking)."
+          ],
+          "pseudocode": "def apply_constraint_14(task_i, resource_q, X_A_map, A_map, t):\n    # Constraint: X_A_map.get((task_i, resource_q, t), 0) <= A_map.get(resource_q, 0)",
+          "key_insights": [
+            "Enforces consistency between the binary indicator A_q and the continuous blocking variables X_A_i_q_t.",
+            "Crucial for correctly modeling the 'at most one blocking request' property (Observation O2)."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q",
+          "Observation O2"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 15",
+        "formal_description": {
+          "statement": "For all P_k != P_star, for all q in Q, sum_{T_x in tau_P_k} X_S_x_q_t <= sum_{T_i in tau_P_star} nljobs_T_i_t * N_i_q.",
+          "variables": {
+            "P_k": "A remote processor.",
+            "P_star": "Processor under analysis.",
+            "q": "Shared resource.",
+            "T_x": "Task on remote processor P_k.",
+            "tau_P_k": "Set of tasks on remote processor P_k.",
+            "X_S_x_q_t": "Fraction of T_x's requests for q contributing to spin delay.",
+            "T_i": "Task on processor P_star.",
+            "tau_P_star": "Set of tasks on processor P_star.",
+            "nljobs_T_i_t": "Maximum number of jobs of T_i fully contained in busy-period t.",
+            "N_i_q": "Maximum number of accesses by T_i to q."
+          },
+          "assumptions": [
+            "Non-preemptive FIFO spin locks are used.",
+            "Tasks execute non-preemptively while spinning and in critical sections.",
+            "Requests are served in FIFO order."
+          ],
+          "conclusion": "The total spin delay contribution from a remote processor P_k for resource q is bounded by the total number of accesses to q by local tasks on P_star."
+        },
+        "informal_sketch": {
+          "intuition": "If a local task T_i on P_star requests resource q, it might be delayed by a remote task T_x on P_k. Due to FIFO ordering and non-preemptive execution, T_i can be delayed by at most *one* request from P_k. This means the total spin delay caused by P_k for resource q cannot exceed the total number of times local tasks on P_star *request* that resource.",
+          "steps": [
+            "Calculate the total number of requests for q by local tasks on P_star: `local_requests = sum_{T_i in tau_P_star} nljobs_T_i_t * N_i_q`.",
+            "Due to FIFO and non-preemptive execution, each local request can be delayed by at most one request from any given remote processor P_k.",
+            "Therefore, the total spin delay contribution from P_k (sum of X_S_x_q_t for T_x in tau_P_k) cannot exceed `local_requests`."
+          ],
+          "pseudocode": "def apply_constraint_15(P_k, P_star, resource_q, tau_P_k, tau_P_star, X_S_map, nljobs_map, N_map, t):\n    total_local_requests_for_q = 0\n    for task_i in tau_P_star:\n        total_local_requests_for_q += nljobs_map.get((task_i, t), 0) * N_map.get((task_i, resource_q), 0)\n\n    sum_X_S_x_q_t_remote = 0\n    for task_x in tau_P_k:\n        sum_X_S_x_q_t_remote += X_S_map.get((task_x, resource_q, t), 0)\n\n    # Constraint: sum_X_S_x_q_t_remote <= total_local_requests_for_q",
+          "key_insights": [
+            "This constraint leverages the FIFO property and non-preemptive nature of spin locks to bound spin delay.",
+            "It provides a global bound on spin delay from a remote processor, linking it to the demand for the resource on the local processor."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 16",
+        "formal_description": {
+          "statement": "For all T_x in tau_R, for all q in Q, X_S_x_q_t <= nrjobs_T_x_t * sum_{T_i in tau_P_star} (nrjobs_T_i_d_x * N_i_q).",
+          "variables": {
+            "T_x": "Remote task.",
+            "tau_R": "Set of remote tasks.",
+            "q": "Shared resource.",
+            "X_S_x_q_t": "Fraction of T_x's requests for q contributing to spin delay.",
+            "nrjobs_T_x_t": "Upper bound on the number of jobs of remote task T_x pending in an interval of length t.",
+            "T_i": "Task on processor P_star.",
+            "tau_P_star": "Set of tasks on processor P_star.",
+            "nrjobs_T_i_d_x": "Upper bound on the number of jobs of local task T_i pending in an interval of length d_x (deadline of T_x).",
+            "N_i_q": "Maximum number of accesses by T_i to q."
+          },
+          "assumptions": [
+            "Non-preemptive FIFO spin locks are used.",
+            "P_star is the processor under analysis."
+          ],
+          "conclusion": "The spin delay contribution from a remote task T_x for resource q is bounded by the total number of T_x's accesses to q, multiplied by the total number of local accesses to q that can overlap with T_x's deadline."
+        },
+        "informal_sketch": {
+          "intuition": "A job of remote task T_x can cause spin delay for local tasks. This constraint bounds the total spin delay caused by T_x by considering how many jobs of T_x are active (`nrjobs_T_x_t`) and, for each of T_x's accesses, how many local requests for 'q' could potentially be delayed by it. The `nrjobs_T_i_d_x` term estimates the number of local jobs that could be active during T_x's deadline interval, which is a relevant window for potential conflicts.",
+          "steps": [
+            "For each job of T_x, it can delay at most one request for q from a local task T_i.",
+            "The number of T_i's requests that can be delayed by a job of T_x is bounded by `nrjobs_T_i_d_x * N_i_q` (local requests active during T_x's deadline).",
+            "Sum this over all local tasks T_i to get the total local requests that a single job of T_x could potentially delay.",
+            "Multiply this by `nrjobs_T_x_t` (total jobs of T_x in busy-period t) to get the overall bound for X_S_x_q_t."
+          ],
+          "pseudocode": "def apply_constraint_16(task_x, resource_q, tau_P_star, nrjobs_map, N_map, X_S_map, t):\n    sum_local_requests_overlapping_d_x = 0\n    for task_i in tau_P_star:\n        sum_local_requests_overlapping_d_x += nrjobs_map.get((task_i, task_x.d), 0) * N_map.get((task_i, resource_q), 0)\n\n    bound = nrjobs_map.get((task_x, t), 0) * sum_local_requests_overlapping_d_x\n\n    # Constraint: X_S_map.get((task_x, resource_q, t), 0) <= bound",
+          "key_insights": [
+            "This constraint provides a per-remote-task bound on spin delay, considering the overlap of remote and local task activity.",
+            "It uses the remote task's deadline (d_x) as a window to estimate potential local conflicts.",
+            "It's a more refined bound than Constraint 15, focusing on individual task interactions."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q"
+        ]
+      },
+      {
+        "type": "claim",
+        "identifier": "Constraint 17",
+        "formal_description": {
+          "statement": "For all P_k != P_star, for all q in Q, sum_{T_x in tau_P_k} X_A_x_q_t <= A_q.",
+          "variables": {
+            "P_k": "A remote processor.",
+            "P_star": "Processor under analysis.",
+            "q": "Shared resource.",
+            "T_x": "Task on remote processor P_k.",
+            "tau_P_k": "Set of tasks on remote processor P_k.",
+            "X_A_x_q_t": "Fraction of T_x's requests for q contributing to arrival blocking.",
+            "A_q": "Binary indicator for arrival blocking caused by resource q."
+          },
+          "assumptions": [
+            "Non-preemptive FIFO spin locks are used.",
+            "P_star is the processor under analysis.",
+            "Observation O2 holds."
+          ],
+          "conclusion": "The total arrival blocking contribution from a remote processor P_k for resource q is bounded by A_q (i.e., at most one remote request from P_k can cause arrival blocking for q)."
+        },
+        "informal_sketch": {
+          "intuition": "If resource q is causing arrival blocking (A_q = 1), it means a single request on P_star is being delayed. Due to FIFO ordering and non-preemptive execution, this single local request can be delayed by at most *one* request from any given remote processor P_k. Therefore, the sum of arrival blocking contributions from all tasks on P_k for resource q cannot exceed the single blocking instance represented by A_q.",
+          "steps": [
+            "If A_q is 0, then no arrival blocking is caused by q, so the sum of X_A_x_q_t must be 0.",
+            "If A_q is 1, then a single arrival blocking instance is occurring due to q.",
+            "Due to FIFO and non-preemptive properties, at most one request from any remote processor P_k can contribute to this single arrival blocking instance.",
+            "Therefore, the sum of X_A_x_q_t for tasks on P_k must be less than or equal to A_q (which is 1)."
+          ],
+          "pseudocode": "def apply_constraint_17(P_k, P_star, resource_q, tau_P_k, X_A_map, A_map, t):\n    sum_X_A_x_q_t_remote = 0\n    for task_x in tau_P_k:\n        sum_X_A_x_q_t_remote += X_A_map.get((task_x, resource_q, t), 0)\n\n    # Constraint: sum_X_A_x_q_t_remote <= A_map.get(resource_q, 0)",
+          "key_insights": [
+            "This constraint applies Observation O2 to remote blocking sources.",
+            "It ensures that the MILP correctly models the single-instance nature of arrival blocking, even when considering multiple remote processors."
+          ]
+        },
+        "dependencies": [
+          "X_S_i_q_t_X_A_i_q_t_A_q",
+          "Observation O2"
+        ]
+      },
+      {
+        "type": "theorem",
+        "identifier": "Baruah's Enhanced Processor Demand Criterion (PDC)",
+        "formal_description": {
+          "statement": "For all t >= 0, B_t + sum_{i=1 to n} max_0_x((t + p_i - d_i) / p_i) * e_i <= t.",
+          "variables": {
+            "t": "Length of the deadline busy-period.",
+            "B_t": "Upper-bound on the maximum arrival blocking experienced in any deadline busy-period of length t.",
+            "n": "Total number of tasks.",
+            "p_i": "Minimum inter-arrival time (period) of task T_i.",
+            "d_i": "Relative deadline of task T_i.",
+            "e_i": "Contention-free worst-case execution time (WCET) of task T_i.",
+            "max_0_x(x)": "Equivalent to max(0, x)."
+          },
+          "assumptions": [
+            "A set of n sporadic tasks is scheduled under EDF with arrival blocking.",
+            "The system is uniprocessor, or this test is applied per-processor in a partitioned system (P-EDF)."
+          ],
+          "conclusion": "The system is schedulable if the cumulative execution demand (including arrival blocking) in any deadline busy-period of length t does not exceed t."
+        },
+        "informal_sketch": {
+          "intuition": "This is the core schedulability test for EDF. It states that for the system to be schedulable, the total amount of work that needs to be done (execution time of jobs released and due within 't', plus any initial blocking) must never exceed the available time 't'. If demand > t, a deadline is missed.",
+          "steps": [
+            "For a given busy-period length t:",
+            "Calculate B_t, the maximum arrival blocking for this t (using either non-preemptive or ceiling blocking definitions, or the MILP/ILP results).",
+            "For each task T_i, calculate its demand within this busy-period: `demand_i = max(0, (t + p_i - d_i) / p_i) * e_i`. This term counts jobs released such that their release and deadline are within the busy-period.",
+            "Sum `demand_i` for all tasks to get `total_task_demand`.",
+            "Add B_t to `total_task_demand`.",
+            "If `B_t + total_task_demand > t` for any t, the system is not schedulable. Otherwise, it is schedulable."
+          ],
+          "pseudocode": "def check_pdc_condition(t, B_t, task_set):\n    total_task_demand = 0\n    for task_i in task_set:\n        # (t + p_i - d_i) / p_i is the number of jobs of T_i that contribute demand\n        # in a busy-period of length t. max_0_x handles cases where this is negative.\n        num_jobs = max(0, math.ceil((t + task_i.p - task_i.d) / task_i.p))\n        total_task_demand += num_jobs * task_i.e\n    \n    return (B_t + total_task_demand) <= t",
+          "key_insights": [
+            "This criterion is a necessary and sufficient condition for EDF schedulability on a uniprocessor.",
+            "The `(t + p_i - d_i) / p_i` term is the demand function for sporadic tasks, accounting for jobs whose release and deadline fall within the interval.",
+            "The addition of B_t extends the original PDC to account for arrival blocking, which is critical for synchronization analysis."
+          ]
+        },
+        "dependencies": [
+          "Definition 1 (deadline busy-period)",
+          "B_t_non_preemptive_blocking",
+          "B_t_ceiling_blocking"
+        ]
+      },
+      {
+        "type": "theorem",
+        "identifier": "PDC_procedure",
+        "formal_description": {
+          "statement": "procedure PDC(P_k, t_LB, t_UB)\n  for all t in Phi_k intersect {t_LB <= t <= t_UB} do\n    if B_PDC_t + sum_{T_i in tau_P_k} max_0_x((t + p_i - d_i) / p_i) * e_i > t then\n      return FALSE\n  return TRUE",
+          "variables": {
+            "P_k": "Processor under analysis.",
+            "t_LB": "Lower bound of the time window.",
+            "t_UB": "Upper bound of the time window.",
+            "t": "Current busy-period length being checked.",
+            "Phi_k": "Set of discrete test points for processor P_k.",
+            "B_PDC_t": "Upper-bound on the total arrival blocking and spin (resp., retry) delay in a deadline busy-period of length t.",
+            "tau_P_k": "Set of tasks allocated to processor P_k.",
+            "p_i": "Period of task T_i.",
+            "d_i": "Relative deadline of task T_i.",
+            "e_i": "WCET of task T_i.",
+            "max_0_x(x)": "Equivalent to max(0, x)."
+          },
+          "assumptions": [
+            "B_PDC_t is correctly computed (via ILP/MILP).",
+            "Phi_k contains all relevant discontinuity points."
+          ],
+          "conclusion": "Checks the schedulability condition (Baruah's enhanced PDC) for a given processor P_k within a specified time window [t_LB, t_UB] by evaluating only at critical test points."
+        },
+        "informal_sketch": {
+          "intuition": "This procedure is the practical implementation of Baruah's PDC. Instead of checking an infinite range of 't', it only checks a finite set of 'critical' points (Phi_k) within a given interval. If the demand exceeds the available time at any of these points, the processor is not schedulable.",
+          "steps": [
+            "Iterate through each time point 't' in the set Phi_k that falls within the interval [t_LB, t_UB].",
+            "For each 't', calculate the total demand: `Demand(t) = B_PDC_t + sum_{T_i in tau_P_k} (max(0, (t + p_i - d_i) / p_i) * e_i)`.",
+            "If `Demand(t) > t`, then a deadline miss is possible, and the procedure returns FALSE.",
+            "If all points are checked and no deadline miss is found, the procedure returns TRUE."
+          ],
+          "pseudocode": "def PDC(P_k, t_LB, t_UB, Phi_k, B_PDC_function, task_set_P_k):\n    for t in sorted(list(Phi_k)):\n        if t_LB <= t <= t_UB:\n            total_task_demand = 0\n            for task_i in task_set_P_k:\n                num_jobs = max(0, math.ceil((t + task_i.p - task_i.d) / task_i.p))\n                total_task_demand += num_jobs * task_i.e\n            \n            if B_PDC_function(t) + total_task_demand > t:\n                return False\n    return True",
+          "key_insights": [
+            "This procedure makes the PDC test computationally feasible by discretizing the search space.",
+            "It integrates the complex B_PDC_t (from ILP/MILP) into the standard EDF schedulability framework.",
+            "It's a building block for the overall schedulability test."
+          ]
+        },
+        "dependencies": [
+          "Baruah's Enhanced Processor Demand Criterion (PDC)",
+          "Phi_k_PDC_evaluation_points",
+          "B_t_lock_free_objective",
+          "B_t_spin_lock_objective"
+        ]
+      },
+      {
+        "type": "theorem",
+        "identifier": "IS_CPU_SCHEDULABLE_procedure",
+        "formal_description": {
+          "statement": "procedure IS_CPU_SCHEDULABLE(P_k)\n  L_current = min_{T_i in tau_P_k} {e_i}\n  while TRUE do\n    L_plus_new = B_AC_L_current + sum_{T_i in tau_P_k} floor(L_current / p_i) * e_i\n    if L_current == L_plus_new then\n      break\n    if not PDC(P_k, L_current, L_plus_new) then\n      return FALSE\n    L_current = L_plus_new\n  return TRUE",
+          "variables": {
+            "P_k": "Processor under analysis.",
+            "L_current": "Current tentative upper bound for the busy-period length.",
+            "L_plus_new": "New tentative upper bound for the busy-period length, calculated using the arrival curve equation.",
+            "B_AC_L_current": "Upper-bound on the total synchronization delay (retry or spin delay) imposed on all jobs released in a busy-period of length L_current (does not include arrival blocking).",
+            "tau_P_k": "Set of tasks allocated to processor P_k.",
+            "p_i": "Period of task T_i.",
+            "e_i": "WCET of task T_i."
+          },
+          "assumptions": [
+            "B_AC_t is correctly computed (via ILP/MILP, excluding arrival blocking).",
+            "PDC procedure is correct.",
+            "The processor is not overloaded (U < 1), ensuring convergence."
+          ],
+          "conclusion": "Determines if a processor P_k is schedulable by iteratively finding the maximum busy-period length and checking the PDC condition in each new interval."
+        },
+        "informal_sketch": {
+          "intuition": "This is the complete schedulability test for a processor. It uses a fixed-point iteration to find the maximum busy-period length (L_plus). In each step of the iteration, it checks if the PDC condition holds for the *new* portion of the busy-period that has been added. If the iteration converges and all checks pass, the processor is schedulable.",
+          "steps": [
+            "Initialize `L_current` to the minimum WCET of tasks on P_k (a small initial busy-period length).",
+            "Enter a loop:",
+            "  Calculate `L_plus_new` using the arrival curve equation (Definition 'L_plus_max_busy_period_length') with the current `L_current` and `B_AC_L_current`.",
+            "  If `L_current == L_plus_new`, the fixed-point has converged. Break the loop.",
+            "  Call the `PDC` procedure to check schedulability in the interval `[L_current, L_plus_new]`. If `PDC` returns FALSE, then the processor is not schedulable, so return FALSE.",
+            "  Update `L_current = L_plus_new` for the next iteration.",
+            "If the loop completes (fixed-point converged without returning FALSE), return TRUE (processor is schedulable)."
+          ],
+          "pseudocode": "def IS_CPU_SCHEDULABLE(P_k, B_AC_function, B_PDC_function, Phi_k, task_set_P_k):\n    L_current = min(task.e for task in task_set_P_k) # Initial guess for busy-period length\n    \n    while True:\n        # Calculate new busy-period length (L_plus_new) using arrival curve\n        demand_sum = 0\n        for task_i in task_set_P_k:\n            demand_sum += (math.floor(L_current / task_i.p) * task_i.e)\n        L_plus_new = B_AC_function(L_current) + demand_sum\n        \n        if L_current == L_plus_new:\n            break # Fixed point converged\n        \n        # Check PDC for the newly extended interval [L_current, L_plus_new]\n        if not PDC(P_k, L_current, L_plus_new, Phi_k, B_PDC_function, task_set_P_k):\n            return False # Schedulability failed in this interval\n        \n        L_current = L_plus_new # Update for next iteration\n        \n    return True # All intervals checked, fixed point converged, schedulable",
+          "key_insights": [
+            "This algorithm provides an inflation-free schedulability test for P-EDF with synchronization delays.",
+            "It cleverly combines the fixed-point iteration for busy-period length with the discrete PDC checks.",
+            "The separation of B_AC_t (for busy-period calculation) and B_PDC_t (for PDC check) is crucial, as B_AC_t excludes arrival blocking while B_PDC_t includes it."
+          ]
+        },
+        "dependencies": [
+          "L_plus_max_busy_period_length",
+          "PDC_procedure",
+          "B_t_lock_free_objective",
+          "B_t_spin_lock_objective"
+        ]
+      }
+    ],
+    "xml_path": "/lclhome/sshah169/Desktop/Sadat/0_phd/2_projects/4_neural_theorem_prover/10-IEEE-paper-download/xplore-python3-2025-sdk/rts_papers_output/pdfs/xml/Lightweight_Real-Time_Synchronization_under_P-EDF_on_Symmetric_and_Asymmetric_Multiprocessors.xml",
+    "extracted_at": "2026-02-16T04:36:30.979801"
+  },
+  "error": null,
+  "ieee_doi": "10.1109/ECRTS.2016.30",
+  "article_number": "7557867"
+}

@@ -1,0 +1,800 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Reader-Writer Synchronization for Shared-Memory Multiprocessor Real-Time Systems *</title>
+				<funder ref="#_Q97GCAr">
+					<orgName type="full">ARO</orgName>
+				</funder>
+				<funder>
+					<orgName type="full">Intel</orgName>
+				</funder>
+				<funder>
+					<orgName type="full">IBM</orgName>
+				</funder>
+				<funder ref="#_H9TwYgV #_psB4WNP #_cg3aHDP">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Björn</forename><forename type="middle">B</forename><surname>Brandenburg</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Reader-Writer Synchronization for Shared-Memory Multiprocessor Real-Time Systems *</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">15F84025EAEE1681F24537D12B3052A6</idno>
+					<idno type="DOI">10.1109/ECRTS.2009.14</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T07:35+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Reader preference, writer preference, and task-fair readerwriter locks are shown to cause undue blocking in multiprocessor real-time systems. A new phase-fair reader-writer lock is proposed as an alternative that significantly reduces worstcase blocking for readers and an efficient local-spin implementation is provided. Both task-and phase-fair locks are evaluated and contrasted to mutex locks in terms of hard and soft real-time schedulability under consideration of runtime overheads on a multicore computer.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1">Introduction</head><p>With the transition to multicore architectures by most (if not all) major chip manufacturers, multiprocessors are now a standard deployment platform for (soft) real-time applications. This has led to renewed interest in real-time multiprocessor scheduling and synchronization algorithms (see <ref type="bibr" target="#b10">[11,</ref><ref type="bibr" target="#b13">14,</ref><ref type="bibr" target="#b14">15,</ref><ref type="bibr" target="#b16">17]</ref> for recent comparative studies and relevant references). However, prior work on synchronization has been somewhat limited, being mostly focused on mechanisms that ensure strict mutual exclusion (mutex). Reader-writer (RW) synchronization, which requires mutual exclusion only for updates (and not for reads) has not been considered in prior work on real-time shared-memory multiprocessor systems despite its great practical relevance.</p><p>The need for RW synchronization arises naturally in many situations. Two common examples are few-producers/manyconsumers relationships (e.g., obtaining and distributing sensor data) and rarely-changing shared state (e.g., configuration data). As an example for the former, consider a robot such as TU Berlin's autonomous helicopter Marvin <ref type="bibr" target="#b28">[29]</ref>: its GPS receiver updates the current position estimate 20 times per second, and the latest position estimate is read at various rates by a flight controller and by image acquisition, camera targeting, and communication modules. An example of rarely-changing shared data occurs in work of Gore et al. <ref type="bibr" target="#b20">[21]</ref>, who employed RW locks to optimize latency in a real-time notification service. In their system, every incoming event must be matched against a shared subscription lookup table to determine the set of subscribing clients. Since events occur very frequently and changes to the table occur only very rarely, the use of a regu-lar mutex lock "can unnecessarily reduce <ref type="bibr">[concurrency]</ref> in the critical path of event propagation." <ref type="bibr" target="#b20">[21]</ref> In practice, RW locks are in wide-spread use since they are supported by all POSIX-compliant real-time operating systems. However, to the best of our knowledge, such locks have not been analyzed in the context of multiprocessor real-time systems from a schedulability perspective. In fact, RW locks that are subject to starvation have been suggested to practitioners without much concern for schedulability <ref type="bibr" target="#b23">[24]</ref>. This highlights the need for a well-understood analytically-sound real-time RW synchronization protocol. Related work. In work on non-real-time systems, Courtois et al. were the first to investigate RW synchronization and proposed two semaphore-based RW locks <ref type="bibr" target="#b17">[18]</ref>: a writer preference lock, wherein writers have higher priority than readers, and a reader preference lock, wherein readers have higher priority than writers. Both are problematic for real-time systems as they can give rise to extended delays and even starvation. To improve reader throughput at the expense of writer throughput in large parallel systems, Hsieh and Weihl proposed a semaphore-based RW lock wherein the lock state is distributed across processors <ref type="bibr" target="#b21">[22]</ref>. In work on scalable synchronization on shared-memory multiprocessors, Mellor-Crummey and Scott proposed spin-based reader preference, writer preference, and task-fair RW locks <ref type="bibr" target="#b27">[28]</ref>. In a taskfair RW lock, readers and writers gain access in strict FIFO order, which avoids starvation. In the same work, Mellor-Crummey and Scott also proposed local-spin versions of their RW locks, in which excessive memory bus traffic under high contention is avoided. An alternative local-spin implementation of task-fair RW locks was later proposed by Krieger et al. <ref type="bibr" target="#b22">[23]</ref>. A probabilistic performance analysis of task-fair RW locks wherein reader arrivals are modeled as a Poisson process was conducted by Reiman and Wright <ref type="bibr" target="#b30">[31]</ref>.</p><p>In work on uniprocessor real-time systems, two relevant suspension-based protocols have been proposed: Baker's stack resource policy <ref type="bibr" target="#b2">[3]</ref> and Rajkumar's read-write priority ceiling protocol <ref type="bibr" target="#b29">[30]</ref>. The latter has also been studied in the context of distributed real-time databases <ref type="bibr" target="#b29">[30]</ref>.</p><p>An alternative to locking is the use of specialized nonblocking algorithms <ref type="bibr" target="#b0">[1]</ref>. However, compared to lock-based RW synchronization, which allows in-place updates, nonblocking approaches usually require additional memory, incur significant copying or retry overheads, and are less general. <ref type="foot" target="#foot_0">1</ref>In this paper, we focus on lock-based RW synchronization in cache-coherent shared-memory multiprocessor systems. Contributions. The contributions of this paper are as follows: (i) We study the applicability of existing RW locks to real-time systems and derive worst-case blocking bounds;</p><p>(ii) we propose a novel type of RW lock based on the concept of "phase-fairness," derive corresponding worst-case blocking bounds, and present two efficient implementations; (iii) we report on the results of an extensive performance evaluation of RW synchronization choices in terms of hard and soft real-time schedulability under consideration of system overheads. These experiments show that employing "phase-fair" RW locks can significantly improve real-time performance.</p><p>The rest of this paper is organized as follows. We summarize relevant background in Sec. 2, and discuss our synchronization protocol and other RW lock choices in Sec. 3. An empirical performance evaluation is presented in Sec. 4, followed by our conclusions in Sec. 5.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2">Background</head><p>We consider the scheduling of a system of sporadic tasks, denoted T 1 , . . . , T N , on m processors. The j th job (or invocation) of task T i is denoted T j i . Such a job T j i becomes available for execution at its release time, r(T j i ). Each task T i is specified by its worst-case (per-job) execution cost, e(T i ), its period, p(T i ), and its relative deadline, d(T i ) ≥ e(T i ). A job T j i should complete execution by its absolute deadline, r(T j i ) + d(T i ), and is tardy if it completes later. The spacing between job releases must satisfy r(T j+1 i ) ≥ r(T j i ) + p(T i ). A job that has not completed execution is either preemptable or non-preemptable. A job scheduled on a processor can only be preempted when it is preemptable. Task T i 's utilization (or weight) reflects the processor share that it requires and is given by e(T i )/p(T i ). Multiprocessor scheduling. There are two fundamental approaches to scheduling sporadic tasks on multiprocessorsglobal and partitioned. With global scheduling, processors are scheduled by selecting jobs from a single, shared queue, whereas with partitioned scheduling, each processor has a private queue and is scheduled independently using a uniprocessor scheduling policy (hybrid approaches exist, too <ref type="bibr" target="#b15">[16]</ref>). Tasks are statically assigned to processors under partitioning. As a consequence, under partitioned scheduling, all jobs of a task execute on the same processor, whereas migrations may occur in globally-scheduled systems. A discussion of the tradeoffs between global and partitioned scheduling is beyond the scope of this paper and the interested reader is referred to prior studies <ref type="bibr" target="#b13">[14,</ref><ref type="bibr" target="#b16">17]</ref>.</p><p>We consider one representative algorithm from each category: in the partitioned case, the partitioned EDF (P-EDF) pre-determined and cannot depend on the current state of the shared object. With locks, an update can be computed based on the current value. algorithm, wherein the earliest-deadline-first (EDF) algorithm is used on each processor, and in the global case, the global EDF (G-EDF) algorithm. However, the synchronization algorithms considered herein apply equally to other scheduling algorithms that assign each job a fixed priority, including partitioned static-priority (P-SP) scheduling. Further, we consider both hard real-time (HRT) systems in which deadlines should not be missed, and soft real-time systems (SRT) in which bounded deadline tardiness is permissible.</p><p>Resources. When a job T j i is going to update (observe) the state of a resource , it issues a write (read) request W (R ) for and is said to be a writer (reader). In the following discussion, which applies equally to read and write requests, we denote a request for of either kind as X .</p><p>X is satisfied as soon as T j i holds , and completes when T j i releases . |X | denotes the maximum time that T j i will hold . T j i becomes blocked on if X cannot be satisfied immediately. (A resource can be held by multiple jobs simultaneously only if they are all readers.) If T j i issues another request X before X is complete, then X is nested within X . We assume nesting is proper, i.e., X must complete no later than X completes. An outermost request is not nested within any other request. A resource is global if it can be requested concurrently by jobs scheduled on different processors, and local otherwise.</p><p>Infrequent requests. Some infrequently read or updated resources may not be requested by every job of a task. We associate a request period rp(X ) ∈ N with every request X to allow infrequent resource requests to be represented in the task model without introducing unnecessary pessimism. The request period limits the maximum request frequency: if jobs of T i issue X and rp(X ) = k, then at most every kth job of T i issues X .</p><p>For example, consider a task T m that reads a sensor s at a rate of ten samples per second via a read request R s (p(T m ) = 100ms) and that updates a shared variable a storing a history of average readings once every two seconds via a write request W a . In this case, assuming that every job of T m issues W a when analyzing contention for a would be unnecessarily pessimistic. To reflect the fact that only every 20th job of T m accesses a , we can define rp(W a ) = 20 and rp(R s ) = 1.</p><p>When sharing resources in real-time systems, a locking protocol must be employed to both avoid deadlock and bound the maximum duration of blocking. In the following section, we present such a protocol.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3">Reader-Writer Synchronization</head><p>The flexible multiprocessor locking protocol (FMLP) <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b11">12]</ref> is a real-time mutex protocol based on the principles of flexibility and simplicity that has been shown to compare favorably to previously-proposed protocols <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b10">11]</ref>. In this section, we present an extended version of the FMLP with support for RW synchronization. We begin by giving a high-level overview of its core design.</p><p>The FMLP is considered to be "flexible" for two reasons: it can be used under G-EDF, P-EDF, as well as P-SP scheduling, and it is agnostic regarding whether blocking is via spinning or suspension. Regarding the latter, resources are categorized as either "short" or "long." Short resources are accessed using fair spin locks and long resources are accessed via a semaphore protocol. Whether a resource should be considered short or long is user-defined, but requests for long resources may not be contained within requests for short resources. The terms "short" and "long" arise because (intuitively) spinning is appropriate only for short critical sections, since spinning wastes processor time. However, two recent studies have shown that, in terms of schedulability, spinning is usually preferable to suspending when overheads are considered <ref type="bibr" target="#b10">[11,</ref><ref type="bibr" target="#b14">15]</ref>. Based on these trends (and due to space constraints), we restrict our focus to short resources in this paper and delegate RW synchronization of long resources to future work.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.1">Reader-Writer Request Rules</head><p>The reader-writer FMLP (RW-FMLP) is realized by the following rules, which are based on those given in <ref type="bibr" target="#b7">[8]</ref>.</p><p>Resource groups. Nesting, which is required to cause a deadlock, tends to occur somewhat infrequently in practice <ref type="bibr" target="#b9">[10]</ref>. The FMLP strikes a balance between supporting nesting and optimizing for the common case (no nesting) by organizing resources into resource groups, which are sets of resources that may be requested together. Two resources are in the same group iff there exists a job that requests both resources at the same time. We let grp( ) denote the group that contains . Deadlock is avoided by protecting each group by a group lock; before a job can access a resource, it must first acquire its corresponding group lock. <ref type="foot" target="#foot_3">2</ref>Nesting. Read requests may be freely nested within other read and write requests, but write requests may only be nested within other write requests. We do not permit the nesting of write requests within read requests because this would require an "upgrade" to exclusive access, which is problematic for worst-case blocking analysis.</p><p>Requests. If a job T j i issues a read or write request X for a short resource and X is outermost, then T j i becomes nonpreemptable and executes the corresponding entry protocol for grp( )'s group lock (the details of which are discussed in the next section). X is satisfied once T j i holds 's group lock. When X completes, T j i releases the group lock and leaves its non-preemptive section. The execution of an outermost request is illustrated in Fig. <ref type="figure" target="#fig_0">1</ref>. If X is not outermost, then it is satisfied immediately: if the outer request is a write request, then T j i already has exclusive access to the group, and if the outer request is a read request, then X must also be a read request according to the nesting rule. In either case, it is safe to acquire .</p><p>The RW-FMLP can be integrated with the regular FMLP by replacing the FMLP's short request rules with the aboveprovided rules; regular short FMLP requests are then treated as short write requests.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.2">Group Lock Choices</head><p>Group locks are the fundamental unit of locking in the FMLP and thus determine its worst-case blocking behavior. In this section, we consider four group lock choices (one of them a new RW lock) and discuss examples showing how using RW locks and relaxing ordering constraints can significantly reduce worst-case blocking. Bounds on worst-case blocking for all three choices are derived in an extended version of this paper <ref type="bibr" target="#b8">[9]</ref>.</p><p>Task-fair mutex locks are considered here even though they are clearly undesirable for RW synchronization since they are the only spin-based locks for which bounds on worst-case blocking were derived in prior work. Hence, they serve in our experiments (see Sec. 4) as a performance baseline.</p><p>Task-fair mutex locks. With task-fair (or FIFO) locks, competing tasks are served strictly in the order that they issue requests. Task-fair mutex locks were employed in previous work on real-time synchronization because they have two desirable properties: first, they can be implemented efficiently <ref type="bibr" target="#b26">[27]</ref>, and second, they offer strong progress guarantees. Since requests (in the FMLP) are executed nonpreemptively, task-fair locks ensure that a request of a job is blocked once by at most m -1 other jobs irrespective of the number of competing requests, which may be desirable as this tends to distribute blocking evenly among tasks.</p><p>However, enforcing strict mutual exclusion among readers is unnecessarily restrictive and can in fact cause deadline misses. An example is shown in Fig. <ref type="figure" target="#fig_2">2</ref>(a), which depicts jobs of five tasks (two writers, three readers) competing for a resource . As 's group lock is a task-fair mutex lock, all requests are satisfied sequentially in the order that they were issued. This unnecessarily delays both T 4 and T 5 and causes them to miss their respective deadlines at times 12.5 and 13.</p><p>Task-fair RW locks. With task-fair RW locks, while requests are still satisfied in strict FIFO order, the mutual exclusion requirement is relaxed so that the lock can be acquired by multiple readers. This can lead to reduced blocking, as shown in Fig. <ref type="figure" target="#fig_3">2(b)</ref>, which depicts the same arrival sequence as in Fig. <ref type="figure" target="#fig_3">2(a)</ref>. Note that the read requests of T 3 , T 4 , and T 5 are satisfied simultaneously at time 8, which in turn allows T 4 and T 5 to meet their deadlines.</p><p>Unfortunately, task-fair RW locks may degrade to mutexlike performance when faced with a pathological request sequence, as is shown in Fig. <ref type="figure" target="#fig_3">2(c</ref>). The only difference in task behavior between Fig. <ref type="figure" target="#fig_2">2</ref>(b) and Fig. <ref type="figure" target="#fig_3">2(c</ref>) is that the arrival times of the jobs of T 1 and T 4 have been switched. This causes to be requested first by a reader (T 4 at time 2), then by a writer (T 2 at time 2.5), then by a reader again (T 3 at time 3), then by another writer (T 1 at time 3.5), and finally by the last reader (T 5 at time 4). Reader parallelism is eliminated in this scenario and T 5 misses its deadline at time 13 as a result. Preference RW locks. In a reader preference lock, readers are statically prioritized over writers, i.e., writers are starved as long as readers issue consecutive requests <ref type="bibr" target="#b17">[18,</ref><ref type="bibr" target="#b27">28]</ref>. The lack of strong progress guarantees for writers makes reader preference locks a problematic choice for real-time systems: one can easily construct examples in which deadlines are missed due to writer starvation. Writer preference locks are an ill choice for similar reasons.</p><p>All previously-proposed RW locks fall within one of the categories discussed so far. Thus, the examples discussed above demonstrate that no such lock reliably reduces worstcase blocking (unless there are very few writers). Phase-fair RW locks. Upon closer inspection, one can identify two root problems of existing RW locks: first, preference locks cause extended blocking due to intervals in which only requests of one kind are satisfied; and second, task-fair RW locks cause extended blocking due to a lack of parallelism when readers are interleaved with writers. A RW lock better suited for real-time systems should avoid these two pitfalls.</p><p>These two requirements are captured by the concept of phase-fairness. Phase-fair RW locks have the following properties: (i) reader phases and writer phases alternate; (ii) writers are subject to FIFO ordering with regard to other writers; (iii) all unsatisfied read requests are satisfied at the beginning of a reader phase; 3 and (iv) if there are incomplete write requests, then read requests are not satisfied until the start of the next reader phase. Properties (i) and (iii) ensure that a read request is never blocked by more than one writer phase and one reader phase irrespective of m and the length of the write request queue. Property (iv) ensures that reader phases end. Properties (i) and (ii) ensure that a write request is never blocked by more than m -1 phases. The fact that the bound on read request blocking is O(1) and not O(m) is very significant as multicore platforms become larger. 3 Exactly one write request is satisfied at the beginning of a writer phase.   issues the first read request and thus starts a new reader phase at time 2. T 2 issues a write request that cannot be satisfied immediately at time 2.5. However, T 2 's unsatisfied request prevents the next read request (issued by T 3 at time 3) from being satisfied due to Property (iv). At time 3.5, T 1 issues a second write request, and at time 4, T 5 issues a final read request. At the same time, T 4 's request completes and the first reader phase ends. The first writer phase lasts from time 4 to time 7 when T 2 's write request, which was first in the writer FIFO queue, completes. Due to Property (i), this starts the next reader phase, and due to Property (iii), all unsatisfied read requests are satisfied. Note that, when T 5 's read request was issued, two write requests were unsatisfied. However, due to the phase-fair bound on read-request blocking, it was only blocked by one writer phase regardless of the arrival pattern. This allows all jobs to meet their deadlines in this example, and, in fact, for any arrival pattern of the jobs depicted in Fig. <ref type="figure" target="#fig_2">2</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3.3">A Phase-Fair Reader-Writer Lock</head><p>While the above example suggests that the properties of phase-fairness can reduce worst-case blocking significantly, to be a viable choice, phase-fair locks must be efficiently implementable on common hardware platforms. In this section, we present a simple and efficient phase-fair RW lock that only depends on hardware support for atomic-add, fetch-and-add, and atomic stores. The algorithm, as given in its entirety in Listing 1, assumes a 32-bit little-endian architecture. However, it can be easily adapted to 16-bit, 64-bit, and big-endian architectures.</p><p>Structure. The lock consists of four counters that count the number of issued (rin, win) and completed (rout, wout) read and write requests (lines 1-3 of Listing 1). rin serves multiple purposes: bits 8-31 are used for counting issued read requests, while bit 1 (PRES) is used to signal the presence of unsatisfied write requests and bit 0 (PHID) is used to tell consecutive writer phases apart. For efficiency reasons (explained below), bits 2-7 remain unused, as do bits 0-7 of rout for reasons of symmetry. The allocation of bits in rin and rout is illustrated in Fig. <ref type="figure" target="#fig_5">3</ref>.</p><p>Readers. The reader entry procedure (lines 10-13) works as follows. First, a reader atomically increments rin and observes PRES and PHID (line 12). If no writer is present (w = 0), then the reader is admitted immediately (line 13). Otherwise, the reader spins until either of the two writer bits changes: if both bits are cleared, then no writer is present any longer, otherwise-if only PHID toggles but PRES remains unchanged-the beginning of a reader phase has been signaled. The reader exit procedure (lines 15-16) only consists of atomically incrementing rout, which allows a blocked 1 t y p e p f l o c k = r e c o r d 2 r i n , r o u t : u n s i g n e d i n t e g e r { i n i t i a l l y 0 } 3 win , wout : u n s i g n e d i n t e g e r { i n i t i a l l y 0 }  writer to detect when the lock ceases to be held by readers (as discussed below, line 24).</p><p>Writers. Similarly to Mellor-Crummey and Scott's simple task-fair RW lock <ref type="bibr" target="#b27">[28]</ref>, FIFO ordering of writers is realized with a ticket abstraction <ref type="bibr" target="#b26">[27]</ref>. The writer entry procedure (lines 18-24) starts by incrementing win in line 20 and waiting for all prior writers to release the lock (line 21). Once a writer is the head of the writer queue (ticket = wout), it atomically sets PRES to one, sets PHID to equal the leastsignificant bit of its ticket, and observes the number of issued read requests (lines <ref type="bibr" target="#b21">[22]</ref><ref type="bibr" target="#b22">[23]</ref>. Note that the least-significant byte of rin equals zero when observed in line 23 since no other writer can be present. Finally, the writer spins until all readers have released the lock before entering its critical section in line 24. The writer exit procedure consists of two steps. First, the beginning off a reader phase is signaled by clearing bits 0-7 of rin by atomically writing zero to its leastsignificant byte (lines 28-30). Clearing the complete leastsignificant byte instead of just bits 0 and 1 is a performance optimization since writing a byte is usually much faster than atomic read-modify-write instructions on modern hardware architectures. Finally, the writer queue is updated by incrementing wout in line 31.</p><p>Phase id bit. The purpose of PHID is to avoid a potential race between a slow reader (R 1 ) and two writers (W 1 , W 2 ). Assume that W 1 holds the lock and that R 1 and W 2 are blocked. When W 1 releases the lock, PRES is cleared (line 30) and wout is incremented (line 31). Subsequently, W 2 re-sets PRES (line 23) and waits for R 1 to release the lock. Assuming the absence of PHID, if R 1 would fail to observe the short window during which PRES is cleared, then it would continue to spin in line 13, waiting for the next writer phase to end. This deadlock between R 1 and W 2 is avoided by checking PHID: if R 1 misses the window between writers, it can still reliably detect the beginning of a reader phase when PHID is toggled.</p><p>Size concerns. Overflowing rin, win, rout, and wout is harmless as long as there are at most 2 32 -1 concurrent writers and 2 24 -1 concurrent readers because the counters are only tested for equality. Note that there can be most m concurrent readers and writers under the FMLP since requests are executed non-preemptively.</p><p>In Listing 1, the four counters are defined as four-byte integers each for clarity and performance reasons. However, requiring 16 bytes per lock may be excessive in the context of some memory-constrained applications (e.g., embedded systems). We provide a phase-fair RW lock that only requires 4 bytes and supports up to 127 concurrent readers and writers each in <ref type="bibr" target="#b8">[9]</ref>.</p><p>Implementation in LITMUS RT . In order to realize group locks efficiently, we implemented optimized versions of two local-spin mutex locks and two local-spin RW locks proposed by Mellor-Crummey and Scott <ref type="bibr" target="#b26">[27,</ref><ref type="bibr" target="#b27">28]</ref>, as well as our phasefair RW lock, in LITMUS RT , UNC's Linux-derived real-time OS <ref type="bibr" target="#b12">[13,</ref><ref type="bibr" target="#b16">17]</ref>. As seen in Table <ref type="table" target="#tab_0">1</ref>, these locks are denoted MX-T, MX-Q, RW-T, RW-Q, and RW-PF respectively.</p><p>We implemented each lock on both Intel's x86 and Sun's SPARC V9 architectures. Intel's x86 architecture supports atomic-add and fetch-and-add directly via the add and xadd instructions. On Sun's SPARC V9 architecture, a RISClike design, only compare-and-swap is natively supported and hence both instructions are emulated.</p><p>One commonly-used complexity metric for locking algorithms is to count remote memory references (RMR) <ref type="bibr" target="#b1">[2]</ref>, i.e., on a cache-coherent multiprocessor, locks are classified by how many cache invalidations occur per request under maximum contention. In theory, O(1) locks, e.g., MX-Q, RW-Q, should outperform O(m) locks, e.g., MX-T, RW-T, since frequent cache invalidations cause memory bus contention. However, micro benchmarks in which a lock was accessed repeatedly in a tight loop revealed that-on both x86 and SPARC V9 platforms-the MX-Q and RW-Q locks incur significantly higher overheads than the ticket-based MX-T and RW-T locks. The reason is that the O(1) locks inherently require additional slow compare-and-swap instructions. In our micro benchmarks, the positive effects of their lower RMR complexity (i.e., reduced bus traffic) only starts to outweigh the increased entry and exit overheads at unrealistic contention levels, i.e., spinning must comprise a majority of the system's load in order to break even, which is rather unlikely to occur in well-designed real-time systems. Hence, we only consider the MX-T and RW-T locks in the rest of this paper.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4">Experimental Evaluation</head><p>To compare the various synchronization options discussed above, we determined the HRT and SRT schedulability of randomly-generated task sets under both partitioned and global scheduling assuming the use of MX-T, RW-T, and RW-PF group locks. The methodology followed in this study, and our results, are discussed below.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.1">Overheads</head><p>In order to capture the impact (or lack thereof) of RW synchronization as accurately as possible, we conducted our study under consideration of real-world system overheads as incurred in LITMUS RT on a Sun UltraSPARC T1 "Niagara" multicore platform. The Niagara is a 64-bit machine containing eight cores on one chip running at 1.2 GHz. Each core supports four hardware threads, for a total of 32 logical processors. On-chip caches include a 16K (respective, 8K) four-way set associative L1 instruction (respective, data) cache per core, and a shared, unified 3 MB 12-way set associative L2 cache. Our test system is configured with 16 GB of off-chip main memory. Most relevant system overheads (e.g., scheduling overhead, context-switch overhead, etc.) were already known from a recent study <ref type="bibr" target="#b13">[14]</ref> and did not have to be re-determined. Only synchronization-related overheads had to be obtained and are given in Table <ref type="table" target="#tab_1">2</ref>: Worst-case and average-case costs of synchronization overheads (in µs). Based on the methodology explained in detail in <ref type="bibr" target="#b13">[14]</ref>, the results were obtained by computing the maximum (resp. average) cost of 1,000,000 requests after discarding the top 1% to remove samples that were disturbed by interrupts and other outliers.</p><p>HRT (SRT) schedulability, we assume worst-case (averagecase) overheads (as in <ref type="bibr" target="#b13">[14]</ref>).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.2">Task Set Generation</head><p>In generating random task sets for conduction schedulability comparisons, task parameters were selected-similar to the approach previously used in <ref type="bibr" target="#b10">[11,</ref><ref type="bibr" target="#b13">14,</ref><ref type="bibr" target="#b14">15]</ref>-as follows. Task utilizations were distributed uniformly over [0.1, 0.4] and periods were chosen from [10ms,100ms]. We only considered implicit deadlines, i.e., p(T i ) = d(T i ), since most G-EDF schedulability tests require this constraint. Task execution costs were calculated based on utilizations and periods. Periods were defined to be integral, but execution costs may be non-integral. Task sets were obtained by generating tasks until a utilization cap (ucap) was reached. We selected these parameter ranges because they correspond to the "medium weight distribution" previously considered in <ref type="bibr" target="#b13">[14]</ref>. The effect of choosing heavier or lighter utilization distributions is considered in the discussion of the results below.</p><p>Resource sharing. The total number of generated tasks N and the average number of resources per task (res) was used to determine the total number of resources R = N • res.</p><p>Based on R and the average number of requests per resource per second (contention), the total request density Q = R • contention was computed. Note that request density is a normalized measure similar to task utilization and not necessarily integral. Q was further split based on the ratio of write requests (wratio) into write density, Q w = Q • wratio, and read density,</p><formula xml:id="formula_0">Q r = Q • (1 -wratio).</formula><p>In the next step, we generated read (write) requests and randomly assigned them to tasks until the total request density of the generated read (write) requests equalled Q r (Q w ). Request density is the normalized rate at which a request is issued. <ref type="foot" target="#foot_4">4</ref> We chose a request period of one unless that would have exceeded Q r (Q w ). <ref type="foot" target="#foot_5">5</ref> Based on the nesting probability (nest), each request contained d levels of nested requests with a probability of nest d . Resource groups as mandated by the FMLP were computed during request generation. Due to the randomized assignment of requests, some tasks may not request resources at all, and some tasks may both read and write the same resource. However, we ensured that each resource is requested by at least one writer and one reader that are not identical. The duration of requests was distributed uniformly in [1.0µs, 15.0µs]. This range was chosen to correspond to request durations considered in prior studies on mutex synchronization <ref type="bibr" target="#b10">[11,</ref><ref type="bibr" target="#b14">15]</ref>, which in turn were based on durations observed in actual systems <ref type="bibr" target="#b9">[10]</ref>. The effect of allowing longer durations is discussed below.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.3">Schedulability Tests</head><p>After a task system was generated, its schedulability assuming MX-T, RW-T, and RW-PF group locks was tested as follows. System and synchronization overheads were accounted for by inflating worst-case execution costs and the durations of outermost requests using standard techniques <ref type="bibr" target="#b25">[26]</ref>. Per-task bounds on worst-case blocking were computed as detailed in <ref type="bibr" target="#b8">[9]</ref>, and each task's worst-case execution cost was inflated to account for the corresponding utilization loss due to spinning.</p><p>Under G-EDF, a task system was deemed SRT schedulable if the total utilization after inflation did not exceed m = 32 <ref type="bibr" target="#b18">[19]</ref>. Determining whether a task system is hardschedulable under G-EDF is more involved. There now are five major sufficient (but not necessary) HRT schedulability tests for G-EDF <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b4">5,</ref><ref type="bibr" target="#b5">6,</ref><ref type="bibr" target="#b6">7,</ref><ref type="bibr" target="#b19">20]</ref>. Interestingly, for each of these tests, there exist task sets that are deemed schedulable by it but not the others <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b6">7]</ref>. Thus, a task system was deemed HRT schedulable under G-EDF if it passed at least one of these five tests.</p><p>Under P-EDF, a task system was deemed schedulable if it could be partitioned using the worst-fit decreasing heuristic and the utilization after inflation did not exceed one on any processor (HRT and SRT schedulablity under P-EDF is the same except for the use of worst-case versus averagecase overheads.) <ref type="bibr" target="#b24">[25]</ref>. Note that partitioning must precede the blocking-term calculation.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.4">Study</head><p>In our study, we assessed SRT/HRT schedulability under both G-EDF and P-EDF while varying five parameters: Trends. It is clearly not feasible to present all 1,620 resulting graphs. However, the results show clear trends. We begin by making some general observations concerning these trends. Below, we consider a few specific graphs that support these observations.</p><p>In the majority of the tested scenarios, RW-PF locks were clearly the best-performing algorithm. MX-T locks were preferable in only 23 of the 1,620 tested scenarios (12 under G-EDF, 11 under P-EDF). Due to the wide range of parameter values considered, some parameter combinations did not exhibit discernible trends since they were either "too easy" (low contention, res, ucap) or "too hard" (high ucap, contention, wratio, nest)-either (almost) all or none of the task sets were schedulable in these scenarios regardless of the group lock type. Where RW synchronization was preferable to mutual exclusion, RW-T locks never outperformed RW-PF locks.</p><p>Generally speaking, RW-PF locks were usually more resilient to increases in contention, res, ucap, nest, and wratio, i.e., they exhibited higher schedulability than the other two choices under increasingly adverse conditions. Hence, it is more illuminating to consider the two exceptions: (i) under which conditions are MX-T locks preferable to RW-PF locks (and why), and (ii) under which conditions do RW-T locks perform as well as RW-PF locks? Regarding (i), all 23 cases exhibit a combination of high request density, deep and frequent nesting, and many writers (wratio ≥ 0.35). Hence, writer blocking, which is not improved by RW locks, becomes the dominating performance factor. This explains why RW-PF (and RW-T) locks do not perform better than MX-T locks in some cases, but why do they perform worse? The reason is additional pessimism in the worst-case blocking analysis of RW-PF locks that is only triggered by scenarios that involve many writers and frequent, long requests (see <ref type="bibr" target="#b8">[9]</ref>). The answer to (ii) reinforces the intuition that task-fair locks are very sensitive to the number of concurrent writers: all scenarios in which RW-T locks perform as well as RW-PF locks (and in which RW synchronization is preferable to mutual exclusion) exhibit a very low write density (wratio = 0.05). However, the inverse is not true: there are scenarios in which RW-PF locks clearly perform better than RW-T locks (in terms of schedulability) where wratio = 0.05.</p><p>Example graphs. Insets (a)-(j) of Fig. <ref type="figure" target="#fig_9">4</ref> display ten selected graphs that illustrate the above trends. In order to show a wide variety of scenarios, we chose to exhibit one HRT schedulability result under P-EDF (left column) and one SRT schedulability result under G-EDF (right column) for each of the five parameters that we varied (rows).</p><p>Insets (a)-(b) show schedulability as a function of ucap. In both cases, RW-PF locks yield better schedulability: under P-EDF (resp., G-EDF), with MX-T and RW-T locks, per-formance starts to degrade ucap ≈ 8 (resp., ucap ≈ 13), whereas RW-PF locks can sustain high schedulability until ucap ≈ 10 (resp., ucap ≈ 16). Note that with only 20% writes RW-T locks perform almost as badly as MX-T locks. Insets (c)-(d) show schedulability as a function of contention. For both P-EDF and G-EDF, RW-PF locks can sustain almost twice as much contention as either MX-T or RW-T locks before performance degrades. This highlights the significance of the RW-PF lock O(1) bound on read blocking under high contention. Again, RW-T locks offer little advantage over MX-T locks. Insets (e)-(f) show schedulability as a function of wratio. Inset (e) illustrates under which conditions MX-T locks are (partially) preferable. Due to high contention, nest, and res, RW-PF locks start to perform worse than MX-T locks when wratio ≥ 0.35 due to pessimism in the analysis with regard to high number of writers. In contrast, inset (f) shows a more representative scenario in which RW-PF locks can sustain high schedulability until wratio ≈ 0.3, whereas RW-T locks are only usable when there are virtually no writes even with moderate nest and res. Insets (g)-(h) show schedulability as a function of nest. In both cases, RW-PF locks perform significantly better than either MX-T and RW-T locks as resource groups become fewer in number and larger, even under high res (P-EDF case) and high contention (G-EDF case). Finally, insets (i)-(j) show schedulability as a function of res. Once again, RW-PF locks can sustain significantly higher schedulability and RW-T locks perform only little better than MX-T locks.</p><p>Varying weights, periods, and request lengths. With lighter utilization distributions, the differences between the locks would be magnified since the number of tasks increases and bounds on worst-case blocking become larger relative to the average worst-case execution cost. Similarly, longer request durations would also magnify differences in performance. Lengthening periods causes a decrease in average perrequest density, which in turn causes the number of requests per task to increase. Further, the interval for which interference needs to be analyzed increases <ref type="bibr" target="#b8">[9]</ref>. In both cases, the bounds on worst-case blocking would be more pessimistic, and hence differences in performance would be magnified.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5">Conclusion</head><p>We have presented the first analysis of reader-writer locking in shared-memory multiprocessor real-time systems and demonstrated that preference-and task-fair locks can be problematic in such systems. We also have proposed phase-fair locks, an alternative lock design with asymptotically lower worstcase read blocking. Our experiments revealed that (in terms of schedulability) phase-fair locks are almost always the best choice-oftentimes by a significant margin.</p><p>In future work, we would like to extend the RW-FMLP   to support suspension-based real-time reader-writer synchronization. Further, we would like to develop a phasefair reader-writer lock with O(1) RMR complexity and reevaluate the performance of reader-writer lock choices in the absence of shared, coherent caches.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Figure 1 :</head><label>1</label><figDesc>Figure 1: Illustration of an outermost request.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head>Figure 2 :</head><label>2</label><figDesc>Figure 2: Example schedules of two writers (T1, T2) and three readers (T3, T4, T5) sharing one resource (tasks assigned to different processors). (a) Task-fair mutex group lock. (b) Task-fair RW group lock (best-case arrival sequence). (c) Task-fair RW group lock (worst-case arrival sequence). (d) Phase-fair RW group lock.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Fig. 2 (</head><label>2</label><figDesc>Fig.2(d) depicts a schedule of the pathological arrival sequence from Fig.2(c) assuming a phase-fair group lock. T 4 issues the first read request and thus starts a new reader phase at time 2. T 2 issues a write request that cannot be satisfied immediately at time 2.5. However, T 2 's unsatisfied request prevents the next read request (issued by T 3 at time 3) from being satisfied due to Property (iv). At time 3.5, T 1 issues a second write request, and at time 4, T 5 issues a final read request. At the same time, T 4 's request completes and the first reader phase ends. The first writer phase lasts from time 4 to time 7 when T 2 's write request, which was first in the writer FIFO queue, completes. Due to Property (i), this starts the next reader phase, and due to Property (iii), all unsatisfied read requests are satisfied. Note that, when T 5 's read request was issued, two write requests were unsatisfied. However, due to the phase-fair bound on read-request blocking, it was only blocked by one writer phase regardless of the arrival pattern. This allows all jobs to meet their deadlines in this example, and, in fact, for any arrival pattern of the jobs depicted in Fig.2.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>5 1 Listing 1 :</head><label>11</label><figDesc>c o n s t RINC = 0 x100 { r e a d e r i n c r e m e n t } 6 c o n s t WBITS = 0 x3 { w r i t e r b i t s i n r i n } 7 c o n s t PRES = 0 x2 { w r i t e r p r e s e n t b i t } 8 c o n s t PHID = 0 x1 { p h a s e i d b i t } 10 p r o c e d u r e r e a d l o c k ( L : ˆp f l o c k ) 11 var w : u n s i g n e d i n t e g e r ; 12 w : = f e t c h a n d a d d (&amp;L-&gt;r i n , RINC ) and WBITS ; 13 a w a i t (w = 0 ) or (w &lt;&gt; L-&gt;r i n and WBITS ) 15 p r o c e d u r e r e a d u n l o c k ( L : ˆp f l o c k ) 16 a t o m i c a d d (&amp;L-&gt;r o u t , RINC ) 18 p r o c e d u r e w r i t e l o c k ( L : ˆp f l o c k ) 19 var t i c k e t , w : u n s i g n e d i n t e g e r ; 20 t i c k e t : = f e t c h a n d a d d (&amp;L-&gt;win , 1 ) ; 21 a w a i t t i c k e t = L-&gt;wout ; 22 w : = PRES or ( t i c k e t and PHID ) ; 23 t i c k e t : = f e t c h a n d a d d (&amp;L-&gt;r i n , w ) ; 24 a w a i t t i c k e t = L-&gt;r o u t 26 p r o c e d u r e w r i t e u n l o c k ( L : ˆp f l o c k ) 27 var l s b : ˆu n s i g n e d b y t e ; 28 l s b : = &amp;L-&gt;r i n ; 29 { l s b ˆ= l e a s t -s i g n i f i c a n t b y t e o f L-&gt;r i n } 30 l s b ˆ: = 0 ; 31 L-&gt;wout : = L-&gt;wout + Implementation of a phase-fair spin-based reader-writer lock (algorithm RW-PF).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>Figure 3 :</head><label>3</label><figDesc>Figure 3: The allocation of bits in the reader entry counter and the reader exit counter (corresponding to Line 2 of Listing 1).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head></head><label></label><figDesc>(i) ucap ∈ [1.0, 32.0], (ii) contention ∈ [50, 550], (iii) wratio ∈ [0.01, 0.5], (iv) nest ∈ [0.0, 0.5], and (v) res ∈ [0.1, 5.0]. Each of these parameters was varied over its stated range for all possible choices of the other parameters arising from ucap ∈ {6.0, 9.0, 12.0} for HRT and ucap ∈ {15.0, 18.0, 21.0} for SRT, contention ∈ {100, 250, 400}, wratio ∈ {0.05, 0.2, 0.35}, nest ∈ {0.05, 0.2, 0.35}, and res ∈ {0.5, 2.0, 3.5}, under both SRT and HRT and both G-EDF and P-EDF scheduling. Sampling points were chosen such that the sampling density is high in areas where curves change rapidly. For each sampling point, we gener-ated (and tested for schedulability) 50 task sets, for a total of over 1,600,000 tested task sets.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>2 [ 1</head><label>21</label><figDesc>task sets task set utilization (prior to inflation) hard schedulability under P-EDF with contention=250 nest=0.2 res=2.0 wratio=0.2 task sets task set utilization (prior to inflation) soft schedulability under G-EDF with contention=250 nest=0.2 res=2.0 wratio=0.task sets requests per resource per second hard schedulability under P-EDF with nest=0.2 res=2.0 ucap=9.0 wratio=0.2 task sets requests per resource per second soft schedulability under G-EDF with nest=0.2 res=2.0 ucap=15.0 wratio=0.2 task sets ratio of write requests hard schedulability under P-EDF with contention=250 nest=0.35 res=3.5 ucap=6.0 task sets ratio of write requests soft schedulability under G-EDF with contention=250 nest=0.2 res=2.0 ucap=15.0 task sets average number of resources per task hard schedulability under P-EDF with contention=250 nest=0.2 ucap=9.0 wratio=0.2</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head></head><label></label><figDesc>task sets average number of resources per task soft schedulability under G-EDF with contention=250 nest=0.2 ucap=15.0 wratio=0.2</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Figure 4 :</head><label>4</label><figDesc>Figure 4: Schedulability (the fraction of generated task systems deemed schedulable) as a function of (a)-(b) task system utilization (ucap), (c)-(d) average requests per resource per second (contention), (e)-(f) ratio of write requests (wratio), (g)-(h) probability of nested requests (nest), (i)-(j) average number of resources per task (res). The left column shows hard schedulability under P-EDF; the right right column shows soft schedulability under G-EDF. The y-axis of each graph gives the fraction of successfully-scheduled task sets. The scenario considered in each graph is indicated above that graph.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>Table 1 :</head><label>1</label><figDesc>Local-spin locking algorithms considered in this paper.</figDesc><table><row><cell>Algorithm</cell><cell>Name</cell><cell cols="2">Complexity Fairness</cell></row><row><cell>Mutex Ticket Lock [27]</cell><cell>MX-T</cell><cell>O(m)</cell><cell>task-fair</cell></row><row><cell>Mutex Queue Lock [27]</cell><cell>MX-Q</cell><cell>O(1)</cell><cell>task-fair</cell></row><row><cell>Reader-Writer Ticket Lock [28]</cell><cell>RW-T</cell><cell>O(m)</cell><cell>task-fair</cell></row><row><cell cols="2">Reader-Writer Queue Lock [28] RW-Q</cell><cell>O(1)</cell><cell>task-fair</cell></row><row><cell>Phase-Fair Lock (Listing 1)</cell><cell>RW-PF</cell><cell>O(m)</cell><cell>phase-fair</cell></row><row><cell cols="4">The complexity metric is remote memory references on m cache-</cell></row><row><cell>coherent processors.</cell><cell></cell><cell></cell><cell></cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>Table 2 .</head><label>2</label><figDesc>When determining</figDesc><table><row><cell>Overhead</cell><cell>Worst-Case</cell><cell>Average-Case</cell></row><row><cell>task-fair mutex: read/write request</cell><cell>0.130</cell><cell>0.129</cell></row><row><cell>task-fair reader-writer lock: read request</cell><cell>0.160</cell><cell>0.157</cell></row><row><cell>task-fair reader-writer lock: write request</cell><cell>0.154</cell><cell>0.153</cell></row><row><cell>task-fair phase-fair lock: read request</cell><cell>0.144</cell><cell>0.142</cell></row><row><cell>task-fair phase-fair lock: write request</cell><cell>0.180</cell><cell>0.178</cell></row><row><cell>leaving non-preemptive section</cell><cell>2.137</cell><cell>1.570</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>In non-blocking read-write algorithms, the value to be written must be</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2009" xml:id="foot_1"><p>21st Euromicro Conference on Real-Time Systems 978-0-7695-3724-5/09 $25.00 © 2009 IEEE DOI 10.1109/ECRTS.2009.14</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_2"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 02:51:12 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_3"><p>Group-locking is admittedly a very simple deadlock avoidance mechanism; however, the FMLP is the first multiprocessor real-time locking protocol that allows nesting of global resources at all. Obtaining a provably better protocol remains an interesting open question.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_4"><p>A request X assigned to T i has a density of 1000ms p(T i )•rp(X ) . The factor of 1000ms is due to the use of one second as the normalization interval.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_5"><p>Larger request periods are common for low wratios.</p></note>
+		</body>
+		<back>
+
+			<div type="funding">
+<div><p>* Work supported by <rs type="funder">IBM</rs>, <rs type="funder">Intel</rs>, and <rs type="person">Sun Corps</rs>.; <rs type="funder">NSF</rs> grants <rs type="grantNumber">CNS 0834270</rs>, <rs type="grantNumber">CNS 0834132</rs>, and <rs type="grantNumber">CNS 0615197</rs>; and <rs type="funder">ARO</rs> grant <rs type="grantNumber">W911NF-06-1-0425</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_H9TwYgV">
+					<idno type="grant-number">CNS 0834270</idno>
+				</org>
+				<org type="funding" xml:id="_psB4WNP">
+					<idno type="grant-number">CNS 0834132</idno>
+				</org>
+				<org type="funding" xml:id="_cg3aHDP">
+					<idno type="grant-number">CNS 0615197</idno>
+				</org>
+				<org type="funding" xml:id="_Q97GCAr">
+					<idno type="grant-number">W911NF-06-1-0425</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Efficient pure-buffer algorithms for real-time systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Holman</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the Seventh International Conference on Real-Time Systems and Applications</title>
+		<meeting>of the Seventh International Conference on Real-Time Systems and Applications</meeting>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+			<biblScope unit="page" from="57" to="64" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Shared-memory mutual exclusion: major research trends since</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Herman</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Distributed Computing</title>
+		<imprint>
+			<biblScope unit="volume">16</biblScope>
+			<biblScope unit="issue">2-3</biblScope>
+			<biblScope unit="page" from="75" to="110" />
+			<date type="published" when="1986">1986. 2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Stack-based scheduling for realtime processes</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">3</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="67" to="99" />
+			<date type="published" when="1991">1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Multiprocessor EDF and deadline monotonic schedulability analysis</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Baker</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 24th IEEE Real-Time Systems Symposium</title>
+		<meeting>of the 24th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+			<biblScope unit="page" from="120" to="129" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">Techniques for multiprocessor global schedulability analysis</title>
+		<author>
+			<persName><forename type="first">Sanjoy</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 28th IEEE International Real-Time Systems Symposium</title>
+		<meeting>of the 28th IEEE International Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="119" to="128" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Improved schedulability analysis of edf on multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">Marko</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Michele</forename><surname>Cirinei</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Giuseppe</forename><surname>Lipari</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 17th Euromicro Conference on Real-Time Systems</title>
+		<meeting>of the 17th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+			<biblScope unit="page" from="209" to="218" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of global scheduling algorithms on multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">Marko</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Michele</forename><surname>Cirinei</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Giuseppe</forename><surname>Lipari</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">99</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+	<note>to appear</note>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">A flexible real-time locking protocol for multiprocessors</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 13th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications</title>
+		<meeting>of the 13th IEEE International Conference on Embedded and Real-Time Computing Systems and Applications</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="47" to="57" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title level="m" type="main">Reader-writer synchronization for shared-memory multiprocessor real-time systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<ptr target="http://www.cs.unc.edu/˜anderson/papers.html" />
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Feather-trace: A light-weight event tracing toolkit</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the Third International Workshop on Operating Systems Platforms for Embedded Real-Time Applications</title>
+		<meeting>of the Third International Workshop on Operating Systems Platforms for Embedded Real-Time Applications</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="20" to="27" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">A comparison of the M-PCP, D-PCP, and FMLP on LITMUS RT</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 12th International Conference On Principles Of Distributed Systems</title>
+		<meeting>of the 12th International Conference On Principles Of Distributed Systems</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="105" to="124" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">An implementation of the PCP, SRP, D-PCP, M-PCP, and FMLP real-time synchronization protocols in LITMUS RT</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 14th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>of the 14th IEEE Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="185" to="194" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">LITMUS RT : A status report</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 9th Real-Time Linux Workshop</title>
+		<meeting>of the 9th Real-Time Linux Workshop</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="107" to="123" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">On the scalability of real-time scheduling algorithms on multicore plat-forms: A case study</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 29th IEEE Real-Time Systems Symposium</title>
+		<meeting>of the 29th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="157" to="169" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Synchronization on real-time multiprocessors: To block or not to block, to suspend or spin?</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 14th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>of the 14th IEEE Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<biblScope unit="page" from="342" to="353" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">A hybrid realtime scheduling approach for large-scale multicore platforms</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Baumberger</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 19th Euromicro Conference on Real-Time Systems</title>
+		<meeting>of the 19th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<biblScope unit="page" from="247" to="256" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">LITMUS RT : A testbed for empirically comparing realtime multiprocessor schedulers</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 27th IEEE Real-Time Systems Symposium</title>
+		<meeting>of the 27th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+			<biblScope unit="page" from="111" to="123" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Concurrent control with &quot;readers&quot; and &quot;writers</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Courtois</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Heymans</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Parnas</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Communications of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">14</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="667" to="668" />
+			<date type="published" when="1971">1971</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Tardiness bounds under global EDF scheduling on a multiprocessor</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">38</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="133" to="189" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Priority-driven scheduling of periodic task systems on multiprocessors</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Goossens</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Funk</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="issue">2-3</biblScope>
+			<biblScope unit="page" from="187" to="205" />
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">The design and performance of a real-time notification service</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Gore</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Pyarali</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Schmidt</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 10th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>of the 10th IEEE Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2004">2004</date>
+			<biblScope unit="page" from="112" to="120" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Scalable reader-writer locks for parallel systems</title>
+		<author>
+			<persName><forename type="first">W</forename><surname>Hsieh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Weihl</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 6th International Parallel Processing Symposium</title>
+		<meeting>of the 6th International Parallel essing Symposium</meeting>
+		<imprint>
+			<date type="published" when="1992">1992</date>
+			<biblScope unit="page" from="656" to="659" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">A fair fast scalable reader-writer lock</title>
+		<author>
+			<persName><forename type="first">O</forename><surname>Krieger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Stumm</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Unrau</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Hanna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 1993 International Conference on Parallel Processing</title>
+		<meeting>of the 1993 International Conference on Parallel essing</meeting>
+		<imprint>
+			<date type="published" when="1993">1993</date>
+			<biblScope unit="page" from="201" to="204" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<monogr>
+		<title level="m" type="main">Real-Time Concepts for Embedded Systems</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Yao</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+			<publisher>CMP Books</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Scheduling algorithms for multiprogramming in a hard real-time environment</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Layland</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of the ACM</title>
+		<imprint>
+			<biblScope unit="volume">30</biblScope>
+			<biblScope unit="page" from="46" to="61" />
+			<date type="published" when="1973">1973</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<monogr>
+		<title level="m" type="main">Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Liu</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+			<publisher>Prentice Hall</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Algorithms for scalable synchronization on shared-memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mellor-Crummey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Scott</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Computer Systems</title>
+		<imprint>
+			<biblScope unit="volume">9</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="21" to="65" />
+			<date type="published" when="1991">1991</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Scalable reader-writer synchronization for shared-memory multiprocessors</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Mellor-Crummey</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Scott</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 3rd ACM SIGPLAN symposium on principles and practice of parallel programming</title>
+		<meeting>of the 3rd ACM SIGPLAN symposium on principles and practice of parallel programming</meeting>
+		<imprint>
+			<date type="published" when="1991">1991</date>
+			<biblScope unit="page" from="106" to="113" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Embedded system architecture of the second generation autonomous unmanned aerial vehicle MARVIN MARK II</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Musial</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Remuß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Deeg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Hommel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 7th International Workshop on Embedded Systems-Modeling, Technology and Applications</title>
+		<meeting>of the 7th International Workshop on Embedded Systems-Modeling, Technology and Applications</meeting>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+			<biblScope unit="page" from="101" to="110" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<monogr>
+		<title level="m" type="main">Synchronization In Real-Time Systems -A Priority Inheritance Approach</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1991">1991</date>
+			<publisher>Kluwer Academic Publishers</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Performance analysis of concurrentread exclusive-write</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Reiman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Wright</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proc. of the 1991 ACM SIGMETRICS Conference on Measurement and modeling of computer systems</title>
+		<meeting>of the 1991 ACM SIGMETRICS Conference on Measurement and modeling of computer systems</meeting>
+		<imprint>
+			<date type="published" when="1991">1991</date>
+			<biblScope unit="page" from="168" to="177" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

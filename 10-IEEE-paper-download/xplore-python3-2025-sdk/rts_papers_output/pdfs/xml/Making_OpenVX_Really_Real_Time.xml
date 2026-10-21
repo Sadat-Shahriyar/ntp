@@ -1,0 +1,1232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Making OpenVX Really &quot;Real Time&quot; *</title>
+				<funder ref="#_dZeUk3n #_6szBDAr #_tVndwfM #_RwEMZMn">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+				<funder>
+					<orgName type="full">General Motors</orgName>
+				</funder>
+				<funder ref="#_HrE97Qr">
+					<orgName type="full">ARO</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Ming</forename><surname>Yang</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Tanya</forename><surname>Amert</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Kecheng</forename><surname>Yang</surname></persName>
+							<affiliation key="aff1">
+								<orgName type="institution">Texas State University</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Nathan</forename><surname>Otterness</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">F</forename><surname>Donelson Smith</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Shige</forename><surname>Wang</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Making OpenVX Really &quot;Real Time&quot; *</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">E52755C3DA573012FC2AE02456031E72</idno>
+					<idno type="DOI">10.1109/RTSS.2018.00018</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-15T22:38+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>OpenVX is a recently ratified standard that was expressly proposed to facilitate the design of computer-vision (CV) applications used in real-time embedded systems. Despite its real-time focus, OpenVX presents several challenges when validating real-time constraints. Many of these challenges are rooted in the fact that OpenVX only implicitly defines any notion of a schedulable entity. Under OpenVX, CV applications are specified in the form of processing graphs that are inherently considered to execute monolithically endto-end. This monolithic execution hinders parallelism and can lead to significant processing-capacity loss. Prior work partially addressed this problem by treating graph nodes as schedulable entities, but under OpenVX, these nodes represent rather coarse-grained CV functions, so the available parallelism that can be obtained in this way is quite limited. In this paper, a much more fine-grained approach for scheduling OpenVX graphs is proposed. This approach was designed to enable additional parallelism and to eliminate schedulability-related processing-capacity loss that arises when programs execute on both CPUs and graphics processing units (GPUs). Response-time analysis for this new approach is presented and its efficacy is evaluated via a case study involving an actual CV application.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="1">Introduction</head><p>The push towards deploying autonomous-driving capabilities in vehicles is happening at breakneck speed. Semiautonomous features are becoming increasingly common, and fully autonomous vehicles at mass-market scales are on the horizon. In realizing these features, computer-vision (CV) techniques have loomed large. Looking forward, such techniques will continue to be of importance as cameras are both cost-effective sensors (an important concern in mass-market vehicles) and a rich source of environmental perception.</p><p>To facilitate the development of CV techniques, the Kronos Group has put forth a ratified standard called OpenVX <ref type="bibr" target="#b41">[42]</ref>. Although initially released only four years ago, OpenVX has quickly emerged as the CV API of choice for real-time embedded systems, which are the standard's intended focus. Under OpenVX, CV computations are represented as directed graphs, where graph nodes represent high-level CV functions and graph edges represent precedence and data dependencies across functions. OpenVX can be applied across a diversity of hardware platforms. In this paper, we consider its use on platforms where graphics processing units (GPUs) are used to accelerate CV processing.</p><p>Unfortunately, OpenVX's alleged real-time focus reveals a disconnect between CV researchers and the needs of the real-time applications where their work would be applied. In particular, OpenVX lacks concepts relevant to real-time analysis such as priorities and graph invocation rates, so it is debatable as to whether it really does target real-time systems. More troublingly, OpenVX implicitly treats entire graphs as monolithic schedulable entities. This inhibits parallelism <ref type="foot" target="#foot_0">1</ref>and can result in significant processing-capacity loss in settings (like autonomous vehicles) where many computations must be multiplexed onto a common hardware platform.</p><p>In prior work, our research group partially addressed these issues by proposing a new OpenVX variant in which individual graph nodes are treated as schedulable entities <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b50">51]</ref>. This variant allows greater parallelism and enables end-toend graph response-time bounds to be computed. However, graph nodes remain as high-level CV functions, which is problematic for (at least) two reasons. First, these high-level nodes still execute sequentially, so some parallelism is still potentially inhibited. Second, such a node will typically involve executing on both a CPU and a GPU. When a node accesses a GPU, it suspends from its assigned CPU. Suspensions are notoriously difficult to handle in schedulability analysis without inducing significant capacity loss.</p><p>Contributions. In this paper, we show that these problems can be addressed through more fine-grained scheduling of OpenVX graphs. Our specific contributions are threefold.</p><p>First, we show how to transform the coarse-grained OpenVX graphs proposed in our group's prior work <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b50">51]</ref> to fine-grained variants in which each node accesses either a CPU or a GPU (but not both). Such transformations eliminate suspension-related analysis difficulties at the expense of (minor) overheads caused by the need to manage data sharing. Additionally, our transformation process exposes new potential parallelism at many levels. For example, because we decompose a coarse-grained OpenVX node into finer-grained schedulable entities, portions of such a node can now execute in parallel. Also, we allow not only successive invocations of the same graph to execute in parallel but even successive invocations of the same (fine-grained) node.</p><p>Second, we explain how prior work on scheduling processing graphs and determining end-to-end graph responsetime bounds can be adapted to apply to our fine-grained OpenVX graphs. The required adaptation requires new analysis for determining response-time bounds for GPU computations. We show how to compute such bounds for recent NVIDIA GPUs by leveraging recent work by our group on the functioning of these GPUs <ref type="bibr" target="#b0">[1]</ref>. Our analysis shows that allowing invocations of the same graph node to execute in parallel is crucial in avoiding extreme capacity loss.</p><p>Third, we present the results of case-study experiments conducted to assess the efficacy of our fine-grained graphscheduling approach. In these experiments, we considered six instances of an OpenVX-implemented CV application called HOG (histogram of oriented gradients), which is used in pedestrian detection, as scheduled on a multicore+GPU platform. These instances reflect a scenario where multiple camera feeds must be supported. We compared both analytical response-time bounds and observed response times for HOG under coarse-vs. fine-grained graph scheduling. We found that bounded response times could be guaranteed for all six camera feeds only under fine-grained scheduling. In fact, under coarse-grained scheduling, just one camera could (barely) be supported. We also found that observed response times were substantially lower under fine-grained scheduling. Additionally, we found that the overhead introduced by converting from a coarse-grained graph to a fine-grained one had modest impact. These results demonstrate the importance of enabling fine-grained scheduling in OpenVX if real time is really a first-class concern. Organization. In the rest of the paper, we provided needed background (Sec. 2), describe our new fine-grained scheduling approach (Sec. 3), present the above-mentioned GPU response-time analysis (Sec. 4) and case study (Sec. 5), discuss related work (Sec. 6), and conclude (Sec. 7).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="2">Background</head><p>In this section, we review prior relevant work on the realtime scheduling of DAGs and explain how this work was applied previously for coarse-grained OpenVX graph scheduling <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b50">51]</ref>. The prior scheduling work of relevance takes considerable space to cover, so for the time being, we focus on generic (perhaps non-OpenVX) DAGs. Our review of this prior work draws heavily from a previous paper by three of the authors <ref type="bibr" target="#b51">[52]</ref>. We specifically consider a system</p><formula xml:id="formula_0">G = {G 1 , G 2 , . . . , G N } comprised of N DAGs. The DAG G i consists of n i nodes, which correspond to n i sequential tasks τ i 1 , τ i 2 , . . . , τ i n i . Each task τ i v releases a (potentially infi- nite) sequence of jobs τ i v,1 ,τ i v,2</formula><p>, . . .. The edges in G i reflect precedence relationships. A particular task τ i v 's predecessors are those tasks with outgoing edges directed to τ i v , and its successors are those with incoming edges directed from τ i v . The j th job of task τ i v , τ i v,j , cannot commence execution until the j th jobs of all of its predecessors finish. Such dependencies only exist for the same invocation of a DAG, not across invocations. That is, while jobs are sequential, intratask parallelism (i.e., parallel node invocation) is possible: successive jobs of a task are allowed to execute in parallel.</p><p>Ex. 1. Consider DAG G 1 in Fig. <ref type="figure" target="#fig_0">1</ref>. Task τ 1  4 's predecessors are tasks τ 1  2 and τ 1 3 , i.e., for any j, job τ 1 4,j waits for jobs τ 1 2,j and τ 1 3,j to finish. If intra-task parallelism is allowed, then τ 1  4,j and τ 1 4,j+1 could execute in parallel. ♦ For simplicity, we assume that each DAG G i has exactly one source task τ i 1 , with only outgoing edges, and one sink task τ i n i , with only incoming edges. Multi-source/multisink DAGs can be supported with the addition of singular "virtual" sources and sinks that connect multiple sources and sinks, respectively. Virtual sources and sinks have a worst-case execution time (WCET) of zero.</p><p>Source tasks are released sporadically, i.e., for the DAG G i , the job releases of τ i 1 have a minimum separation time, or period, denoted T i . A non-source task τ i v (v &gt; 1) releases its j th job τ i v,j after the j th jobs of all its predecessors in G i have completed. That is, letting r i v,j and f i v,j denote the release and finish times of τ i v,j , respectively,</p><formula xml:id="formula_1">r i v,j ≥ max{f i w,j | τ i w is a predecessor of τ i v }. The response time of job τ i v,j is defined as f i v,j -r i v,j</formula><p>, and the end-to-end response time of the j th invocation of the DAG G i as f i n i ,jr i 1,j . Deriving response-time bounds. An end-to-end responsetime bound can be computed inductively for a DAG G i by scheduling its nodes in a way that allows them to be viewed as sporadic tasks and by then leveraging responsetime bounds applicable to such tasks. When viewing nodes as sporadic tasks, precedence constraints must be respected. This can be ensured by assigning an offset Φ i v to each task τ i v based on the response-time bounds applicable to "up-stream" tasks in G i , and by requiring the j th job of τ i v to be released exactly Φ i v time units after the release time of the j th job of the source task τ i 1 , i.e., r i v,j = r i 1,j +Φ i v , where Φ i 1 = 0. With offsets so defined, every task τ i v in G i (not just the source) has a period of T i . Also, letting C i v denote the WCET of τ i v , its utilization can be defined as <ref type="bibr">1 (cont'd)</ref>. Fig. <ref type="figure" target="#fig_1">2</ref> depicts an example schedule for the DAG G 1 in Fig. <ref type="figure" target="#fig_0">1</ref>. The first (resp., second) job of each task has a lighter (resp., darker) shading to make them easier to distinguish. Assume that the tasks have deadlines as shown, and response-time bounds of R 1 1 = 9, R 1 2 = 5, R 1 3 = 7, and R 1 4 = 9, respectively. Based on these bounds, we define corresponding offsets Φ 1 1 = 0, Φ 1 2 = 9, Φ 1 3 = 9, and Φ 1 4 = 16, respectively. With these response-time bounds, the end-to-end response-time bound that can be guaranteed is determined by R 1  1 , R 1 3 , and R 1 4 and is given by R 1 = 25. The task response-time bounds used here depend on the scheduler employed. For example, if all tasks are scheduled via the global earliest-deadline-first (G-EDF) scheduler, then pertask response-time bounds can be determined from tardiness analysis for G-EDF <ref type="bibr" target="#b19">[20,</ref><ref type="bibr" target="#b23">24]</ref>. In fact, this statement applies to any G-EDF-like (GEL) scheduler <ref type="bibr" target="#b24">[25]</ref>. <ref type="foot" target="#foot_1">2</ref> Such schedulers will be our focus. Recall that, according to the DAG-based task model introduced here, successive jobs of the same task might execute in parallel. We see this with jobs τ 1  4,1 and τ 1 4,2</p><formula xml:id="formula_2">u i v = C i v /T i . Ex.</formula><p>in the interval <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b23">24)</ref>. Such jobs could even finish out of release-time order due to execution-time variations. ♦</p><p>Early releasing. Using offsets may cause non-work-conserving behavior: a given job may be unable to execute even though all of its predecessor jobs have completed. Under any GEL scheduler, work-conserving behavior can be restored in such a case without altering response-time bounds <ref type="bibr" target="#b19">[20,</ref><ref type="bibr" target="#b23">24,</ref><ref type="bibr" target="#b24">25]</ref> via a technique called early releasing <ref type="bibr" target="#b1">[2]</ref>, which allows a job to execute "early," before its "actual" release time.</p><p>Schedulability. For DAGs as considered here, schedulability conditions for ensuring bounded responses times hinge on conditions for ensuring bounded tardiness under GEL scheduling. Assuming a CPU-only platform with M processors, if intra-task parallelism is forbidden, then the required conditions are u i v ≤ 1 for each v and u i v ≤ M <ref type="bibr" target="#b19">[20,</ref><ref type="bibr" target="#b24">25]</ref>. On the other hand, if arbitrary intra-task parallelism is allowed, then only u i v ≤ M is required and per-task utilizations can exceed 1.0 <ref type="bibr" target="#b23">[24,</ref><ref type="bibr" target="#b24">25]</ref>. These conditions remain unaltered if arbitrary early releasing is allowed.</p><p>Coarse-grained OpenVX graphs. In two prior papers by our group <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b50">51]</ref>, the techniques described above, but without intra-task parallelism, are proposed for scheduling acyclic <ref type="foot" target="#foot_3">3</ref> OpenVX graphs using G-EDF, <ref type="foot" target="#foot_4">4</ref> with graph nodes implicitly defined by high-level OpenVX CV functions. We call OpenVX graphs so scheduled coarse-grained graphs.</p><p>Given the nature of high-level CV functions, the nodes of a coarse-grained graph will typically involve executing both CPU code and GPU code. Executing GPU code can introduce task suspensions, and under G-EDF schedulability analysis, suspensions are typically dealt with using suspension-oblivious analysis <ref type="bibr" target="#b14">[15]</ref>. This entails analytically viewing suspension time as CPU computation time and can result in significant processing-capacity loss.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="3">Fine-Grained OpenVX Graph Scheduling</head><p>In this section, we propose a fine-grained scheduling approach for OpenVX graphs obtained by applying four techniques. First, to eliminate suspension-based capacity loss, we treat CPU code and GPU code as separate graph nodes. Second, to reduce response-time bounds, we allow intra-task parallelism. Third, to avoid non-work-conserving behavior and enable better observed response times, we allow early releasing. Finally, we use a scheduler (namely, G-FL-see below) that offers advantages over G-EDF. We elaborate on these techniques in turn below after first providing a brief introduction to GPU programming using CUDA. CUDA basics. The general structure of a CUDA program is as follows: (i) allocate necessary memory on the GPU; (ii) copy input data from the CPU to the GPU; (iii) execute a GPU program called a kernel<ref type="foot" target="#foot_5">5</ref> to process the data; (iv) copy the results from the GPU back to the CPU; (v) free unneeded memory. To handle data dependencies, CUDA provides a set of synchronization functions. For example, such a function would be invoked between steps (iii) and (iv). These functions are configured on a per-device basis to wait via spinning or suspending. In this paper, we consider only waiting by suspending because the kernel executions in the workloads of interest are too long for spinning to be viable. DAG nodes as CPU or GPU nodes. In our fine-grained scheduling approach, we avoid suspension-related capacity loss due to kernel executions by more finely decomposing an OpenVX graph so that each of its nodes is either a CPU node or a GPU node that executes a kernel. Additionally, we distinguish between regular CPU nodes and the necessary CPU work to launch a GPU kernel and await its results. In this paper, we assume that copy operations are included in CPU nodes. In the workloads of interest to us, copies are short, so any resulting suspension-based capacity loss is minor. More lengthy copies could instead be handled as separate nodes, similarly to how we handle kernels.</p><p>In the rest of this section, we use a continuing example to illustrate various nuances of our fine-grained approach. Ex. 2. Fig. <ref type="figure" target="#fig_3">3</ref>(a) depicts a simple coarse-grained graph comprised of two tasks, τ 2</p><p>x and τ 2 y . Fig. <ref type="figure" target="#fig_3">3</ref>(b) shows a fine-grained representation of this same graph. Task τ 2</p><p>x is a simple CPUonly CV function and is represented by one fine-grained CPU task, τ 2 1 . τ 2 y is more complex, and its fine-grained representation consists of six tasks,</p><formula xml:id="formula_3">τ 2 2 , • • • , τ 2 7</formula><p>, where τ 2 5 is a GPU task, and τ 2 4 and τ 2 6 are CPU tasks that launch the GPU kernel and await its completion, respectively. <ref type="foot" target="#foot_6">6</ref>♦  x is simple sequential CPU code, so it is represented by one fine-grained task. τ 2 y is more complex and consists of both CPU and GPU parts, some of which can execute in parallel.</p><p>An end-to-end response-time bound for a fine-grained graph can be obtained from per-node bounds as discussed in Sec. 2, with the copy operations in CPU nodes dealt with using suspension-oblivious analysis. For GPU nodes, new analysis is needed, which we provide for NVIDIA GPUs in Sec. 4. 7 Note that, in work on the prior coarse-grained approach <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b50">51]</ref>, locking protocols were used to preclude concurrent GPU access, obviating the need for such analysis. Ex. 2 (cont'd). Possible schedules for the graphs in Fig. <ref type="figure" target="#fig_3">3</ref> are depicted in Fig. <ref type="figure" target="#fig_4">4</ref>. As before, successive jobs of the same task are shaded differently to make them easier to distinguish. Recall from Sec. 2 that all tasks in a graph share the same period; in these schedules, all periods are 5 time units, shown as the time between successive job release times (up arrows).</p><p>Fig. <ref type="figure" target="#fig_4">4</ref>(a) depicts the graph's schedule as a single monolithic entity, as implied by the OpenVX standard. OpenVX lacks any notion of real-time deadlines or phases, so these are excluded here, as is a response-time bound. The depicted schedule is a bit optimistic because the competing workload does not prevent the graph from being scheduled continuously. Under monolithic scheduling, the entire graph must complete before a new invocation can begin. As a result, the second invocation does not finish until just before time 28.</p><p>Fig. <ref type="figure" target="#fig_4">4</ref>(b) depicts coarse-grained scheduling as proposed in prior work <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b50">51]</ref>, where graph nodes correspond to high-level CV functions, as in Fig. <ref type="figure" target="#fig_3">3(a)</ref>. Nodes can execute in parallel. For example, τ 2 y,1 and τ 2 x,2 do so in the interval <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b5">6)</ref>. However, intra-task parallelism is not allowed: τ 2 y,2 cannot begin until τ 2 y,1 completes, even though its predecessor (τ 2 x,2 ) is finished. Note that, under coarse-grained scheduling, GPU execution time is also analytically viewed is CPU execution time using suspension-oblivious analysis. This analytical impact is not represented in the figure. completes earlier, at time 25. The detriments of suspensionoblivious analysis for GPU kernels are also now avoided. ♦ Intra-task parallelism. Our notion of fine-grained graph scheduling allows intra-task parallelism, i.e., consecutive 7 Response times for copies, if handled as separate nodes, are trivial to bound because they are FIFO-scheduled.  jobs of the same task may execute in parallel. Such parallelism can cause successive invocations of the same graph to complete out of order. This can be rectified via buffering. <ref type="foot" target="#foot_7">8</ref>Ex. 2 (cont'd). Lower response times are enabled by intratask parallelism, as depicted in Fig. <ref type="figure" target="#fig_6">4(d)</ref>. In this schedule, τ 2 3,1 and τ 2 7,1 are able to execute in parallel with τ 2 3,2 and τ 2 7,2 , respectively, reducing the completion time of τ 2  7,2 to time 23. Observe that τ 2  7,2 completes before τ 2 7,1 , so some output buffering would be needed here. ♦ Allowing intra-task parallelism has an even greater impact on analytically derived response-time bounds <ref type="bibr" target="#b23">[24]</ref>, and as noted earlier, enables task utilizations to exceed 1.0.</p><formula xml:id="formula_4">τ 4 τ 1 τ 2 τ 5 τ 6 τ 7 2 2 τ 3 2 2 Φ 4 2 Φ 3 2 R 1 R 2 2 Φ 1 = 0 2 Φ 2 2 2 2 2 2 R 3 2 R 4 2 R 5 2 R 6 2 Φ 7 2</formula><formula xml:id="formula_5">τ 2 Φ 4 2 Φ 3 2 R 1 R 2 2 Φ 1 = 0 2 Φ 2 2 2 τ 5 2 τ 6 2 τ 7 2 R 3 2 R 4 2 R 5 2 R 6 2 Φ 7 2 Φ 5 2 Φ<label>6</label></formula><p>Early releasing. Although omitted in Fig. <ref type="figure" target="#fig_4">4</ref> for clarity, early releasing can decrease observed response times without affecting analytical bounds. Ex. 2 (cont'd). Allowing τ 2  7,1 to be early released once τ 2 6,1 completes in Fig. <ref type="figure" target="#fig_4">4</ref>(d) reduces the overall graph's completion time to just under 23 time units. ♦ G-FL scheduling. The approach in Sec. 2 applies to any GEL scheduler. As shown in <ref type="bibr" target="#b24">[25]</ref>, the global fair-lateness (G-FL) scheduler is the "best" GEL scheduler with respect to tardiness bounds. We therefore perform CPU scheduling using G-FL instead of G-EDF.<ref type="foot" target="#foot_8">9</ref> </p><p>Periods. An additional benefit of fine-grained scheduling is that it allows for shorter periods.</p><p>Ex. 2 (cont'd). The period used in Fig. <ref type="figure" target="#fig_4">4</ref> seems reasonable in insets (c) and (d): notice that each job finishes before or close to its task's next job release. In contrast, in insets (a) and (b), response times could easily be unbounded. ♦</p><p>Recently proposed OpenVX extensions. The Kronos Group recently released the OpenVX Graph Pipelining, Streaming, and Batch Processing Extension <ref type="bibr" target="#b42">[43]</ref>, which enables greater parallelism in OpenVX graph executions. However, this extension is not available in any current OpenVX implementation and still lacks concepts necessary for ensuring real-time schedulability. While we have not specifically targeted this extension, an ancillary contribution of our work is to provide these needed concepts. In particular, the parallelism enabled by this extension's pipelining feature is actually subsumed by that allowed in our fine-grained graphs. Furthermore, the batching feature allows a node to process multiple frames instead of just one, potentially increasing computation cost; this could increase the node's utilization, possibly even exceeding 1.0. Introducing intra-task parallelism as we have done enables such nodes to be supported while still ensuring schedulability.</p><p>Rest of the paper. Despite the potential benefits of finegrained scheduling described above, additional issues remain. First, as noted earlier, response-time bounds for GPU nodes are needed in order to compute end-to-end response-time bounds. We derive such bounds for NVIDIA GPUs in Sec. 4. Second, decomposing a coarse-grained graph node into a set of fine-grained ones can introduce additional overhead</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4">GPU Response-Time Bound</head><p>In this section, we derive a response-time bound for tasks executing on NVIDIA GPUs. To facilitate this, we first introduce additional background relating to NVIDIA GPUs.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.1">NVIDIA GPU Details</head><p>The compute units of NVIDIA GPUs are streaming multiproccessors (SMs), typically comprised of 64 or 128 physical GPU cores. The SMs together can be logically viewed as an execution engine (EE). Execution on these GPUs is constrained by the number of available GPU threads, which we call G-threads to distinguish from CPU threads; on current NVIDIA GPUs, there are 2,048 G-threads per SM. CUDA programs submit work to a GPU as kernels. A kernel is run on the GPU as a series of thread blocks. These thread blocks, or simply blocks, are each comprised of a number of G-threads. The number of blocks and G-threads per block (i.e., the block size) are set at runtime when a kernel is launched. The GPU scheduler uses these values to assign work to the GPU's SMs. Blocks are the schedulable entities on the GPU. All G-threads in a block are always scheduled on the same SM, and execute non-preemptively. In prior work, we documented scheduling rules used by NVIDIA GPUs when either all GPU work is submitted from the same address space or NVIDIA's multi-process service (MPS) is used, which we assume <ref type="bibr" target="#b0">[1]</ref>. For simplicity, we restate here only the rules needed for our purposes. These rules govern how kernels are enqueued on and dequeued from a FIFO EE queue, as depicted in Fig. <ref type="figure" target="#fig_7">5</ref>. CUDA also provides a concept called a CUDA stream that adds an additional layer of queueing in the form of stream queues prior to the EE queue. However, as explained later, we assume streams are used in a way that effectively obviates these additional queues. (Our statement of Rule G2 has been simplified from the original to reflect this assumption.) The following terminology is used in the rules below. A block is assigned when it is scheduled for execution on an SM. A kernel is dispatched when one or more of its blocks are assigned. A kernel is fully dispatched when its last block is assigned.</p><p>G2 A kernel is enqueued on the EE queue when launched. G3 A kernel at the head of the EE queue is dequeued from that queue once it becomes fully dispatched. X1 Only blocks of the kernel at the head of the EE queue are eligible to be assigned. R1 A block of the kernel at the head of the EE queue is eligible to be assigned if its resource constraints are met. Constrained resources include shared memory, registers, and (of course) G-threads. We assume that an NVIDIAprovided CUDA compiler option limiting register usage is applied to obviate blocking for registers. We consider techniques for handling shared-memory-induced blocking later. Ex. 3. In the simple case depicted in Fig. <ref type="figure" target="#fig_7">5</ref>, the GPU is comprised of two SMs. Two tasks submit one kernel each, and these are immediately enqueued on the EE queue upon launch (Rule G2). Kernel K1 is comprised of two blocks of 1,024 G-threads each; K2 is comprised of six blocks of 512 G-threads each. K1 is fully dispatched, so it has been dequeued from the EE queue (Rule G3). The remaining two blocks of K2 do not fit on either SM, and thus are not yet assigned (Rule R1); K2 is not fully dispatched, so it is still at the head of the EE queue. Any new kernel K3 would be behind K2 in the EE queue, so its blocks would be ineligible to be assigned until K2 is fully dispatched (Rule X1). ♦</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.2">System Model</head><p>One of the virtues of the DAG scheduling approach we proposed in Sec. 3 is that concerns pertaining to CPU and GPU work can be considered separately. Fig. <ref type="figure" target="#fig_8">6</ref> shows the subset of Fig. <ref type="figure" target="#fig_4">4</ref>(d) involving GPU work; using our approach, GPU kernels are just sporadic tasks that can be analyzed independently from CPU tasks. In deriving a response-time bound, we therefore restrict our attention to a set τ of n independent sporadic GPU tasks {τ 1 , τ 2 , • • • , τ n }, which are scheduled via the rules in Sec. 4.1 on a single GPU with multiple SMs. Each task τ i has a period T i , defined as before.</p><p>With our focus on GPU-using tasks, additional notation (to be illustrated shortly) is needed to express execution requirements. Each job of task τ i consists of B i blocks, each of which is executed in parallel by exactly 10 H i G-threads. H i is called the block size 11 of τ i , and H max = max i {H i } 10 Blocks are executed in units of 32 G-threads called warps. Warp schedulers switch between warps to hide memory latency. This can create interference effects that must be factored into the timing analysis applied to blocks, which we assume is done in a measurement-based way. With warp-related interference incorporated into timing analysis, the G-threads in a block can be treated as executing simultaneously. 11 Current NVIDIA GPUs require block sizes to be multiples of 32, and the CUDA runtime rounds up accordingly. Additionally, the maximum possible block size is 1,024. A task's block size is determined offline.</p><p>denotes the maximum block size in the system. We denote by C i the per-block worst-case execution workload of a block of τ i , where one unit of execution workload is defined by the work completed by one G-thread in one time unit. In summary, a GPU task τ i is specified as</p><formula xml:id="formula_6">τ i = (C i , T i , B i , H i ).</formula><p>Note that C i corresponds to an amount of execution workload instead of execution time. As each block of task τ i requires H i threads concurrently executing in parallel, the worst-case execution time of a block of τ i is given by C i /H i . Def. 1. (block length) For each task τ i , its maximum block length is defined as</p><formula xml:id="formula_7">L i = C i /H i . The maximum block length of tasks in τ is defined as L max = max i {L i }.</formula><p>The utilization of task τ i is given by u i = C i • B i /T i , and the total system utilization by U sum = τi∈τ u i .</p><p>Let τ i,j denote the j th (j ≥ 1) job of τ i . The release time <ref type="foot" target="#foot_9">12</ref> of job τ i,j is denoted by r i,j , its (absolute) deadline by d i,j = r i,j + T i , and its completion time by f i,j ; its response time is defined as f i,jr i,j . A task's response time is the maximum response time of any its jobs. SM constraints. We consider a single GPU platform consisting of g identical SMs, each of which consists of m G-threads (for NVIDIA GPUs, m = 2048). A single block of τ i must execute on H i G-threads that belong to the same SM. That is, as long as there are fewer than H i available G-threads on each SM, a block of τ i,j cannot commence execution even if the total number of available G-threads (from multiple SMs) in the GPU exceeds H i . On the other hand, different blocks may be assigned to different SMs for execution even if these blocks are from the same job.</p><p>Similar to G-thread limitations, there are per-SM and perblock limits on shared-memory usage on NVIDIA GPUs. In experimental work involving CV workloads on NVIDIA GPUs spanning several years, we have never observed blocking due to shared-memory limits on any platform for any workload. Thus, in deriving our response-time bound in Sec. 4.4, we assume that such blocking does not occur. After deriving the bound, we discuss ways in which sharedmemory blocking can be addressed if it becomes an issue. Ex. 4. Our GPU task model is illustrated in Fig. <ref type="figure" target="#fig_9">7</ref>. There are two SMs, and B 1 = 2 and B 2 = 6. The height of a rectangle denoting a block is given by H i and its length, which denotes its runtime duration, by L i ; the area is bounded by C i . ♦ Intra-task parallelism. We assume that intra-task parallelism is allowed: consecutive jobs of the same task can execute in parallel if both are pending and sufficient Gthreads are available. This is often the case in CV processing pipelines where each video frame is processed independently. Additionally, Thm. 1 below shows that severe schedulabilityrelated consequences exist if intra-task parallelism is forbidden. Practically speaking, intra-task parallelism can be enabled by assuming per-job streams. A stream is a FIFO queue of operations, so two kernels submitted to a single stream cannot execute concurrently. Thus, the alternative of using per-task streams would preclude intra-task parallelism. Note that, with each job issuing one kernel at a time, any actual stream queueing is obviated.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.3">Total Utilization Constraint</head><p>According to the rules in Sec. 4.1, idle G-threads can exist while the kernel at the head of the EE queue has unassigned blocks. In particular, this can happen when the number of idle threads on any one SM is insufficient for scheduling such a block. Such scenarios imply that some capacity loss is fundamental when seeking to ensure response-time bounds for GPUs. We express such loss by providing a total utilization bound and proving that any system with U sum at most that bound has bounded response times. The utilization bound we present relies on the following definition.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Def. 2. (unit block size)</head><p>The unit block size, denoted by h, is defined by the greatest common divisor (gcd) of all tasks' block sizes and m, i.e., h = gcd({H i } n i=1 ∪ {m}). The theorem below shows that capacity loss can be extreme if intra-task parallelism is forbidden.</p><p>Theorem 1. With per-task streams, for any given g, m, H max , and h, there exists a task system τ with U sum greater than but arbitrarily close to h such that the response time of some task may increase without bound in the worst case. Proof. For any m and H max , m = Z • h for some integer Z ≥ 1 and H max = K • h for some integer K ≥ 1, because h is a common divisor of m and H max . Recall that there are g SMs. Consider the following task system:</p><formula xml:id="formula_8">τi Ci Ti Bi Hi Li τ1 h 1 1 h 1 τ2 2ε • Hmax 1 + ε 1 Hmax 2ε τ3 2ε • h 1 + ε g • Z -K h 2ε</formula><p>For this task system, u 1 = h, u 2 = 2Hmax 1+ε ε, and</p><formula xml:id="formula_9">u 3 = 2h•(g•Z-K) 1+ε</formula><p>ε, so U sum → h + as ε → 0 + . Now consider the following job execution pattern, which is illustrated in Fig. <ref type="figure" target="#fig_10">8</ref> for g = 2: τ 1 releases its first job at time 0, τ 2 and τ 3 release their first jobs at time 1ε, all three tasks continue to release jobs as early as possible, and every block executes for its worst-case execution workload. Assume that, every time when τ 2 and τ 3 simultaneously release a job, the job of τ 2 is enqueued on the EE queue first. Note that in Fig. <ref type="figure" target="#fig_10">8</ref>, block boundaries for τ 3 are omitted when possible for clarity.</p><p>At time 0, τ 1,1 is the only job in the EE queue and is therefore scheduled. Then, at time 1ε, τ 2,1 and (g • Z -K -1) blocks of τ 3,1 are scheduled for the interval [1-ε, 1+ ε). As a result, all available G-threads are then occupied. Therefore, the remaining one block of τ 3,1 must wait until time 1 when τ 1,1 finishes. Note that, with per-task streams, a job cannot enter the EE queue until the prior job of the same task completes. τ 1,2 enters the EE queue at time 1 after τ 3,1 , which entered at time 1ε. Thus, τ 1,2 must wait to begin execution until after the last block of τ 3,1 is assigned and once sufficient G-threads become available at time 1 + ε.</p><p>This pattern repeats, with task τ 1 releasing a job every time unit but finishing a job every 1 + ε time units. Thus, its response time increases without bound.</p><p>For example, on the test platform considered in Sec. 5, g = 80, m = 2048, and h can be as small as 32. Thus, close to 99.98% of the hardware capacity may be wasted!</p><p>In contrast, as we show in Sec. 4.4, if intra-task parallelism is allowed, then any task set with U sum ≤ g • (m -H max + h) has bounded response times. Furthermore, the following theorem shows that this utilization bound is tight (under our analysis assumptions).</p><p>Theorem 2. With per-job streams, for any given g, m, H max , and h, there exists a task system τ with U sum greater than but arbitrarily close to g • (m -H max + h) such that the response time of some task may increase without bound in the worst case.</p><p>Proof. For any m and H max , integers P and Q exist such that m = P • H max + Q, where P ≥ 1 and 0 ≤ Q &lt; H max . Furthermore, by the definition of h, H max = K • h for some integer K ≥ 1, and m = Z • h for some integer Z ≥ 1. Thus, For this task system,</p><formula xml:id="formula_10">m = P • H max + Q = P • K • h + Q = Z • h. Consider the following task set (if Q = 0, then τ 2 need not exist): τi Ci Ti Bi Hi Li τ1 ε • Hmax 1 g • P Hmax ε τ2 ε • Q 1 g Q ε τ3 h 1 g • (Z -K + 1) h 1</formula><formula xml:id="formula_11">u 1 = (H max • g • P )ε, u 2 = (Q • g)ε,</formula><p>and</p><formula xml:id="formula_12">u 3 = h • g • (Z -K + 1) = g • (m -H max + h), so U sum → g • (m -H max + h) + as ε → 0 + .</formula><p>Now consider the following job execution pattern, which is illustrated in Fig. <ref type="figure" target="#fig_11">9</ref> for g = 2: all three tasks release jobs as soon as possible, i.e., at time instants 0, 1, 2, . . . , the EE enqueue order is always τ 1 , τ 2 , and then τ 3 , and every block executes for its worst-case execution workload.</p><p>At time 0, the g•P blocks of τ 1 are scheduled first, leaving Q available G-threads in each SM. Next, the g blocks of τ 2 are scheduled using the remaining Q G-threads on each SM. Thus, all G-threads are fully occupied in the time interval [0, ε). As we often see in experiments, the g • (Z -K + 1) blocks of τ 3 are distributed to the g SMs evenly, and are scheduled for the time interval [ε, 1 + ε). Note that, although we currently do not have sufficient evidence to guarantee this even distribution, it at least represents a potential worst case.</p><p>Notice that there are only m-(Z -K +1)•h = (H maxh) G-threads available on each of the g SMs during the interval [ε, 1 + ε). Therefore, none of the blocks of τ 1,2 , which has a block size of H max , will be scheduled before time 1 + ε. As a result, no blocks of τ 2,2 or τ 3,2 will be scheduled before time 1+ε either, because they are enqueued after τ 1,2 on the FIFO EE queue.</p><p>This pattern repeats, with each of the three tasks releasing a job every time unit but finishing a job every 1 + ε time units, so the response time of each task increases without bound.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="4.4">Response-Time Bound</head><p>In this section, we derive a response-time bound assuming per-job streams are used (i.e., intra-task parallelism is allowed) and the following holds.</p><formula xml:id="formula_13">U sum ≤ g • (m -H max + h) (1)</formula><p>Our derivation is based on the following key definition. Def. 3. (busy and non-busy) A time instant is called busy if and only if at most (H maxh) G-threads are idle in each of the g SMs; a time instant is called non-busy if and only if at least H max G-threads are idle in some of the g SMs. A time interval is called busy if and only if every time instant in that interval is busy. By Def. 2, h is the minimum amount by which the number of idle G-threads can change, so "more than (H max -h) Gthreads are idle" is equivalent to "at least H max G-threads are idle." Thus, busy and non-busy time instants are welldefined, i.e., a time instant is either busy or non-busy.</p><p>To derive response-time bounds for all tasks in the system, we bound the response time of an arbitrary job τ k,j . The following two lemmas bound the unfinished workload at certain time instants. In the first lemma, t 0 denotes the latest non-busy time instant at or before τ k,j 's release time r k,j , i.e., t 0 = r k,j or (t 0 , r k,j ] is a busy interval.</p><p>Lemma 1. At time t 0 , the total unfinished workload from jobs released at or before t 0 , denoted by W (t 0 ), satisfies</p><formula xml:id="formula_14">W (t 0 ) ≤ L max • (g • m -H max ).</formula><p>Proof. Suppose there are b blocks, β 1 , β 2 , . . . , β b , that have been released but are unfinished at time t 0 . For each block β i , let H(β i ) denote its block size and let C(β i ) denote its worst-case execution workload. By definition, t 0 is a nonbusy time instant, so by Def. 3, at least H max G-threads are idle in some SM at time t 0 . Because this SM has enough available G-threads to schedule any of the b blocks, they all must be scheduled at time t 0 . These facts imply b i=1</p><formula xml:id="formula_15">H(β i ) ≤ g • m -H max .</formula><p>(</p><formula xml:id="formula_16">)<label>2</label></formula><p>Therefore,</p><formula xml:id="formula_17">W (t o ) = b i=1 C(β i ) = {by the definition of L i in Def.1} b i=1 (L(β i ) • H(β i )) ≤ {by the definition of L max in Def.1} b i=1 (L max • H(β i )) = {rearranging} L max • b i=1 H(β i ) ≤ {by (2)} L max • (g • m -H max ).</formula><p>The lemma follows.</p><p>Lemma 2. At time r k,j , the total unfinished workload from jobs released at or before r k,l , denoted by W (r k,j ), satisfies</p><formula xml:id="formula_18">W (r k,j ) &lt; L max • (g • m -H max ) + n i=1 (B i • C i ).</formula><p>Proof. Let new(t 0 , r k,j ) denote the workload released during the time interval (t 0 , r k,j ], and let done(t 0 , r k,j ) denote the workload completed during the time interval (t 0 , r k,j ]. Then,</p><formula xml:id="formula_19">W (r k,j ) = W (t 0 ) + new(t 0 , r k,j ) -done(t 0 , r k,j ).<label>(3)</label></formula><p>As each task τ i releases consecutive jobs with a minimum separation of T i , new(t 0 , r k,j ) can be upper bounded by</p><formula xml:id="formula_20">new(t 0 , r k,j ) ≤ n i=1 r k,j -t 0 T i • B i • C i &lt; {because a &lt; a + 1} n i=1 r k,j -t 0 T i + 1 • B i • C i = {rearranging} (r k,j -t 0 ) n i=1 B i • C i T i + n i=1 (B i • C i ) = {by the definitions of u i and U sum } (r k,j -t 0 ) U sum + n i=1 (B i • C i ).<label>(4)</label></formula><p>By Def. 3, (t 0 , r k,j ] being a busy time interval implies that at most (H maxh) G-threads in each of the g SMs are idle at any time instant in this time interval. That is, at least g • (m -H max + h) G-threads are occupied executing work at any time instant in (t 0 , r k,j ]. Therefore,</p><formula xml:id="formula_21">done(t 0 , r k,j ) ≥ (r k,j -t 0 ) • g • (m -H max + h). (<label>5</label></formula><formula xml:id="formula_22">)</formula><p>By ( <ref type="formula" target="#formula_19">3</ref>), (4), and (5),</p><formula xml:id="formula_23">W (r k,j ) &lt; W (t 0 ) + (r k,j -t 0 ) U sum + n i=1 (B i • C i ) -(r k,j -t 0 ) • g • (m -H max + h) = {rearranging} (r k,j -t 0 ) • (U sum -g • (m -H max + h)) + W (t 0 ) + n i=1 (B i • C i ) ≤ {by (1) and t 0 ≤ r k,j } W (t 0 ) + n i=1 (B i • C i ) ≤ {by Lemma 1} L max • (g • m -H max ) + n i=1 (B i • C i ).</formula><p>The lemma follows.</p><p>The following theorem provides our response-time bound.</p><p>Theorem 3. τ k,j finishes the execution of all of its blocks by time r k,j + R k , where</p><formula xml:id="formula_24">R k = L max • (g • m -H max ) + n i=1 (B i •C i ) -C k g•(m -H max + h) +L k .</formula><p>(6) Proof. Since the EE queue is FIFO, we omit all jobs released after r k,j in the analysis. Thus, any workload executed at or after r k,j is from W (r k,j ). We also assume each block of τ k,j executes for its worst-case workload C k (if any of its blocks executes for less, τ k,j 's completion is not delayed). <ref type="foot" target="#foot_10">13</ref>Let β * denote the last-finished block of τ k,j . Then, the workload from other blocks or jobs at r k,j is W (r k,j ) -C k . Let t * denote the time instant at which β * starts execution. Then, [r k,j , t * ) is a busy interval (else β * would have executed before time t * ). Let done(r k,j , t * ) denote the workload completed during the time interval [r k,j , t * ). Then, by Def. 3,</p><formula xml:id="formula_25">done(r k,j , t * ) ≥ (t * -r k,j ) • g • (m -H max + h). (7)</formula><p>The workload C k from β * executes beyond time t * , so</p><formula xml:id="formula_26">done(r k,j , t * ) ≤ W (r k,j ) -C k . By (7), this implies t * ≤ r k,j + W (r k,j )-C k g•(m-Hmax+h) . At time t * , β * executes continu- ously for L k time units. Thus, β * finishes by time r k,j + W (r k,j )-C k g•(m-Hmax+h) +L k . By Lemma 2, the theorem follows.</formula><p>Discussion. As noted in Sec. 4.2, the absence of sharedmemory-induced blocking is assumed in the above analysis. This limitation could be eased by introducing blocking terms, but we leave this for future work. Alternatively, through offline profiling, one could restrict the per-SM G-thread count of m to some value m such that, if only m G-threads are used per SM, no shared-memory-induced blocking ever occurs. The analysis above could then be applied with m replaced by m . While one might expect this analysis to be sustainable in the sense that m per-SM G-threads could really be used at runtime, we found a counterexample where increasing m to m causes response times to increase. Thus, the restricted G-thread count of m would actually have to be enforced. This could potentially be done by creating a neverending kernel per SM that monopolizes mm G-threads.</p><p>Early releasing (see Secs. 2 and 3) must be restricted for GPU tasks. Because the FIFO EE queue effectively prioritizes work by actual enqueueing times, uncontrolled early releasing can change priorities. Also, this can lead to a violation of the sporadic task model if consecutive jobs of the same task τ i have enqueueing times less than T i time units apart. Thus, the early releasing of GPU tasks must be guarded to ensure that this minimum separation is maintained.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5">Case Study</head><p>In this section, we detail the case-study experiments we performed, and compare our fine-grained DAG scheduling approach to monolithic and coarse-grained DAG scheduling. In (b), there are also two CPU nodes per kernel that launch that kernel and await its results. These nodes have short execution times and are omitted from much of our discussion for simplicity. However, they were fully considered in our evaluation.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5.1">Experimental Evaluation</head><p>All of our case-study experiments focused on the Histogram of Oriented Gradients (HOG) algorithm, a well-known CV technique for recognizing pedestrians in input images <ref type="bibr" target="#b18">[19]</ref>.</p><p>Why HOG? The HOG algorithm is required by the OpenVX 1.2 specification, 14 ensuring its relevance in real-world graphbased CV. HOG is inherently a multi-stage technique: it calculates a directional gradient for each pixel, sorts gradients into histograms, normalizes lighting and contrast, and then performs classification. These computations are performed at multiple image-scale levels, using successively smaller versions of the original image. These steps require both CPU and GPU computations, meaning that HOG fits naturally into a DAG-based model.</p><p>HOG implementation and DAG variations. At the time of writing, no open-source implementations of version 1.2 of OpenVX exist, so we based our case-study experiments on the HOG implementation available in the open-source CV library OpenCV. 15 OpenCV provides CV functions, but does not structure computations as DAGs. To create DAGs, we split the OpenCV HOG code into separate functions, and designated each function as a DAG node. We compared the response times of successively finer-grained notions of DAG scheduling, corresponding to monolithic, coarse-grained, and fine-grained HOG DAGs. 16  The monolithic version of HOG corresponds to the type of DAG that one might specify using OpenVX, and consists of a single DAG of six types of nodes (three are replicated per scale level), as shown in Fig. <ref type="figure" target="#fig_12">10(a)</ref>. Implementing this DAG required the fewest changes to OpenCV code, as monolithic execution requires only a single thread to sequentially execute the six nodes' functions. Coarse-grained HOG uses the same DAG as monolithic HOG, but, as discussed in Sec. 2, each of the six nodes is a schedulable entity, with scheduling via G-EDF with early releasing. We also used G-EDF, but without early releasing, as a monolithic DAG scheduler. 14 https://www.khronos.org/registry/OpenVX/specs/ 1.2/OpenVX_Specification_1_2.pdf, Sec. 3.53.1.</p><p>15 https://docs.opencv.org/3.4.1/d5/d33/structcv_ 1_1HOGDescriptor.html. 16 Our source code is available online at https://github.com/ Yougmark/opencv/tree/rtss18.</p><p>In fine-grained HOG, several of the coarse-grained nodes are refined, as shown in Fig. <ref type="figure" target="#fig_12">10(b</ref>). This DAG reflects our new fine-grained approach, where nodes are treated as tasks and the techniques (early releasing, intra-task parallelism, and G-FL scheduling) in Sec. 3 are applied.</p><p>Fine-grained DAG implementation. Implementing finegrained HOG introduced a series of challenges. For example, intra-task parallelism required multiple instances of each DAG to ensure each node can have multiple jobs executing in parallel. Other challenges included priority points that varied (for launching GPU kernels and awaiting results), handling inter-process communication (IPC) between CPU and GPU nodes, enforcing guards on early releasing for GPU nodes, and computing task offsets from response-time bounds in order to run the experiments.</p><p>As in prior work <ref type="bibr" target="#b22">[23]</ref>, we used PGM RT <ref type="bibr" target="#b20">[21]</ref> to handle IPC in the coarse-and fine-grained HOG variants. PGM RT introduces producer/consumer buffers and mechanisms that enable producer nodes to write output data and consumer nodes to suspend until data is available on all inbound edges.</p><p>Test platform. Our evaluation platform was selected to overapproximate current NVIDIA embedded offerings for automotive systems, such as the Drive PX2. This platform features a single NVIDIA Titan V GPU, two eight-core Intel CPUs, and 32 GB of DRAM. Each core features a 32-KB L1 data cache, a 32-KB L1 instruction cache, and a 1-MB L2 cache, and all eight cores on a socket share an 11-MB L3 cache. The system was configured to run Ubuntu 16.04 as an OS, using version 2017.1 of the LITMUS RT kernel <ref type="bibr" target="#b38">[39]</ref>, with hardware multi-threading disabled. Overall computational workload. One would expect contention for hardware resources in many real-world use cases, such as an autonomous vehicle that processes data from multiple camera feeds. We approximated a "contentious" workload by executing six HOG processes on our hardware platform-the limit based on our platform's DRAM, CPU, and GPU capacity. This number of HOG processes makes ensuring bounded response times difficult without careful consideration of resource allocation. This scenario also reflects the very real possibility of executing at high platform utilization, as is commonly done in the automotive industry. To ensure consistency with the GPU scheduling rules in Sec. 4.1, we conducted all of our experiments using NVIDIA's MPS.</p><p>Video-frame-processing can potentially experience cacheaffinity-loss issues under global scheduling. We therefore considered two variants of both G-EDF and G-FL: a truly global variant where any of the six DAGs can be scheduled on any of our platform's 16 CPUs, and a "clustered" variant where the six DAGs are partitioned between the machine's two sockets, with scheduling being "global" only within a socket. We refer to the latter variants as C-EDF and C-FL, respectively, where the "C" prefix stands for "clustered."</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="5.2">Results</head><p>Our experiments were designed to examine analytical response-time bounds and observed response times under the considered scheduling approaches. We also sought to examine the overhead required to support fine-grained scheduling.</p><p>Analytical bounds. To compute analytical response-time bounds, we first computed CPU WCETs and worst-case GPU workloads via a measurement process. All worst-case values were calculated as the 99th percentile of 30,000 samples obtained with all six DAGs executing together to cause contention. For each GPU task τ i , we used NVIDIA's profiling tool nvprof to measure B i and H i , and instrumented the CUDA kernels to measure L i on the GPU using the globaltimer performance-counter register. For HOG, H max = 256 and h = 64. We measured CPU WCETs using Feather-Trace <ref type="bibr" target="#b13">[14]</ref>. For all DAGs, T i = 33ms.</p><p>We computed fine-grained response-time bounds by using Thm. 3 in Sec. 4.4 for GPU nodes and Thm. 2 from <ref type="bibr" target="#b52">[53]</ref> for CPU nodes and by then applying the techniques in Sec. 3 to obtain an overall end-to-end bound. We tried computing analytical bounds for the coarse-grained (resp., monolithic) C-EDF and G-EDF variants using prior work <ref type="bibr" target="#b50">[51]</ref> (resp., <ref type="bibr" target="#b19">[20]</ref>), but found these variants to be unschedulable. 17  These results are summarized in the first row of Tbl. 1. Obs. 1. With respect to schedulablity, the monolithic and coarse-grained variants could not even come close to supporting all six cameras (i.e., DAGs).</p><p>With respect to schedulability, the monolithic variants could not even support one camera, because the overall execution time of a single monolithic DAG far exceeds its period. The coarse-grained variants were only slightly better, being able to support just one camera (in which case the choice of variant, C-EDF vs. G-EDF, is of little relevance). In this 17 In the original coarse-grained work <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b50">51]</ref>, locking protocols were used to preclude concurrent GPU accesses. We instead allowed concurrent accesses and used the analysis in Sec. 4, but the coarse-grained variants were still unschedulable. case, adding a second HOG DAG increased GPU responses to the point of causing a CPU utilization-constraint violation. Note that the increase in CPU utilization is due to using suspension-oblivious analysis. Obs. 2. With respect to schedulability, both fine-grained variants were able to support all six cameras.</p><p>The better schedulability of the fine-grained variants largely resulted from scheduling shorter tasks with intra-task parallelism, though switching to a fair-lateness-based scheduler also proved beneficial. In particular, we found that the scheduler change reduced node response times by 0.1-9.9%. While this reduction is modest, it is still useful. Nonetheless, these reductions suggest that most of the schedulability improvements stemmed from increasing parallelism.</p><p>Observed response times. Fig. <ref type="figure" target="#fig_13">11</ref> plots DAG response-time distributions, which we computed for all tested variants from measurement data. Corresponding worst-and average-case times are also reported in Tbl. 1. Obs. 3. The average (resp., worst-case) observed response time under the fine-grained variants was around 66 ms (resp., 130 ms), which is substantially lower than the non-finegrained variants. (For reference, the response time of an alert driver is reported to be around 700 ms <ref type="bibr" target="#b26">[27]</ref>.)</p><p>This observation is supported by Fig. <ref type="figure" target="#fig_13">11</ref> and Tbl. 1. Note that the difference between clustered and global scheduling was not substantial. This is because the aggregate memory footprint of all frames concurrently being accessed under both variants tended to far exceed the size of the L3 cache. Obs. 4. The analytical fine-grained response-time bounds upper bounded the observed worst-case times.</p><p>This observation is supported by Fig. <ref type="figure" target="#fig_13">11</ref> and Tbl. 1. While the listed bounds of 477.25 ms and 542.39 ms in Tbl. 1 may seem high, note that they are based on considering worstcase scenarios that may be unlikely to occur in practice (and they are still within the limit mentioned in <ref type="bibr" target="#b26">[27]</ref>). Moreover, the monolithic and coarse-grained variants were unable to guarantee any bounds when scheduling all six DAGs. Obs. 5. Observed response times exhibited lower variation under fine-grained scheduling.</p><p>This observation is supported by Fig. <ref type="figure" target="#fig_13">11</ref>. The fine-grained variances in this plot are several orders of magnitude less than the variances for the other variants. Obs. 6. Early releasing improved observed response times.</p><p>To verify this observation, we conducted additional experiments in which we disabled early releasing for the finegrained G-FL variant. In these experiments, we found that early releasing reduced observed response times by 49%.</p><p>Overhead of DAG conversion. We estimated the overhead of converting from a coarse-grained DAG to a fine-grained one by comparing the computed WCET of every coarsegrained node with the sum of the computed WCETs of the fine-grained nodes that replace it. The total percentage increase across all nodes was deemed to be overhead. Obs. 7. The additional overhead introduced to support finegrained scheduling had modest impact.</p><p>From our collected data, the total overhead was 14.15%.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="6">Related Work</head><p>This paper and the prior work it builds upon <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b50">51]</ref> focus specifically on supporting GPU-using real-time CV workloads. The only other work on this topic known to us is a recent paper by Zhou et al. <ref type="bibr" target="#b55">[56]</ref> that proposes a technique based on reordering and batching (see Sec. 3) kernels to speed deep neural networks. However, they provided no schedulability analysis. More broadly, a large body of work of a general nature exists pertaining to GPU-enabled real-time systems. Much of this work focuses on either treating GPUs as non-shared devices to enable highly predictable GPU usage <ref type="bibr" target="#b21">[22,</ref><ref type="bibr" target="#b31">32,</ref><ref type="bibr" target="#b32">33,</ref><ref type="bibr" target="#b45">46,</ref><ref type="bibr" target="#b46">47,</ref><ref type="bibr" target="#b47">48,</ref><ref type="bibr" target="#b49">50]</ref> or seeking to improve schedulability by simulating preemptive execution <ref type="bibr" target="#b6">[7,</ref><ref type="bibr" target="#b31">32,</ref><ref type="bibr" target="#b33">34,</ref><ref type="bibr" target="#b56">57]</ref>. Other work has focused on timing analysis for GPU workloads <ref type="bibr" target="#b7">[8,</ref><ref type="bibr" target="#b8">9,</ref><ref type="bibr" target="#b9">10,</ref><ref type="bibr" target="#b10">11,</ref><ref type="bibr" target="#b11">12]</ref>, techniques for remedying performance bottlenecks <ref type="bibr" target="#b27">[28]</ref>, direct I/O communication <ref type="bibr" target="#b2">[3]</ref>, energy management <ref type="bibr" target="#b44">[45]</ref>, and techniques for managing or evaluating GPU hardware resources, notably cache and DRAM <ref type="bibr" target="#b15">[16,</ref><ref type="bibr" target="#b16">17,</ref><ref type="bibr" target="#b25">26,</ref><ref type="bibr" target="#b28">29,</ref><ref type="bibr" target="#b34">35,</ref><ref type="bibr" target="#b39">40,</ref><ref type="bibr" target="#b48">49]</ref>.</p><p>The scheduling rules discussed in Sec. 4.1 resulted from an effort by our group to develop a model of GPU execution, particularly for NVIDIA GPUs. This effort has delved into a number of aspects of NVIDIA GPUs marketed for embedded systems <ref type="bibr" target="#b0">[1,</ref><ref type="bibr" target="#b40">41,</ref><ref type="bibr" target="#b53">54]</ref>. Much of this work is rooted in the observation that GPU sharing will become essential for effectively utilizing less-capable embedded GPUs. GPU sharing has also been explored by others in the context of throughput-oriented systems <ref type="bibr" target="#b54">[55]</ref>.</p><p>There has been much prior work on scheduling real-time DAG-based multiprocessor task systems; representative papers include <ref type="bibr" target="#b3">[4,</ref><ref type="bibr" target="#b4">5,</ref><ref type="bibr" target="#b5">6,</ref><ref type="bibr" target="#b12">13,</ref><ref type="bibr" target="#b29">30,</ref><ref type="bibr" target="#b30">31,</ref><ref type="bibr" target="#b35">36,</ref><ref type="bibr" target="#b36">37,</ref><ref type="bibr" target="#b37">38,</ref><ref type="bibr" target="#b43">44]</ref>. However, this work is largely directed at verifying hard-real-time schedulability instead of merely deriving response-time bounds.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head n="7">Conclusions</head><p>In this paper, we proposed a fine-grained approach for decomposing and scheduling acyclic OpenVX graphs. We also explained how to leverage prior work to compute end-toend response-time bounds for these graphs. For GPU-using workloads, end-to-end bounds require response-time bounds for GPU tasks. We presented the first ever such bounds for NVIDIA GPUs, and showed that these bounds are tight under certain assumptions. To illustrate the efficacy of our proposed fine-grained approach, we presented an experimental case study. We saw in this study that our fine-grained approach enabled response-time bounds to be guaranteed and observed response times to be reduced. A notable aspect of our fine-grained approach is its crucial reliance on allowing intra-task parallelism, a feature forbidden in most conventional real-time task models. This paper opens up many avenues for future work. First, methods for dealing with cycles in OpenVX graphs explored previously <ref type="bibr" target="#b22">[23,</ref><ref type="bibr" target="#b50">51]</ref> need to be incorporated into our finegrained approach. Second, although shared-memory-induced GPU blocking is exceedingly rare in our experience, our GPU response-time analysis needs to be extended to fully deal with its effects. Third, tools that automate the resourceallocation options considered in our case study would be useful. Fourth, it would be desirable to augment our case study with a schedulability study that examines general trends. Finally, while we have made a case herein for introducing real-time concepts and fine-grained scheduling into OpenVX, an actual OpenVX implementation that incorporates these elements has yet to be produced.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Figure 1 :</head><label>1</label><figDesc>Figure 1: DAG G 1 .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Figure 2 :</head><label>2</label><figDesc>Figure 2: Example schedule of the tasks in G 1 in Fig. 1.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>Figure 3 :</head><label>3</label><figDesc>Figure 3: (a) Coarse-and (b) fine-grained representations of the same DAG G 2 . τ 2x is simple sequential CPU code, so it is represented by one fine-grained task. τ 2 y is more complex and consists of both CPU and GPU parts, some of which can execute in parallel.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 4 (</head><label>4</label><figDesc>c) depicts a fine-grained schedule for the graph in Fig.3(b), but without intra-task parallelism. In comparing insets (b) and (c), the difference is that nodes are now more fine-grained, enabling greater concurrency. As a result, τ 2 7,2</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>(</head><label></label><figDesc>Assume depicted jobs are scheduled alongside other jobs, which are not shown. Also, job deadlines are omitted to avoid clutter.)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Figure 4 :</head><label>4</label><figDesc>Figure 4: Example schedules of the tasks corresponding to the DAGbased tasks in G 2 in Fig. 3. (a) Monolithic scheduling. (b) Coarsegrained scheduling as in prior work. Fine-grained scheduling as proposed here (c) without and (d) with intra-task parallelism.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Figure 5 :</head><label>5</label><figDesc>Figure 5:GPUscheduling; kernel Kk's bth block is Kk:b.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head>Figure 6 :</head><label>6</label><figDesc>Figure 6: GPU-relevant portion of the schedule in Fig. 4.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Figure 7 :</head><label>7</label><figDesc>Figure 7: A possible schedule corresponding to Fig. 5, where m = 2048, τ1 = (3072, 5, 2, 1024), and τ2 = (512, 8, 6, 512); rectangle Ki,j:b corresponds to the bth block of job τi,j.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Figure 8 :</head><label>8</label><figDesc>Figure 8: Unbounded response time using per-task streams.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_11"><head>Figure 9 :</head><label>9</label><figDesc>Figure 9: Unbounded response time using per-job streams.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_12"><head>Figure 10 :</head><label>10</label><figDesc>Figure 10: (a) Monolithic/coarse-grained and (b) fine-grained HOG DAGs. Our experiments used 13 scale levels; three are shown here.In (b), there are also two CPU nodes per kernel that launch that kernel and await its results. These nodes have short execution times and are omitted from much of our discussion for simplicity. However, they were fully considered in our evaluation.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_13"><head>Figure 11 :</head><label>11</label><figDesc>Figure 11: CDFs of response times for varying DAG granularity.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>Table 1 :</head><label>1</label><figDesc>Analytical and observed response times. A bound of N/A indicates unschedulability, so no bound could be computed.</figDesc><table><row><cell></cell><cell cols="6">Monolithic Monolithic Coarse-Grained Coarse-Grained Fine-Grained Fine-Grained</cell></row><row><cell></cell><cell>G-EDF</cell><cell>C-EDF</cell><cell>G-EDF</cell><cell>C-EDF</cell><cell>G-FL</cell><cell>C-FL</cell></row><row><cell>Analytical Bound (ms)</cell><cell>N/A</cell><cell>N/A</cell><cell>N/A</cell><cell>N/A</cell><cell>542.39</cell><cell>477.25</cell></row><row><cell cols="2">Observed Maximum Response Time (ms) 170091.06</cell><cell>243745.21</cell><cell>427.07</cell><cell>428.50</cell><cell>125.66</cell><cell>131.43</cell></row><row><cell>Observed Average Response Time (ms)</cell><cell>84669.47</cell><cell>121748.05</cell><cell>136.57</cell><cell>121.52</cell><cell>65.99</cell><cell>66.06</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="1" xml:id="foot_0"><p>As discussed in Sec. 3, a recently proposed extension<ref type="bibr" target="#b17">[18]</ref> enables more parallelism, but this extension is directed at throughput, not real-time predictability, and is not available in any current OpenVX implementation.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_1"><p>Under such a scheduler, each job has a priority point within a constant distance of its release; an earliest-priority-point-first order is assumed.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_2"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 03:35:29 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_3"><p>As described in these papers, cycles can be dealt with by relaxing graph constraints or by combining certain nodes into "super-nodes." Adapting these techniques to our context is beyond the scope of this paper.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="4" xml:id="foot_4"><p>While G-EDF was the focus of<ref type="bibr" target="#b50">[51]</ref>, in experiments presented in<ref type="bibr" target="#b22">[23]</ref>, real-time work was limited to execute on one socket of a multi-socket machine and thus was only globally scheduled within a socket.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="5" xml:id="foot_5"><p>Unfortunate terminology, not to be confused with an OS kernel.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="6" xml:id="foot_6"><p>The synchronization call to await results may be launched before the GPU kernel has completed, but this overhead is extremely short.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="8" xml:id="foot_7"><p>The buffer size can be determined based on the calculated responsetime bounds.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="9" xml:id="foot_8"><p>As explained in Sec. 5, we actually consider two variants of G-FL, a "clustered" variant in which G-FL is applied on a per-socket basis on our test platform, and a fully global variant that is applied across all sockets. due to data sharing. We examine this issue via a case study in Sec. 5. In this study, we also compare both analytical response-time bounds and observed response times under coarse-vs. fine-grained scheduling.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="12" xml:id="foot_9"><p>For the time being, we assume that jobs of GPU tasks are not early released, but we will revisit this issue at the end of Sec. 4.4.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="13" xml:id="foot_10"><p>Other jobs' blocks may or may not execute for their worst case.</p></note>
+		</body>
+		<back>
+
+			<div type="funding">
+<div><p>* Work supported by <rs type="funder">NSF</rs> grants <rs type="grantNumber">CNS 1409175</rs>, <rs type="grantNumber">CPS 1446631</rs>, <rs type="grantNumber">CNS 1563845</rs>, and <rs type="grantNumber">CNS 1717589</rs>, <rs type="funder">ARO</rs> grant <rs type="grantNumber">W911NF-17-1-0294</rs>, and funding from <rs type="funder">General Motors</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_dZeUk3n">
+					<idno type="grant-number">CNS 1409175</idno>
+				</org>
+				<org type="funding" xml:id="_6szBDAr">
+					<idno type="grant-number">CPS 1446631</idno>
+				</org>
+				<org type="funding" xml:id="_tVndwfM">
+					<idno type="grant-number">CNS 1563845</idno>
+				</org>
+				<org type="funding" xml:id="_RwEMZMn">
+					<idno type="grant-number">CNS 1717589</idno>
+				</org>
+				<org type="funding" xml:id="_HrE97Qr">
+					<idno type="grant-number">W911NF-17-1-0294</idno>
+				</org>
+			</listOrg>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">GPU scheduling on the NVIDIA TX2: Hidden details revealed</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTSS &apos;17</note>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Early-release fair scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Srinivasan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS &apos;00</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<monogr>
+		<title level="m" type="main">Supporting low-latency CPS using GPUs and direct I/O schemes</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Aumiller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Brandt</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Rath</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTCSA &apos;12</note>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Federated scheduling of sporadic DAG task systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">IPDPS &apos;15</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title level="m" type="main">Improved multiprocessor global schedulability analysis of sporadic DAG task systems</title>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS &apos;14</note>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<monogr>
+		<title level="m" type="main">A generalized parallel task model for recurrent real-time processes</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Stougie</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wiese</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTSS &apos;12</note>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<monogr>
+		<title level="m" type="main">Supporting preemptive task executions and memory copies in GPGPUs</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Basaran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Kang</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS &apos;12</note>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<monogr>
+		<title level="m" type="main">Makespan computation for GPU threads running on a single streaming multiprocessor</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Berezovskyi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Andersson</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS &apos;12</note>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<monogr>
+		<title level="m" type="main">Faster makespan estimation for GPU threads on a single streaming multiprocessor</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Berezovskyi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Petters</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ETFA &apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<monogr>
+		<title level="m" type="main">Measurement-based probabilistic timing analysis for graphics processor units</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Berezovskyi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Guet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Santinelli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Tovar</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ARCS &apos;16</note>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<monogr>
+		<title level="m" type="main">WCET measurement-based and extreme value theory characterisation of CUDA kernels</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Berezovskyi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Santinelli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Bletsas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Tovar</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTNS &apos;14</note>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<monogr>
+		<title level="m" type="main">Estimating the WCET of GPU-accelerated applications using hybrid analysis</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Betts</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Donaldson</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS &apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">Feasibility analysis in the sporadic DAG task model</title>
+		<author>
+			<persName><forename type="first">V</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Stiller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Wiese</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS &apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<monogr>
+		<title level="m" type="main">Feather-trace: A lightweight event tracing toolkit</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in OSPERT &apos;07</note>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Optimality results for multiprocessor real-time locking</title>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS &apos;10</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title level="m" type="main">SiGAMMA: Server based integrated GPU arbitration mechanism for memory accesses</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Capodieci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Cavicchioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Valente</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTNS &apos;17</note>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<monogr>
+		<title level="m" type="main">Memory interference characterization between CPU cores and integrated GPUs in mixed-criticality platforms</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Cavicchioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Capodieci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Bertogna</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTNS &apos;17</note>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<monogr>
+		<title level="m" type="main">OpenVX graph pipelining extension</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Chitnis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Villareal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Giduthuri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Schwartz</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Brill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Lepley</surname></persName>
+		</author>
+		<ptr target="https://www.khronos.org/registry/OpenVX/extensions/vxkhrpipelining/html/index.html" />
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Histograms of oriented gradients for human detection</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Dalal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Triggs</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">CVPR &apos;05</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Tardiness bounds under global EDF scheduling on a multiprocessor</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">38</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="133" to="189" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title level="m" type="main">Minimizing response times of automotive dataflows on multicore</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTCSA &apos;14</note>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<monogr>
+		<title level="m" type="main">GPUSync: A framework for real-time GPU management</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTSS &apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<monogr>
+		<title level="m" type="main">Supporting realtime computer vision workloads using OpenVX on multicore+GPU platforms</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTSS &apos;15</note>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<monogr>
+		<title level="m" type="main">Response time bounds for G-EDF without intra-task precedence constraints</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in OPODIS &apos;11</note>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Fair lateness scheduling: Reducing maximum lateness in G-EDFlike scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">50</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="5" to="47" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<monogr>
+		<title level="m" type="main">GPUGuard: Towards supporting a predictable execution model for heterogeneous SoC</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Forsberg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Marongiu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Benini</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in DATE &apos;17</note>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Methodological analysis of driver perception-brake times</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Green</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Transportation Human Factors</title>
+		<imprint>
+			<biblScope unit="volume">2</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<date type="published" when="2000">2000</date>
+		</imprint>
+	</monogr>
+	<note>How long does it take to stop?</note>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Systematic detection of memory related performance bottlenecks in GPGPU programs</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Horga</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Chattopadhyay</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Elesa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Peng</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">71</biblScope>
+			<biblScope unit="page" from="73" to="87" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<monogr>
+		<title level="m" type="main">Towards predictable execution model on ARM-based heterogeneous platforms</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Houdek</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sojka</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Hanzálek</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ISIE &apos;17</note>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<monogr>
+		<title level="m" type="main">Semifederated scheduling of parallel real-time tasks on multiprocessors</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Long</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTSS &apos;17</note>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<monogr>
+		<title level="m" type="main">On the decomposition-based global edf scheduling of parallel real-time tasks</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Long</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Wan</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTSS &apos;16</note>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<monogr>
+		<title level="m" type="main">RGEM: A responsive GPGPU execution model for runtime engines</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Kelkar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTSS &apos;11</note>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">TimeGraph: GPU scheduling for real-time multitasking environments</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Ishikawa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">USENIX ATC &apos;11</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">Run-time scheduling framework for event-driven applications on a GPU-based embedded system</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Faruque</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems</title>
+		<imprint>
+			<biblScope unit="volume">35</biblScope>
+			<biblScope unit="issue">12</biblScope>
+			<biblScope unit="page" from="1956" to="1967" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<monogr>
+		<title level="m" type="main">Adaptive and transparent cache bypassing for GPUs</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Van Den Braak</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Kumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Corporaal</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in SIGHPC &apos;15</note>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<monogr>
+		<title level="m" type="main">Analysis of global EDF for parallel tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS &apos;13</note>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">Mixed-criticality federated scheduling for parallel realtime tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ferry</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ahuja</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">53</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="760" to="811" />
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<monogr>
+		<title level="m" type="main">Analysis of federated and global scheduling for parallel real-time tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS &apos;14</note>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<monogr>
+		<ptr target="http://www.litmus-rt.org/" />
+		<title level="m">LITMUS RT Project</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">Dissecting GPU memory hierarchy through microbenchmarking</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Mei</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Chu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">28</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="72" to="86" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<analytic>
+		<title level="a" type="main">An evaluation of the NVIDIA TX1 for supporting real-time computer-vision workloads</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Rust</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">E</forename><surname>Park</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Smith</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Berg</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Wang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTAS &apos;17</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<monogr>
+		<title level="m" type="main">OpenVX: Portable, Power Efficient Vision Processing</title>
+		<author>
+			<persName><forename type="first">The</forename><surname>Khronos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Group</forename></persName>
+		</author>
+		<ptr target="https://www.khronos.org/openvx/" />
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">The OpenVX Graph Pipelining, Streaming, and Batch Processing Extension to OpenVX 1.1 and 1.2</title>
+		<ptr target="https://www.khronos.org/registry/OpenVX/extensions/vxkhrpipelining/" />
+	</analytic>
+	<monogr>
+		<title level="m">OpenVX Graph Pipelining Streaming and Batch Processing Extension 1 0.pdf</title>
+		<imprint/>
+	</monogr>
+	<note>Online at</note>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<monogr>
+		<title level="m" type="main">Multicore real-time scheduling for generalized parallel task models</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTSS &apos;11</note>
+</biblStruct>
+
+<biblStruct xml:id="b44">
+	<monogr>
+		<title level="m" type="main">MERLOT: Architectural support for energy-efficient real-time processing in GPUs</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Santriaji</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Hoffmann</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTAS &apos;18</note>
+</biblStruct>
+
+<biblStruct xml:id="b45">
+	<monogr>
+		<title level="m" type="main">Batch method for efficient resource sharing in real-time multi-GPU systems</title>
+		<author>
+			<persName><forename type="first">U</forename><surname>Verner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Mendelson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Schuster</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ICDCN &apos;14</note>
+</biblStruct>
+
+<biblStruct xml:id="b46">
+	<monogr>
+		<title level="m" type="main">Scheduling periodic real-time communication in multi-GPU systems</title>
+		<imprint/>
+	</monogr>
+	<note>in ICCCN &apos;14</note>
+</biblStruct>
+
+<biblStruct xml:id="b47">
+	<monogr>
+		<title level="m" type="main">Scheduling processing of real-time data streams on heterogeneous multi-GPU systems</title>
+		<imprint/>
+	</monogr>
+	<note>in SYSTOR &apos;12</note>
+</biblStruct>
+
+<biblStruct xml:id="b48">
+	<monogr>
+		<title level="m" type="main">Demystifying GPU microarchitecture through microbenchmarking</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Wong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Papadopoulou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Sadooghi-Alvandi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Moshovos</surname></persName>
+		</author>
+		<idno>ISPASS &apos;10</idno>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b49">
+	<monogr>
+		<title level="m" type="main">Scheduling tasks with mixed timing constraints in GPU-powered real-time systems</title>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Xu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Song</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Gao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Luan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Qian</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ICS &apos;16</note>
+</biblStruct>
+
+<biblStruct xml:id="b50">
+	<monogr>
+		<title level="m" type="main">Analysis for supporting real-time computer vision workloads using OpenVX on multicore+GPU platforms</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTNS &apos;15</note>
+</biblStruct>
+
+<biblStruct xml:id="b51">
+	<monogr>
+		<title level="m" type="main">Reducing response-time bounds for DAG-based task systems on heterogeneous multicore platforms</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTNS &apos;16</note>
+</biblStruct>
+
+<biblStruct xml:id="b52">
+	<monogr>
+		<title level="m" type="main">Optimal GEDF-based schedulers that allow intra-task parallelism on heterogeneous multiprocessors</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ESTIMedia &apos;14</note>
+</biblStruct>
+
+<biblStruct xml:id="b53">
+	<monogr>
+		<title level="m" type="main">Avoiding pitfalls when using NVIDIA GPUs for real-time tasks in autonomous systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bakita</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in ECRTS &apos;18</note>
+</biblStruct>
+
+<biblStruct xml:id="b54">
+	<analytic>
+		<title level="a" type="main">Kernelet: High-throughput GPU kernel executions with dynamic slicing and scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Zhong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>He</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="page" from="1522" to="1532" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b55">
+	<monogr>
+		<title level="m" type="main">S 3 DNN: Supervised streaming and scheduling for GPU-accelerated realtime DNN workloads</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bateni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTAS &apos;18</note>
+</biblStruct>
+
+<biblStruct xml:id="b56">
+	<monogr>
+		<title level="m" type="main">GPES: A preemptive execution system for GPGPU computing</title>
+		<author>
+			<persName><forename type="first">H</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Tong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+		<imprint/>
+	</monogr>
+	<note>in RTAS &apos;15</note>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

@@ -1,0 +1,2384 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">AI Meets Real-Time: Addressing Real-World Complexities in Graph Response-Time Analysis*</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Sergey</forename><surname>Voronov</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Stephen</forename><surname>Tang</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Tanya</forename><surname>Amert</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">AI Meets Real-Time: Addressing Real-World Complexities in Graph Response-Time Analysis*</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">B9F50C5592F04021349E61CA068062F0</idno>
+					<idno type="DOI">10.1109/RTSS52674.2021.00019</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-13T19:11+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<textClass>
+				<keywords>
+					<term>Processing graphs</term>
+					<term>response-time bounds</term>
+					<term>hardware accelerators</term>
+					<term>component isolation</term>
+				</keywords>
+			</textClass>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Artificial-intelligence algorithms are enabling ever more sophisticated autonomous features in safety-critical application domains. These algorithms can be quite complex-consisting of many tasks interconnected in processing graphs-and often must execute on complex heterogeneous hardware-typically multicore machines augmented with one or more hardware accelerators. To further complicate matters, these processing graphs often must be supported in contexts where a large system is broken into smaller components. With this confluence of factors, existing response-time analysis for processing graphs is not applicable. In this paper, such analysis is extended to address these complexities in systems where components are isolated via time partitioning. Additionally, graph restructuring methods are presented that enable response-time bounds to be reduced.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Today, we are witnessing ever more sophisticated autonomous features in safety-critical application domains, notably in the avionics and automotive industries. These features are being realized via an evolving repertoire of artificialintelligence (AI) algorithms that realize capabilities such as visual perception and decision-making. These algorithms often have complex dataflow dependencies expressible using processing graphs that can be computationally intensive, requiring the usage of hardware accelerators (HACs), such as graphics processing units (GPUs), field-programmable gate arrays (FP-GAs), etc. To further complicate matters, multiple AI functions typically must be integrated on a common multicore+HAC platform to save on size, weight, power, and cost; these functions are often developed separately, by different developers or even companies. Such a separation is helpful, as smaller components are easier to specify, implement, and understand.</p><p>Unfortunately, the confluence of the three factors alluded to above-(i) complex graph-based workloads, (ii) complex heterogeneous hardware, and (iii) the need to integrate separately developed components-is creating challenges for real-time certification. These challenges were recently highlighted at an Industry Panel at RTAS 2021 <ref type="bibr" target="#b0">[1]</ref>, where the lack of real-time analysis that fully addresses these challenges was called out as a key stumbling block.</p><p>This paper is directed at producing such analysis. Our specific contributions lie in extending prior graph-based response-*This work was supported by NSF grants CNS 1563845, CNS 1717589, CPS 1837337, CPS 2038855, and CPS 2038960, ARO grant W911NF-20-1-0237, and ONR grant N00014-20-1-2698. time analysis so that accelerators can be accommodated, and separately developed graph-based components can be isolated via time partitioning. We elaborate on these contributions below, after first introducing some relevant concepts and reviewing prior efforts on analyzing real-time processing graphs.</p><p>Graph model. AI algorithms are often depicted as graphs in which nodes represent computations and edges indicate data dependencies. For example, consider the special case of an AIbased computer-vision (CV) algorithm (which we use here to illustrate key concepts) as shown in Fig. <ref type="figure" target="#fig_0">1</ref>. This CV algorithm includes data dependencies from the current video frame (solid edges in Fig. <ref type="figure" target="#fig_0">1</ref>) and may also include dependencies from previous frames (dotted/dashed edges); such a combination is necessary to determine object motion, for example.</p><p>To exploit the parallelism inherent to such graphs, realtime task models must also utilize a graph-based structure. This structure may support instance-level self-parallelism, in which multiple invocations of the same graph may execute concurrently (i.e., parallel processing of frames). However, most prior work on graph scheduling does not properly handle such parallelism; instead, it either precludes instance-level self-parallelism <ref type="bibr" target="#b10">[11]</ref>, <ref type="bibr" target="#b18">[19]</ref>, <ref type="bibr" target="#b50">[51]</ref>, <ref type="bibr" target="#b54">[55]</ref>, <ref type="bibr" target="#b67">[68]</ref>, <ref type="bibr" target="#b72">[73]</ref> or arbitrarily forces dependencies to the prior frame only <ref type="bibr" target="#b56">[57]</ref>, <ref type="bibr" target="#b89">[90]</ref>, <ref type="bibr" target="#b90">[91]</ref>.</p><p>Additionally, graph-based tasks may have historical data dependencies (i.e., cycles in the graph). However, prior work mostly ignores such inter-instance node-level dependencies entirely <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b41">[42]</ref>, <ref type="bibr" target="#b54">[55]</ref>, <ref type="bibr" target="#b65">[66]</ref>, <ref type="bibr" target="#b84">[85]</ref>, <ref type="bibr" target="#b91">[92]</ref>.</p><p>Accelerator usage. Accesses to HACs tend to be nonpreemptive; for example, even when possible, GPU preemptions typically introduce prohibitively high overhead. Thus, HAC usage must be carefully managed if multiple workloads share a platform. Non-preemptive accesses complicate response-time analysis, as HAC blocking by one application can increase response times for other applications, or even break temporal isolation if not handled correctly. Some prior work has considered HAC accesses by graph-based task systems, but not when shared between components that are Component isolation. On a conventional uniprocessor, time and space partitioning can be applied to fully isolate system components from one another, enabling a separation of concerns that is crucial for providing certification authorities with high confidence in a system's correctness. In avionics, for example, ARINC 653 <ref type="bibr" target="#b66">[67]</ref> provides real-time operating system design specifications for hardware sharing. In ARINC 653, system applications execute within time slices; a time slice is a time interval during which an application is ensured sole access to a given set of processing resources.</p><p>Time-partitioned systems can be scheduled hierarchically <ref type="bibr" target="#b2">[3]</ref>: a top-level scheduler schedules time slices, and for each time slice, a lower-level scheduler allocates processing resources to the assigned workload. As shown in Fig. <ref type="figure" target="#fig_1">2</ref>, a nonpreemptive access to a HAC shared by two components may violate temporal isolation if the access crosses the boundary between time slices. However, prior approaches that considered the isolation of graph-based systems (e.g., <ref type="bibr" target="#b24">[25]</ref>, <ref type="bibr" target="#b85">[86]</ref>) have not addressed the challenge posed by multiprocessor platforms equipped with non-preemptive HACs.</p><p>Summary of prior work. A summary of prior approaches that address some of challenges (i)-(iii) is presented in Tbl. I. To our knowledge, no prior work has considered all three challenges, all of which are addressed herein. Also, we show how to reduce graph response-time bounds by modifying a graph's structure, an issue also unaddressed by prior work.</p><p>Contributions. Our focus in this paper is real-time analysis of graph-based AI applications on time-partitioned multipro-cessor+HAC platforms. Our contributions are fourfold.</p><p>First, we present an approach for ensuring that nonpreemptive HAC accesses do not cross time-slice boundaries. This approach can add delays in accessing HACs; we derive upper bounds on these delays.</p><p>Second, we present analysis for partially available CPUs and HACs, as in our time-sliced setting. A series of transformations enables us to leverage prior graph response-time analysis that assumes a fully available platform of identical CPUs.</p><p>Third, in some AI use cases, HACs (especially GPUs) can be highly contended. We show that prior HAC-arbitration approaches can result in overly conservative schedulability analysis in this case, and present a new approach for handling such accesses that can greatly improve schedulability.</p><p>Finally, we propose heuristics to reduce graph responsetime bounds by merging graph nodes. In experiments that we conducted, these heuristics improved response-time bounds by 30-35%. To our knowledge, we are the first to consider node merging as a means to reduce graph response-time bounds.  Organization. In the rest of this paper, we overview our bound-computation process (Sec. II), provide needed background (Sec. III), present our four contributions (Secs. IV-VII) and a related experimental validation of our approach (Sec. VIII), discuss implications for real-world AI graphs (Sec. IX) and related work (Sec. X), and conclude (Sec. XI).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. THE TRANSFORMATION PROCESS</head><p>Our primary goal is to provide response-time bounds for a single component whose workload is a collection of graphs with HAC accesses. To this end, we apply a series of transformations to the workload and the processing supply, as depicted in Fig. <ref type="figure" target="#fig_7">3</ref>; we focus on a single graph, but the same steps can be applied to a set of graphs simultaneously.</p><p>The five main steps transform a graph into a set of individual tasks (Steps 1 and 2, covered in Sec. III), abstract HAC requests (Step 3, Sec. III, IV), and transform the processing supply and workload to leverage existing response-time analysis on identical multiprocessors <ref type="bibr" target="#b6">[7]</ref> (Steps 4 and 5, Sec. V).</p><p>Two optional steps can additionally be used to reduce response-time bounds via factoring out tasks with the longest HAC requests (Step 6, Sec. VI) and modifying a DAG's structure (Step 7, Sec VII).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. WORKING WITH GRAPH-BASED TASK SYSTEMS</head><p>Prior work on response-time analysis for graph-based task systems has shown how to convert a graph containing both CPU and HAC computations into a set of CPU-only tasks <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b56">[57]</ref> (Steps 1-2 in Fig. <ref type="figure" target="#fig_7">3</ref>). We illustrate this process using the graph in Fig. <ref type="figure" target="#fig_10">4a</ref>. Each graph node denotes a recurrent computation. Instances (or jobs) of these nodes are released with a period common to all nodes in the graph. Edges and their weights denote dependencies between nodes, e.g., an instance </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Main Steps</head><p>Optional Steps Fig. <ref type="figure" target="#fig_7">3</ref>: The response-time-bound (rtb) computation process.</p><p>of node 4 requires the output of node 6 from two instances ago. Omitted weights denote intra-instance dependencies.</p><p>Step 1: Graph to DAG. The first step of the transformation produces a DAG by removing backward delay edges (dashed lines in Fig. <ref type="figure" target="#fig_10">4a</ref> from higher-indexed to lower-indexed nodes). Backward delay edges (e.g., from node 6 to node 4) may form cycles, and can be eliminated by combining the nodes in a cycle into a single "super node" <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b56">[57]</ref>. Forward delay edges (e.g., from node 1 to node 2) are addressed using offsets similarly to non-delay edges (solid lines), as discussed below.</p><p>The resulting DAG in our example is depicted in Fig. <ref type="figure" target="#fig_10">4b</ref>. For simplicity, we omit task self-dependencies in Fig. <ref type="figure" target="#fig_10">4b</ref> (dotted lines in Fig. <ref type="figure" target="#fig_0">1</ref>); these dependencies are used later to define tasks. The cycle comprised of nodes 4, 5, and 6 has been merged into a single super node. 1   1 Each node invocation is sequential, so the super node's self loop represents a trivial cycle.  </p><formula xml:id="formula_0">Φ 1 = 0 Φ 2 = max(Φ 1 +R 1 , Φ 1 +R 1 -T 1 ) Φ 3 = Φ 1 +R 1 Φ 4 = max(Φ 2 +R 2 , Φ 3 +R 3 )</formula><p>Contribution to Φ:</p><p>from regular edge from delay edge (c) Task offset computation.</p><p>Fig. <ref type="figure" target="#fig_10">4</ref>: Graph-to-tasks transformation example.</p><p>Step 2: DAG to tasks. The next step of the transformation converts the DAG to a set of independent tasks. Each node in Fig. <ref type="figure" target="#fig_10">4b</ref> is made into a task in Fig. <ref type="figure" target="#fig_10">4c</ref>. Dependencies between tasks are removed by the introduction of release offsets. With suitably sized release offsets, by the time any job of interest J is released, all prior jobs that J depends on (via edges such as in Fig. <ref type="figure" target="#fig_10">4b</ref>, including both solid and forward delay edges) will have already completed. Thus no job's execution is delayed by dependencies, so it is safe to analyze this task system with the assumption that tasks are independent. Release offsets are computed by initially computing response-time bounds R i for each task τ i assuming independent tasks ("per-task rtb" nodes in Fig. <ref type="figure" target="#fig_7">3</ref> represent the collection of R i values). Then, the offset Φ i of each task τ i is calculated recursively as the maximum of the values Φ j + R j for any task τ j that τ i depends on (some additional details about forward delay edges are omitted here; see <ref type="bibr" target="#b6">[7]</ref> for details). The response-time bound of a node τ i in the DAG is given by Φ i + R i . For example, τ 4 in Fig. <ref type="figure" target="#fig_10">4c</ref> has</p><formula xml:id="formula_1">Φ 4 = (Φ 2 + R 2 , Φ 3 + R 3 )</formula><p>, as τ 4 depends on τ 2 and τ 3 , and the response-time bound for τ 4 is given by Φ 4 + R 4 . In <ref type="bibr" target="#b6">[7]</ref>, these steps are carried out assuming global earliest-deadlinefirst (G-EDF) scheduling, which we also assume in this paper.</p><p>After the per-task response-time bounds computation, an end-to-end response-time bound for one graph can be simply computed as the largest response-time bound for any of its tasks (see the last step in Fig. <ref type="figure" target="#fig_7">3</ref>). Enabling intra-task parallelism via the rp-sporadic task model. While the above process is sufficient for transforming to the standard sporadic task model, much potential parallelism in the graph is lost under this model. Such parallelism can be recaptured by instead transforming to the rp-sporadic task model (rp stands for restricted parallelism), which augments the sporadic task model by assigning to each task τ i a parallelism level P i denoting how many jobs of τ i may execute simultaneously. Parallelism is limited by DAG node self-dependencies (dotted lines in Fig. <ref type="figure" target="#fig_0">1</ref>) and delay edges, particularly backward delay edges such as between τ 4 and itself in Fig. <ref type="figure" target="#fig_10">4b</ref> (recall that forward delay dependencies are satisfied by release offsets). The weight of this edge is 2, i.e., τ 4 requires output from two instances ago, so two consecutive jobs of τ 4 may execute concurrently; thus, P 4 = 2.</p><p>Enabling intra-task parallelism as in the rp-sporadic task model may be required for other reasons as well. For example, a super node (which forces several of the original tasks to execute sequentially) could easily over-utilize a single processor, in which case intra-task parallelism must be allowed for it. Early releasing. Using release offsets may increase observed response times. This negative impact can be mitigated by allowing jobs to be early released <ref type="bibr" target="#b31">[32]</ref>: a job J is eligible for scheduling as soon as all jobs it depends on have completed, even if this occurs before J's actual release time, as long as its scheduling priority remains unchanged. An example of early releasing can be found in Fig. <ref type="figure">5</ref> (job J 1,5 is scheduled before its actual release). Early releasing does not violate schedulability guarantees under G-EDF-based scheduling <ref type="bibr" target="#b31">[32]</ref>.</p><p>Step 3: Tasks to CPU-only tasks. To transform to CPUonly tasks, all HAC execution must be abstracted as CPU execution (Step 3 in Fig. <ref type="figure" target="#fig_7">3</ref>). This was done in <ref type="bibr" target="#b6">[7]</ref> via a locking protocol by analytically treating time spent waiting for and executing on a HAC as additional CPU execution time. We compute the total waiting time in our setting in Lemma 1 (in Sec. IV). Once the graph is fully transformed into a set of independent rp-sporadic tasks with only CPU execution, the existing response-time analysis <ref type="bibr" target="#b6">[7]</ref> can be applied to derive an end-to-end response-time bound for the entire graph. Problems. Four fundamental problems arise when attempting to apply the transformation process summarized above to timepartitioned AI components: Problem 1: HAC accesses, which are typically nonpreemptive, can overrun time-slice boundaries. Problem 2: The considered response-time analysis is not applicable when hardware resources are partially available to a component because of time partitioning. Problem 3: In AI use cases, some HACs (particularly GPUs) can be highly contended, causing blocking bounds (which are analytically translated into CPU execution time) to become so large that over-utilization results, making acceptable response-time bounds impossible to obtain. Problem 4: Response-time bounds, which scale with release offsets, may be prohibitively large when dependencies form long paths; this effect is exacerbated by time slicing. We address these problems in turn next in Secs. IV-VII.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. PREVENTING HAC TIME-SLICE OVERRUNS</head><p>Given that the first two steps of the transformation process discussed in the prior section maps a graph to a set of rpsporadic tasks, it suffices to limit our attention to such tasks</p><formula xml:id="formula_2">0 1 2 3 4 5 Time CPU 0 CPU 1 J 1,1 J 1,2 J 1,3 J 1,4 J 1,5</formula><p>Early release of J 1,5</p><p>Actual release of J 1,5 u 1 &gt; 1</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Job release</head><p>Job deadline Jobs of τ 1 Other jobs Fig. <ref type="figure">5</ref>: An rp-sporadic task τ 1 schedule (u 1 = 1.25, P 1 = 2).</p><p>for now. (We return to graphs later in Sec. VII when discussing graph-restructuring methods to reduce graph response-time bounds.) Given this focus, a formal treatment of the rpsporadic task model is needed. For ease of reading, a table of notation (Tbl. III) is provided in an online appendix <ref type="bibr" target="#b83">[84]</ref>.</p><p>The rp-sporadic task model, formally defined. We denote the period (and relative deadline) of task τ i as T i , τ i 's worstcase execution time (WCET) as C i , and its utilization as u i = C i /T i . We denote the j th job of task τ i as J i,j and its release time as r i,j . Thus, its (absolute) deadline is at time r i,j + T i . Note that deadlines in this paper are only used to prioritize jobs by schedulers such as G-EDF, and are not required upper bounds on jobs' completion times.</p><p>As in <ref type="bibr" target="#b6">[7]</ref>, we associate with each task τ i a parallelization level P i : up to P i jobs of τ i may execute concurrently, and job J i,j (if j &gt; P i ) cannot execute until job J i,j-Pi completes. For example, in Fig. <ref type="figure">5</ref>, two jobs of task τ 1 with P 1 = 2 execute simultaneously at several time instants. We allow early releasing of jobs of rp-sporadic tasks (e.g., J 1,5 in Fig. <ref type="figure">5</ref>).</p><p>We consider a set of rp-sporadic tasks τ to be schedulable if each task has a bounded response time; τ is schedulable if and only if ∀τ i : u i ≤ P i , and τi∈τ u i does not exceed the total number of CPUs <ref type="bibr" target="#b6">[7]</ref>.</p><p>Partial-supply model. Given our focus on time-partitioned AI computations, we consider a system divided into sets of rp-sporadic tasks, called components. When considering timepartitioned platforms, we look to certification processes used in industry, as exemplified by the current ARINC 653 timeslicing approach as used in avionics. Because complicated partitioning strategies are unlikely to be adopted in practice, we consider simple periodic time slicing.</p><p>We abstract the idea of time slicing by ensuring that each component Γ is granted exclusive periodic access to a set Υ of computing resources by defining a periodic component reservation (PCR) for Γ (similar to the Single Time Slot Periodic Partition model by Mok and Chen <ref type="bibr" target="#b59">[60]</ref> and the multiprocessor periodic resource (MPR) model by Shin et al. <ref type="bibr" target="#b75">[76]</ref>). We assume that Υ contains M unit-speed identical CPUs and (for simplicity) a single non-preemptive HAC (we discuss extending to multiple HACs per component later in this section). The PCR for component Γ is defined as a threetuple (Θ, Π, Υ), denoting that Γ receives exclusive access to the computing resources in Υ within continuous intervals of Θ time units that begin every Π time units (Θ ≤ Π). We assume that the choice of Θ and Π per component is given; optimizing such choices is outside the scope of this paper. As an example, Fig. <ref type="figure">6</ref> shows the first few time slices for four components on a platform with four CPUs and two HACs. In this example, Component A is specified by (2, 3, {CPU 0, CPU 1, CPU 2, HAC 0}). Forbidden zones. We henceforth assume Γ denotes a component with PCR (Θ, Π, Υ) as defined above. If a HAC access within Γ crosses a time-slice boundary, then the next component to execute does not have exclusive access to this HAC. This behavior breaks the assumed resource model.</p><p>Fortunately, a concept from prior work known as a forbidden zone <ref type="bibr" target="#b45">[46]</ref> can be applied to solve this problem. <ref type="foot" target="#foot_1">2</ref> A forbidden zone for a given HAC access in Γ is a region of time in which that access may not be initiated, as it may cross Γ's next time-slice boundary; the zone length is thus the worst-case duration of that access. Note that accelerator usage by other components has no impact on Γ's forbiddenzone lengths. The use of forbidden zones in Γ requires that no accelerator access in Γ takes more than Θ time units.</p><p>The forbidden-zone idea is illustrated in Fig. <ref type="figure">7</ref>, which shows execution details of Component A from Fig. <ref type="figure">6</ref> within the time slice [0, 2). The forbidden zone is shown in grey prior to the time-slice boundary at time 2. Note that a HAC access initiated on CPU 2 is rejected in this zone, while ordinary CPU execution (such as on CPU 0) is allowed.</p><p>Step 3: Blocking analysis of a HAC access. Blocking analysis for locking protocols can be augmented to consider forbidden zones. In this paper, we use the suspension-based global OMLP <ref type="bibr" target="#b20">[21]</ref> to arbitrate HAC accesses within each component, though alternate locking protocols could be used. Under the global OMLP, a job waiting to acquire a HAC suspends (freeing a CPU for other jobs) and is added to the global OMLP's queues-both a priority queue and an Melement FIFO queue are used, with HAC requests at the head of the priority queue feeding into the FIFO queue. The request at the head of the FIFO queue is allowed HAC access.  Def. 1. Let B max be the longest HAC-access duration in Γ.</p><p>Given our aim of extending the prior response-time analysis overviewed in Sec. III, and that analysis's focus on G-EDF, we assume G-EDF scheduling within each component (it is "global" within a component). This choice of scheduler motivates our interest in the global OMLP because it has optimal priority-inversion blocking (pi-blocking) under suspensionoblivious analysis, which is the suspension-accounting method usually used under G-EDF. Under suspension-oblivious analysis, a job in Γ is only pi-blocked if it is one of the M highestpriority active jobs but is not scheduled.</p><p>For example, in Fig. <ref type="figure" target="#fig_6">8a</ref>, job J 1,1 is blocked during the entire interval <ref type="bibr" target="#b2">[3,</ref><ref type="bibr" target="#b5">6)</ref>, but is only pi-blocked in the interval <ref type="bibr" target="#b4">[5,</ref><ref type="bibr" target="#b5">6)</ref>, as only then is J 1,1 one of the M = 2 highest-priority active jobs. In checking schedulability, both pi-blocking times and HAC execution times are analytically viewed as preemptive CPU execution time, as depicted in Fig. <ref type="figure" target="#fig_6">8b</ref>. Note that this executiontime inflation may not include all task suspension time, but only that occurring while a task is actually pi-blocked.</p><p>Def. 2. Let X (2M -1)B max be the maximum duration of blocking induced by the global OMLP on an identical multiprocessor without time partitioning <ref type="bibr" target="#b21">[22]</ref>.</p><p>We now calculate the total HAC-related blocking by accounting for zone-related blocking.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 1. The total pi-blocking introduced by the management of non-preemptive HAC accesses is at most</head><formula xml:id="formula_3">X + (X + B max ) / (Θ -B max ) • B max time units for each lock request by a task in Component Γ.</formula><p>Proof. In each time slice of length Θ, because B max is the worst-case duration of a forbidden zone, at least Θ -B max time units are available for a job to initiate an access to a HAC. In executing this work, and while the access is unfinished, additional blocking of up to B max time units may be incurred for each time-slice boundary crossed. Thus, we upper bound the number of such boundaries that may be crossed between the initiation of the request and the completion of the access. The worst case occurs when the request is initiated right before a time-slice boundary, in which case (X + B max ) / (Θ -B max ) boundaries are crossed.</p><p>Skipping ahead. If the next HAC access of the job at the head of the OMLP's FIFO queue is requested within its forbidden zone, then we can allow other access requests to "skip ahead" of that access until the beginning of the next time slice. This corresponds to the Skip Protocol proposed previously <ref type="bibr" target="#b45">[46]</ref>. With skipping, the total blocking bound of an access of length B can be reduced to</p><formula xml:id="formula_4">X + (X + B) / (Θ -B) B.</formula><p>Inflating execution times. To convert (analytically) to a CPUonly workload, as in Sec. III, we must add to the WCET of each task in Γ the maximum blocking duration specified in Lemma 1 and the duration of the HAC access itself for each such access. This WCET inflation may cause task utilizations to exceed 1.0, which is an additional motivation to use the rpsporadic task model instead of the standard sporadic model.</p><p>Extending to multiple HACs. Extending to multiple HACs per component is straightforward. Each HAC is governed by its own OMLP lock within the component. The analysis must be modified such that B max and X are defined per HAC.</p><p>If a set of k HACs is interchangeable (any HAC in the set can service a request), then the k HACs can instead be managed by a k-exclusion locking protocol (which allows up to k "lock holders"). This roughly divides X by a factor of k in the analysis. In practice, however, certain HACs (like GPUs in some use cases) may be unreasonable to view as interchangeable due to high costs associated with moving task state between HACs.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. COMPUTING RESPONSE TIMES UNDER TIME-SLICING</head><p>In this section, we provide response-time analysis for tasks in Γ (i.e., CPU tasks with WCETs inflated using Lemma 1). We seek to leverage existing response-time analysis for rpsporadic tasks on multiprocessor platforms for which (unlike our considered platform) all CPUs are fully available <ref type="bibr" target="#b6">[7]</ref>; our results are applicable for any such analysis. This per-task analysis is used to compute task offsets and thereby obtain a graph response-time bound (the last step in Fig. <ref type="figure" target="#fig_7">3</ref>).</p><p>As depicted in Fig. <ref type="figure" target="#fig_7">3</ref>, Steps 4 and 5 define the sequence of processing-supply transformations, starting with the supply given by Γ's PCR and ending with one corresponding to a fully available platform. Step 4 transforms our reservation to a reservation with the same schedule and continuous supply.</p><p>Step 5 inflates task execution times to apply the analysis of <ref type="bibr" target="#b6">[7]</ref>. We perform these transformations such that no job's response time decreases, and we track task utilization changes as we transform. It is important to track utilizations, because as noted in Sec. III, the rp-sporadic task model requires u i ≤ P i for each task τ i . To prevent over-utilization on an M -CPU unitspeed platform, we also require that the total utilization of all tasks in Γ, denoted as U , satisfies U ≤ M .</p><p>Step 4: Transform PCR to a continuous supply. Firstly, we transform the PCR parameterized by Θ, Π, and M to a continuous processing supply without changing the total processing capacity supplied over long time intervals (e.g., the hyperperiod of all system reservations). The total supply provided to Γ by the initial and reducedspeed platforms is the same over any time interval of length iΠ for i ∈ {0, 1, 2, ...} that starts after Φ res . The processing supply provided by both platforms is depicted in Fig. <ref type="figure" target="#fig_9">9a</ref>.</p><p>Step 4: Transform releases and deadlines. Although both platforms deliver equal processing supply in the long run, the change in how processing supply is provided changes the schedule significantly. In particular, job completion times may differ greatly. For example, consider a task in Γ that releases a job in the interval after one time slice completes but before the next begins. On the initial platform, such a job must wait until the next slice to be considered for execution, whereas on the reduced-speed platform, it would execute immediately if there are free CPUs. To avoid this issue, we transform job releases and deadlines of the tasks in Γ.</p><p>Def. 5. Define the piecewise-linear function F (•), plotted in Fig. <ref type="figure" target="#fig_9">9b</ref> (solid line), as follows:</p><formula xml:id="formula_5">F (t) = ⎧ ⎪ ⎪ ⎪ ⎪ ⎪ ⎨ ⎪ ⎪ ⎪ ⎪ ⎪ ⎩ Φ res , if t ∈ [0, Φ res ), Φ res + iΠ + zΠ/Θ, if t ∈ [Φ res + iΠ, Φ res + iΠ + Θ), Φ res + (i + 1)Π, if t ∈ [Φ res + iΠ + Θ, Φ res + (i + 1)Π),</formula><p>where z = t -Φ res -iΠ.</p><p>To circumvent the issue of inconsistent allocations noted above, we shift all job releases and deadlines on the reducedspeed platform into the future by Π -Θ time units compared to the initial platform. We also allow the early releasing of jobs on the reduced-speed platform. Specifically, letting r i,j be the release time of a job on the initial platform, we define its release time on the reduced-speed platform to be (r i,j + Π -Θ) and its eligibility time to be F (r i,j ) (we explain below why this is "early"), as illustrated in Fig. <ref type="figure" target="#fig_9">9c</ref>.</p><p>To preserve the scheduling order, we break deadline ties the same way as before the transformation. Thus, the priority order of jobs does not change after this transformation. To explore t</p><formula xml:id="formula_6">F (t) Θ Π -Θ Θ Π -Θ 0 Φ res Φ res + Π Φ res + 2Π Φ res Φ res + Π Φ res + 2Π Π -Θ y = t y = t + Π -Θ (b) Plot of F (•). t t t 0 0 0 Φ res Φ res + Π Φ res + 2Π initial releases eligibility times shifted releases Π -Θ Π -Θ Π -Θ (c)</formula><p>The transformation of releases and eligibility times. how schedules on the initial and reduced-speed platforms are now connected, we first need bounds on F (•).</p><formula xml:id="formula_7">Lemma 2. t ≤ F (t) ≤ t + (Π -Θ).</formula><p>Proof. Fig. <ref type="figure" target="#fig_9">9b</ref> illustrates the lemma statement. First, consider t ∈ [0, Φ res ). By Def. 5, t &lt; F (t). Furthermore, because the first reservation slice is [Φ res , Φ res + Θ), and the reservation is periodic, Φ res + Θ ≤ Π. Thus,</p><formula xml:id="formula_8">F (t) = Φ res ≤ Π -Θ ≤ t + Π -Θ.</formula><p>Second, consider t ∈ [Φ res + iΠ, Φ res + iΠ + Θ) for some integer i, and z = t -Φ res -iΠ. In this case, by Def. 5,</p><formula xml:id="formula_9">t = Φ res + iΠ + z ≤ Φ res + iΠ + z • Π/Θ {= F (t)} {because Θ ≤ Π and z ≥ 0} = Φ res + iΠ + z + z • (Π/Θ -1) = t + z • (Π/Θ -1) ≤ t + Θ • (Π/Θ -1) {because z ≤ Θ} = t + (Π -Θ).</formula><p>Finally, if t ∈ [Φ res + iΠ + Θ, Φ res + (i + 1)Π), then by Def. 5, F (t) = Φ res + (i + 1)Π, so t &lt; F (t). Additionally,</p><formula xml:id="formula_10">F (t) = Φ res + iΠ + Π + (Θ -Θ) ≤ t + (Π -Θ), as t ≥ Φ res + iΠ + Θ.</formula><p>By Lemma 2, on the reduced-speed platform, a job with a release at time r i,j can be scheduled at time F (r i,j ) due to</p><formula xml:id="formula_11">t speed = 2/3 t speed = 1 J 0 J 0 J 1 J 1 J 0 J 0 J 2 J 2 J 2 J 2 Φ res + iΠ Φ res + (i + 1)Π Φ res + (i + 2)Π F (t 0 ) t 0 Scheduling interval Θ Π = 2 3</formula><p>Interval length initial reduced-speed platform platform Fig. <ref type="figure" target="#fig_0">10</ref>: Lemma 3 intuition. its defined eligibility time, while its actual release happens at time r i,j + Π -Θ ≥ F (r i,j ).</p><p>Def. 6. Let S in be the schedule of Γ on the initial platform defined by PCR (Θ, Π, Υ). Let S tr denote the corresponding schedule on the reduced-speed platform, with job releases and deadlines adjusted as above.</p><p>The next lemma gives the schedule correspondence we seek. Lemma 3. A job is scheduled at time t in S in if and only if it is scheduled at time F (t) in S tr .</p><p>Proof. Fig. <ref type="figure" target="#fig_0">10</ref> illustrates the proof. Assume, for the purpose of contradiction, that the lemma does not hold, i.e., that there exists a time t such that the sets of scheduled jobs in S in at t and S tr at F (t) differ. Let t 0 be the first such time instant.</p><p>By the definition of Φ res , no jobs are scheduled in either S in or S tr within [0, Φ res ), so t 0 &gt; 0. By the definition of t 0 , any scheduling interval of a job within [0, t 0 ) in S in is transformed into a scheduling interval of the same job in S tr by F (•). By Def. 5, any such interval of length h is transformed into a scheduling interval of length h•Π/Θ, scheduled on a CPU with speed Θ/Π, because a job can be scheduled in S in only during active reservation slices (see Fig. <ref type="figure" target="#fig_0">10</ref>). This results in the same total amount of completed work, h, for both the initial and transformed intervals. Thus, the amount of completed work for each job in S in within [0, t 0 ) is identical to the amount of completed work for the same job in S tr within [0, F (t 0 )). As the eligibility times of jobs are also transformed from the actual releases with F (•), the sets of uncompleted jobs at t 0 in S in and at F (t 0 ) in S tr are identical. The transformation process does not affect the relative order of deadlines, so the set of scheduled jobs is the same in S in at t 0 and in S tr at F (t 0 ), which contradicts the definition of t 0 .</p><p>Because F (•) directly transforms S in into S tr , we can bound the response time of an initial job in S in via the response time of its transformed job in S tr .</p><p>Theorem 1. If a job has a response time of R tr in S tr , then its response time R in in S in is at most R tr + Π -Θ.</p><p>Proof. Let r i,j be release time of the job in S in , and let f i,j be its completion in S in . Then R in = f i,jr i,j . By Lemma 3, all of this job's scheduling intervals in S in are transformed via F (•) into scheduling intervals in S tr . Thus, the job is completed at time F (f i,j ) in S tr , and by definition of the transformed release time,</p><formula xml:id="formula_12">R tr = F (f i,j ) -(r i,j + Π -Θ). By Lemma 2, F (f i,j ) ≥ f i,j , so R tr ≥ f i,j -(r i,j + Π -Θ) = R in -(Π + Θ). Thus, R in ≤ R tr + Π -Θ.</formula><p>Step 4 does not affect task utilizations, so thus far, no changes to schedulability conditions are required. However, such changes are inevitable because the initial reservation restricts processing supply. These changes occur in the final step, discussed next.</p><p>Step 5: From reduced-speed supply to identical multiprocessor. On the reduced-speed platform, each CPU has speed Θ/Π. However, we can easily rescale these speeds to 1.0 by multiplying by the factor Π/Θ, which requires correspondingly multiplying each C i by Π/Θ (thus, the utilization of task τ i on the identical multiprocessor platform is defined as u i = u i • Π/Θ). This step allows us to completely abstract the reservation and consider the scheduling of Γ on an identical multiprocessor platform with M CPUs with WCETs that have been inflated to account for HAC accesses.</p><p>By Theorem 1, Step 4 preserves the system schedulability.</p><p>Step 5 preserves the schedule, so it preserves schedulability too. Thus, the schedulability conditions for Γ before Steps 4 and 5 can be derived from those of the system after Step 5: U ≤ M , and ∀i u i ≤ P i <ref type="bibr" target="#b6">[7]</ref>, where U = Π/Θ • U is the modified system's utilization. We now consider the scheduling of tasks in Γ on an identical multiprocessor (recall that there are M CPUs available to Γ) with WCETs and releases altered as described above. Let C i = Π/Θ • C i be the altered WCET for task τ i ∈ Γ. We leverage results for rp-sporadic tasks on uniform multiproces-sor+accelerator platforms <ref type="bibr" target="#b6">[7]</ref>. Def. 7. We call a task τ i ∈ Γ p-restricted (i.e., parallelism is restricted) if P i &lt; M. Let U res be the sum of the M -1 largest altered utilizations of p-restricted tasks in Γ. Let C res be the sum of the M -1 largest altered WCETs of p-restricted tasks in Γ.</p><p>If ∀i, P i ≥ α for some integer α ≥ 2, then the above terms can be reduced: M -1 can be replaced by (M -1)/α in the definitions of both C res and U res . As seen in the bound stated next, these reductions imply that increasing parallelism decreases response-time bounds (which is intuitive).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Lemma 5 (follows from Corollary 1 of [7]). The response time of any task τ</head><formula xml:id="formula_13">i ∈ Γ is bounded by x + T i + C i , where x = (M -1)C max + 2C res M -U res ,</formula><p>and C max is the largest altered WCET of any task in Γ.</p><p>The bound in Lemma 5 can be reduced by computing x iteratively (see Theorem 1 of <ref type="bibr" target="#b6">[7]</ref>), or by computing per-task x i values (via compliant-vector analysis <ref type="bibr" target="#b36">[37]</ref>, <ref type="bibr" target="#b38">[39]</ref>). We stress that Lemma 5 merely provides one method for computing response-time bounds; any response-time analysis for sporadic tasks on an M -CPU identical multiprocessor may be used.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. DEALING WITH HIGHLY CONTENDED HACS</head><p>Unfortunately, a single long HAC access can cause high blocking times (by Def. 2 and Lemma 1). These blocking times are used to inflate tasks' execution times, so even a short access can be inflated by a relatively large value, <ref type="foot" target="#foot_2">3</ref>which produces pessimistic response-time bounds (or makes the system unschedulable). In this section, we describe an optional step that may reduce these bounds (Step 6 in Fig. <ref type="figure" target="#fig_7">3</ref>).</p><p>Example 1. Consider a system with a single component Γ comprised of 15 tasks with continuous access to eight CPUs and a single HAC. Assume that each task performs 1 time unit of CPU execution and has a period of 30 time units (thus, from the CPU point of view, the system has utilization 0.5).</p><p>Additionally, assume that eight of the tasks must also access the HAC once per job for 2 time units. Each HAC-accessing task has its WCET increased by X = (2 • 8 -1)2 = 30 under the global OMLP. Thus, each HAC-accessing task's utilization increases by 30/30 = 1, leading to a total utilization increase of (8 • 1) = 8. The increase in total utilization due to blocking alone consumes the capacity of all eight allocated CPUs!</p><p>Step 6: Factoring out HACs. Total utilization explodes in Ex. 1 because the increase in utilization caused by lockrelated blocking scales with the number of HAC-accessing tasks multiplied by the number of CPUs. This would be exacerbated if supply was not continuous under Γ's PCR due to additional blocking from forbidden zones. This encourages factoring out the problematic HAC and its associated tasks into a subsystem with the smallest possible CPU count, namely one. Tasks accessing that HAC are then scheduled non-preemptively and busy-wait on the dedicated CPU during their accesses, ensuring that jobs access the HAC immediately upon request (thus removing the need for a locking protocol).</p><p>Example 1 (cont'd). Suppose instead that the seven CPUonly tasks are scheduled on seven CPUs and the eight HACaccessing tasks are scheduled exclusively on a dedicated CPU. Factoring out the HAC results in 1 + 2 = 3 time units of execution per job and a utilization of 3/30 per task (no blocking inflation is needed), totaling to 8(3/30) = 24/30 for all HAC-accessing tasks. The seven CPU-only tasks can clearly be scheduled on the seven remaining CPUs. The dedicated CPU has greater capacity (1.0) than the HACaccessing tasks (total utilization of 24/30).</p><p>Of course, not all systems will have only one HAC as in Ex. 1. If, after factoring out a single HAC, total utilization remains high due to accesses to other HACs, then we can simply continue to factor out HACs onto other dedicated CPUs until the remaining subsystem becomes schedulable. Factoring assumptions. Being able to factor out HACs is predicated upon the assumption that all tasks that access a HAC fit on a single CPU. This is not a strong assumption for some AI applications, such as deep learning (e.g., <ref type="bibr" target="#b17">[18]</ref>), that tend to be dominated by GPU workloads and require negligible CPU execution in comparison. Furthermore, if a HAC's tasks over-utilize a dedicated CPU and their CPU execution is negligible compared to their HAC execution, then the HAC must already be executing nearly continuously. This implies that HAC capacity is the limiting factor for schedulability, in which case adding more CPUs is ineffective.</p><p>We have also assumed that each task accesses at most one HAC (if not, tasks would need to migrate between different dedicated CPUs, requiring us to reintroduce locking to manage accesses). This assumption can be removed by allowing multiple HACs to share the same dedicated CPU (assuming their corresponding tasks fit on a single CPU). Because only one HAC is accessed by a task on a shared dedicated CPU at a time (dedicated CPUs schedule non-preemptively), the HACs that share the dedicated CPU are effectively combined into a single logical HAC with worst-case access time equal to the largest time to access any of the combined HACs.</p><p>Response-time analysis is needed for the tasks on dedicated CPUs. When the system is time-sliced (unlike in Ex. 1), forbidden zones of HACs must then be accounted for. By analytically pretending that the CPU is also unavailable when the HAC is in its forbidden zone, the response-time analysis for a HAC and its dedicated CPU in a PCR reduces to that of a single partially available CPU, for which existing analysis can be applied <ref type="bibr" target="#b31">[32]</ref>. This existing analysis (which targets global scheduling) is pessimistic for dedicated CPUs, so we provide our own response-time analysis. This analysis is presented in an online appendix <ref type="bibr" target="#b83">[84]</ref>. Choosing HACs to factor out. When factoring out HACs, some capacity will inevitably be lost due to partitioning tasks onto dedicated CPUs, making the choice of which HACs to factor out a trade-off. We assume that the number of HACs is small enough that considering every possibility of factoring out HACs is feasible (note that for any two HACs accessed by the same task, the fact that that task cannot be managed both by the OMLP and via a dedicated CPU means that either both or neither HAC must be factored out). Our proposed approach iterates through every possible factoring and chooses the factoring of HACs that best satisfies a given metric (e.g., lowest maximum or average response-time bound).</p><p>In the discussion above, we have implicitly assumed that the precise HACs a task accesses are fixed and known (as noted earlier, using any of a set of HACs is sometimes not practical due to costs associated with moving task state among HACs). If HAC accesses are not fixed and known, then the full space of possible assignments of tasks to HACs must be considered. We do not consider this possibility here due to space constraints (while we cannot consider every possible nuance in detail here, the discussion above should make the idea of "factoring out" HACs intuitively clear). Generally, tasks that make long accesses should be made to access factored-out HACs.</p><p>The intuition behind preferentially assigning factored-out HACs to tasks with long accesses is that removing long accesses to HACs that are managed by the global OMLP reduces B max (Def. 1), which in turn reduces X (Def. 2), thereby reducing blocking under the global OMLP (Lemma 1). As such blocking inflates jobs execution times, reducing blocking should reduce the total utilization.</p><p>Although our discussion here has focused on using the global OMLP, the principles above apply regardless of the choice of locking protocol.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. REDUCING RESPONSE-TIME BOUNDS</head><p>In graph-based scheduling, graph nodes are normally taken to be the schedulable entities, i.e., the scheduler focuses on prioritizing and scheduling the tasks that define these nodes. However, as shown next, end-to-end response-time bounds can often be reduced by merging certain nodes to create new schedulable entities; this is the optional Step 7 in Fig. <ref type="figure" target="#fig_7">3</ref>.</p><p>Task/node merging has been considered before, but mostly for reasons orthogonal to our work, such as to reduce task-totask communication costs <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b39">[40]</ref>, <ref type="bibr" target="#b94">[95]</ref>, enable task clustering <ref type="bibr" target="#b14">[15]</ref>, <ref type="bibr" target="#b30">[31]</ref>, <ref type="bibr" target="#b33">[34]</ref>, <ref type="bibr" target="#b86">[87]</ref>, or reduce energy consumption <ref type="bibr" target="#b69">[70]</ref>, <ref type="bibr" target="#b71">[72]</ref>. Also, as noted in Sec. III, prior work <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b89">[90]</ref> used node merging to eliminate cycles. In fact, with respect to response-time bounds and schedulability, the conventional wisdom seems to favor task splitting, not merging <ref type="bibr" target="#b22">[23]</ref>, <ref type="bibr" target="#b29">[30]</ref>, <ref type="bibr" target="#b37">[38]</ref>, <ref type="bibr" target="#b40">[41]</ref>, <ref type="bibr" target="#b48">[49]</ref>, <ref type="bibr" target="#b49">[50]</ref>, <ref type="bibr" target="#b51">[52]</ref>, <ref type="bibr" target="#b77">[78]</ref>.</p><p>Recall from Sec. III (see Step 2) that the graph-scheduling approach of release offsets results in end-to-end responsetime bounds proportional to the longest path in the DAG. In this section, we show that such bounds can be reduced via restructuring such graphs by merging certain nodes.</p><p>Redefining schedulable entities through node merging. We illustrate our approach with a simple example, which does not involve HACs or time-partitioning but still illustrates key concepts. Consider a component Γ that executes on a fourcore platform without HACs and consists of one graph without delay dependencies, as depicted in Fig. <ref type="figure" target="#fig_0">11</ref>. Assume that this DAG has a period of 15, a parallelization level of one, and its tasks have execution times of {3, 1, 2, 4, 5} time units.</p><p>As shown in Tbl. II, we can compute an end-to-end DAG response time-bound of 122.8 time units using Lemma 5. This same table allows us to infer individual task response-time bounds (which are of the form x + C i + T i ) from the x value given. This response-time bound calculation is impacted by the offset-based approach introduced earlier in Sec. III. Now consider the same graph, but with tasks τ 3 and τ 4 considered as a single schedulable entity (colored gray in Fig. <ref type="figure" target="#fig_0">11</ref>). We call this new task τ new . Note that τ new has an execution time of 6 time units, so C max , C res , and U res (in Lemma 5) are changed. The end-to-end bound for this new graph is given in Tbl. II; x is increased (and hence per-task bounds increased), but the end-to-end response time of the graph is 104 time units, a 15% reduction.</p><p>Step 7: Graph node merging. The main source of pessimism in the end-to-end bound is the general looseness of the per-task response-time bounds. Most papers that derive response-time bounds like we use here <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b32">[33]</ref>, <ref type="bibr" target="#b36">[37]</ref>, <ref type="bibr" target="#b38">[39]</ref>, <ref type="bibr" target="#b79">[80]</ref>, <ref type="bibr" target="#b88">[89]</ref> develop a bound of at least  TABLE II: Response-time bounds for the graph in Fig. <ref type="figure" target="#fig_0">11</ref>. may be constant for all tasks). Denote the length of a path in a DAG as the sum of the per-node response-time bounds over the path. Then, merging two nodes in the longest path reduces the end-to-end DAG response-time bound by approximately T i time units if other paths have lesser lengths and per-node bounds do not change significantly due to merging.</p><formula xml:id="formula_14">C i + T i + x i for task τ i with x i &gt; 0 (x i τ new , 6 τ 1 3 τ 3 2 τ 4</formula><p>From the discussion above it may seem desirable to merge many nodes into one (e.g., merge all nodes of the DAG into one node). However, the ordinary sporadic task model limits merging opportunities: for the system to remain schedulable, the total utilization of a merged node must be at most 1.0. Fortunately, the rp-sporadic task model eases utilization restrictions: the total utilization of a merged node is limited by the graph parallelization level.</p><p>Connections between merging and bin-packing. While node merging can decrease end-to-end response-time bounds, the choice of which nodes to merge to minimize the longest path is complex. We illustrate this complexity with an example. In this example, we assume that per-task response-time bounds do not change significantly after merging nodes relative to the length of the longest path (i.e., a path of two nodes always has smaller length than a path of three nodes).</p><p>Consider a set of rp-sporadic tasks τ = {τ 0 , τ i1 , ..., τ is , τ j1 , ..., τ jq } with parallelization level P , where task τ 0 has utilization equal to P , and tasks {τ j1 , ...τ jq } have utilizations of ε → 0. The DAG specifying their dependencies is shown in Fig. <ref type="figure" target="#fig_12">12</ref>.</p><p>Note that the longest path in the graph contains three nodes. Also note that τ 0 cannot be merged with any other node, because of its utilization constraint. Thus, the shortest possible path length after node merging is two. To achieve the longest path of length two, each node of {τ i1 , ..., τ is } should be merged with one node of {τ j1 , ...τ jq }. The only constraints on which nodes may be merged are utilization constraints, and thus, the minimization of the shortest path in this graph is equivalent to the bin-packing problem with j q bins of size Pε.</p><p>Heuristics. The common way of solving a problem that likely has no polynomial-time solution is by using heuristics. Each heuristic chooses a valid pair of nodes to merge, and is applied repeatedly until no new pair is chosen (i.e., response-time bound R would not decrease further). We experimentally show that these heuristics can enable significant reductions in graph τ 0 ... response-time bounds. As our systems contain several DAGs, we use the largest response-time bound of these DAGs as the system's response-time bound.</p><formula xml:id="formula_15">τ i1 τ i2 τ is-1 τ is τ j1 ...</formula><p>Our first heuristic computes the longest path in any graph of the system, weighing each of the z system nodes by their individual response-time bound R i . As we consider DAGs, this step takes O(z) time. From the longest path, this heuristic randomly chooses two consecutive nodes. We call this heuristic SinglePathRT.</p><p>The second heuristic, BestPair, considers each of the O(z 2 ) pairs of nodes and computes R assuming they are merged (including all O(z) nodes on any path between them); this heuristic chooses a valid pair that minimizes R.</p><p>We also consider the simpler version of BestPair, Elemen-taryPair. It considers only nodes connected by a direct edge that do not have any other path between them.</p><p>Experimental setup. To determine the efficacy of our heuristics, we generated synthetic graph task systems consisting of several connected DAGs. First, for each DAG, we allocated a number of nodes from the total nodes in the system. Second, we generated a random tree over these nodes to make the DAG connected. Finally, the remaining edges were generated using the Erdős-Rényi model <ref type="bibr" target="#b35">[36]</ref> (with constant probability). Each edge was made a dependency by making the lowerindexed task a predecessor of the higher-indexed task (thereby guaranteeing that dependencies form DAGs).</p><p>Tasks' parameters were generated independently. P i for each task τ i in each subset was sampled uniformly from <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b2">3,</ref><ref type="bibr" target="#b3">4]</ref>. T i was sampled uniformly from the interval of possible periods <ref type="bibr" target="#b9">[10,</ref><ref type="bibr" target="#b49">50]</ref>. The utilization of nodes was uniformly chosen by the Dirichlet-Rescale algorithm <ref type="bibr" target="#b43">[44]</ref>.</p><p>Evaluation metric. To evaluate these heuristics, we use two metrics: the share of improved graphs (SIG) and the relative end-to-end bound improvement (RBI). SIG is the percentage of DAGs that see a response-time bound improvement. RBI estimates how good the improvement is. For a DAG D, it is defined as (R in -R m )/R in , where R in is D's initial endto-end bound, and R m is D's bound after merging nodes. To compute response-time bounds, we used a tighter version of Lemma 5 (Theorem 1 of <ref type="bibr" target="#b6">[7]</ref>).</p><p>CPU-only graph workloads. Our first experiment compares the heuristics on the same graphs with CPU-only nodes without reservations. The goal of the experiment is to show that the node merging approach works for the most common case and is not tied to the usage of HACs or time partitioning (as it improves the offset-based response-time bound computation).  We generated graph task systems with five connected components and 100 nodes total on a platform with 16 CPUs. The total utilization of these systems varies from 6 to 15.5. We generated 60 tasks systems for each choice of total utilization. Fig. <ref type="figure" target="#fig_13">13</ref> shows RBI trends for this experiment. BestPair is the best heuristic (with a relative RBI of around 30%), with ElementaryPair being second best. Note that, for all heuristics, RBI trends downward as system utilization increases. This trend is due to fewer options for merging at higher utilization. CPU+HAC workloads within PCRs. In the second experiment, we evaluated the above heuristics in the presence of HAC nodes within PCRs, and sought to demonstrate that introducing HACs and PCRs does not compromise the efficacy of heuristics. We assumed that all HAC accesses are arbitrated using a locking protocol (as described in Sec. IV).</p><p>We generated graph task systems with five connected components and 100 total nodes for a PCR with six CPUs and two HACs (Θ = 40, Π = 80). Each node is a HAC-only node with a probability of 0.35. As the total CPU capacity of this PCR is 3.0, no system with utilization higher than 3.0 can be schedulable. Moreover, some nodes are HAC-only: the execution times of these nodes must be inflated to reflect lock-related blocking. Thus, most of the generated systems with utilizations of more than 2.4 were unschedulable (thus, they are not presented). The total utilization of the considered systems varies from 0.75 to 2.4. We generated 60 task systems for each choice of total utilization. Fig. <ref type="figure" target="#fig_14">14</ref> shows RBI trends for this experiment (with results similar to the previous experiment). BestPair is again the best heuristic, with ElementaryPair being second best. Note that, for all heuristics, RBI trends downward as system utilization increases. This trend is again due to fewer options for merging at higher utilizations. Efficacy vs. run time. In both experiments, heuristics with higher efficacy had higher run time. For a connected DAG with z nodes and E edges, the number of merge attempts per step is proportional to z 2 for BestPair, to E for ElementaryPair, and to z for SinglePathRT. Thus, BestPair should be used generally unless the number of nodes makes its run time infeasible, in which case a heuristic with lower efficacy can be used (e.g., ElementaryPair has comparable results to BestPair)</p><p>As these experiments show, our node-merging heuristics have value in systems with and without HACs or timepartitioning.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VIII. EXPERIMENTAL VALIDATION</head><p>A full experimental evaluation of the real-time graph-based analysis presented in this paper must answer three questions: Question 1: How long are forbidden zones in practice? Question 2: What is the cost of providing isolation between HAC-using components? Question 3: What reservation time-slice lengths are appropriate for a given task system? Answering these questions requires a full operating-systembased implementation, which is beyond the scope of this paper. These questions are answered in detail in a companion paper <ref type="bibr" target="#b5">[6]</ref>, in which we introduce TimeWall, a timepartitioning framework that supports scheduling graph-based task systems within reservations; TimeWall is implemented within the 5.4.0-rc7 LITMUS RT kernel <ref type="bibr" target="#b19">[20]</ref>, <ref type="bibr" target="#b25">[26]</ref>.</p><p>In seeking to answer Questions 1-3, our experimental evaluation of TimeWall revealed some surprising timing edge cases for GPU-using workloads, necessitating further explorations: Question 4: How should HAC accesses be budgeted in the event of high worst-case access durations? We now summarize the answers to these questions using the key results of our evaluation; full details can be found in the companion paper <ref type="bibr" target="#b5">[6]</ref>. Q1: Forbidden-zone lengths. To determine how long forbidden zones can be in practice, we measured durations of data copies and computations for a GPU-using pedestriandetection application. We found that CPU-and GPU-based measurements differed beyond the 99.95 th percentile; worstcase CPU-based measurements were two orders of magnitude higher than those taken on the GPU. Our investigation into these edge cases revealed NVIDIA's proprietary CUDA API as the culprit. As we could not remove the source of the edge cases, we added a GPU budgeting mechanism to TimeWall to prevent misbehaving jobs from performing additional work. Q2: Cost of isolation. In TimeWall, forbidden-zone enforcement increases lock overheads. Our measured lock overheads were comparable to the original global OMLP (5.4 μs per request), with an additional 0.9 μs per GPU access. We also found that using TimeWall instead of the original global OMLP (without support for forbidden zones) resulted in slightly higher median and lower worst-case response times. Q3: Time-slice lengths. Recall from Sec. IV that we require Θ ≥ B max . However, long time slices can result in high response times due to the interval of length Π -Θ when jobs are released but not scheduled (i.e., when other components' jobs are scheduled). We explored this trade-off via synthetic GPU-using tasks, assuming Θ/Π = 0.5, and found that the lowest response times occurred when Θ &gt; C i and Π ≤ T i . Q4: Budgeting HAC accesses. Increasing the budget for HAC accesses reduces the number of accesses that exceed that budget. Budgeting at the 99.95 th percentile of CPU-based measurements results in a theoretical frame-drop rate (i.e., the proportion of jobs during which an access duration exceeded its budget) of 3.8%, but allows for shorter forbidden zones (closer to the GPU-measured worst cases).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IX. DISCUSSION</head><p>In this paper, we are motivated by graph-based AI algorithms, of which neural networks (NNs) currently serve as the most popular class. These NNs (VGG <ref type="bibr" target="#b76">[77]</ref>, ResNet <ref type="bibr" target="#b44">[45]</ref>, Inception <ref type="bibr" target="#b78">[79]</ref>, etc.) are generally assumed to use one or several GPUs, utilizing all available capacity, and are represented by large multi-node graphs. Unfortunately, the high latency and low bandwidth of CPU-GPU memory transfers make it inefficient to offload nodes to the CPU, so an optimal scheduler should consider an invocation of a typical NN as a single GPU job (and the NN itself as a single GPU graph node).</p><p>However, real applications may be comprised of many additional nodes, including CPU ones (e.g., data processing or sequential computations), as well as other HAC-using tasks, which together form the graph we consider. An example of such an application was mentioned in the RTAS 2021 Industry Panel <ref type="bibr" target="#b0">[1]</ref> (at time 59:00).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>X. RELATED WORK</head><p>Prior work on real-time graph models has mostly focused on the DAG model, which differs from our model by considering different timing constraints (e.g., hard real-time with implicit/constrained deadlines) <ref type="bibr" target="#b10">[11]</ref>, <ref type="bibr" target="#b18">[19]</ref>, <ref type="bibr" target="#b67">[68]</ref>, <ref type="bibr" target="#b68">[69]</ref>, <ref type="bibr" target="#b72">[73]</ref>, <ref type="bibr" target="#b93">[94]</ref>, ignoring inter-instance graph dependencies (e.g., hard realtime with arbitrary deadlines) <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b41">[42]</ref>, <ref type="bibr" target="#b50">[51]</ref>, <ref type="bibr" target="#b54">[55]</ref>, <ref type="bibr" target="#b65">[66]</ref>, <ref type="bibr" target="#b84">[85]</ref>, arbitrarily forcing these dependencies to the prior instance only <ref type="bibr" target="#b56">[57]</ref>, <ref type="bibr" target="#b89">[90]</ref>- <ref type="bibr" target="#b91">[92]</ref>, or by considering a different graph task model (e.g., conditional DAGs) <ref type="bibr" target="#b12">[13]</ref>, <ref type="bibr" target="#b42">[43]</ref>, <ref type="bibr" target="#b47">[48]</ref>, <ref type="bibr" target="#b49">[50]</ref>, <ref type="bibr" target="#b58">[59]</ref>, <ref type="bibr" target="#b65">[66]</ref>. Some other work on graph scheduling considered different schedulers <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b48">[49]</ref>, <ref type="bibr" target="#b55">[56]</ref>, <ref type="bibr" target="#b60">[61]</ref>, <ref type="bibr" target="#b70">[71]</ref>, <ref type="bibr" target="#b73">[74]</ref>, <ref type="bibr" target="#b82">[83]</ref> or objectives (e.g., minimizing makespan or energy consumption) <ref type="bibr" target="#b14">[15]</ref>, <ref type="bibr" target="#b15">[16]</ref>, <ref type="bibr" target="#b46">[47]</ref>, <ref type="bibr" target="#b84">[85]</ref>, <ref type="bibr" target="#b87">[88]</ref>.</p><p>Other real-time graph models include the synchronous dataflow graph model (SDF) and digraph task model. These models can be used under our approach with minor analysis modifications (e.g., SDF graphs can be converted into DAGs or sporadic tasks <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b9">[10]</ref>, <ref type="bibr" target="#b57">[58]</ref>, <ref type="bibr" target="#b62">[63]</ref>). GPUs and other HACs. GPUs are perhaps the most popular type of HAC, as they are commonly used to accelerate AI applications. Of the prior work that considers GPU or HAC accesses in graph-based task systems, most use locking protocols to arbitrate accesses (e.g., <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b61">[62]</ref>, <ref type="bibr" target="#b89">[90]</ref>), whereas others rely on the underlying driver's scheduling policies (e.g., <ref type="bibr" target="#b91">[92]</ref>). GPU-access arbitration has typically either used a real-time locking protocol (e.g., <ref type="bibr" target="#b34">[35]</ref>, <ref type="bibr" target="#b52">[53]</ref>, <ref type="bibr" target="#b81">[82]</ref>) or relied on modifications to the GPU driver to reorder work <ref type="bibr" target="#b26">[27]</ref>, <ref type="bibr" target="#b53">[54]</ref>. Alternatively, some work has sought to understand the scheduling rules employed by the GPU drivers themselves through micro-benchmarking experiments <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b63">[64]</ref>, <ref type="bibr" target="#b64">[65]</ref>.</p><p>Isolation of system components. Real-time isolation of system components is typically done using the notion of virtual processors (or reservations) with guaranteed capacity. We consider a simple PCR model that requires capacity to be supplied over a continuous time interval; more general models (e.g., MPR <ref type="bibr" target="#b75">[76]</ref> or service functions <ref type="bibr" target="#b28">[29]</ref>) cannot be easily used instead because of HAC non-preemptivity issues. However, the prior work with these models uses a simpler (and less general) task model (e.g., standard sporadic task) without accelerator accesses <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b16">[17]</ref>, <ref type="bibr" target="#b23">[24]</ref>.</p><p>Work that considers graph models and component isolation <ref type="bibr" target="#b24">[25]</ref>, <ref type="bibr" target="#b27">[28]</ref>, <ref type="bibr" target="#b85">[86]</ref>, <ref type="bibr" target="#b92">[93]</ref> does not address the complexities related to the usage of non-preemptive accelerators, such as the potential for component-isolation violations. Nemati et al. <ref type="bibr" target="#b61">[62]</ref> considered accelerator accesses in component-based systems, but they required that a given CPU be dedicated to a single component, and thus did not consider a model in which a component has exclusive access to a HAC.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>XI. CONCLUSION</head><p>We have extended prior work on computing responsetime bounds for graph-based accelerator-using computations so that such bounds can be computed in systems of timepartitioned components. In doing so, we have explored various nuances that arise when attempting to support accelerator accesses efficiently without compromising inter-component time isolation. Time partitioning can increase response-time bounds. To ameliorate this issue, we have presented nodemerging heuristics that restructure graphs. To our knowledge, this is the first work to consider node merging as a means for reducing response times. These heuristics are of interest even in the absence of time partitioning.</p><p>This paper was motivated by the desire to efficiently support AI workloads on multicore+HAC platforms. The techniques we have proposed have been applied in related work that focuses on experimental trade-offs involving such workloads <ref type="bibr" target="#b5">[6]</ref>. That work shows that the concepts we have discussed (the rpsporadic task model, lock-based accelerator arbitration, forbidden zones, etc.) can be practically applied on real hardware.</p><p>Many avenues for further work exist. For example, it would be interesting to consider resource models that are more flexible than the PCR model. Conditional graphs, which are often used in AI applications, also warrant consideration. Finally, many trade-offs exist when allocating time partitions to the components of a system. We plan to investigate these trade-offs both theoretically and experimentally.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 :</head><label>1</label><figDesc>Fig.1: An example AI algorithm that processes video frames.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Isolation violation example. temporally isolated from each other.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_2"><head></head><label></label><figDesc>DAG obtained by introducing a super node.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>7 Fig. 6 :Fig. 7 :</head><label>767</label><figDesc>Fig. 6: Time-sliced schedule (rectangles are component slices).</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head></head><label></label><figDesc>Three tasks accessing one shared HAC via the global OMLP with M = 2. This figure is inspired by Fig.1in<ref type="bibr" target="#b20">[21]</ref>. The same task system from inset (a) with pi-blocking and accelerator-execution time modeled as CPU execution time.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 8 :</head><label>8</label><figDesc>Fig. 8: Illustration of suspension-oblivious analysis under the global OMLP.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Def. 3 .</head><label>3</label><figDesc>Let Φ res be the start of the first time slice of the reservation of Γ. As the reservation is periodic, its time slices are [Φ res + iΠ, Φ res + iΠ + Θ) for i ∈ {0, 1, 2, ...} and Φ res + Θ ≤ Π.Def. 3 allows us to describe the transformed CPU platform.Def. 4. Define a new platform with M CPUs, each with speed Θ/Π, that begins supplying processing time at time Φ res . We call this platform the reduced-speed platform.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head></head><label></label><figDesc>The transformation of processing supply inStep 4.    </figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Fig. 9 :</head><label>9</label><figDesc>Fig. 9: Transformation clarification figures.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_10"><head>Lemma 4 .</head><label>4</label><figDesc>The schedulability conditions of Γ before Steps 4 and 5 are U ≤ Θ/Π • M and u i ≤ Θ/Π • P i .</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_11"><head>5 Fig. 11 :</head><label>511</label><figDesc>Fig. 11: Scheduling entities of the graph.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_12"><head>UtilizationsFig. 12 :</head><label>12</label><figDesc>Fig. 12: Shortest path elimination as bin packing.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_13"><head>Fig. 13 :</head><label>13</label><figDesc>Fig. 13: Comparison of heuristics with CPU-only workloads.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_14"><head>Fig. 14 :</head><label>14</label><figDesc>Fig. 14: Comparison of heuristics with CPU/HAC workloads within PCR.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_1"><head>TABLE I :</head><label>I</label><figDesc>Comparison of papers that consider at least two of graphs, accelerators, and component isolation.</figDesc><table /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 03,2026 at 01:35:29 UTC from IEEE Xplore. Restrictions apply.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="2" xml:id="foot_1"><p>A similar idea was later applied in a uniprocessor component-based setting<ref type="bibr" target="#b13">[14]</ref>, but that work did not target graphs as considered in this paper.</p></note>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" n="3" xml:id="foot_2"><p>Note that the Skip Protocol<ref type="bibr" target="#b45">[46]</ref> improves only the forbidden-zone-related blocking time in Lemma 1 and does not affect the lock-related blocking X.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m">Panel Discussion -RTOS for Autonomous Machines, 27th IEEE Real-Time and Embedded Technology and Applications Symposium. www.youtube.com/watch?v=VYUWwUHMcj4</title>
+		<imprint>
+			<date type="published" when="2021-05">May 2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Container-based real-time scheduling in the linux kernel</title>
+		<author>
+			<persName><forename type="first">Luca</forename><surname>Abeni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alessio</forename><surname>Balsini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Tommaso</forename><surname>Cucinotta</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM SIGBED Review</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">An empirical survey-based study into industry practice in real-time systems</title>
+		<author>
+			<persName><forename type="first">Benny</forename><surname>Akesson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mitra</forename><surname>Nasri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Geoffrey</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sebastian</forename><surname>Altmeyer</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Robert</forename><surname>Ian</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Davis</forename></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 41st IEEE Real-Time Systems Symposium</title>
+		<meeting>the 41st IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Generalized extraction of real-time parameters for homogeneous synchronous dataflow graphs</title>
+		<author>
+			<persName><forename type="first">Ismail</forename><surname>Hazem</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Benny</forename><surname>Ali</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Luis</forename><surname>Akesson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Pinho</forename><surname>Miguel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 23rd Euromicro International Conference on Parallel, Distributed, and Network-Based Processing</title>
+		<meeting>the 23rd Euromicro International Conference on Parallel, Distributed, and Network-Based Processing</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">GPU scheduling on the NVIDIA TX2: Hidden details revealed</title>
+		<author>
+			<persName><forename type="first">Tanya</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nathan</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ming</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F Donelson</forename><surname>Smith</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 38th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 38th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Timewall: Enabling time partitioning for real-time multicore+accelerator platforms</title>
+		<author>
+			<persName><forename type="first">Tanya</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zelin</forename><surname>Tong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sergey</forename><surname>Voronov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Joshua</forename><surname>Bakita</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F Donelson</forename><surname>Smith</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 42nd IEEE Real-Time Systems Symposium</title>
+		<meeting>the 42nd IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">OpenVX and real-time certification: The troublesome history</title>
+		<author>
+			<persName><forename type="first">Tanya</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sergey</forename><surname>Voronov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 40th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 40th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Task merging and replication using graph rewriting</title>
+		<author>
+			<persName><forename type="first">Peter</forename><surname>Aronsson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Peter</forename><surname>Fritzson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 10th International Workshop on Compilers for Parallel Computers</title>
+		<meeting>the 10th International Workshop on Compilers for Parallel Computers</meeting>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Hard-real-time scheduling of data-dependent tasks in embedded streaming applications</title>
+		<author>
+			<persName><forename type="first">Mohamed</forename><forename type="middle">A</forename><surname>Bamakhrama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Todor</forename><surname>Stefanov</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 9th ACM International Conference on Embedded Software</title>
+		<meeting>the 9th ACM International Conference on Embedded Software</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Managing latency in embedded streaming applications under hard-real-time scheduling</title>
+		<author>
+			<persName><forename type="first">Mohamed</forename><forename type="middle">A</forename><surname>Bamakhrama</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Todor</forename><surname>Stefanov</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 8th IEEE International Conference on Hardware/Software Codesign and System Synthesis</title>
+		<meeting>the 8th IEEE International Conference on Hardware/Software Codesign and System Synthesis</meeting>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Improved multiprocessor global schedulability analysis of sporadic DAG task systems</title>
+		<author>
+			<persName><forename type="first">Sanjoy</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 26th Euromicro Conference on Real-Time Systemss</title>
+		<meeting>the 26th Euromicro Conference on Real-Time Systemss</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">The federated scheduling of constrained-deadline sporadic DAG task systems</title>
+		<author>
+			<persName><forename type="first">Sanjoy</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 19th Design, Automation and Test in Europe Conference and Exhibition</title>
+		<meeting>the 19th Design, Automation and Test in Europe Conference and Exhibition</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<analytic>
+		<title level="a" type="main">The global EDF scheduling of systems of conditional sporadic DAG tasks</title>
+		<author>
+			<persName><forename type="first">Sanjoy</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Vincenzo</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alberto</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 27th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 27th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">SIRAP: A synchronization protocol for hierarchical resource sharing in real-time open systems</title>
+		<author>
+			<persName><forename type="first">Moris</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Insik</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Thomas</forename><surname>Nolte</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mikael</forename><surname>Nolin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 7th ACM and IEEE International Conference on Embedded Software</title>
+		<meeting>the 7th ACM and IEEE International Conference on Embedded Software</meeting>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Energy-efficient real-time scheduling of DAG tasks</title>
+		<author>
+			<persName><forename type="first">Ashikahmed</forename><surname>Bhuiyan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhishan</forename><surname>Guo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Abusayeed</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Haoyi</forename><surname>Xiong</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Embedded Computing Systems</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="issue">5</biblScope>
+			<biblScope unit="page" from="1" to="25" />
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Energy-efficient parallel real-time scheduling on clustered multi-core</title>
+		<author>
+			<persName><forename type="first">Ashikahmed</forename><surname>Bhuiyan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Di</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Aamir</forename><surname>Khan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Abusayeed</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhishan</forename><surname>Guo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">31</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="2097" to="2111" />
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Virtual multiprocessor platforms: Specification and use</title>
+		<author>
+			<persName><forename type="first">Enrico</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Marko</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sanjoy</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 30th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 30th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<author>
+			<persName><forename type="first">Alexey</forename><surname>Bochkovskiy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chien-Yao</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hong-Yuan Mark</forename><surname>Liao</surname></persName>
+		</author>
+		<idno type="arXiv">arXiv:2004.10934</idno>
+	</analytic>
+	<monogr>
+		<title level="m">Optimal speed and accuracy of object detection</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="volume">4</biblScope>
+		</imprint>
+	</monogr>
+	<note type="report_type">arXiv preprint</note>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Feasibility analysis in the sporadic DAG task model</title>
+		<author>
+			<persName><forename type="first">Vincenzo</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alberto</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sebastian</forename><surname>Stiller</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Andreas</forename><surname>Wiese</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 25th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">Scheduling and Locking in Multiprocessor Realtime Operating Systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Björn</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Brandenburg</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<pubPlace>Chapel Hill, NC, USA</pubPlace>
+		</imprint>
+		<respStmt>
+			<orgName>University of North Carolina at Chapel Hill</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">PhD thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Optimality results for multiprocessor real-time locking</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Björn</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 31st IEEE Real-Time Systems Symposium</title>
+		<meeting>the 31st IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">The OMLP family of optimal multiprocessor real-time locking protocols</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Björn</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Design Automation for Embedded Systems</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="277" to="342" />
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Global scheduling not required: Simple, near-optimal multiprocessor real-time scheduling with semipartitioned reservations</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Björn</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mahircan</forename><surname>Brandenburg</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Gül</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 37th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 37th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Compositional multiprocessor scheduling: the GMPR interface</title>
+		<author>
+			<persName><forename type="first">Artem</forename><surname>Burmyakov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Enrico</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Eduardo</forename><surname>Tovar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">50</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="342" to="376" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Partitioning realtime applications over multicore reservations</title>
+		<author>
+			<persName><forename type="first">Giorgio</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Enrico</forename><surname>Bini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yifan</forename><surname>Wu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Industrial Informatics</title>
+		<imprint>
+			<biblScope unit="volume">7</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="302" to="315" />
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">LITMUS RT : A testbed for empirically comparing real-time multiprocessor schedulers</title>
+		<author>
+			<persName><forename type="first">John</forename><surname>Calandrino</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hennadiy</forename><surname>Leontyev</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Aaron</forename><surname>Block</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Umamaheswari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 27th IEEE International Real-Time Systems Symposium</title>
+		<meeting>the 27th IEEE International Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Deadline-based scheduling for GPU with preemption support</title>
+		<author>
+			<persName><forename type="first">Nicola</forename><surname>Capodieci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Roberto</forename><surname>Cavicchioli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Marko</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Aingara</forename><surname>Paramakuru</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 39th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 39th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Response-time analysis of ROS 2 processing chains under reservationbased scheduling</title>
+		<author>
+			<persName><forename type="first">Daniel</forename><surname>Casini</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Tobias</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ingo</forename><surname>Lütkebohle</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Björn B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 31st Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 31st Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">A general framework for analysing system properties in platform-based embedded system designs</title>
+		<author>
+			<persName><forename type="first">Samarjit</forename><surname>Chakraborty</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Simon</forename><surname>Künzli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Lothar</forename><surname>Thiele</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 7th Design, Automation and Test in Europe Conference and Exhibition</title>
+		<meeting>the 7th Design, Automation and Test in Europe Conference and Exhibition</meeting>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Fixed-relative-deadline scheduling of hard real-time tasks with self-suspensions</title>
+		<author>
+			<persName><forename type="first">Jian-Jia</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Cong</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 35th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 35th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Periodic real-time scheduling for FPGA computers</title>
+		<author>
+			<persName><forename type="first">Klaus</forename><surname>Danne</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Marco</forename><surname>Platzner</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 3rd International Workshop on Intelligent Solutions in Embedded Systems</title>
+		<meeting>the 3rd International Workshop on Intelligent Solutions in Embedded Systems</meeting>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<monogr>
+		<title level="m" type="main">Soft Real-Time Scheduling on Multiprocessors</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Umamaheswari</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Devi</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+			<pubPlace>Chapel Hill, NC</pubPlace>
+		</imprint>
+		<respStmt>
+			<orgName>University of North Carolina</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">PhD thesis</note>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Tardiness bounds for global EDF scheduling on a multiprocessor</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Umamaheswari</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Devi</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 26th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 26th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">Task clustering &amp; scheduling with duplication using recursive critical path approach (RCPA)</title>
+		<author>
+			<persName><forename type="first">Ahmed</forename><surname>Ebaid</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Reda</forename><surname>Ammar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sanguthevar</forename><surname>Rajasekaran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Tahany</forename><surname>Fergany</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 10th IEEE International Symposium on Signal Processing and Information Technology</title>
+		<meeting>the 10th IEEE International Symposium on Signal Processing and Information Technology</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">GPUSync: a framework for real-time GPU management</title>
+		<author>
+			<persName><forename type="first">Glenn A</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Bryan</forename><surname>Ward</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 34th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 34th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">On random graphs I</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Erdős</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Rényi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Publicationes Mathematicae Debrecen</title>
+		<imprint>
+			<biblScope unit="volume">6</biblScope>
+			<biblScope unit="page" from="290" to="297" />
+			<date type="published" when="1959">1959</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">Response time bounds for G-EDF without intra-task precedence constraints</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Jeremy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 15th International Conference On Principles Of Distributed Systems</title>
+		<meeting>the 15th International Conference On Principles Of Distributed Systems</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Reducing tardiness under global scheduling by splitting jobs</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Jeremy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 25th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">Tardiness bounds for global EDF with deadlines different from periods</title>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Jeremy P Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sanjoy</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 14th International Conference On Principles Of Distributed Systems</title>
+		<meeting>the 14th International Conference On Principles Of Distributed Systems</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">An efficient scheduling of AUTOSAR runnables to minimize communication cost in multi-core systems</title>
+		<author>
+			<persName><forename type="first">Björn</forename><surname>Hamid R Faragardi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kristian</forename><surname>Lisper</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Thomas</forename><surname>Sandström</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 7th International Symposium on Telecommunications</title>
+		<meeting>the 7th International Symposium on Telecommunications</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<analytic>
+		<title level="a" type="main">A real-time scheduling service for parallel tasks</title>
+		<author>
+			<persName><forename type="first">David</forename><surname>Ferry</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jing</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mahesh</forename><surname>Mahadevan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kunal</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Christopher</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chenyang</forename><surname>Lu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 19th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>the 19th IEEE Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of DAG tasks with arbitrary deadlines under global fixedpriority scheduling</title>
+		<author>
+			<persName><forename type="first">José</forename><surname>Fonseca</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Geoffrey</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Vincent</forename><surname>Nélis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<biblScope unit="volume">55</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="387" to="432" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">A multi-DAG model for real-time parallel applications with conditional execution</title>
+		<author>
+			<persName><forename type="first">Carlos</forename><surname>José</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Vincent</forename><surname>Fonseca</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Gurulingesh</forename><surname>Nélis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Luís</forename><surname>Raravi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Pinho</forename><surname>Miguel</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 30th Annual ACM Symposium on Applied Computing</title>
+		<meeting>the 30th Annual ACM Symposium on Applied Computing</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b43">
+	<analytic>
+		<title level="a" type="main">Generating utilization vectors for the systematic evaluation of schedulability tests</title>
+		<author>
+			<persName><forename type="first">David</forename><surname>Griffin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Iain</forename><surname>Bate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Robert</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 41th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 41th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b44">
+	<analytic>
+		<title level="a" type="main">Deep residual learning for image recognition</title>
+		<author>
+			<persName><forename type="first">Kaiming</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xiangyu</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Shaoqing</forename><surname>Ren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jian</forename><surname>Sun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 29th IEEE Conference on Computer Vision and Pattern Recognition</title>
+		<meeting>the 29th IEEE Conference on Computer Vision and Pattern Recognition</meeting>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b45">
+	<analytic>
+		<title level="a" type="main">Locking under Pfair scheduling</title>
+		<author>
+			<persName><forename type="first">Philip</forename><surname>Holman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Computer Systems</title>
+		<imprint>
+			<biblScope unit="volume">24</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="140" to="174" />
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b46">
+	<analytic>
+		<title level="a" type="main">Energy-minimized scheduling of real-time parallel workflows on heterogeneous distributed computing systems</title>
+		<author>
+			<persName><forename type="first">Biao</forename><surname>Hu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhengcai</forename><surname>Cao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mengchu</forename><surname>Zhou</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Services Computing</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b47">
+	<analytic>
+		<title level="a" type="main">Analyzing G-EDF scheduling for parallel real-time tasks with arbitrary deadlines</title>
+		<author>
+			<persName><forename type="first">Xu</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Di</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Weichen</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 23rd Design, Automation and Test in Europe Conference and Exhibition</title>
+		<meeting>the 23rd Design, Automation and Test in Europe Conference and Exhibition</meeting>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b48">
+	<analytic>
+		<title level="a" type="main">Semi-federated scheduling of parallel real-time tasks on multiprocessors</title>
+		<author>
+			<persName><forename type="first">Xu</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xiang</forename><surname>Long</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Wang</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 38th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 38th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b49">
+	<analytic>
+		<title level="a" type="main">On the decompositionbased global EDF scheduling of parallel real-time tasks</title>
+		<author>
+			<persName><forename type="first">Xu</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xiang</forename><surname>Long</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Han</forename><surname>Wan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 37th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 37th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b50">
+	<analytic>
+		<title level="a" type="main">Utilization-tensity bound for real-time DAG tasks under global EDF scheduling</title>
+		<author>
+			<persName><forename type="first">Xu</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jinghao</forename><surname>Sun</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yue</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Guan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">69</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="39" to="50" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b51">
+	<analytic>
+		<title level="a" type="main">Multiprocessor real-time scheduling with a few migrating tasks</title>
+		<author>
+			<persName><forename type="first">Augusto</forename><surname>Santos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Júnior</forename></persName>
+		</author>
+		<author>
+			<persName><forename type="first">George</forename><surname>Lima</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Konstantinos</forename><surname>Bletsas</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Shinpei</forename><surname>Kato</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 34th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 34th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b52">
+	<analytic>
+		<title level="a" type="main">RGEM: A responsive GPGPU execution model for runtime engines</title>
+		<author>
+			<persName><forename type="first">Shinpei</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Karthik</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Aman</forename><surname>Kumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mihir</forename><surname>Kelkar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yutaka</forename><surname>Ishikawa</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Raj</forename><surname>Rajkumar</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 32nd IEEE Real-Time Systems Symposium</title>
+		<meeting>the 32nd IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b53">
+	<analytic>
+		<title level="a" type="main">TimeGraph: GPU scheduling for real-time multi-tasking environments</title>
+		<author>
+			<persName><forename type="first">Shinpei</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Karthik</forename><surname>Lakshmanan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Raj</forename><surname>Rajkumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yutaka</forename><surname>Ishikawa</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 22th USENIX Annual Technical Conference</title>
+		<meeting>the 22th USENIX Annual Technical Conference</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b54">
+	<analytic>
+		<title level="a" type="main">Analysis of global EDF for parallel tasks</title>
+		<author>
+			<persName><forename type="first">Jing</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kunal</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chenyang</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Christopher</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 25th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 25th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b55">
+	<analytic>
+		<title level="a" type="main">Analysis of federated and global scheduling for parallel real-time tasks</title>
+		<author>
+			<persName><forename type="first">Jing</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jian-Jia</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kunal</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chenyang</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chris</forename><surname>Gill</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Abusayeed</forename><surname>Saifullah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 26th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 26th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b56">
+	<analytic>
+		<title level="a" type="main">Supporting soft real-time DAG-based systems on multiprocessors with no utilization loss</title>
+		<author>
+			<persName><forename type="first">Cong</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 31st IEEE Real-Time Systems Symposium</title>
+		<meeting>the 31st IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b57">
+	<analytic>
+		<title level="a" type="main">Resource optimization for CSDF-modeled streaming applications with latency constraints</title>
+		<author>
+			<persName><forename type="first">Di</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jelena</forename><surname>Spasic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Jiali</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Todor</forename><surname>Zhai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Gang</forename><surname>Stefanov</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 18th Design, Automation &amp; Test in Europe Conference &amp; Exhibition</title>
+		<meeting>the 18th Design, Automation &amp; Test in Europe Conference &amp; Exhibition</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b58">
+	<analytic>
+		<title level="a" type="main">Response-time analysis of conditional DAG tasks in multiprocessor systems</title>
+		<author>
+			<persName><forename type="first">Alessandra</forename><surname>Melani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Marko</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Vincenzo</forename><surname>Bonifaci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alberto</forename><surname>Marchetti-Spaccamela</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Giorgio</forename><forename type="middle">C</forename><surname>Buttazzo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 27th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 27th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b59">
+	<analytic>
+		<title level="a" type="main">Resource partition for real-time systems</title>
+		<author>
+			<persName><forename type="first">Aloysius</forename><forename type="middle">K</forename><surname>Mok</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xiang</forename><surname>Feng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Deji</forename><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 7th IEEE Real-Time Technology and Applications Symposium</title>
+		<meeting>the 7th IEEE Real-Time Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b60">
+	<analytic>
+		<title level="a" type="main">Responsetime analysis of limited-preemptive parallel DAG tasks under global scheduling</title>
+		<author>
+			<persName><forename type="first">Mitra</forename><surname>Nasri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Geoffrey</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Björn B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 31st Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 31st Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b61">
+	<analytic>
+		<title level="a" type="main">Independentlydeveloped real-time systems on multi-cores with shared resources</title>
+		<author>
+			<persName><forename type="first">Farhang</forename><surname>Nemati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Moris</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Thomas</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 23rd Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 23rd Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b62">
+	<analytic>
+		<title level="a" type="main">Hard real-time scheduling of streaming applications modeled as cyclic CSDF graphs</title>
+		<author>
+			<persName><forename type="first">Sobhan</forename><surname>Niknam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Peng</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Todor</forename><surname>Stefanov</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 23th Design, Automation &amp; Test in Europe Conference &amp; Exhibition</title>
+		<meeting>the 23th Design, Automation &amp; Test in Europe Conference &amp; Exhibition</meeting>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b63">
+	<analytic>
+		<title level="a" type="main">Dissecting the CUDA scheduling hierarchy: A performance and predictability perspective</title>
+		<author>
+			<persName><forename type="first">Ignacio</forename><forename type="middle">S</forename><surname>Olmedo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nicola</forename><surname>Capodieci</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jorge</forename><forename type="middle">L</forename><surname>Martinez</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Andrea</forename><surname>Marongiu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Marko</forename><surname>Bertogna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 26th IEEE Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>the 26th IEEE Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b64">
+	<analytic>
+		<title level="a" type="main">Exploring AMD GPU scheduling details by experimenting with &quot;worst practices</title>
+		<author>
+			<persName><forename type="first">Nathan</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><surname>James H Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Pro-ceedings of the 29th International Conference on Real-Time Networks and Systems</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b65">
+	<analytic>
+		<title level="a" type="main">Response time analysis for G-EDF and G-DM scheduling of sporadic DAG-tasks with arbitrary deadline</title>
+		<author>
+			<persName><forename type="first">Andrea</forename><surname>Parri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alessandro</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mauro</forename><surname>Marinoni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 23rd International Conference on Real Time and Networks Systems</title>
+		<meeting>the 23rd International Conference on Real Time and Networks Systems</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b66">
+	<analytic>
+		<title level="a" type="main">ARINC 653 role in integrated modular avionics (IMA)</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Paul</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Prisaznuk</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 27th IEEE/AIAA Digital Avionics Systems Conference</title>
+		<meeting>the 27th IEEE/AIAA Digital Avionics Systems Conference</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b67">
+	<analytic>
+		<title level="a" type="main">Global EDF scheduling of directed acyclic graphs on multiprocessor systems</title>
+		<author>
+			<persName><forename type="first">Manar</forename><surname>Qamhieh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Frédéric</forename><surname>Fauberteau</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Laurent</forename><surname>George</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Serge</forename><surname>Midonnet</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 21st International conference on Real-Time Networks and Systems</title>
+		<meeting>the 21st International conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b68">
+	<analytic>
+		<title level="a" type="main">A stretching algorithm for parallel real-time DAG tasks on multiprocessor systems</title>
+		<author>
+			<persName><forename type="first">Manar</forename><surname>Qamhieh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Laurent</forename><surname>George</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Serge</forename><surname>Midonnet</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 22nd International Conference on Real-Time Networks and Systems</title>
+		<meeting>the 22nd International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b69">
+	<analytic>
+		<title level="a" type="main">Task merging for dynamic power management of cyclic applications in real-time multiprocessor systems</title>
+		<author>
+			<persName><forename type="first">Qinru</forename><surname>Qiu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Shaobo</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Qing</forename><surname>Wu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 24th International Conference on Computer Design</title>
+		<meeting>the 24th International Conference on Computer Design</meeting>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b70">
+	<analytic>
+		<title level="a" type="main">Scheduling DAG applications for time sharing systems</title>
+		<author>
+			<persName><forename type="first">Ligang</forename><surname>Shenyuan Ren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Junyu</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chao</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhuoer</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhiyan</forename><surname>Gu</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Chen</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 21st International Conference on Algorithms and Architectures for Parallel Processing</title>
+		<meeting>the 21st International Conference on Algorithms and Architectures for Parallel Processing</meeting>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b71">
+	<analytic>
+		<title level="a" type="main">Energy-aware task scheduling and dynamic voltage scaling in a real-time system</title>
+		<author>
+			<persName><forename type="first">Peng</forename><surname>Rong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Massoud</forename><surname>Pedram</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Low Power Electronics</title>
+		<imprint>
+			<biblScope unit="volume">4</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="1" to="10" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b72">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling of parallel tasks under a general DAG model</title>
+		<author>
+			<persName><forename type="first">Abusayeed</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">David</forename><surname>Ferry</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chenyang</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Christopher</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b73">
+	<analytic>
+		<title level="a" type="main">Response-time analysis of DAG tasks under fixed priority scheduling with limited preemptions</title>
+		<author>
+			<persName><forename type="first">Maria</forename><forename type="middle">A</forename><surname>Serrano</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alessandra</forename><surname>Melani</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Marko</forename><surname>Bertogna</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Eduardo</forename><surname>Quinones</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 20th Design, Automation &amp; Test in Europe Conference &amp; Exhibition</title>
+		<meeting>the 20th Design, Automation &amp; Test in Europe Conference &amp; Exhibition</meeting>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b74">
+	<analytic>
+		<title level="a" type="main">Response-time analysis of DAG tasks supporting heterogeneous computing</title>
+		<author>
+			<persName><forename type="first">Maria</forename><forename type="middle">A</forename><surname>Serrano</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Eduardo</forename><surname>Quinones</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 55th Annual Design Automation Conference</title>
+		<meeting>the 55th Annual Design Automation Conference</meeting>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b75">
+	<analytic>
+		<title level="a" type="main">Hierarchical scheduling framework for virtual clustering of multiprocessors</title>
+		<author>
+			<persName><forename type="first">Insik</forename><surname>Shin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Arvind</forename><surname>Easwaran</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Insup</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 20th Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 20th Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b76">
+	<monogr>
+		<title level="m" type="main">Very deep convolutional networks for large-scale image recognition</title>
+		<author>
+			<persName><forename type="first">Karen</forename><surname>Simonyan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Andrew</forename><surname>Zisserman</surname></persName>
+		</author>
+		<idno type="arXiv">arXiv:1409.1556</idno>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+	<note type="report_type">arXiv preprint</note>
+</biblStruct>
+
+<biblStruct xml:id="b77">
+	<analytic>
+		<title level="a" type="main">PREM-based optimal task segmentation under fixed priority scheduling</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Muhammad</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Rodolfo</forename><surname>Soliman</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Pellizzoni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 31st Euromicro Conference on Real-Time Systems</title>
+		<meeting>the 31st Euromicro Conference on Real-Time Systems</meeting>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b78">
+	<analytic>
+		<title level="a" type="main">Going deeper with convolutions</title>
+		<author>
+			<persName><forename type="first">Christian</forename><surname>Szegedy</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Wei</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yangqing</forename><surname>Jia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Pierre</forename><surname>Sermanet</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Scott</forename><surname>Reed</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Dragomir</forename><surname>Anguelov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Dumitru</forename><surname>Erhan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Vincent</forename><surname>Vanhoucke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Andrew</forename><surname>Rabinovich</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 28th IEEE Conference on Computer Vision and Pattern Recognition</title>
+		<meeting>the 28th IEEE Conference on Computer Vision and Pattern Recognition</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b79">
+	<analytic>
+		<title level="a" type="main">Supporting soft real-time sporadic task systems on uniform heterogeneous multiprocessors with no utilization loss</title>
+		<author>
+			<persName><forename type="first">Guangmo</forename><surname>Tong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Cong</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Parallel and Distributed Systems</title>
+		<imprint>
+			<biblScope unit="volume">27</biblScope>
+			<biblScope unit="issue">9</biblScope>
+			<biblScope unit="page" from="2740" to="2752" />
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b80">
+	<analytic>
+		<title level="a" type="main">Reservation-based federated scheduling for parallel real-time tasks</title>
+		<author>
+			<persName><forename type="first">Niklas</forename><surname>Ueter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Georg</forename><surname>Von Der Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jian-Jia</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jing</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kunal</forename><surname>Agrawal</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 39th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 39th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b81">
+	<analytic>
+		<title level="a" type="main">Scheduling periodic real-time communication in multi-GPU systems</title>
+		<author>
+			<persName><forename type="first">Uri</forename><surname>Verner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Avi</forename><surname>Mendelson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Assaf</forename><surname>Schuster</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 23rd International Conference on Computer Communication and Networks</title>
+		<meeting>the 23rd International Conference on Computer Communication and Networks</meeting>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b82">
+	<analytic>
+		<title level="a" type="main">Latency-aware generation of single-rate DAGs from multi-rate task sets</title>
+		<author>
+			<persName><forename type="first">Micaela</forename><surname>Verucchi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mirco</forename><surname>Theile</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Marco</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Marko</forename><surname>Bertogna</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the IEEE 26th Real-Time and Embedded Technology and Applications Symposium</title>
+		<meeting>the IEEE 26th Real-Time and Embedded Technology and Applications Symposium</meeting>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b83">
+	<monogr>
+		<author>
+			<persName><forename type="first">Sergey</forename><surname>Voronov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Stephen</forename><surname>Tang</surname></persName>
+		</author>
+		<ptr target="https://jamesanderson.web.unc.edu/papers/,2021" />
+		<title level="m">Tanya Amert, and James H Anderson. AI meets real-time: Addressing real-world complexities in graph response-time analysis</title>
+		<imprint/>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b84">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling of DAG tasks with arbitrary deadlines</title>
+		<author>
+			<persName><forename type="first">Kankan</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xu</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nan</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Di</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Weichen</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Qingxu</forename><surname>Deng</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Transactions on Design Automation of Electronic Systems</title>
+		<imprint>
+			<biblScope unit="volume">24</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page" from="1" to="22" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b85">
+	<analytic>
+		<title level="a" type="main">Deadline and activation time assignment for partitioned real-time application on multiprocessor reservations</title>
+		<author>
+			<persName><forename type="first">Yifan</forename><surname>Wu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhigang</forename><surname>Gao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Guojun</forename><surname>Dai</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">60</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="247" to="257" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b86">
+	<analytic>
+		<title level="a" type="main">Hierarchical scheduling of DAG structured computations on manycore processors with dynamic thread grouping</title>
+		<author>
+			<persName><forename type="first">Yinglong</forename><surname>Xia</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Viktor K Prasanna</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Li</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Workshop on Job Scheduling Strategies for Parallel Processing</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b87">
+	<analytic>
+		<title level="a" type="main">Schedule length minimization of parallel applications with energy consumption constraints using heuristics on heterogeneous distributed systems</title>
+		<author>
+			<persName><forename type="first">Guoqi</forename><surname>Xie</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xiongren</forename><surname>Xiao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Renfa</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Keqin</forename><surname>Li</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Concurrency and Computation: Practice and Experience</title>
+		<imprint>
+			<biblScope unit="volume">29</biblScope>
+			<biblScope unit="issue">16</biblScope>
+			<biblScope unit="page">402</biblScope>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b88">
+	<analytic>
+		<title level="a" type="main">On the soft real-time optimality of global EDF on uniform multiprocessors</title>
+		<author>
+			<persName><forename type="first">Kecheng</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 38th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 38th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b89">
+	<analytic>
+		<title level="a" type="main">Analysis for supporting real-time computer vision workloads using OpenVX on multicore+GPU platforms</title>
+		<author>
+			<persName><forename type="first">Kecheng</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Glenn</forename><forename type="middle">A</forename><surname>Elliott</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 23th International Conference on Real-Time Networks and Systems</title>
+		<meeting>the 23th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b90">
+	<analytic>
+		<title level="a" type="main">Reducing responsetime bounds for DAG-based task systems on heterogeneous multicore platforms</title>
+		<author>
+			<persName><forename type="first">Kecheng</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ming</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 24th International Conference on Real-Time Networks and Systems</title>
+		<meeting>the 24th International Conference on Real-Time Networks and Systems</meeting>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b91">
+	<analytic>
+		<title level="a" type="main">Making OpenVX really &quot;real time</title>
+		<author>
+			<persName><forename type="first">Ming</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Tanya</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kecheng</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Nathan</forename><surname>Otterness</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F Donelson</forename><surname>James H Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Shige</forename><surname>Smith</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Wang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 39th IEEE Real-Time Systems Symposium</title>
+		<meeting>the 39th IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b92">
+	<analytic>
+		<title level="a" type="main">Building real-time parallel task systems on multi-cores: A hierarchical scheduling approach</title>
+		<author>
+			<persName><forename type="first">Tao</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Qingxu</forename><surname>Deng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Lei</forename><surname>Sun</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Systems Architecture</title>
+		<imprint>
+			<biblScope unit="volume">92</biblScope>
+			<biblScope unit="page" from="1" to="11" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b93">
+	<analytic>
+		<title level="a" type="main">DAG scheduling and analysis on multiprocessor systems: Exploitation of parallelism and dependency</title>
+		<author>
+			<persName><forename type="first">Shuai</forename><surname>Zhao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xiaotian</forename><surname>Dai</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Iain</forename><surname>Bate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alan</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Wanli</forename><surname>Chang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Proceedings of the 41st IEEE Real-Time Systems Symposium</title>
+		<meeting>the 41st IEEE Real-Time Systems Symposium</meeting>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b94">
+	<analytic>
+		<title level="a" type="main">A static task scheduling algorithm for heterogeneous systems based on merging tasks and critical tasks</title>
+		<author>
+			<persName><forename type="first">Naqin</forename><surname>Zhou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Deyu</forename><surname>Qi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xinyang</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhishuo</forename><surname>Zheng</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Journal of Computational Methods in Sciences and Engineering</title>
+		<imprint>
+			<biblScope unit="volume">17</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="715" to="732" />
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

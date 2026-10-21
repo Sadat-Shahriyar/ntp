@@ -1,0 +1,226 @@
+{
+  "paper_name": "Overhead-aware schedulability evaluation of semi-partitioned real-time schedulers",
+  "paper_description": "This paper provides an overhead-aware schedulability analysis for the EDF-WM and C=D semi-partitioned scheduling algorithms, incorporating implementation-specific delays like interrupt handling, context switching, and cache-related preemption/migration delays.",
+  "results": [
+    {
+      "type": "definition",
+      "identifier": "Definition 1: Task Model",
+      "formal_description": {
+        "statement": "A task tau_i is defined by (C_i, D_i, T_i, J_i)",
+        "variables": {
+          "C_i": "Worst-case execution time",
+          "D_i": "Relative deadline",
+          "T_i": "Minimum inter-arrival time (period)",
+          "J_i": "Maximum release jitter"
+        },
+        "assumptions": [
+          "Independent sporadic tasks",
+          "Identical processors"
+        ],
+        "conclusion": "Basic task parameters for schedulability analysis"
+      },
+      "informal_sketch": {
+        "intuition": "Standard sporadic task model extended with release jitter to account for timing variations.",
+        "steps": [
+          "Define execution time C_i",
+          "Define deadline D_i",
+          "Define period T_i",
+          "Define jitter J_i"
+        ],
+        "pseudocode": "class Task:\n    def __init__(self, C, D, T, J):\n        self.C = C\n        self.D = D\n        self.T = T\n        self.J = J",
+        "key_insights": [
+          "Jitter is critical for modeling interrupt-driven releases."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 2: Overhead Parameters",
+      "formal_description": {
+        "statement": "System overheads are defined as a set of constants: {RelO, SchedO, CprdO_i, IpB, TsetO, BetO, MigrO, IpiJ, IpiO, CrmdO_j_s, pi}",
+        "variables": {
+          "RelO": "Release overhead",
+          "SchedO": "Scheduler overhead",
+          "CprdO_i": "Cache related preemption delay",
+          "IpB": "Interrupt/preemption blocking",
+          "TsetO": "Timer setup overhead",
+          "BetO": "Budget timer overhead",
+          "MigrO": "Migration overhead",
+          "IpiJ": "IPI jitter",
+          "IpiO": "IPI overhead",
+          "CrmdO_j_s": "Cache related migration delay",
+          "pi": "Global clock precision"
+        },
+        "assumptions": [
+          "Overheads are upper-bounded",
+          "Interrupts are disabled during specific kernel operations"
+        ],
+        "conclusion": "Constants used to adjust demand and blocking terms"
+      },
+      "informal_sketch": {
+        "intuition": "Quantifies the time spent in the kernel or due to hardware effects (cache) that reduces available CPU time for tasks.",
+        "steps": [
+          "Measure kernel operation times",
+          "Estimate cache penalties",
+          "Define global clock uncertainty"
+        ],
+        "pseudocode": "overheads = {\n    'RelO': 0.01, 'SchedO': 0.02, 'IpB': 0.005,\n    'TsetO': 0.01, 'BetO': 0.01, 'MigrO': 0.03,\n    'pi': 0.001\n}",
+        "key_insights": [
+          "Overheads are not just execution time; they also cause blocking and jitter."
+        ]
+      },
+      "dependencies": []
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 3: Job Count Function",
+      "formal_description": {
+        "statement": "n_i_t = max_0_floor_t_plus_J_i_minus_D_i_div_T_i_plus_1",
+        "variables": {
+          "n_i_t": "Number of jobs of task tau_i in interval t",
+          "J_i": "Release jitter",
+          "D_i": "Relative deadline",
+          "T_i": "Period"
+        },
+        "assumptions": [],
+        "conclusion": "Maximum number of jobs that can be released and have a deadline within interval t"
+      },
+      "informal_sketch": {
+        "intuition": "Calculates how many instances of a task can compete for the processor in a given time window.",
+        "steps": [
+          "Adjust interval t by jitter J_i",
+          "Subtract deadline D_i",
+          "Divide by period T_i and take floor",
+          "Add 1 to account for the first job"
+        ],
+        "pseudocode": "def count_jobs(task, t):\n    val = floor((t + task.J - task.D) / task.T) + 1\n    return max(0, val)",
+        "key_insights": [
+          "Jitter effectively shifts the release window, increasing the job count."
+        ]
+      },
+      "dependencies": [
+        "Definition 1"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 4: Overhead-aware Execution Time",
+      "formal_description": {
+        "statement": "C_i_prime = C_i + 2 * SchedO + TsetO + CprdO_i",
+        "variables": {
+          "C_i_prime": "Inflated execution time",
+          "C_i": "Original WCET",
+          "SchedO": "Scheduler overhead",
+          "TsetO": "Timer setup overhead",
+          "CprdO_i": "Cache related preemption delay"
+        },
+        "assumptions": [
+          "Scheduler runs at release and termination",
+          "Budget timers are used"
+        ],
+        "conclusion": "Effective execution demand per job"
+      },
+      "informal_sketch": {
+        "intuition": "Adds the cost of managing the task (scheduling, timers) and the penalty of being preempted (cache) to the task's own execution time.",
+        "steps": [
+          "Start with base WCET",
+          "Add two scheduler calls (start/end)",
+          "Add timer management cost",
+          "Add cache reload penalty"
+        ],
+        "pseudocode": "def compute_inflated_C(task, overheads):\n    return task.C + 2 * overheads['SchedO'] + overheads['TsetO'] + task.CprdO",
+        "key_insights": [
+          "Lumping overheads into C_i simplifies the demand bound function."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 2"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 5: Release Interference",
+      "formal_description": {
+        "statement": "RelI_i_t = ceil_t_plus_J_i_div_T_i * (RelO + TsetO)",
+        "variables": {
+          "RelI_i_t": "Interference from release interrupts of task tau_i",
+          "RelO": "Release overhead",
+          "TsetO": "Timer setup overhead"
+        },
+        "assumptions": [
+          "Interrupts for releases occur at high priority"
+        ],
+        "conclusion": "Total CPU time consumed by release interrupts in interval t"
+      },
+      "informal_sketch": {
+        "intuition": "Even if a task doesn't execute, its release interrupt consumes CPU time, interfering with lower-priority work.",
+        "steps": [
+          "Calculate number of releases in interval t",
+          "Multiply by the cost of handling one release interrupt"
+        ],
+        "pseudocode": "def compute_release_interference(task, t, overheads):\n    num_releases = ceil((t + task.J) / task.T)\n    return num_releases * (overheads['RelO'] + overheads['TsetO'])",
+        "key_insights": [
+          "Release interrupts are modeled as independent high-priority demand."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 2"
+      ]
+    },
+    {
+      "type": "definition",
+      "identifier": "Definition 6: Blocking Term",
+      "formal_description": {
+        "statement": "b_t = max_IpB_SchedO_plus_TsetO if t < max_D_i else 0",
+        "variables": {
+          "b_t": "Maximum blocking time",
+          "IpB": "Interrupt/preemption blocking",
+          "SchedO": "Scheduler overhead",
+          "TsetO": "Timer setup overhead"
+        },
+        "assumptions": [
+          "Blocking only occurs if the interval is shorter than the longest deadline"
+        ],
+        "conclusion": "Worst-case delay caused by non-preemptible kernel sections"
+      },
+      "informal_sketch": {
+        "intuition": "The longest time the CPU is 'locked' by the kernel or a task, preventing a higher-priority task from starting.",
+        "steps": [
+          "Find the maximum of all non-preemptible section lengths",
+          "Apply only if the interval t is relevant"
+        ],
+        "pseudocode": "def compute_blocking(t, task_set, overheads):\n    if t >= max(task.D for task in task_set):\n        return 0\n    return max(overheads['IpB'], overheads['SchedO'] + overheads['TsetO'])",
+        "key_insights": [
+          "Blocking is a one-time penalty per busy period."
+        ]
+      },
+      "dependencies": [
+        "Definition 1",
+        "Definition 2"
+      ]
+    },
+    {
+      "type": "theorem",
+      "identifier": "Theorem 1: Overhead-aware EDF Schedulability",
+      "formal_description": {
+        "statement": "forall t, dbf_t = b_t + sum_i_n_i_t * C_i_prime + sum_i_RelI_i_t <= t",
+        "variables": {
+          "dbf_t": "Total demand bound function",
+          "b_t": "Blocking term",
+          "n_i_t": "Job count",
+          "C_i_prime": "Inflated execution time",
+          "RelI_i_t": "Release interference"
+        },
+        "assumptions": [
+          "Uniprocessor EDF",
+          "Budget enforcement enabled"
+        ],
+        "conclusion": "Task set is schedulable if demand never exceeds interval length"
+      },
+      "informal_sketch": {}
+    }
+  ]
+}

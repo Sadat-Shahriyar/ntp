@@ -1,0 +1,1043 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Hiding DRAM Refresh Overhead in Real-Time Cyclic Executives</title>
+				<funder ref="#_2gRScHG #_p8ngPrJ #_KG8Mq3C">
+					<orgName type="full">National Science Foundation</orgName>
+					<orgName type="abbreviated">NSF</orgName>
+				</funder>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Xing</forename><surname>Pan</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="institution">North Carolina State University</orgName>
+								<address>
+									<postCode>27695-8206</postCode>
+									<settlement>Raleigh</settlement>
+									<region>NC</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<author role="corresp">
+							<persName><forename type="first">Frank</forename><surname>Mueller</surname></persName>
+							<email>mueller@cs.ncsu.edu</email>
+							<affiliation key="aff0">
+								<orgName type="institution">North Carolina State University</orgName>
+								<address>
+									<postCode>27695-8206</postCode>
+									<settlement>Raleigh</settlement>
+									<region>NC</region>
+									<country key="US">USA</country>
+								</address>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Hiding DRAM Refresh Overhead in Real-Time Cyclic Executives</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">8717135B02DAB49BBDC69D2EA3DA07E6</idno>
+					<idno type="DOI">10.1109/RTSS46320.2019.00075</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-13T23:01+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>Real-time systems with hard timing constrains require known upper bounds on each task's worst-case execution time (WCET) to determine if all deadlines can be met. One challenge in predictable execution is that Dynamic Random Access Memory (DRAM) cells must be refreshed periodically to maintain data validity, yet memory remains blocked during refresh, which results in overly pessimistic WCET bounds. This work contributes "Colored Refresh" to hide DRAM refresh overhead while preserving real-time schedulability for cyclic executives, which are widely used in highly critical systems. Colored Refresh partitions DRAM memory at rank granularity such that refreshes rotate round-robin from rank to rank. Real-time tasks are assigned different ranks via colored memory allocation. By cooperatively scheduling real-time tasks and refresh operations, memory requests no longer suffer from refresh interference. This reduces memory access latencies for tasks irrespective of DRAM density and size. Hence, Colored Refresh reduces a task's WCET and makes its execution more predictable.</p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>DRAM is the de-facto standard memory technology of contemporary computers. Data is stored in DRAM cells that slowly leak their charge, i.e., they need to be refreshed to avoid loss of data. The DRAM controller periodically issues refresh commands, which are sent to DRAM devices. This mode is called auto-refresh and recharges all memory cells within the "retention time", typically 64ms for commodity DRAMs <ref type="bibr" target="#b0">[1]</ref>. In this mode, a refresh command is issued per interval, tREF I, for a duration/completion by tRF C. During a refresh, a memory space (i.e., DRAM rank) becomes unavailable to memory requests (read or write) so that any such memory reference blocks until the refresh completes. Furthermore, a refresh closes all bank row buffers of this rank, even though spatial and temporal locality make future row buffer hits likely. As a result, memory accesses suffer from unpredictable bank row buffer misses around refreshes. These factors contribute not only to an increase in memory latency but also to significant latency fluctuations. In addition, as the density and size of DRAM grow, particularly due to the application of machine learning in embedded environments that require many Gigabytes of memory, more DRAM cells are required per DRAM chip, which must be refreshed within the same DRAM retention time, i.e., more rows need to be refreshed in one refresh cycle. This increases the length of a refresh operation and thus reduces memory throughput <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b2">[3]</ref>, <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b4">[5]</ref>.</p><p>Although the DRAM refresh impact can be reduced by proposed hardware solutions <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b9">[10]</ref>, such solutions take a long time before they become widely adopted. Hence, other work seeks to assess the viability of software solutions. RAIDR <ref type="bibr" target="#b1">[2]</ref> lowers refresh overhead by exploiting inter-cell variation in retention time. RAPID <ref type="bibr" target="#b10">[11]</ref> sorts pages by retention time and allocates long retention pages first. Smart Refresh <ref type="bibr" target="#b11">[12]</ref> reduces unnecessary refreshes by maintaining a refresh-needed counter. Fine Granularity Refresh (FGR), proposed by JEDEC's DDR4 specification, reduces refresh delays by trading off refresh latency against frequency <ref type="bibr" target="#b12">[13]</ref>. These approaches either heavily rely on specific data access patterns of workloads, or they have high implementation overhead. None hide refresh overhead to the extend that our work does. The refresh problem is even more significant for realtime systems because predictable memory access latencies are imperative to assess task schedulability <ref type="bibr" target="#b13">[14]</ref>. Today's variable access latencies due to refreshes are counter-productive to tight bounds on a task's WCET, a problem that is only increasing with higher DRAM density/sizes. Due to the asynchronous nature of refreshes relative to task schedules and preemptions, none of the current analysis techniques tightly bound the effect of DRAM refreshes on WCET. Atanassov and Puschner <ref type="bibr" target="#b14">[15]</ref> discuss the impact of DRAM refresh on the execution time of real-time tasks and calculate the maximum possible increase of execution time due to refreshes. However, this bound is too pessimistic (loose): If the WCET were augmented by the maximum possible refresh delay, many schedules would become theoretically infeasible, even though executions may make deadlines in practice. Also, as refresh overhead increases approximately linearly with growing DRAM density, it quickly becomes untenable to augment the WCET by ever increasing refresh delays for future high density DRAM. Bhat et al. make refreshes predictable and reduce the number of preemption due to refreshes by triggering them in software instead of hardware auto-refresh <ref type="bibr" target="#b15">[16]</ref>. While they consider the cost of refresh operations, it cannot be hidden. This work contributes "Colored Refresh" to hide DRAM refresh overhead entirely. Colored Refresh makes real-time systems more predictable, particularly for large DRAM sizes that are required for machine learning. It exploits colored memory allocation to partition the entire memory space such that each real-time task receives different ranks. More significantly, refreshes and competing memory accesses can be strategically co-scheduled so that memory reads/writes do not suffer from refresh interference. As a result, access latencies are reduced and memory throughput increases, which tends to result in schedulability of more real-time tasks. What is more, the overhead of Colored Refresh is small and remains stable irrespective of DRAM density/size. In contrast, auto-refreshed overhead keeps growing as DRAM density increases.</p><p>Contributions: <ref type="bibr" target="#b0">(1)</ref> The impact of refresh delay for realtime systems under varying DRAM densities/sizes is shown to be hard to predict for auto-refresh and to increase with DRAM density to the point where deadlines will be missed.</p><p>(2) Colored Refresh is contributed, which refreshes DRAM using memory coloring. Refresh overhead is hidden since a memory rank is either being accessed or being refreshed, but not both. Thus, memory accesses no longer suffer from refresh interference, i.e., refreshes are hidden in a safe manner. <ref type="bibr" target="#b2">(3)</ref> Experiments with Malardalen benchmarks confirm that both refresh delays are hidden and DRAM access latencies are reduced. Consequently, application execution time becomes more predictable and stable, even when DRAM density increases. (4) An experimental comparison with DDR4's FGR shows that Colored Refresh exhibits better performance and higher task predictability. <ref type="bibr" target="#b4">(5)</ref> Our mechanism uses existing DRAM controller-initiated refresh capabilities and is otherwise implemented in software; no hardware change is required.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND</head><p>DRAM Architecture: DRAM requests from the CPU are relayed by the memory controller, which acts as a mediator between the last-level cache (LLC) and DRAM devices. As a DRAM controller receives memory transactions from its memory controller, it translates memory requests into corresponding DRAM commands and schedules them while satisfying the timing constraints of DRAM banks and buses.</p><p>A DRAM bank array is organized into rows and columns of individual data cells (see Fig. <ref type="figure" target="#fig_0">1</ref>). When a memory access request is resolved, the corresponding row that contains the data is selected and pulled from the bank array into the row buffer incurring a Row Precharge (close the old row in buffer) delay, tRP , and a Row Access Strobe (activate the new row) delay, tRAS. This is called a row buffer miss. Once loaded into the row buffer and opened, accesses of adjacent data in a row (spatial locality) incur just a Column Access Strobe penalty, tCAS (row buffer hit) of much lower cost than tRP + tRAS assuming an open page policy.  F), the so-called retention time (R) of leaky cells, sometimes also called refresh window (tREFW) <ref type="bibr" target="#b0">[1]</ref>, <ref type="bibr" target="#b12">[13]</ref>, <ref type="bibr" target="#b16">[17]</ref>, <ref type="bibr" target="#b17">[18]</ref>. To prevent data loss, all rows in a DRAM chip need to be refreshed within R (or tREFW). In order to reduce the refresh overhead, memory in each DRAM chip is divided into ranks, which are refreshed in parallel <ref type="bibr" target="#b18">[19]</ref>. The DRAM controller can either schedule an automatic refresh to all ranks simultaneously (simultaneous refresh), or schedule automatic refresh commands to each rank independently (independent refresh). Whether simultaneous or independent, each memory refresh cycle affects a successive area of multiple cells in consecutive cycles. This area is called a "refresh bin" and contains multiple rows. The DDR3 specification <ref type="bibr" target="#b0">[1]</ref> requires a DRAM controller to send 8192 automatic refresh commands to refresh the entire memory (one command per bin at a time). Here, the gap between two refresh commands, the so-called refresh interval (tREFI), is 7.8us (tREFW/8192). The so-called refresh completion time (tRFC) is the refresh duration per bin. Auto-refresh is triggered in the background by the DRAM controller while the CPU executes instructions.</p><p>Depending on the memory technology generation, the refresh granularity may vary. Nonetheless, memory ranks are unavailable during a refresh cycle (for tRFC units of time), i.e., memory accesses (read and write operations) to this region will stall the CPU during a refresh cycle. The resulting refresh overhead is tRFC/tREFI. As DRAM chip densities and sizes grow, each refresh bin contains more rows and the overall size becomes larger. But the more rows in a refresh bin, the longer the refresh delay and rank blocking times become. Refresh latency (equivalent to tRFC) is delimited by power constraints. Table <ref type="table">I</ref> shows that the size of a refresh bin expands linearly with memory density, i.e., tRF C increases rapidly as DRAM density grows and exceeds 1us at 32 Gb DRAM, even with conservative estimates of growth in density for scaling DRAM technology <ref type="bibr" target="#b1">[2]</ref>. Ranks can be refreshed in parallel under autorefresh, but this increases the amount of unavailable memory during a refresh. A fully parallel refresh blocks the entire memory space for tRFC. Such blocking not only decreases system performance, but may inflict deadline misses unless considered in a blocking term for schedulability analysis.</p><p>Tab. I. tRF C per DRAM densities (data from <ref type="bibr" target="#b0">[1]</ref>, <ref type="bibr" target="#b12">[13]</ref>, <ref type="bibr" target="#b1">[2]</ref>) As a side effect of DRAM refresh, a row buffer is first closed, i.e., its data is written back to the data array and any memory access is preempted. After the refresh completes, the original data is loaded back into the row buffer, and the deferred memory access can continue. In another words, the row which contains data needs to be closed and re-opened due to interference between refresh and an in-flight memory access. To close and re-open rows incurs an additional overhead of tRP + tRAS since the refresh purges all buffers and often results in additional row buffer conflict misses, i.e., decreased memory throughput. Liu et al. <ref type="bibr" target="#b1">[2]</ref> observe that the loss in DRAM throughput due to refreshes becomes untenable for large memories, reaching nearly 50% for 64 Gb DRAM.</p><p>Considering the cost of a refresh operation itself and the extra row close/re-open delay, DRAM refresh both decreases memory performance and results in fluctuating response times of memory accesses. The asynchrony of refreshes plus task preemptions make it hard to accurately predict and bound DRAM refresh delay.</p><p>Refresh Mode and Scheduling Strategy: For commodity DDRx (e.g., DDR3 and DDR4), refresh operations are issued at rank granularity. A single refresh command for a given rank precharges all banks under this rank, which is called "All-Bank" refresh <ref type="bibr" target="#b18">[19]</ref>. In contrast, recent LPDDRx DRAM <ref type="bibr" target="#b19">[20]</ref> supports an enhanced "Per-Bank" mode to refresh cells at bank level while other banks in the same rank may be serviced. "Per-Bank" consumes more refresh time overall than "All-Bank" but achieves higher bank parallelism <ref type="bibr" target="#b20">[21]</ref>. A refresh counter per rank maintains the address of the row to be refreshed and applies charges to the chip's row address lines. A timer then increments the refresh counter to step through the rows. Depending on when a refresh command to a bin (successive rows) is sent, two strategies exist: distributed and burst refresh.</p><p>Distributed Refresh: A single refresh operation is performed periodically (see upper Fig. <ref type="figure" target="#fig_1">2</ref>). Once all rows are refreshed, the refresh cycle is repeated from the first row. With distributed refresh, the DRAM response time for memory accesses varies over a wide time range due to the spread of refreshes, and due to closing the row buffer time and again.</p><p>Burst refresh: A series of refresh cycles are performed, one after another (tREF I = tRF C), until all rows have been refreshed (see lower Fig. <ref type="figure" target="#fig_1">2</ref>). After that, the memory is available for memory accesses until the next refresh. A burst refresh results in long periods of memory unavailability, which also affects task execution and results in longer memory latencies, yet such bursts occur less frequently. The problem with the standard hardware-controlled autorefresh is the interference between periodic refresh commands generated by the DRAM controller and memory access requests generated by the processor. The latter ones are blocked once one of the former are issued until the refresh completes. Since refreshes are asynchronous, memory latency becomes highly variable and unpredictable. The central idea of our approach is to hide DRAM refresh interference by memory partitioning (coloring) while making refresh synchronous to task execution. We partition memory so that each application is assigned a colored DRAM region. A real-time schedule can be adapted such that memory accesses will not be subject to interference by DRAM refreshes due to refresh-triggered task switching as described next.</p><p>Assumptions: Let a given real-time task set be schedulable under auto-refresh, i.e., the worst-case blocking of refresh is taken into account during schedulability analysis, including the row buffer misses due to closed rows. To this end, each worst-case execution time, e i , is padded, by the refresh burst tBST = m × tRF C, where m = e i /tREF I . For a cyclic executive <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref>, widely used in highly critical systems <ref type="bibr" target="#b23">[24]</ref>, e i is iteratively calculated by determining the fixed point for e i (n) = e i (0) + tRF C * e i (n -1)/tREF I ,</p><p>where e i (0) is the original execution time before padding. We assume that tasks are independent, except for tasks that are sliced or copied, as discussed later. Henceforth, we will use e i from Eq. 1 unless mentioned otherwise. In addition, for an application with input, we assume its maximum (worst-case) memory requirement can be triggered by a known input (in our experiments assumed to be the largest input). Furthermore, we also assume the timers in both task scheduling and DRAM refresh to be synchronized by the on-chip hardware clock, which is the case in practice <ref type="bibr" target="#b15">[16]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Memory Space Partitioning</head><p>A memory node consists of one memory controller and multi-level resources, namely channel, rank, and bank. Banks are accessed in parallel to increase memory throughput. We obtained a copy of TintMalloc <ref type="bibr" target="#b24">[25]</ref>, an allocator that "colors" memory pages with controller and bank affinity suitable for NUMA architectures. With TintMalloc, programmers can select one (or more) colors to choose a memory controller and bank regions disjoint from those of other tasks. DRAM is further partitioned into channels and ranks above banks. The memory space of an application can be chosen such that it conforms to a specific color. For example, a realtime task can be assigned a private memory space based on rank granularity. When this task runs, it can only access the memory rank allocated to it. No other memory rank will ever be touched by it. With proper application design, this overhead of colored allocations impacts only the initialization phase and remains constant for a stable working set size, i.e., after their initialization, real-time tasks experience highly predictable latencies for subsequent memory requests.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Notation</head><p>Given that the memory space of a DRAM chip can be partitioned into multiple "colors" based on the DRAM architecture, such as node, channel, rank, and bank, our objective is to design a novel "Colored Refresh" policy, which systematically schedules DRAM refreshes based on DRAM rank coloring, i.e., at the refresh granularity level. By cooperatively scheduling task execution and DRAM refresh, Colored Refresh can hide the refresh overhead for real-time tasks and guarantee system schedulability. Most DRAM controllers allow the retention interval, R, to be configured <ref type="bibr" target="#b15">[16]</ref> and can control which rank should be sent a refresh command. With Colored Refresh, the memory of a DRAM chip is refreshed by iterating over the ranks such that all tasks are colored by different DRAM ranks via TintMalloc. While we consider the most common DDR technology with rank refreshes in the following, our techniques are equally applicable to LPDDR and RLDRAM technology <ref type="bibr" target="#b25">[26]</ref>, where refreshes can be controlled at bank granularity. This simply requires coloring at bank level, which TintMalloc also supports.</p><p>Let us denote the set of periodic real-time tasks as T = T 1 ...T n , where each task, T i , is characterized by (φ i , p i , e i , D i ), or (p i , e i , D i ) if φ i = 0, or (p i , e i ) if p i = D i for a phase φ i , a period p i , (worst-case) execution time e i , relative deadline D i per task, and a hyperperiod H of T <ref type="bibr" target="#b26">[27]</ref>. Also, let R be the DRAM retention time, L be the least common multiple of H and R, and K be the number of DRAM ranks, and let k i denote rank i. Let us further consider a cyclic executive schedule for T , where f is the frame size and f i denotes the i th frame (all of same size), F is the number of frames in H. We next describe different refresh options.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Per-Rank Distributed, Harmonic Refresh</head><p>Let us first consider a schedule where the hyperperiod, H, is harmonic to the DRAM retention time, R. With Colored Refresh, the entire DRAM space is equally partitioned into "colors", such that each color contains one or more DRAM ranks. Refreshes are also equally divided over the number of frames following a one-to-one correspondence with colors, where c i denotes color i of C total colors.</p><p>Example 1: Consider three real-time tasks, A= <ref type="bibr" target="#b15">(16,</ref><ref type="bibr" target="#b3">4)</ref>, B= <ref type="bibr" target="#b31">(32,</ref><ref type="bibr" target="#b11">12)</ref>, C=(64,16). For this task set, H=64ms (harmonic to R). Hence, L=64ms. Let f = 8 (explained later). This requires that tasks be arranged into frames of the cyclic executive's table according their periods and deadlines, and memory is colored according to Colored Refresh. Fig. <ref type="figure">3</ref> depicts a feasible cyclic schedule for the above example. Above, c(serial) indicates the rank being refreshed. Since the execution time of B and C exceed f , their jobs need to be split into slices <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref> arranged by the network flow algorithm <ref type="bibr" target="#b27">[28]</ref>. As shown in Fig. <ref type="figure">4</ref>, a flow graph consists (left-to-right) of source, a layer of job nodes, a second layer of frame nodes, and a sink. Edges from the source are weighted by e i /e i , edges from jobs to frames are weighted by the fractional execution of a job placed in a frame, and edges from frames to sink are weighted by the aggregate utilized frame times over total frame length f . In the example, jobs 1 and 2 of task B are split over frames {1, 2} and {5, 6}, respectively, while the job of C is split over {3, 4, 7} by the network flow algorithm. Since the in-flow of 7 equals the out-flow, the schedule is valid. An invalid schedule would have an out-flow less than in-flow due to fractional e i of a job that cannot be placed in a frame subject to release and deadline constraints relative to available frame times (which is further constrained by rules in Sec. III-G discussed later). A constructive algorithm may try to create edges from jobs to frames in a deadlinemonotonic manner until is succeeds to place all execution or fails to do so. Task splitting can commonly be accomplished by refactoring a loop into consecutive subranges of loops per subtask that add up to the original loop length.</p><p>The schedule of Fig. <ref type="figure">3</ref> has a memory coloring solution for each task given in Table <ref type="table">II</ref>. The entire DRAM space is refreshed by iterating over all 8 ranks, and the refresh duration of each rank is 8ms (R/K). Within one rank's refresh duration, all the refresh operations are scheduled as "burst refresh" (see</p><formula xml:id="formula_1">W $ % &amp; FSDU FSDU FSDU FVHULDO $ $ % % % &amp; VFKHGXOH UHSHDWV $ &amp; Fig. 3. Harmonic Schedule for H, R $ % $ &amp; $ % $ ) ) ) ) ) ) ) ) VUF ) ) ) ) ) ) ) ) VLQN</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Fig. 4. Flow Graph for Task Splitting</head><p>Section II). Since f =8 and R=64 ms, we get F =8. This means all tasks are placed in 8 frames, and the entire memory space is grouped into 8 colors, where each color contains one rank. Throughout the schedule, one rank is under refresh during its corresponding frame while all other ranks are refresh-free during this frame.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Tab. II. Memory Assignment per Task T Occupied frames available memory ranks (ki)</head><formula xml:id="formula_2">A f1, f3, f5,f7 c2,c4,c6,c8 B f1, f2, f5, f6 c3,c4,c7,c8 C f3, f4, f7 c1,c2,c5,c6,c8</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Rank-Parallel, Harmonic Refresh</head><p>The DDR standard specifies that different ranks may be refreshed in parallel. Consider Fig. <ref type="figure">3</ref> again. Instead of refreshing one color (rank) per frame, we could refresh multiple colors at once (in a frame) in parallel. In the example, all ranks could simply be refreshed in frame 8 since the processor remains idle then, i.e., all colors (ranks) would become available to all tasks. As indicated by c(par-1) in the figure, this requires either a phase of φ = 56 for the retention interval, R, relative to H or a software-triggered refresh burst at t = 56 synchronously triggered by the cyclic executive.</p><p>Let us consider schedules with tasks in every frame. We could then choose a subset of frames occupied by disjoint tasks so that refreshes are triggered only in these frame. In Fig. <ref type="figure">3</ref>, we could choose frames 1 and 4 to refresh ranks k 5 ...k 8 and k 1 ...k 4 , respectively. A feasible color assignment would be ((A, k 2 ), (B, k 3 ), (C, k 5 )) as no task execution coincides with a refresh in the same frame. As indicated by c(par-2) in the figure, two hardware refreshes with a period of H and phases φ 1 = 0, φ 2 = 24 would be required for frames 1 and 4, respectively.</p><p>Notice that there is no solution for parallel, zero-phased, single harmonic refreshes: If frame 1 was chosen, the colors for tasks A and B could not be refreshed, and ditto for frames 1 and 5. For frames 1, 3, 5, and 7, A's colors could not be refreshed, which only leaves the serial solution of one refresh per frame discussed before.</p><p>A phase of φ = 8 works for frames 2, 4, 6, 8. And φ = 24 works for frames 4, 8 but fails for other dual frame harmonic selections. However, if frame 8 was included, a refresh during frame 8 with φ = 56 suffices to refresh all ranks in parallel, which also simplifies the method.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>E. Copy Tasks</head><p>Should hardware capabilities or system design constraints not allow phasing, then a zero-phased rank-parallel refresh can be devised for the given example by introducing the novel concept of a "copy task".</p><p>Definition: Given a task T , a copy task, T , has identical control flow but, for both code and data, is referencing memory allocated from a different color. Local variables are segregated by executing on different stacks for T and T . Heap and global variables of the original are combined in duplicate heap and global sections by transforming the source program accordingly. Code is duplicated as well for these colors. When the next job of a task has a different instance than the current one, the local/global/heap variables of the current are copied to the next job's memory space if jobs of this task are data dependent. This overhead is analyzed in Sec. III-L.</p><p>In Fig. <ref type="figure">3</ref>, let A and B be the instances executed during the second half of H (t=32..64). As indicated by c(par-3) in Fig. <ref type="figure">3</ref>, the colors (3..8) of A, B, C could be refreshed in frame 5 while colors (1,2) of A , B can be refreshed in frame 1. This establishes a rank-parallel zero-phased refresh solution.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>F. Rank-Parallel, Non-Harmonic Refresh</head><p>If H and R are non-harmonic, one task may occupy all frames in a refresh period L so that no solution for refreshing exists. This can be addressed in two ways, either by copy tasks or by adjusting the retention interval R.</p><p>Example 2: Consider a task set A= <ref type="bibr" target="#b19">(20,</ref><ref type="bibr" target="#b7">8)</ref>, B= <ref type="bibr" target="#b39">(40,</ref><ref type="bibr" target="#b15">16)</ref>. We still assume R=64 ms and K=8. In this case, H=40 ms and L=320 ms. Let f =8 (explained later). Fig <ref type="figure">5</ref> shows a feasible cyclic schedule. All frames are occupied by both A and B (Tab. III), i.e., no frames remain available. We can hide refresh overhead via copy tasks, A and B , for both A and B. When a job of this task is released, an instance is chosen for execution that differs from the color under refresh. With refresh phasing, let color 1 be refreshed during A/B in frame 1 while color 2 is refreshed during A /B in frame 2. For all other frames, either instance may execute (no refresh). Hence, all DRAM refresh overhead is hidden from task execution and thus need not be considered for schedulability analysis. Without refresh phasing, frames 1 and 5 may be chosen for refresh of color 1 and 2 plus A/B or A /B execution, if indicated by the schedule, complementary to the refresh color.</p><formula xml:id="formula_3">$ $ % VFKHGXOH UHSHDWV % $ $ % % $ $ % % $ $ % % $ $ % % $ $ % % $ $ % % $ $ % % 5 + / Fig.</formula><p>An alternative solution is to make the retention interval, R, harmonic to H. Consider R = H = 40 for example 2. One solution would be to refresh the colors of A and B in frames 1 and 2, respectively, with all other frames being refresh free. Another solution would be to perform all refreshes in frame 5, which is idle. In practice, system designers may only have the ability to alter the default retention interval of 64ms if they design the entire system. In many cases, ECUs of different manufacturers are integrated that have to adhere to common parameters, i.e., a fixed retention interval of 64ms, which is the factory default for any system today. To this end, we have developed a policy and algorithms to select frame and colors for refresh as well as assign colors to tasks in a systematic manner assuming a fixed retention interval without phasing.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>G. Generalized Colored Refresh</head><p>We construct a cyclic executive schedule for T , where f is the frame size and f i denotes the i th frame (all of same size), F is the number of frames in one R cycle, i.e., F = R/f . Thus, F is equal to the total number of colors, i.e., F = C. After a refresh duration of tRFC, any ranks in the i th set c i are refreshed within the i th frame f i . By selecting an appropriate frame size (f ), Colored Refresh can strategically co-schedule tasks and DRAM refresh to hide refresh overhead and guarantee schedulability. The basic idea is to alternate between a burst refresh for one set of ranks and another set of ranks, where ranks of each set are refreshed in parallel. We select an appropriate f using 5 rules: (1) f ≤ min 1≤i≤n (p i /2), i.e., burst refreshes can alternate once all tasks are assigned disjoint memory colors under Colored Refresh.</p><p>(2) R/f -R/f = 0, i.e., f should divide R since DRAM refresh should be synchronous to the cyclic executive.</p><p>(3) 2fgcd(p i , f) ≤ D i for all i so that a task can execute in either of two adjacent frames. (4) f/(R/K)f/(R/K) = 0, i.e., R/K should divide f so that refresh becomes synchronous to other tasks and frames can be colored. <ref type="bibr" target="#b4">(5)</ref> Frames must be sufficiently long so that every job can execute non-preemptively within them, i.e., f ≥ max 1≤i≤n (e i ).</p><p>Consider example 1 in Fig. <ref type="figure">3</ref> again. With a given A= <ref type="bibr" target="#b15">(16,</ref><ref type="bibr" target="#b3">4)</ref>, B= <ref type="bibr" target="#b31">(32,</ref><ref type="bibr" target="#b11">12)</ref>, C=(64,16), and R=64 ms, let K=8, which means there are 8 ranks that should be refreshed every 64ms. H=64ms, which is harmonic with R. Hence, L=64ms. By (1), f ≤ 8. By (2), f can be 2, 4, 8, 16 or 32.</p><p>(3) and ( <ref type="formula">4</ref>) hold for f =8. By <ref type="bibr" target="#b4">(5)</ref>, B and C are split into multiple job slices since their execution time is longer than f =8. Notice that besides the schedule in Fig. <ref type="figure">3</ref>, other valid orders exist due to (3), e.g, the first two frames could be B and B, A, respectively.</p><p>From the allocation rule for f i and Fig. <ref type="figure">3</ref>, we can identify the available colors per task (see Table <ref type="table">II</ref>), which are not being refreshed when the task runs. Colored Refresh assigns memory from these "available colors" though TintMalloc. Furthermore, memory requirements of all tasks should be satisfied after coloring. In this example, assuming a requirement of 1 rank per task, a feasible color assignment is ((A, k 2 ), (B, k 3 ), (C, k 5 )).</p><p>Consider the 5 rules (2 of them derived from <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref>) in general. We select an appropriate frame size (f ) for a realtime task set. F frames are scheduled iteratively every R cycles, and all colors are refreshed within each R interval. Jobs are scheduled and placed in frames via the network flow algorithm <ref type="bibr" target="#b27">[28]</ref>. Colored Refresh scans all frames within L and enumerates on a per-task basis the "available colors", which are the frames of a certain color not occupied by this task. Colored Refresh selects one of the available colors at a time to allocate memory from ranks conformant to the coloring policy. As a result, any real-time task only accesses refresh-free memory ranks within its execution. Thus, memory accesses are cooperatively scheduled with refresh operations, while the refresh overhead remains hidden from task execution.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>H. Modifications to the Task Set</head><p>Some conditions may require a task set T to be modified:</p><p>• Condition (5) may not be satisfied by tasks T i with long executions, where e i &gt; f. A well-known technique to address this is to split such tasks into job slices <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref>, e.g., k = 1..m with e ik = f for k &lt; m and e im = e i -(m -1) × f , and then distribute them over the set of frames using the network flow algorithm <ref type="bibr" target="#b27">[28]</ref> -in our case in conjunction with Colored Refresh to select colors for each frame.</p><p>Theorem 1: A task set schedulable as a cyclic executive can always be scheduled with a frame size in (0, D min /2], e.g., any positive number less than D min /2 is an appropriate frame size for cyclic executive scheduling, where D min = min(D 1 , D 2 ...D n ) is the minimum deadline among all tasks.</p><p>Proof: The selection of the frame size in a cyclic executive is determined by rules (3)+(5) <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref>.</p><formula xml:id="formula_4">If f ≤ D min /2, then 2f -gcd(p i , f) ≤ D min -gcd(p i , f) &lt; D min ≤ D i , i.e.</formula><p>, for any frame size less than D min /2, rule (3) holds. Furthermore, rule (5) can be met by task splitting <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref>. Hence, any frame size within (0, D min /2] is appropriate for a task set under cyclic executive scheduling.</p><p>• Conditions (1)+(4) may not be simultaneously satisfied as a task may occupy all frames and its available color set is empty, e.g., tasks with short periods p i &lt; 2f or periods that do not divide the minimum frame size f = R/K. In this case, Colored Refresh creates two instances of a task, the original one and a so-called "copy tasks". When a job of this task is released, Colored Refresh selects the instance to execute with a color that is currently not being refreshed. The job instance can be statically determined for cyclic executives over L, which enumerates all job instances. When the next job is a different instance from current one, the local/global/heap variables of the current are copied to the next job's memory space if jobs of this task are data dependent. An arbitrary number of "copy tasks" can be created in order to satisfy different numbers of colors. The number of colors is determined by the amount of DRAM ranks in the system, and Colored Refresh usually selects an even number of colors. But odd numbers of colors are also supported by Colored Refresh. When the number of colors is odd, more than two instances are created by task copying. For example, three instances are needed (the original one and two "copy tasks") when there are 3 colors in system. Multiple "copy tasks" can be assigned the same memory color to save memory space.</p><p>Consider example 2 again, where H and R are nonharmonic with task set A= <ref type="bibr" target="#b19">(20,</ref><ref type="bibr" target="#b7">8)</ref>, B= <ref type="bibr" target="#b39">(40,</ref><ref type="bibr" target="#b15">16)</ref>, with R=64 ms and K=8. We determined H=40 ms and L=320 ms. Here, (1)-( <ref type="formula">5</ref>) hold for f =8. Fig <ref type="figure">5</ref> showed a feasible cyclic schedule for this frame size. Copy tasks, A and B , were required as discussed before.</p><p>• Conditions ( <ref type="formula" target="#formula_0">1</ref>)-( <ref type="formula">4</ref>) may not be simultaneously satisfied by a task set that requires a small f , e.g., an f derived from rule (3) that is less than the minimum frame size in rule <ref type="bibr" target="#b3">(4)</ref>. A novel technique to address this problem is to fuse multiple frames repeatedly into a "virtual frame", f , until this virtual frame fulfills the requirement of minimum frame size according to rule (4), i.e., until f ≥ R/K. By fusing adjacent frames, (see Algorithm 1), a task set with a small f is transformed into one with a virtual frame f that is still scheduled by rules (1)+(3) but with memory colors derived from Colored Refresh based on the virtual frame size to satisfy rules (2)+(4).</p><p>Example 3: Consider R=64ms, K=8ms as before and a task set A=(3,2), B=(6,1) with f=3ms due to rules (3)+(5), the original rules for cyclic executives <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref>. Rule (2) is violated and can only be satisfied in conjunction with rules (1)+(3) for f = 1ms, which requires Task A to be split into A1 and A2 in order to satisfy rule <ref type="bibr" target="#b4">(5)</ref>. Now, rule (4) is violated, i.e., frames cannot be colored since the smallest coloring granularity is f = R/K = 8ms. We now fuse adjacent frames together until f = 8f = 8ms satisfies rule (4). While scheduling occurs at f = 1ms, refresh and coloring is coordinated at f = 8ms. To this end, "copy tasks" A1', A2', and B' are created, which will be scheduled in a frame where the colors of A1, A2, and B are being refreshed. Colors are chosen by Colored Refresh from the available color not under fresh. Under f , L=192 and it suffices to execute A1' at t=96 and t=160 assuming that A1,A2 have one color while A1',B have another color. Thus, A2' and B' are not required in the example. Algorithm 1 illustrates how frame fusion is accomplished, which is based on rules (2)+(4): f = i * f = R K * j and m * f = R, where i, j, m are integers and m * j = K. Since R K represents the memory coloring granularity, we require f to divide R/K (rule (4)), i.e., j i is an integer. • A huge task is a task that allocates memory larger than the available refresh-free memory within DRAM, which is constrained by the number of memory ranks currently not under refresh while the task executes. For a system with K ranks, a huge task would have to exceed K -1 ranks in size, which means that a single task essentially monopolizes almost Algorithm 1 Frame Fusion</p><formula xml:id="formula_5">1: for f in (0, D min /2] do 2: f = f , i = 1 3: while f ≤ R do 4: f + = f , i + + 5: if (f mod R K ) == 0 then 6: j = f /( R K ) 7:</formula><p>if (i mod j) == 0 then 8:</p><p>return f and f 9: else 10: continue 11:</p><p>end if 12:</p><p>end if 13:</p><p>end while 14: end for all memory for a large K, or that memory is relatively limited to begin with, say K=2, and more than half the memory is used by a single task (for K=2). If we account for such rare cases of skewed memory distribution, the refresh overhead of a huge task cannot be completely hidden but it can be constrained to a single burst of tBST . Only one such huge task may exist (due to memory capacity limits) per task set, i.e., this is a singular overhead term for this task's e i . We do not consider huge tasks in the following as they are rare corner cases, which can be handled by assessing for their refresh overhead in the traditional manner as blocking.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. Schedulability of Colored Refresh</head><p>For the following theorem, let us assume that task copy/split overhead is zero.</p><p>Theorem 2: Any task set (without a huge task) that is schedulable as a cyclic executive under auto-refresh by considering refresh delays in its execution time as a blocking term is also schedulable under Colored Refresh.</p><p>Proof: If a task set is schedulable as a cyclic executive, there exists an appropriate frame size to schedule it. This appropriate frame size should satisfy rules (3) and <ref type="bibr" target="#b4">(5)</ref>, see <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b22">[23]</ref>. With Colored Refresh, the frame size f is further constrained by (1), (2), and <ref type="bibr" target="#b3">(4)</ref>. What needs to be shown is that these rules do not further constrain the choice of f . Let f be an appropriate frame size for the cyclic executive of the uncolored task set that guarantees schedulability without coloring by satisfying rules (3) and ( <ref type="formula">5</ref>). We then need to find a new frame size, f , that satisfies rules (3) and ( <ref type="formula">5</ref>) as well as the new rules (1), ( <ref type="formula">2</ref>) and (4). We need to show that a task set is schedulable with f if it is schedulable with f . Case 1: There exists an f that satisfies rules (1)-( <ref type="formula">5</ref>), i.e. f = f . Then this f is a solution.</p><p>Case 2: Any of the f candidates that satisfy rules (3) and ( <ref type="formula">5</ref>) do not satisfy one or more of the rules (1),( <ref type="formula">2</ref>),(4). Let f min = R/K, which is the minimum frame size established by rules ( <ref type="formula">2</ref>) and (4), i.e., both rules hold. Let a task have a period p i &lt; 2 * (R/K), which violates rule (1), and denote this task as T c with a phase φ c . For any such T c , by creating "copy tasks", multiply their period by x and create x instances (the original one and x-1 "copy tasks"). T c with its enlarged period has an identical deadline and execution time but a phase of φ c +p c * i, where i ∈ [0, x-1]. Furthermore, let Colored Refresh assign memory colors for these (x) tasks, and select an appropriate x by copying tasks until (1) holds. Here, rule (1) is satisfied by creating "copy tasks", while rule (5) is satisfied by "task splitting" (as discussed before). As a result, what needs to be shown is that f exists and satisfies rules (2)+(3)+(4).</p><p>Case 2a: If f ≥ f min , we can always find an appropriate f which is in [f min , f ] to schedule tasks, i.e., since the frame size is equal or smaller than f , there are at least as many frames between the release of a task and its deadline for f as there were for f , so (2), ( <ref type="formula">3</ref>) and (4) hold for all tasks i. Case 2bi: if f &lt; f min ∧ f min ≤ D min , where D min = min(D 1 , D 2 ...D n ), we can always find an appropriate f which is in [f min , D min ] to schedule tasks by creating "copy tasks". The period of the resulting set of "copy tasks" can be increased to be divisible by f , i.e., f = gcd(p i , f). As a result, there exists an f in [f min , D min ] to satisfy rules (2)+( <ref type="formula">3</ref>)+(4), and by choosing such an f , all rules are satisfied.</p><p>Case 2bii: if f &lt; f min ∧ f min &gt; D min , we can find an f such that f min /f -f min /f = 0, i.e., f min is integer divisible by f . Furthermore, f is chosen such that it also satisfies rule (3), i.e., f ≤ D i . Then f is used for scheduling frames. We further construct a "virtual frame", f , by fusing frames of size f so that f is a multiple of f min and such that rules (2)+(4) hold for f , where f is used for coloring (see Example 3). Furthermore, each f is associated with a memory color according to which virtual frame f it belongs to. Hence, rules (2)+(3)+(4) hold by utilizing f and f together.</p><p>Thus, for a task set in Case 2 with Colored Refresh, an f exists that satisfies all 5 rules and provides a solution to guarantee schedulability. Hence, the rules under Colored Refresh do not constrain the choice of f .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>J. Utilization</head><p>With Colored Refresh, system utilization is enhanced compared to auto-refresh. With auto-refresh, the blocking time of refresh operations has to be considered when deriving the worst case execution time (WCET) using the original e i (i.e., not the modified one from Eq. 1). Assuming a task set can be scheduled under auto-refresh within a time span t, where t ≥ n i=1 t pi * e i + b t , and b t represents the blocking term due to DRAM refresh within t calculated as b t = t tREF I * tRF C. As a result, the upper bound on system utilization under autorefresh is</p><formula xml:id="formula_6">U = t-bt t = t- t tREF I * tRF C t = 1 -tRF C tREF I .</formula><p>With Colored Refresh, the blocking term can be removed since the DRAM refresh overhead is hidden for real-time tasks, i.e., t RF C = 0 and the 2nd term in Eq. 1 becomes zero. The highest utilization under Colored Refresh is 1.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>K. Discussion</head><p>So far, we have considered a periodic real-time task set on a single processor. Colored Refresh can be implemented on multicore platforms where multiple task partitions are running simultaneously. Colored Refresh simply schedules the execution of multiple task partitions at a time when their allocated colors are not being refreshed. Variables shared between tasks would require additional constraints to ensure they are accessed when not being refreshed. Furthermore, sporadic tasks and non-real-time tasks can also be placed into frames and scheduled with Colored Refresh with an admission test based on e i from Eq. 1 similar to past work <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b26">[27]</ref>. Actually, within each frame, both distributed refresh and burst refresh could be implemented. Colored Refresh implements burst refresh at the start of each frame. After the burst refresh finishes, the time left in this frame becomes refresh-free for memory accesses, which provides more flexibility for other tasks to be scheduled <ref type="bibr" target="#b15">[16]</ref>.</p><p>The refresh task under Colored Refresh is still modeled as the highest priority task, but it can be co-scheduled with another real-time task of a different color on the same processor. This allows us to model resource constraints such that a realtime task of the same color as an active refresh task cannot preempt the refresh task due to their priority assignments. Furthermore, we consider long tasks with (i) a period equal to or larger than DRAM retention time and (ii) slack between its period and execution time that is less than the minimum frame size.</p><formula xml:id="formula_7">pi -ei &lt; R K , and pi ≥ R</formula><p>The DRAM refresh overhead of a long task cannot be hidden completely through Colored Refresh, neither by splitting into multiple job slices nor by task copying. As a result, the utilization of a long task under Colored Refresh is</p><formula xml:id="formula_8">U ≤ 1 -tRF C tREF I * rankReq K</formula><p>, where rankReq = memAllocSize rankSize . "rankReq" represents the lower bound of memory ranks that should be assigned to a long task, which is determined by how much memory it allocates and the size of one rank. The system utilization of a long task is still enhanced by Colored Refresh compared to auto-refresh, although refresh overhead is only partly hidden for a long task. Furthermore, since we use a burst refresh in each frame, the remaining refresh overhead is predictable as a single task is colored to specific ranks. Notice that task splitting can be implemented by loop fission after the i th iteration of an outer loop. Should a resource be held, it would be split across adjacent tasks executing back-to-back, where the former locks and the latter unlocks a mutex assuming POSIX-style locking.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>L. Overhead of Colored Refresh</head><p>In order to hide DRAM refresh overhead, Colored Refresh imposes task copying and splitting costs. While not free, split overhead is predictable since split points are known statically. Furthermore, the cost of task copying is extremely small, as quantified by globalM em bandwidth . Here, globalM em denotes the cumulative size of variables that need to be copied from a current to the next job's memory space, and bandwidth represents the memory bandwidth. We can determine if a task benefits from task copying by comparing the copy cost to the overhead it would suffer under refresh-incurred blocking instead:</p><formula xml:id="formula_9">globalM em bandwidth ≤ tRF C tRF I * e</formula><p>, where e is the task's execution time and tRF C tRF I * e represents the overhead due to refresh (upper bound) that would have to be considered in a blocking term during schedulability analysis.</p><p>Example: The cost of one refresh operation is tRF C=350ns, and the length of a refresh interval is tRF I=7.8us for 8Gb DRAM density, which is common in commercial off-the-shelf embedded systems, GPUenhanced embedded platforms for autonomous driving, and smartphones <ref type="bibr" target="#b0">[1]</ref>, <ref type="bibr" target="#b12">[13]</ref>. If the execution time of a given task is 1ms and memory bandwidth is 10GB/s, globalM em=0.5M is the break-even point, i.e., the cost of task copying is lower for smaller copy sizes than suffering from refresh blocking. Notice that 0.5MB is larger than one I-frame of a typical MPEG stream, of which only one frame is needed roughly per 10ms at 30-60 frames/sec. Or consider two 250×250 double-precision matrices (which is less than 0.5MB) that are multiplied, with an execution time that far exceeds 1ms, i.e., no copy task would be required. After all, the execution time exceeds 1ms so that this task's period also has to be larger than the refresh duration. Thus, we conjecture that 0.5MB is quite sufficient to forward outputs of one job to the next for a real-time task with 1ms execution time and a short period in the same range. (Notice that conventional memory accesses with the task are already modeled by assessing the execution time of the task, which is actually reduced due to absence of refreshes compared to a scenario without coloring or copy tasks.)</p><p>The cost is strictly dominated by refreshes -overheads due to closing pages are very small as only one close would be inflicted per burst refresh when comparing open to closed page policies. Furthermore, memory can be partitioned even if the number of tasks exceeds the number of ranks since cyclic executives are non-preemptive. In fact, two colors/ranks suffice to hide a burst refresh of one half of the ranks followed later by a burst refresh of the other half. Additional colors may distribute many shorter burst refreshes, but since f &lt; tRFC, this provides no benefit in costs or overhead. If one task has high memory demand, the two sets of memory may have more ranks in one set than another, and the task in question may be allocated more than one rank. We can further relax our assumptions and allow task dependencies, which are realized in cyclic executives by ensuring that job J ij of Task T i is released at or before J kl of T k , i.e., r ij ≤ r kl , as are their deadlines, D ij ≤ D kl <ref type="bibr" target="#b26">[27]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. IMPLEMENTATION</head><p>System Architecture: Our experimental framework consists of three components. (1) SimpleScalar 3.0 <ref type="bibr" target="#b28">[29]</ref> simulates application execution and generates memory traces for lastlevel cache (LLC) misses, which includes request intervals, physical address, command type, command size, etc. Each LLC miss results in a memory request (memory transaction) from processor to DRAM (see Fig. <ref type="figure">6</ref>). Red/solid blocks and lines represent the LLC misses during application execution.</p><p>(2) Our coloring tool colors memory transactions based on a transaction's physical address and the coloring policy.</p><p>(3) Memory traces are relayed to RTMemController <ref type="bibr" target="#b29">[30]</ref>, a back-end architecture to assess commodity and real-time memory controllers, where we utilize only the commodity controller model. RTMemController schedules each memory transaction and determines its execution time, which is fed back to SimpleScalar to determine the overall execution time. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Last Level Cache Misses</head><p>Last Level Cache Misses Fig. <ref type="figure">6</ref>. System Architecture Instead of using same memory latency for every tasks (the default), we enhanced SimpleScalar to use the average of RTMemController's memory latency for memory transactions per task, which includes the refresh overhead.</p><p>We extended RTMemController to support DDR4 refreshes and refresh for a subset of ranks (needed by Colored Refresh and supported by any DDR memory controller). The performance of DRAM is analyzed by the enhanced RTMemController, which schedules the DRAM refresh commands at rank granularity. Refresh is considered when the memory controller serves a memory transaction whose rank ID is derived from the physical address. If this rank is under refresh per schedule, a refresh command is issued in addition to the transaction. This incurs Refresh, Activate and Precharge commands plus purging of the bank's row buffer for a row buffer miss. Our enhanced RTMemController refreshes all ranks in round-robin order and completes all refreshes within DRAM retention time.</p><p>Coloring Tool: To hide the refresh overhead for real-time systems, our approach requires that each task be assigned a memory segment via colored memory allocation. We ported TintMalloc <ref type="bibr" target="#b24">[25]</ref> to SimpleScalar so that it can select the color of physical addresses in memory for any memory request (stack, code, heap, data segments). A memory coloring policy is configured for each application assigning it as many colors as needed to meet the application's memory requirement. TintMalloc's port reads an application's memory trace and scans the physical addresses accessed. To color a memory space, the Rank ID of each physical address is calculated and then checked if it maps to the colors assigned to this application. In our case, the rank ID is determined by bits 15-17 of the physical address. If the Rank ID does not match, these bits are set to the task's respective color. Otherwise, the physical address remains unchanged. To avoid duplicate physical addresses, TintMalloc's port not only changes the rank ID of the physical address, but also assigns it to a free page of the corresponding color (see Algorithm 2). We further retain page locality (and thus cache locality) of physical addresses, i.e., if two physical addresses originally reside in the same page, they still share a page after coloring. Once colored, all physical addresses in a trace belong to a particular memory segment (color). The application only accesses this specific area as per coloring policy. Discussion: Copy tasks introduce the main change to memory behavior. A copy task is created separately from its original instance, i.e., we can treat the copy task as a different task than original one with precedence constraints enforced by the schedule (release times and deadlines). The memory state of the original task is transferred to that of the copy task before it runs and transferred back after it has run. These memory transfers warm up caches, but they have to be accounted for as overhead, which we analyze in our work (and Sec III-L shows that it is very small).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Algorithm 2 Memory Coloring</head><p>While we evaluate our approach by simulator, it shall be noted that it can be ported onto a real architecture with engineering effort <ref type="bibr" target="#b15">[16]</ref>. The scheduling policies of Colored Refresh can be realized by modifying the scheduler inside a real-time operating system kernel. Our mechanism utilizes existing DRAM-triggered periodic refreshes combined software for coloring tasks in a cyclic executive without requiring any hardware change. DRAM refreshes are synchronous with processor clock (if the clock is fixed) and can, in fact, optionally be disabled for a subset of ranks <ref type="bibr" target="#b30">[31]</ref>. Furthermore, per-rank refresh activation phasing can be reverse engineered by monitoring access latencies during the initialization of our approach.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EVALUATION FRAMEWORK AND RESULTS</head><p>Experimental Setup: We assessed Malardalen WCET benchmark programs <ref type="bibr" target="#b31">[32]</ref>, modified to operate on much larger data structures and with higher loop bounds and also to match multiples of 1ms to facilitate analysis, on the SimpleScalar 3.0 processor simulator with split data and instruction caches of 16KB size each, a unified L2 cache of 128KB size, and a cache line size of 64B. The memory system is a JEDEC-compliant DDR3 SDRAM (DDR3-1600G) with varied memory density <ref type="bibr" target="#b0">(1,</ref><ref type="bibr" target="#b1">2,</ref><ref type="bibr" target="#b3">4,</ref><ref type="bibr" target="#b7">8,</ref><ref type="bibr" target="#b15">16,</ref><ref type="bibr" target="#b31">32,</ref><ref type="bibr">and 64Gb)</ref>. The DRAM retention time (R) is 64 ms. Furthermore, there are 8 ranks (K=8) and one memory controller on a DRAM chip. Refresh commands are issued by memory controllers at rank granularity.</p><p>The Malardalen benchmarks are used to evaluate different types of worst-case execution time (WCET) analysis tools and methods. In our experiment, we analyze the WCET of Malardalen benchmarks and evaluate the real-time performance of our Colored Refresh. Due to space limitations, we constrain results to the Malardalen benchmarks, but our approach also works well with other workloads, such as memory-intensive and CPU-intensive programs. As shown in Sec. III-L, our Colored Refresh obtains performance improvements even for memory-intensive (MPEG stream) or CPUintensive (matrices multiplication) workloads.</p><p>We make a case for platforms with more ranks for realtime systems. Our platform has 1 channel with 4 ranks, where each memory controller has 2 channels. The more the better, and developers may deliberately choose platforms to benefit from more ranks early on during the design.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Real-time Tasks</head><p>Multiple Malardalen applications are scheduled as realtime tasks under Colored Refresh, each with the largest input to trigger maximum (worst case) memory requirements (see assumptions in Sec. III). Table <ref type="table">IV</ref> shows each Malardalen task's execution time (padded by adjusting loop bounds to the indicated values) and period (deadline). Here, the execution time is measured under an ideal method that performs no refreshes. Although this ideal method is infeasible in a reality, we model it in simulation as it provides a lower bound.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Tab. IV. Tasks and their Memory Assignment</head><p>For these real-time tasks of Table <ref type="table">IV</ref>, the hyperperiod H is 160ms, and L is 320ms (given H and R=64ms). By rules (1)-( <ref type="formula">5</ref>) in Colored Refresh, f =8ms is chosen for our system (K=8), and a feasible cyclic schedule is shown in Fig. <ref type="figure">7</ref>, where c indicates the color that is being refreshed (repeats at R=64ms). Table <ref type="table">IV</ref> shows the available memory colors per task. Colored Refresh assigns one of its available colors to compress, cnt, st and matmult. But for lms, "copy tasks" are created since it occupies all frames. Table V indicates one feasible selection of colors after creating copy task Â (see in Fig. <ref type="figure">7</ref>) for the intervals 176 . . . 184 and 240 . . . 248. Notice that at t=180 and t=240, Â executes instead of A since c = 7 is being refreshed. Preceding each Â, the job of A (t=160 and t=220) copies shared state from color c 7 → c 8 , and the Â jobs from c 8 → c 7 , which is included as 0.05% of the WCET of lms (task A) according to Sec. III-L.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Fig. 7. A Schedule with Copy Tasks</head><p>We compared the system utilization under Auto-Refresh, Colored Refresh, and Non-Refresh configurations. Fig. <ref type="figure">8</ref> shows the utilization (y-axis starting at 0.96) for different DRAM densities (x-axis) of this real-time task set under different refresh methods. A lower utilization indicates better performance since the real-time system has more slack to guarantee schedulability. Fig. <ref type="figure">8</ref> shows that this real-time task set is always schedulable under our approach with any DRAM density. Under Auto-Refresh, the task set is schedulable for small densities (&lt;16Gb) but becomes infeasible (above 1.0) for higher densities (≥16Gb) so that deadlines are missed as additional refresh overhead pushes utilization to above 100%. Also, since the maximum possible frame size for a standard cyclic executive is 12ms (larger than all tasks' execution times), matmult requires task splitting for our approach. Assuming a copy+split overhead (see Sec. III-L) for lms+matmult, respectively, Colored Refresh suffers 0.05% overhead relative to Non-Refresh, which originates from one additional context switch plus cold cache misses for lms (2.789usecs) and two times two copy overheads (16KB/10GBps=1.6usecs) each for matmult. This overhead is extremely small and remains constant as DRAM density grows.</p><p>Observation 1: Compared to Auto-Refresh, Colored Refresh reduces task execution time and enhances system utilization by hiding refresh overhead completely, which increases predictability while preserving real-time schedulability.</p><p>As DRAM density grows, the performance of Auto-Refresh decreases (resulting in a larger utilization for the same task set) since higher DRAM density implies more refresh overhead, i.e., additional rows are refreshed per interval. In contrast, Colored Refresh remains stable with increasing DRAM density. For example, with 1Gb DRAM density, Auto-Refresh results in 0.47% larger utilization than Colored Refresh. However, when DRAM density grows to 32Gb and then 64Gb, the task set's utilization under Auto-Refresh is 7.57% and 15.35% higher, respectively, than Colored Refresh. This is because tasks only access colored memory not subject to DRAM refresh delays under our approach.</p><p>Observation 2: Colored Refresh obtains stable and predictable performance irrespective of DRAM size while Auto-Refresh's overhead increases significantly with DRAM size.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. DRAM Performance</head><p>Each task only accesses the coloring memory space assigned to it in our approach, while the memory controller sends refresh command as described in Section III-G. Let us discuss the impact on DRAM performance under Colored Refresh. Fig. <ref type="figure">9</ref> shows the normalized average memory access latency (y-axis) of Auto-Refresh over our approach for different tasks (x-axis). Since our approach hides the entire DRAM refresh overhead, the memory latency of our approach equals to non-refresh at each DRAM density. Furthermore, the memory latency of our approach remains stable/same with growing DRAM density.</p><p>Red/solid lines inside the boxes mark the median while the green/dotted lines denote averages across the 5 tasks, "whiskers" above/below the box indicate the maximum/minimum. Fig. <ref type="figure">9</ref> shows that the memory latency is increased for all benchmarks by auto-refresh compared to our approach. Our Colored Refresh obtains a small latency reduction at low DRAM density (6.5% on avg. at 1Gb density) that deadlines missed above this line Fig. <ref type="figure">8</ref>. System Utilization per Refresh Method Fig. <ref type="figure">9</ref>. Memory Latency of Auto-Refresh Normalized to Colored Refresh Fig. <ref type="figure" target="#fig_3">10</ref>. Colored Refresh vs. Fine Granularity Refresh (FGR) increases rapidly with density (e.g., 82.2% at 64Gb density). Memory access latency is reduced because memory requests of a real-time task cannot interfere with any DRAM refresh under our approach. When this memory space needs to be refreshed, the task accessing it will be suspended by switching to another task, which is not "colored" to this memory group. Our approach ensures that the memory colors accessed by realtime tasks cannot suffer from refresh overhead unless they are long tasks, i.e., Colored Refresh obtains the same memory performance as Non-Refresh.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Observation 3: Colored Refresh reduce memory access latency compared to Auto-Refresh, and this benefit increases with growing DRAM size and density.</head><p>Auto-refresh not only increases memory latency, it also causes memory performance to highly fluctuate across applications. Fig. <ref type="figure">9</ref> also shows that different tasks suffer different memory access latencies under Auto-refresh dependent on their memory access patterns. E.g., for a density of 16Gb, the latencies of "compress" and "matmult" with auto-refresh are increased by 14.3% and 140.3% compared with our approach (equals to Non-refresh), respectively. With growing density, the refresh delay increases not only due to the overhead to issue more refresh commands, but also because the probability of interference with refreshes increases. </p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Fine Granularity Refresh</head><p>JEDEC's DDR4 DRAM specification <ref type="bibr" target="#b12">[13]</ref> introduces a Fine Granularity Refresh (FGR) to counter increases in DRAM refresh overhead by creating a range of refresh options that provide a trade-off between refresh latency and frequency.</p><p>We compared Colored Refresh with three FGR refresh options, namely 1x, 2, and 4x refresh modes. 1x refresh is a direct extension of DDR2 and DDR3 refreshes. A certain amount of refresh commands are issued, and each command takes tRFC time. The refresh interval (tREFI) of 1x refreshing is 7.8 us <ref type="bibr" target="#b12">[13]</ref>. 2x and 4x refreshing require refresh commands to be sent twice and four times as frequently, respectively. The interval (tREFI) is correspondingly reduced to 3.9 us (1.95 us) for 2x (4x) modes. More refresh commands mean fewer DRAM rows are refreshed per command, and, as a result, the refresh latencies tRFC for 2x and 4x modes are shorter. However, when moving from 1x to 2x and then 4x, while tREFI scales linearly, tRFC does not but instead decreases at a rate of less than 50% <ref type="bibr" target="#b2">[3]</ref>.</p><p>The same task set as before (Table <ref type="table">IV</ref>) and the configuration (Table IV and V) are used for this FGR experiment using the same simulator but with FGR configuration. Fig. <ref type="figure" target="#fig_3">10</ref> compares memory access latency (y-axis) for different DRAM densities (x-axis) under FGR 1x, 2x, 4x to Colored Refresh. We observe that although 4x outperforms 1x and 2x, Colored Refresh uniformly obtains the best performance and lowest memory access latency due to hiding any refresh blocking. Furthermore, the performance of FGR decreases with growing DRAM density. For example, at 1 Gb density, FGR 4x, 2x and 1x have 7.7%, 6.9%, and 8% higher memory access latency, respectively, relative to Colored Refresh. This loss increases to 463%, 347%, and 286% at 64Gb. In contrast, Colored Refresh hides all refresh costs and memory access latencies remain the same irrespective of DRAM densities, i.e., our approach obtain a same performance as Non-refresh.</p><p>Observation 5: Colored Refresh exhibits better performance and higher task predictability than DDR4's FGR.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. RELATED WORK</head><p>We do not reiterate related work discussed in Sect. I due to space limitations here. Several DRAM refresh mechanisms are analyzed, and refresh penalties are quantified in recent work <ref type="bibr" target="#b18">[19]</ref>, <ref type="bibr" target="#b32">[33]</ref>, <ref type="bibr" target="#b33">[34]</ref>, <ref type="bibr" target="#b34">[35]</ref>, <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b35">[36]</ref>. Mukundan et al. <ref type="bibr" target="#b2">[3]</ref> discuss the refresh overhead for DDR4 DRAM with high densities.</p><p>Chang et al. <ref type="bibr" target="#b36">[37]</ref> make hardware changes to the refresh scheduler inside the memory controller/DRAM subarrays. Kotra et al. <ref type="bibr" target="#b37">[38]</ref> use LPDDR-technology for bank-partitioned scheduling without deadlines. Our work focuses on how realtime deadlines can be supported while hiding refresh via hierarchical scheduling in a cyclic executive. Our work focuses on commodity DDR-technology, which is widely used in the embedded field and only supports rank partitions under refresh, but our methodology is equally applicable to LPDDR bankpartitioning (with its added flexibility). Not only LPDDR but also other DRAM technology, e.g., RLDRAM <ref type="bibr" target="#b25">[26]</ref>, makes memory references more predictable but is subject to the same refresh blocking, i.e., our refresh hiding is directly applicable to them as well.</p><p>Bhat et al. <ref type="bibr" target="#b15">[16]</ref> try to make DRAM refresh predictable for real-time embedded system. Instead of hardware auto-refresh, a software-initiated burst refresh is issued at the beginning of every DRAM retention time period. After this refresh burst completes, there is no refresh interference for regular memory accesses during the remainder of DRAM retention time. But the memory remains unavailable during the DRAM retention period, and any stall time due to references to memory under refresh increases rapidly when DRAM density/size grows. Although memory latency is predictable, memory throughput is still lower due to a refresh delay compared to our Colored Refresh.</p><p>Pan et al. <ref type="bibr" target="#b38">[39]</ref> exploit hierarchical scheduling of refresh, lock/unlock, and server tasks at the top level and real-time tasks inside servers subject to memory partitioning (coloring). Their method supports priority scheduling inside a server and requires interrupts from the memory controller when a refresh completes, or from an equivalent timer. In contrast, we focus on cyclic executives and show how refresh cost can be hidden without hardware modifications.</p><p>Selective DRAM Refresh <ref type="bibr" target="#b39">[40]</ref> uses a reference bit per row to record and determine if this row needs to be refreshed, which reduces die space relative to Smart Refresh <ref type="bibr" target="#b11">[12]</ref>. But the performance of Selective DRAM Refresh still heavily depends on the data access pattern. VRL-DRAM <ref type="bibr" target="#b40">[41]</ref> develops a detailed analytical model to estimate the minimum latency of a refresh operation in order to reduce the refresh performance overhead. But it still cannot hide all refresh overhead, and it is implemented inside the memory controller. More importantly, VRL-DRAM cannot provide predictable memory performance by reducing refresh overhead. It is still too pessimistic to predict tight WCETs for real-time systems. Our Colored Refresh is agnostic of data access patterns, and it does not need extra die space while its time overhead is small. Stuecheli et al. <ref type="bibr" target="#b4">[5]</ref> describe Elastic Refresh, which uses predictive mechanisms to decrease the probability of a memory access interfering with a refresh. Elastic Refresh queues refresh commands and schedules them when a DRAM rank is idle. This way, some interferences between memory accesses and refreshes can be avoided. However, as tRFC increases with growing DRAM density, the probability of avoiding interferences decreases. In contrast, our Colored Refresh can hide all refresh delays for regular memory accesses, and its performance is not affected by increasing DRAM density. Hardware solutions have not been adopted by any vendor. Since our mechanism is completely implemented in software (no hardware change required), it is applicable on today's devices. Since our focus is on available hardware platforms, we did not compare to hardware solutions <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b7">[8]</ref>, <ref type="bibr" target="#b8">[9]</ref>, <ref type="bibr" target="#b9">[10]</ref>. Other software solutions (e.g., RAIDR <ref type="bibr" target="#b1">[2]</ref>, Smart Refresh <ref type="bibr" target="#b11">[12]</ref>, RAPID <ref type="bibr" target="#b10">[11]</ref>, et. al.) either heavily rely on specific data access patterns of workloads, or they have high implementation overhead, which makes the problem much worse for real-time system. To the best of our knowledge, our Colored Refresh is the first solution that can hide all refresh overhead for real-time system, i.e., we do not compare to those schemes because worst-case execution times remain just as pessimistic for <ref type="bibr" target="#b1">[2]</ref>, <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b10">[11]</ref> etc. as they cannot hide refresh overhead.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. CONCLUSION</head><p>We analyzed the impact of DRAM refresh delay on the predictability and performance for real-time systems. We proposed Colored Refresh, a novel refresh method to hide DRAM refresh overheads at the software level for cyclic executive scheduling of real-time systems, e.g., in highly critical systems. With Colored Refresh, a memory rank is either accessed by a processor or refreshed by the DRAM controller at any time, but not both. Experimental results confirmed that our approach hides refresh overhead for real-time task execution, thus enhancing their predictability and memory throughput. Compared to previous work, Colored Refresh can be safely implemented without much overhead (less than 1% for task copying and splitting) irrespective of increasing DRAM density/sizes, yet with better memory performance than DDR4 Fine Granularity Refresh.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 .</head><label>1</label><figDesc>Fig. 1. DRAM Bank Architecture</figDesc><graphic coords="2,55.00,451.76,242.21,138.83" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 .</head><label>2</label><figDesc>Fig. 2. DRAM Refresh Strategy</figDesc><graphic coords="3,55.21,418.85,242.21,74.69" type="bitmap" /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_3"><head>1 :</head><label>1</label><figDesc>Input: memTran, task 2: page = ColoredFreeList[task→color] 3: memTran→addr = (memTran→addr &amp;&amp; 0xfff) --(page→addr &amp;&amp; 0xfffff000)</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head></head><label></label><figDesc>5. Non-harmonic Schedule</figDesc><table><row><cell></cell><cell cols="2">Tab. III. Memory Assignment per Task</cell></row><row><cell>T</cell><cell>Occupied frames</cell><cell>available memory ranks (ki)</cell></row><row><cell cols="2">A f1, f2, f3, f4, f5, f6, f7, f8</cell><cell>none</cell></row><row><cell cols="2">B f1, f2, f3, f4, f5, f6, f7, f8</cell><cell>none</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_4"><head></head><label></label><figDesc>Table VI illustrates this by showing the number of memory references suffering from interference by all tasks per DRAM density.</figDesc><table><row><cell>Tab. VI. # Memory Accesses with Refresh Interference</cell></row><row><cell>Density 1Gb 2Gb 4Gb 8Gb 16Gb 32Gb 64Gb</cell></row><row><cell>Number 1243 1586 2128 2351 2524 2565 2644</cell></row><row><cell>Observation 4: Auto-refresh results in high variability of</cell></row><row><cell>memory latencies depending on access patterns and DRAM</cell></row><row><cell>density while Colored Refresh hides this variability.</cell></row></table></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 11,2026 at 23:40:15 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+
+			<div type="acknowledgement">
+<div><head>ACKNOWLEDGMENT</head><p>We would like to thank the anonymous reviewers for their thorough reading and constructive criticism that lead to an improved paper. This work was supported in part by <rs type="funder">NSF</rs> grants <rs type="grantNumber">1813004</rs>, <rs type="grantNumber">1239246</rs>, and <rs type="grantNumber">0958311</rs>.</p></div>
+			</div>
+			<listOrg type="funding">
+				<org type="funding" xml:id="_2gRScHG">
+					<idno type="grant-number">1813004</idno>
+				</org>
+				<org type="funding" xml:id="_p8ngPrJ">
+					<idno type="grant-number">1239246</idno>
+				</org>
+				<org type="funding" xml:id="_KG8Mq3C">
+					<idno type="grant-number">0958311</idno>
+				</org>
+			</listOrg>
+			<div type="annex">
+<div xmlns="http://www.tei-c.org/ns/1.0" />			</div>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<monogr>
+		<title level="m" type="main">DDR3 SDRAM SPECIFICATION</title>
+		<author>
+			<persName><forename type="first">Jedec</forename><surname>Standard</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">RAIDR: Retention-aware intelligent DRAM refresh</title>
+		<author>
+			<persName><forename type="first">Jamie</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ben</forename><surname>Jaiyen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Richard</forename><surname>Veras</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Onur</forename><surname>Mutlu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ISCA</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+			<biblScope unit="page" from="1" to="12" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">Understanding and mitigating refresh overheads in high-density DDR4 DRAM systems</title>
+		<author>
+			<persName><forename type="first">Janani</forename><surname>Mukundan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hillery</forename><surname>Hunter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kyu-Hyoun</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jeffrey</forename><surname>Stuecheli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">José</forename><forename type="middle">F</forename><surname>Martínez</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ISCA</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">A case for refresh pausing in DRAM memory systems</title>
+		<author>
+			<persName><forename type="first">Prashant</forename><surname>Nair</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chia-Chen</forename><surname>Chou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Moinuddin K</forename><surname>Qureshi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">HPCA</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="627" to="638" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<monogr>
+		<title level="m" type="main">Elastic refresh: Techniques to mitigate refresh penalties in high density memory</title>
+		<author>
+			<persName><forename type="first">Jeffrey</forename><surname>Stuecheli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Dimitris</forename><surname>Kaseridis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hillery</forename><forename type="middle">C</forename><surname>Hunter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Lizy K</forename><surname>John</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<publisher>MICRO</publisher>
+			<biblScope unit="page" from="375" to="384" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<monogr>
+		<title level="m" type="main">Mini-rank: Adaptive DRAM architecture for improving memory power efficiency</title>
+		<author>
+			<persName><forename type="first">Hongzhong</forename><surname>Zheng</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jiang</forename><surname>Lin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhao</forename><surname>Zhang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Eugene</forename><surname>Gorbatov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Howard</forename><surname>David</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zhichun</forename><surname>Zhu</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<publisher>MICRO</publisher>
+			<biblScope unit="page" from="210" to="221" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">Improving DRAM performance by parallelizing refreshes with accesses</title>
+		<author>
+			<persName><forename type="first">Kevin Kai-Wei</forename><surname>Chang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Donghyuk</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zeshan</forename><surname>Chishti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chris</forename><surname>Alaa R Alameldeen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yoongu</forename><surname>Wilkerson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Onur</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Mutlu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">HPCA</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="356" to="367" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Dynamic memory design for low data-retention power</title>
+		<author>
+			<persName><forename type="first">Joohee</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Marios</forename><forename type="middle">C</forename><surname>Papaefthymiou</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">PATMOS</title>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">Pret dram controller: Bank privatization for predictability and temporal isolation</title>
+		<author>
+			<persName><forename type="first">Jan</forename><surname>Reineke</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Isaac</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Hiren</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sungjun</forename><surname>Patel</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Edward</forename><forename type="middle">A</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Hardware/Software Codesign and System Synthesis</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Data-aware dram refresh to squeeze the margin of retention time in hybrid memory cube</title>
+		<author>
+			<persName><forename type="first">Yinhe</forename><surname>Han</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ying</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Huawei</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Xiaowei</forename><surname>Li</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Computer-Aided Design</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Retentionaware placement in DRAM (RAPID): Software methods for quasi-nonvolatile DRAM</title>
+		<author>
+			<persName><forename type="first">Stephen</forename><surname>Ravi K Venkatesan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Eric</forename><surname>Herr</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Rotenberg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ISCA</title>
+		<imprint>
+			<date type="published" when="2006">2006</date>
+			<biblScope unit="page" from="155" to="165" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<monogr>
+		<title level="m" type="main">Smart refresh: An enhanced memory controller design for reducing energy in conventional and 3D die-stacked DRAMs</title>
+		<author>
+			<persName><forename type="first">Mrinmoy</forename><surname>Ghosh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hsien-Hsin S</forename><surname>Lee</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<publisher>MICRO</publisher>
+			<biblScope unit="page" from="134" to="145" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">DDR4 SDRAM</title>
+		<author>
+			<persName><forename type="first">Jedec</forename><surname>Standard</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">A comparison of static analysis and evolutionary testing for the verification of timing constraints</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Wegener</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Mueller</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-Time Systems</title>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Impact of dram refresh on the execution time of real-time tasks</title>
+		<author>
+			<persName><forename type="first">Pavel</forename><surname>Atanassov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Peter</forename><surname>Puschner</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Workshop on Application of Reliable Computing and Communication</title>
+		<imprint>
+			<date type="published" when="2001">2001</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<analytic>
+		<title level="a" type="main">Making DRAM refresh predictable</title>
+		<author>
+			<persName><forename type="first">Balasubramanya</forename><surname>Bhat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Frank</forename><surname>Mueller</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="145" to="154" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Characterization of the variable retention time in dynamic random access memory</title>
+		<author>
+			<persName><forename type="first">Heesang</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Byoungchan</forename><surname>Oh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Younghwan</forename><surname>Son</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kyungdo</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Seon-Yong</forename><surname>Cha</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jae-Goan</forename><surname>Jeong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sung-Joo</forename><surname>Hong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hyungcheol</forename><surname>Shin</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Electron Devices</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">The origin of variable retention time in dram</title>
+		<author>
+			<persName><forename type="first">Yuki</forename><surname>Mori</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kiyonori</forename><surname>Ohyu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kensuke</forename><surname>Okonogi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R-I</forename><surname>Yamada</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Electron Devices Meeting</title>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">DRAM refresh mechanisms, penalties, and trade-offs</title>
+		<author>
+			<persName><forename type="first">Ishwar</forename><surname>Bhati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mu-Tien</forename><surname>Chang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zeshan</forename><surname>Chishti</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Shih-Lien</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Bruce</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Jacob</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Computers</title>
+		<imprint>
+			<biblScope unit="volume">65</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="108" to="121" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<monogr>
+		<title level="m" type="main">LPDDR3 SDRAM Specification</title>
+		<author>
+			<persName><forename type="first">Jedec</forename><surname>Standard</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<analytic>
+		<title level="a" type="main">Flexible auto-refresh: enabling scalable and energy-efficient DRAM refresh reductions</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bhati</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Chishti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S.-L</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Jacob</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ISCA</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">The cyclic executive model and ada</title>
+		<author>
+			<persName><forename type="first">P</forename><surname>Theodore</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alan</forename><surname>Baker</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Shaw</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="1988">1988</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Software architecture for hard real-time applications: cyclic executives vs. fixed priority executives</title>
+		<author>
+			<persName><forename type="first">Locke</forename><surname>Douglass</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real-time systems</title>
+		<imprint>
+			<biblScope unit="volume">4</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="37" to="53" />
+			<date type="published" when="1992">1992</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Improving the schedulability of mixed criticality cyclic executives via limited task splitting</title>
+		<author>
+			<persName><forename type="first">Tom</forename><surname>Fleming</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Sanjoy</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Alan</forename><surname>Burns</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Conference on Real-Time Networks and Systems</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="277" to="286" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">Tintmalloc: Reducing memory access divergence via controller-aware coloring</title>
+		<author>
+			<persName><forename type="first">Xing</forename><surname>Pan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yasaswini</forename><surname>Jyothi Gownivaripalli</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Frank</forename><surname>Mueller</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IPDPS</title>
+		<imprint>
+			<biblScope unit="page" from="363" to="372" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">On the off-chip memory latency of real-time systems: Is ddr dram really the best option?</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Hassan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2018-12">Dec 2018</date>
+			<biblScope unit="page" from="495" to="505" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<monogr>
+		<title level="m" type="main">Real-Time Systems</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Liu</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+			<publisher>Prentice Hall</publisher>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<monogr>
+		<title level="m" type="main">Real-time systems</title>
+		<author>
+			<persName><forename type="first">Jane</forename><surname>Liu</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2000">2000</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<monogr>
+		<title level="m" type="main">Evaluating future microprocessors: The simplescalar toolset</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Burger</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Austin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Bennett</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1996-07">July 1996</date>
+		</imprint>
+		<respStmt>
+			<orgName>University of Wisconsin -Madison ; CS Dept.</orgName>
+		</respStmt>
+	</monogr>
+	<note type="report_type">Tech. Rep. CS-TR-96-1308</note>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">Dynamic command scheduling for real-time memory controllers</title>
+		<author>
+			<persName><forename type="first">Yonghui</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Benny</forename><surname>Akesson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Kees</forename><surname>Goossens</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="3" to="14" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">Relaxing dram refresh rate through access pattern scheduling: A case study on stencil-based algorithms</title>
+		<author>
+			<persName><forename type="first">Konstantinos</forename><surname>Tovletoglou</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Dimitrios</forename><forename type="middle">S</forename><surname>Nikolopoulos</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Georgios</forename><surname>Karakonstantis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Symposium on On-Line Testing and Robust System Design</title>
+		<imprint>
+			<date type="published" when="2017">2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">The Mälardalen WCET benchmarks -past, present and future</title>
+		<author>
+			<persName><forename type="first">Jan</forename><surname>Gustafsson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Adam</forename><surname>Betts</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Andreas</forename><surname>Ermedahl</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Björn</forename><surname>Lisper</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">Workshop on Worst-Case Execution Time Analysis</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="137" to="147" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<monogr>
+		<title level="m" type="main">Rethinking refresh: Increasing availability and reducing power in DRAM for cache applications</title>
+		<author>
+			<persName><surname>Philip G Emma</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mesut</forename><surname>William R Reohr</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Meterelliyoz</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2008">2008</date>
+			<publisher>IEEE Micro</publisher>
+			<biblScope unit="page" from="47" to="56" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">An experimental study of data retention behavior in modern DRAM devices: Implications for retention time profiling mechanisms</title>
+		<author>
+			<persName><forename type="first">Jamie</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Ben</forename><surname>Jaiyen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Yoongu</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Chris</forename><surname>Wilkerson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Onur</forename><surname>Mutlu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ISCA</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">A new investigation of data retention time in truly nanoscaled DRAMs</title>
+		<author>
+			<persName><forename type="first">Kinam</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Jooyoung</forename><surname>Lee</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Electron Device Letters</title>
+		<imprint>
+			<biblScope unit="page" from="846" to="848" />
+			<date type="published" when="2009">2009</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">On the retention time distribution of dynamic random access memory (dram)</title>
+		<author>
+			<persName><forename type="first">Takeshi</forename><surname>Hamamoto</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Soichi</forename><surname>Sugiura</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Shizuo</forename><surname>Sawada</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Transactions on Electron devices</title>
+		<imprint>
+			<date type="published" when="1998">1998</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<analytic>
+		<title level="a" type="main">Improving dram performance by parallelizing refreshes with accesses</title>
+		<author>
+			<persName><forename type="first">K</forename><forename type="middle">K</forename><surname>Chang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Lee</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Chishti</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><forename type="middle">R</forename><surname>Alameldeen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Wilkerson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Kim</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">O</forename><surname>Mutlu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">HPCA</title>
+		<imprint>
+			<date type="published" when="2014-02">Feb 2014</date>
+			<biblScope unit="page" from="356" to="367" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Hardware-software co-design to mitigate dram refresh overheads: A case for refresh-aware process scheduling</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Jagadish</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Narges</forename><surname>Kotra</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Zeshan</forename><forename type="middle">A</forename><surname>Shahidi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mahmut</forename><forename type="middle">T</forename><surname>Chishti</surname></persName>
+		</author>
+		<author>
+			<persName><surname>Kandemir</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">SIGPLAN Not</title>
+		<imprint>
+			<biblScope unit="volume">52</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="723" to="736" />
+			<date type="published" when="2017-04">Apr. 2017</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<analytic>
+		<title level="a" type="main">The colored refresh server for dram</title>
+		<author>
+			<persName><forename type="first">Xing</forename><surname>Pan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Frank</forename><surname>Mueller</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">International Symposium on Object-Oriented Real-Time Distributed Computing (ISORC)</title>
+		<imprint>
+			<date type="published" when="2019-05">May 2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">Flikker: saving DRAM refresh-power through critical data partitioning</title>
+		<author>
+			<persName><forename type="first">Song</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Karthik</forename><surname>Pattabiraman</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Thomas</forename><surname>Moscibroda</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Benjamin</forename><forename type="middle">G</forename><surname>Zorn</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ASPLOS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="213" to="224" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<analytic>
+		<title level="a" type="main">Vrl-dram: Improving dram performance via variable refresh latency</title>
+		<author>
+			<persName><forename type="first">Anup</forename><surname>Das</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Hasan</forename><surname>Hassan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Mutlu</forename><surname>Onur</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">DAC</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>

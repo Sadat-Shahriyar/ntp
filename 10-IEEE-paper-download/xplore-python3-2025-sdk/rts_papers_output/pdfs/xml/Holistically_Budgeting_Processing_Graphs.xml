@@ -1,0 +1,1105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xml:space="preserve" xmlns="http://www.tei-c.org/ns/1.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://www.tei-c.org/ns/1.0 https://raw.githubusercontent.com/kermitt2/grobid/master/grobid-home/schemas/xsd/Grobid.xsd"
+ xmlns:xlink="http://www.w3.org/1999/xlink">
+	<teiHeader xml:lang="en">
+		<fileDesc>
+			<titleStmt>
+				<title level="a" type="main">Holistically Budgeting Processing Graphs</title>
+			</titleStmt>
+			<publicationStmt>
+				<publisher/>
+				<availability status="unknown"><licence/></availability>
+			</publicationStmt>
+			<sourceDesc>
+				<biblStruct>
+					<analytic>
+						<author>
+							<persName><forename type="first">Zelin</forename><surname>Tong</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">Shareef</forename><surname>Ahmed</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<author>
+							<persName><forename type="first">James</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+							<affiliation key="aff0">
+								<orgName type="department">Department of Computer Science</orgName>
+								<orgName type="institution">University of North Carolina at Chapel Hill</orgName>
+							</affiliation>
+						</author>
+						<title level="a" type="main">Holistically Budgeting Processing Graphs</title>
+					</analytic>
+					<monogr>
+						<imprint>
+							<date/>
+						</imprint>
+					</monogr>
+					<idno type="MD5">1F5386173F96B141F8D8CB070F314F16</idno>
+					<idno type="DOI">10.1109/RTSS59052.2023.00013</idno>
+				</biblStruct>
+			</sourceDesc>
+		</fileDesc>
+		<encodingDesc>
+			<appInfo>
+				<application version="0.8.0" ident="GROBID" when="2026-02-16T00:08+0000">
+					<desc>GROBID - A machine learning software for extracting information from scholarly documents</desc>
+					<ref target="https://github.com/kermitt2/grobid"/>
+				</application>
+			</appInfo>
+		</encodingDesc>
+		<profileDesc>
+			<abstract>
+<div xmlns="http://www.tei-c.org/ns/1.0"><p>To certify the schedulability of a system, valid pertask worst-case execution-time (WCET) estimates are almost always required. Unfortunately, on multicore machines, deriving WCET estimates through static analysis that is not highly pessimistic may never be a practical reality. The alternative is to determine WCETs via a measurement process, but such a process cannot correctly produce accurate WCET estimates with certainty. This lack of certainty necessitates the use of overrunhandling mechanisms, such as budget-enforcement techniques, to preserve temporal correctness at runtime. In many systems of interest today, tasks are interconnected to form processing graphs, which can be quite large. The simplest (and perhaps most common) approach to budget enforcement in this case is to abort an entire graph invocation whenever any node (task) overruns its budget. However, such an approach can result in a high abort rate at the graph level even when the per-node abort rate is low. To remedy this situation, this paper presents a holistic budget-management strategy for directed acyclic graphs (DAGs) that involves reallocating per-node budgets to overrunning nodes to avoid DAG-level aborts. To enable the effects of aborts to be studied analytically, a probabilistic analysis is presented to derive a DAG's abort rate under the proposed budget-management strategy. Experimental results are also presented to demonstrate the utility of budgeting graphs holistically.</p><p>27 2023 IEEE Real-Time Systems Symposium (RTSS)    </p></div>
+			</abstract>
+		</profileDesc>
+	</teiHeader>
+	<text xml:lang="en">
+		<body>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>I. INTRODUCTION</head><p>Today, artificial-intelligence (AI) techniques are fueling the realization of ever more sophisticated embedded systems, with autonomous vehicles being a prime example. These techniques typically involve executing tasks with dataflow dependencies as expressed in the form of a processing graph. These graphs can be large and computationally demanding, necessitating the use of a multicore machine. In a safety-critical context such as an autonomous vehicle, these graph-based workloads must pass real-time safety certification, which entails performing both timing analysis and schedulability analysis. The goal of timing analysis is to produce worst-case execution times (WCETs) of executable code; schedulability analysis in turn validates timing constraints, assuming WCETs are provided.</p><p>Multicore timing-analysis dilemma. Unfortunately, in the context of multicore machines, the coupling of timing analysis and schedulability analysis creates a dilemma <ref type="bibr" target="#b37">[38]</ref>. Due to the highly complex nature of multicore machines, there is consensus today that static timing analysis, which computes the WCET of a program by analyzing its code structure, may never be a practical solution for such machines <ref type="bibr" target="#b41">[42]</ref>. The alternative is measurement-based timing analysis, which may Work was supported by NSF grants CPS 1837337, CPS 2038855, CPS 2038960, and CNS 2151829, ARO grant W911NF-20-1-0237, and ONR grant N00014-20-1-2698. not capture the true WCET of a program. Thus, the WCET values that schedulability analysis relies upon can never be assumed to be correct with certainty.</p><p>Mitigating this dilemma by budget enforcement. A system's timing correctness may be violated at runtime if the WCETs assumed in schedulability analysis are overrun. A common approach to addressing this problem is by enforcing per-task execution budgets: each task is assigned a budget based on its WCET, and if an invocation of that task (i.e., one of its jobs) overruns said budget, it is aborted.</p><p>The need to budget graphs holistically. When tasks are embedded as nodes in a processing graph, an entire graph invocation typically becomes logically incorrect when one of its node invocations is aborted, so the entire graph invocation should be aborted in such a case. However, such an approach can cause the effects of node WCET overruns to be greatly magnified. For example, a node failure rate of only 0.1% can be magnified to a graph failure rate of 36.8% (assuming IID probabilities) for a graph with 1,000 nodes <ref type="bibr" target="#b1">[2]</ref>-in AI-based use cases, graphs of this size are a definite possibility. These observations motivate the need for more holistic ways of budgeting graphs that are more flexible, particularly in these new use cases. This need has been highlighted by other researchers in the context of ROS-based robotic systems <ref type="bibr" target="#b7">[8]</ref> and component-based accelerator-using systems <ref type="bibr" target="#b1">[2]</ref>. In this paper, we consider this need in the context of budgeting computations expressed as directed acyclic graphs (DAGs).</p><p>Avoiding node-invocation aborts. The frequency of DAGlevel aborts can be reduced by adopting a holistic budgetmanagement strategy that allows budget-reallocation within a DAG. Using such a strategy, an overrunning node invocation can be executed longer by consuming budgets of one or more invocations of "downstream" nodes. However, this approach is subject to nuances due to data dependencies. For example, consider the DAG shown in Fig. <ref type="figure" target="#fig_0">1</ref>(a) and a schedule of the DAG in Fig. <ref type="figure" target="#fig_0">1(b)</ref>. Task τ 1 's invocation in Fig. <ref type="figure" target="#fig_0">1</ref>(b) overruns its budget at time 2. It is allowed to execute during the time interval <ref type="bibr" target="#b1">[2,</ref><ref type="bibr" target="#b2">3)</ref> using the budget of task τ 2 's invocation, which causes an additional delay in task τ 3 's invocation too. Thus, reallocating budgets within a DAG requires carefully sifting through the various reallocation possibilities that exist and their concomitant data-dependency side effects.</p><p>Contributions. In this paper, we provide a foundation for graph-level budgeting through three contributions.</p><p>First, we propose a holistic budget-management policy for DAG tasks that includes budget-and slack-reallocation within a DAG. Our budget-reallocation technique allows an overrunning node invocation to execute on invocations of "downstream" nodes. Moreover, our slack-reallocation method reduces the likelihood of overruns by allowing the slack produced by an underrunning node invocation to be consumed by other node invocations. We also detail the case when aborting an entire DAG invocation is inevitable to prevent runtime violations of timing guarantees. Our proposed budgetmanagement policy is agnostic to the DAG scheduling strategy.</p><p>Second, we provide an analysis to upper bound the probability of DAG aborts when our budget-management policy is used. Our analysis probabilistically quantifies an overrunning node invocation's impact on other nodes. Moreover, our analysis handles complicated dependencies that may arise from precedence constraints in the presence of budget overruns.</p><p>Third, we present results from experimental evaluations that demonstrate the improvement of the DAG abort rate compared to the naïve approach of aborting an entire DAG invocation when a node overrun occurs. Our experiments show that a DAG's abort rate can be improved significantly by adopting our proposed budget-management strategy.</p><p>Organization. In the rest of this paper, we provide necessary background information (Sec. II), present budgeting mechanisms for DAGs and corresponding drop-rate analysis (Secs. III and IV), present our experimental results (Sec. V), review related work (Sec. VI), and conclude (Sec. VII).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>II. BACKGROUND</head><p>We consider a task system Γ consisting of N DAG tasks scheduled on m identical processors.</p><p>Each DAG task G ∈ Γ is characterized by (V, E), where V is a set of n nodes representing n tasks τ 1 , τ 2 , . . . , τ n , and E is a set of directed edges. (We use the terms "task" and "node" interchangeably.) An edge from τ i to τ k specifies a precedence constraint between the predecessor task τ i and successor task τ k . The set of predecessors (resp., successors) of τ i is denoted by pred(τ i ) (resp., succ(τ i )). If a path exists from τ i to τ k , then τ i (resp., τ k ) is called an ancestor (resp., descendant) of τ k (resp., τ i ). The set of ancestors of τ i is denoted as anc(τ i ). We assume that τ 1 (resp., τ n ) is a unique source (resp., sink) task for the DAG G with no incoming (resp., outgoing) edges. Multiple sources/sinks can be supported by adding "virtual" sources/sinks with a WCET of zero.</p><p>Each task τ i releases a sequence of jobs J i,1 , J i,2 , . . .. The source task τ 1 releases jobs sporadically, i.e., its releases have   a minimum separation given by G's period, denoted by T . The j th job of a non-source task τ i is released once the j th jobs of all of its predecessors have completed execution. The release time (resp. finish time) of J i,j is denoted by r i,j (resp.,</p><formula xml:id="formula_0">Γ Task system r i,j Release time of J i,j G A DAG task f i,j Finish time of J i,j n No. of nodes in G S i Reservation server of τ i V Set of nodes in G S i,j j th job of S i E Set of edges in G pred(τ i ) Set of predecessors of τ i τ i i th task of G succ(τ i ) Set of successors of τ i J i,j j th job of τ i anc(τ i ) Set of ancestor of τ i T Period of G dep(J i,i ) Set of</formula><formula xml:id="formula_1">f i,j ). The response time of G is max j {f n,j -r 1,j }.</formula><p>Task τ i has an execution budget of C i , which equals its estimated WCET, and a probabilistic WCET (pWCET) <ref type="bibr" target="#b8">[9]</ref> e i , which is a discrete random variable (RV) representing the actual execution times of its jobs. Each task τ i is also given a relative deadline D i . We do not require deadlines to be hard, i.e., deadline misses are acceptable. We assume time to be discrete and a unit of time to be 1.0. Tbl. I summarizes our notation.</p><p>Intra-task parallelism. We allow consecutive jobs of the same task to execute in parallel. Allowing such intra-task parallelism may decrease analytically derived response-time bounds <ref type="bibr" target="#b14">[15]</ref>. Moreover, intra-task parallelism enables task utilizations, i.e., C i /T , to exceed 1.0. Thus, since a job of a task does not depend on prior jobs of the same task, dependencies among jobs of different tasks can be defined as follows.</p><p>Def. 1. A job J i,j depends on job J k,j if τ k ∈ anc(τ i ) holds. We let dep(J i,j ) denote the set of jobs on which J i,j depends.</p><p>Ex. 1. Assume that G in Fig. <ref type="figure" target="#fig_0">1(a</ref>) is scheduled on m = 3 processors. Fig. <ref type="figure" target="#fig_1">2</ref> depicts a possible schedule of jobs J 2,10 , J 2,11 , and J 2,12 , which come from three successive invocations of G. None of the three jobs executes before time <ref type="bibr" target="#b41">42</ref>. Assume that all jobs with higher priority than these three jobs complete execution before time 42. Since intra-task parallelism is allowed, all three jobs are scheduled at time 42. Note that intra-task parallelism is common in AI applications. For example, G here might be a computer-vision objection-detection application that can process successive video frames simultaneously.</p><p>Working with probabilities. A discrete RV X can take on an integer value x with probability P (X = x). X is characterized by a probability distribution function (PDF), f X , where f X (x) = P (X = x). The cumulative distribution function (CDF) of X, denoted as F X , is defined as</p><formula xml:id="formula_2">F X (x) = x i=-∞ f X (i)</formula><p>and is equal to P (X ≤ x). The CDF's compliment, the complementary CDF (CCDF) of X, denoted as F X , is defined as F X (x) = 1 -F X (x) and is equal to P (X &gt; x).</p><p>Given two RVs X 1 and X 2 , P (X 1 &gt; x 1 , X 2 &gt; x 2 ) denotes the probability of X 1 &gt; x 1 and X 2 &gt; x 2 and the joint PDF of X 1 and X 2 is given by f X1,X2 (x 1 , x 2 ) = P (X 1 = x 1 , X 2 = x 2 ) for any values x 1 and x 2 . Also, P (</p><formula xml:id="formula_3">X 1 &gt; x 1 | X 2 = x 2 ) denotes the probability of X 1 &gt; x 1 given X 2 = x 2 .</formula><p>Comparison between RVs. There exist multiple ways in which RVs can be ordered. For RVs X and Y , X is statewise at least Y , denoted as X ≥ 0 Y , when the observed value of X is at least the observed value of Y . Alternatively, X is first-degree at least Y , denoted as X ≥ 1 Y , when P (X &gt; x) ≥ P (Y &gt; x) for all values of x. It is known that the former implies the latter <ref type="bibr" target="#b36">[37]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>III. BUDGETING DAG-BASED TASK SYSTEM</head><p>In this section, we propose several budget-management policies for DAG tasks. We begin by defining per-node reservation servers that act as containers within which jobs execute.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Reservation of a Task</head><p>Consider a DAG task G ∈ Γ. For each node τ i , we define a reservation server S i with budget C i and relative deadline D i . Each server releases server jobs. We denote the j th server job of S i by S i,j , which corresponds to job J i,j . We call the server job S i,j the reservation of job J i,j . The release of server job S i,j is governed by the following rule.</p><p>Release Rule. S 1,j is released when J 1,j is released. For i = 1, S i,j is released after every S k,j completes where τ k ∈ pred(τ i ). The exact release time of a server job S i,j corresponding to a non-source node τ i depends on the corresponding server scheduling policy. However, J i,j is released as soon as the j th jobs of all predecessor nodes of τ i complete. This allows us to (potentially) execute J i,j on the slack (if any) produced by the jobs of predecessor nodes (as discussed in Sec. IV-A).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Def. 2. A server job S i,j depends on server job</head><formula xml:id="formula_4">S k,j if τ k ∈ anc(τ i ) holds.</formula><p>We do not require any particular scheduling policy to be used to schedule the per-node reservations, only that the scheduler gives bounded response times and allows for the preemption of DAG nodes. However, for the sake of illustration, we henceforth assume server jobs are scheduled by a global-earliest-deadline-first (G-EDF) scheduler. The budget of a server job is managed by the following rules.</p><p>Replenishment Rule. The budget of S i,j is replenished to C i when it is released. Consumption Rule. S i,j consumes one unit of budget per unit of time when it is scheduled. </p><formula xml:id="formula_5">S 1,2 S 1,1 J 1,1 J 1,2 S 2,1 S 2,2 J 2,1</formula><p>budget Fig. <ref type="figure">3</ref>: Illustration of a schedule with reservations.</p><p>A server job completes when its budget is exhausted. A job J i,j executes on its reservation S i,j . If J i,j completes execution before S i,j 's budget is exhausted, then J i,j underruns its budget. In contrast, J i,j overruns its budget if it does not complete execution at or before S i,j 's budget is exhausted.</p><p>Ex. 1 (Cont'd). Fig. <ref type="figure">3</ref> shows a schedule of τ 1 and τ 2 from the DAG G in Fig. <ref type="figure" target="#fig_0">1(a)</ref>. At time 0, J 1,1 is released. Assume that C 1 = 3. Then, at time 0, the server S 1,1 is also released and its budget is replenished at 3.0 units. S 1,1 is scheduled at time 1 and consumes budget until time 4 when its budget is exhausted. J 1,1 starts execution at time 1 when S 1,1 begins and completes at time 3. Thus, J 1,1 underruns its budget. Since τ 2 's only predecessor is τ 1 , J 2,1 is released at time 3. S 2,1 is released at time 4 when S 1,1 completes. Job J 1,2 overruns as it does not complete by time 10 when S 1,2 exhausts its budget.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Dealing with Budget Overruns</head><p>A job J i,j can no longer execute on its reservation after it overruns. Thus, any job J k, that depends on J i,j is prevented from executing even though its reservation is scheduled. To allow J i,j to execute on J k, 's reservation, we give rules below to allocate jobs to servers.</p><p>Def. 3. Job J i,j is complete (resp., incomplete) at time t if it has (resp., has not) completed execution at or before t. Job J 1,j of source task τ 1 is ready (resp., not ready) at time t if it is incomplete and J 1,j is released at or before (resp., after) time t. Job J i,j of a non-source task τ i is ready (resp., not ready) at time t if it is incomplete and each job (resp., at least one job) J k, on which J i,j depends is complete (resp., incomplete) at time t. Job allocation rules. Let S i,j be a server job scheduled at time t and J (t) be the set of overrunning ready jobs at time t. Jobs are executed on S i,j via the following rules. B1 If J i,j is ready at time t, then J i,j is scheduled on S i,j . B2 If J i,j is not ready at t, then, by Def. 3, there is at least one incomplete job J k, ∈ dep(J i,j ) at t. Let J i,j (t) be the set of ready jobs J k, in dep(J i,j ) at t. B2.1 If an unscheduled job in J i,j (t) exists at time t, then select such a job J k, ∈ J i,j (t) to execute on S i,j . B2.2 Else, if an unscheduled job in J (t) exists at time t, then select such a job J k, ∈ J (t) to execute on S i,j .  Concurrency. Rules B2.1 and B2.2 can be applied simultaneously at time t when multiple server jobs are scheduled concurrently. If the rules are not applied atomically, then different server jobs may select the same job to schedule. This can occur when a server job selects some job J k, using Rule B2.1, and before J k, is scheduled, another server job also selects J k, . We can prevent this race condition by marking a job as scheduled as soon as it is selected by Rules B2.1 and B2.2 with a single atomic operation. In a practical implementation, this can be done through a mutual exclusion lock, or through an operation such as test-and-set.</p><formula xml:id="formula_6">J2,1 J2,1 S3,1 S2,1 J3,1 J3,1 S4,1 S5,1 τ3 τ5 τ2 5 10 Time S3 J2,1 S3,1 J3,1 J5,1<label>(c)</label></formula><p>Ex. 2. Fig. <ref type="figure" target="#fig_4">4</ref>(a) shows a DAG G and Fig. <ref type="figure" target="#fig_4">4</ref>(b) shows a schedule of tasks τ 2 , τ 3 , τ 4 , and τ 5 of G. Assume that J 1,1 completes execution at or before time 5. At time 5, server jobs S 2,1 and S 3,1 are scheduled. By Rule B1, J 2,1 and J 3,1 are scheduled on S 2,1 and S 3,1 , respectively, at time 5. Jobs J 2,1 and J 3,1 overrun their budgets at times 8 and 9, respectively. At time 9, S 4,1 and S 5,1 are released, and they are scheduled at time 11. Both J 4,1 and J 5,1 are not ready at time 11. J 2,1 and J 3,1 form J 5,1 <ref type="bibr" target="#b10">(11)</ref> and only J 2,1 form J 4,1 <ref type="bibr" target="#b10">(11)</ref> at time 11. Assume that J 2,1 is first selected to execute on S 5,1 at time 11 by Rule B2.1. Because J 2,1 is marked as scheduled as soon as it is selected by S 5,1 , there are no remaining unscheduled jobs in J 4,1 <ref type="bibr" target="#b10">(11)</ref>. S 4,1 then executes the remaining overrunning job J 3,1 by Rule B2.2.</p><p>Based on Rules B1-B2.2, we have the following lemmas, which we use in Sec. IV.</p><formula xml:id="formula_7">Lemma 1. If S i,j is scheduled at time t, but J i,j is not ready at time t, then a job J k,j ∈ dep(J i,j ) is ready at time t.</formula><p>Proof. We first show that i = 1. Assume i = 1. By the Release Rule, S 1,j is not scheduled before J 1,j 's release. By Def. 3, J 1,j is ready at or after its release until its completion. Thus, J 1,j is either ready or complete at time t, implying i = 1. Now, since J i,j is not ready at time t and i = 1, by Def. 3, a job in dep(J i,j ) is incomplete at time t. Let J k,j ∈ dep(J i,j ) be an incomplete job with the maximum number of nodes in the path from τ k to τ i . If k = 1 holds, then by the Release Rule, both S k,j and J k,j are released before time t. Thus, by Def. 3, J k,j is ready at time t. Otherwise, if k &gt; 1, then since the number of nodes in the path from τ k to τ i is maximal, any job J ,j with τ ∈ anc(τ k ) is complete at time t. Thus, by Def. 3, J k,j is ready at time t. Lemma 2. If S i,j is scheduled at time t, but J i,j is not ready at time t, then a job J k,j ∈ dep(J i,j ) is scheduled at time t.</p><p>Proof. By Lem. 1, there is a job J k,j ∈ dep(J i,j ) that is ready at time t. By Rules B2.1 and B2.2, some such job J k,j is scheduled on either S i,j or some other server job.</p><p>Progress and job selection policies. Using Rule B2.1, jobs in J i,j (t) (upon which J i,j depends) are deliberately given priority to execute on S i,j over jobs in J (t) \ J i,j (t). This ensures that a job J i,j waiting on jobs in dep(J i,j ) is making progress towards its completion. Also, as discussed later in Sec. IV, to analytically account for the worst-case scenario, J i,j must pessimistically assume that only its reservation S i,j can allow J i,j to make progress. As a result, the method to select incomplete jobs from J i,j (t) and J (t) in Rules B2.1 and B2.2, respectively, only affects average-case performance and does not impact analytical DAG failure-rate bounds.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Slack Reallocation</head><p>By the job allocation rules above, a server job S i,j does not execute any job after J i,j completes execution, i.e., the slack produced by an underrunning job is not used. Reclaiming such slack helps to avoid overruns by other jobs. We now propose slack-reallocation policies to utilize unused slack.</p><p>To take advantage of slack reallocation in our drop-rate analysis, we prioritize jobs of successor nodes when an underruning job's slack is reallocated. For each node τ i , we select a node τ k ∈ succ(τ i ) as a preferred successor, denoted as pref (τ i ). pref (τ i ) is determined offline, as discussed later. We define a preferred successor chain of τ i as follows.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Def. 4. (Preferred Successor Chain.) The preferred successor chain pchain(τ</head><formula xml:id="formula_8">i ) of τ i is a sequence of tasks (v 1 , v 2 , • • • , v k ) such that v 1 = τ i and for any 1 ≤ j &lt; k, v j+1 = pref (v j ).</formula><p>Slack reallocation rules. Let S i,j be a server job scheduled at time t and suppose J i,j is complete at time t. Let J (t) denote the set of overrunning jobs that are not complete at time t and J r (t) be the set of ready jobs at time t. Jobs are executed on S i,j according to the following rules. H1 If there is a ready but not scheduled job J k, such that τ k ∈ pchain(τ i ), then execute J k, in S i,j . H2 Otherwise, select a job (if any) via the following rules.</p><p>H2.1 If an unscheduled job in J (t) exists at time t, then select such a job J k, ∈ J (t) to execute on S i,j . H2.2 Else, if an unscheduled job in J r (t) exists at time t, then select such a job J k, ∈ J r (t) to execute on S i,j . Similar to Rules B2.1 and B2.2, when a job is selected by rules H2.1 and H2.2, it is immediately marked as scheduled to prevent a possible race condition.</p><p>Ex. 2 (Cont'd). Fig. <ref type="figure" target="#fig_4">4</ref>(c) shows a schedule of τ 2 , τ 3 , and τ 5 of G in Fig. <ref type="figure" target="#fig_4">4(a)</ref>. At time 7, J 3,1 completes execution and produces 2.0 units of slack. Since both J 2,1 and J 3,1 are complete at time 7, J 4,1 and J 5,1 are released at time 7. Assume that τ 5 and τ 6 are preferred successors of τ 3 and Algorithm 1 Procedure for assigning preferred successors.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Variables:</head><p>O : An indexing policy 1: procedure PREFSUCC(G, O)</p><formula xml:id="formula_9">2:</formula><p>Index nodes of G according to policy O 3:</p><formula xml:id="formula_10">for i ∈ {1, 2, • • • , n} do 4:</formula><p>for τj ∈ pred(τi) do pref (τj) := τi τ 5 , respectively. Therefore, pchain(τ 3 ) = (τ 5 , τ 6 ). Since J 5,1 is ready at time 7, it is executed on S 3,1 at time 7 by Rule H1.</p><p>Determining preferred successors. Unlike the job selection policy of Rules B2.1 and B2.2, the method of determining a node's preferred successor allows us to guarantee the progress of certain jobs in the system, thereby improving a DAG's analytical drop rate. To set each node's preferred successor, we use the method PREFSUCC in Alg. 1. PREFSUCC first indexes the nodes according to a specified policy (line 2). We consider three node-indexing policies: (i) random, (ii) minimum indegree first, and (iii) maximum outdegree first. Intuitively, minimum degree first attempts to minimize the number of nodes sharing a preferred successor, better balancing the distribution of slack. In contrast, maximum outdegree first prioritizes nodes in the congested parts of a DAG. After indexing, PREFSUCC iteratively considers a task τ i and assigns τ i as the preferred successor of all its predecessor nodes that do not have any preferred successor yet (lines 3-6).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Aborting a DAG Invocation</head><p>Even with budget-and slack-reallocation, DAG invocations may need to be aborted to maintain schedulability. We abort a DAG invocation if its sink node's reservation budget is exhausted but the DAG invocation has incomplete jobs.</p><p>Let R be a response-time bound of G under any scheduling algorithm A. By the Release Rule, when scheduled by A, the difference between S n,j 's completion and S 1,j 's release is at most R time units. Thus, response times of non-aborted invocations of G are entirely dependent on the response-time bound of the reservation scheduler.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>IV. DROP-RATE ANALYSIS</head><p>In this section, we analyze the probability that any invocation of a DAG of interest G is dropped. Note that Rules B1-B2.2 and H1-H2.2 only pertain to a single DAG, and by assumption, the employed scheduler ensures bounded DAG response times at the server level. Thus, a given DAG's drop rate does not depend on the scheduling, budgeting, or drop rate of any other DAG. In our analysis, we assume the following.</p><p>A1. The per-node pWCETs e k in G are mutually independent. DAG abort condition. As stated previously, when some job J n,j of the sink node τ n overruns its budget, the j th DAG invocation is aborted. Unfortunately, the exact conditions under which J n,j overruns are complicated by the fact that overrunning jobs can delay the execution of other jobs. Ex. 3. Consider the DAG G in Fig. <ref type="figure" target="#fig_5">5</ref>, which executes on m = 2 processors. At times 9 and 10, J 2,1 and J In Ex. 3, despite the execution time of J 4,1 , e 4 = 3, being smaller than the server budget, C 4 = 4, J 4,1 cannot complete by time 14 when S 4,1 exhausts its budget, triggering a DAG abort. This is because when S 4,1 is first scheduled, J 4,1 and two jobs on which J 4,1 depends, J 2,1 and J 3,1 , have a total remaining execution time of 5.0 units. This value, which we call the demand of τ 4 , exceeds C 4 , so J 4,1 overruns its budget.</p><p>Def. 5. (Demand.) The demand of a node τ k is represented by the nonnegative RV β k . On DAG G's j th invocation, β k equals the total remaining execution time of all jobs in dep(J k,j ) ∪ {J k,j } when S k,j is first scheduled.</p><p>As seen in Ex. 3, when β n &gt; C n holds for the sink node τ n , S n,j does not have sufficient budget to complete all jobs in dep(J n,j ) ∪ {J n,j }. Thus, J n,j overruns only when β n &gt; C n holds, making P (β n &gt; C n ) an upper bound on the probability of aborting an invocation of G.</p><p>Upper-bounding demand. Unfortunately, it may be difficult to obtain the exact demand of a node. Thus, for each node τ k , we want to find a RV</p><formula xml:id="formula_11">β + k such that β + k ≥ 0 β k . Recall that β + k ≥ 0 β k implies β + k ≥ 1 β k , thus computing P (β + n &gt; C n ) will allow us to upper-bound P (β n &gt; C n ), or the probability of aborting G.</formula><p>Base case. We begin finding the PDF of β + n by analyzing the PDF of β + 1 for the source node τ 1 . Unlike other nodes in G, the source node has no predecessors. Therefore dep(J 1,j ) ∪ {J 1,j } = {J 1,j }. By Def. 5, we obtain β 1 = e 1 . This leads to Observation 1. For the source node τ 1 ,</p><formula xml:id="formula_12">β + 1 = e 1 satisfies β + 1 ≥ 0 β 1 .</formula><p>Using Obs. 1 as the base case, we proceed to compute β + k for each node τ k by structurally inducting through the graph.</p><p>First, in Sec. IV-A, we consider the effect of slack reallocation on β + k . Second, in Sec. IV-B, we consider the effect of overrun management on β + k . Third, in Sec. IV-C, we combine the effect of slack reallocation and overrun management and give a method to compute an upper bound on the DAG drop rate. Finally, in Sec. IV-D, we give a more practical alternative method for computing such an upper bound.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>A. Accounting for Slack Reallocation</head><p>In this subsection, we examine how slack reallocation affects the relation between the demand of a node τ k and the demand of its predecessor nodes. To quantify this relationship, we first define the "slack" of a node.</p><p>Def. 6. (Slack.) Node τ i 's slack is given by the nonnegative RV q i . On any j th invocation of DAG G, the observed value of q i is equal to the remaining budget of S i,j when J i,j completes.</p><p>Intuitively, the slack of a node τ i indicates "how much" jobs of τ i underrun its budget. Thus, computing a lower bound of q i allows us to upper-bound how much slack reallocation can lower the demand of successor nodes of τ i . In the following lemma, we lower-bound q i by a function of τ i 's demand β + i . Lemma 3. For each node τ i , q i ≥ 0 max(0, C iβ + i ). Proof. Let t 0 be the time when a server job S i,j is first scheduled, and let t 1 be the later of t 0 and the time when J i,j completes. According to Def. 6, this lemma states that at t 1 , the remaining budget of S i,j is at least max(0, C iβ + i ). Assume to the contrary that (A) this remaining budget is less than max(0, C iβ + i ) at t 1 . We consider two cases. Case 1. β + i &gt; C i . Asm. (A) implies that at t 1 , S i,j 's remaining budget is less than max(0, C iβ + i ) = 0. However, budgets are always non-negative. Contradiction.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Case 2. β +</head><p>i ≤ C i . By Asm. (A), at t 1 , S i,j 's remaining budget is less than C iβ + i ≥ 0. According to the Replenishment Rule, the remaining budget of S i,j is C i at t 0 . Thus, by the Consumption Rule, S i,j is scheduled for more than β + i time units between t 0 and t 1 . By Def. 5, the total remaining execution time of jobs in dep(J i,j )∪{J i,j } at t 0 is β i , which is statewise at most β + i . Thus, there must exist some time t ∈ [t 0 , t 1 ) when S i,j is scheduled, but a job in dep(J i,j ) ∪ {J i,j } is not. However, if J i,j is not ready at t, some job in dep(J i,j ) must be scheduled due to Lem. 2, and if J i,j is ready at t, then J i,j must be scheduled due to Rule B1. Contradiction.</p><p>When a node τ i has positive slack, some of this slack can be used to schedule jobs of its preferred successor node τ k via Rule H1. Consider the example below, illustrated by Fig. <ref type="figure" target="#fig_7">6</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Ex. 4. Nodes of a DAG G are scheduled on two processors.</head><p>In G, τ 5 is assigned as the preferred successor of both τ 2 and τ 3 by PREFSUCC. J 2,1 (resp., J 3,1 ) has 2.0 (resp., 1.0) units of slack. At time 10, both J 2,1 and J 3,1 are complete. Thus, J 5,1 is ready at time 10. Since τ 5 = pref (τ 2 ) = pref (τ 3 ), S 3,1 uses Rule H1 to schedule J 5,1 from time 10 to time 11.</p><p>In Ex. 4, we see that despite q 2 = 2, due to the later completion time of J 3,1 , J 5,1 is only able to be scheduled by Rule H1 for the minimum of the two slacks q 2 and q 3 . Thus, β 5 = e 5q 3 = 3 -1 = 2. In contrast, J 4,1 , whose node τ 4 is not the preferred successor of τ 2 and τ 3 , cannot be scheduled by Rule H2.1 due to the presence of J 5,1 . From this example, we see that only the preferred successor is guaranteed to be scheduled during the slack of a node. Furthermore, because our method is scheduler agnostic, we must account for the worst case where only the smallest slack of the predecessor nodes of a preferred successor node τ k may be usable in decreasing its demand. This discussion leads us to the following definition.</p><formula xml:id="formula_13">Def. 7. (Usable Slack.) RV Ψ k denotes the usable slack of τ k . If τ k is the preferred successor of each τ i ∈ pred(τ k ), then Ψ k =min({max(0, C i -β + i )|τ i ∈ pred(τ k )}). Otherwise, Ψ k =0. Using Def. 7, we proceed to upper-bound β k using a function of β + i of each predecessor node τ i of τ k . Lemma 4. If Ψ k &gt; 0, then β k ≤ 0 e k -min(e k , Ψ k ).</formula><p>Proof. Suppose job J ,j completed the latest among pred(J k,j ). Let t 0 be the time J ,j completes, and let t 1 be the time S ,j completes. Since J ,j completes at t 0 , by Def. 1, all jobs in dep(J k,j ) complete by time t 0 . Claim 1. S ,j has at least Ψ k &gt; 0 time units of remaining budget at t 0 .</p><p>Proof. By Def. 7, Ψ k is state-wise at most max(0, Cβ + ). Thus, given Ψ k &gt; 0, we have max(0, C -β + ) ≥ 0 Ψ k &gt; 0, so by Lem. 3, q ≥ 0 Ψ k . Hence, the claim is true by Def. 6. By Clm. 1, S ,j has positive budget remaining at t 0 . Thus, by the definition of t 1 , t 1 ≥ t 0 . Claim 2. J k,j is scheduled for at least min(e k , Ψ k ) time units in [t 0 , t 1 ).</p><p>Proof. All jobs in dep(J k,j ) are complete at t 0 , so J k,j is ready during [t 0 , t 1 ) unless it completes. By Clm. 1 and the Consumption Rule, S ,j must be scheduled for at least Ψ k time units during [t 0 , t 1 ) to exhaust its budget at t 1 , so by Rule H1, J k,j is scheduled for at least min(e k , Ψ k ) time units during [t 0 , t 1 ).</p><p>Using the above two claims, all jobs in dep(J k,j ) are complete, and J k,j has already executed for at least min(e k , Ψ k ) time units by t 1 . Because of the Release Rule, S k,j can only be scheduled after t 1 , resulting in the total remaining execution time of jobs in dep(J k,j ) ∪ {J k,j } being at most e k -min(e k , Ψ k ). By Def. 5,</p><formula xml:id="formula_14">β k ≤ 0 e k -min(e k , Ψ k ) By Lem. 4, β + k = e k -min(e k , Ψ k ) is a valid assignment for β + k that satisfies β + k ≥ 0 β k .</formula></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>This assignment establishes a relation between β +</head><p>k and β + i for τ i ∈ pred(τ k ) that accounts for slack reallocation.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>B. Accounting for Overruns</head><p>In this subsection, we examine how job overruns affect the relation between the demand of a node τ k and the demand of the predecessor nodes of τ k . To quantify this relationship, we first define the overrun of a node.</p><p>Def. 8. (Overrun.) The overrun of a node τ i is represented by the nonnegative RV o i . On any j th invocation of DAG G, the observed value of o i equals the total remaining execution time of all jobs in dep(J i,j ) ∪ {J i,j } when S i,j exhausts its budget.</p><p>State-wise upper-bounding the overrun of τ i allows us to place an upper bound on the demand of successor nodes of τ i . The next lemma upper-bounds o i by a function of β + i . Lemma 5. For each node τ i , o i ≤ 0 max(0, β + i -C i ). Proof. Suppose S i,j is first scheduled at t 0 and exhausts its budget at t 1 . According to Def. 8, the lemma states that the total remaining execution time of all jobs in dep(J i,j ) ∪{J i,j } at t 1 is at most max(0, β + i -C i ). Assume to the contrary that (B) their total remaining execution time is more than max(0, β + i -C i ) at t 1 . We first prove the following.</p><p>Claim 3. If a job in dep(J i,j )∪{J i,j } is incomplete at time t 1 , then the jobs in dep(J i,j ) ∪ {J i,j } are scheduled for at least C i time units during [t 0 , t 1 ) by the system.</p><p>Proof. By Def. 3, J i,j is ready only after all jobs in dep(J i,j ) are complete (note that dep(J i,j ) = ∅ if i = 1). Hence, by Lem. 2 and Rule B1, jobs in dep(J i,j ) ∪ {J i,j } are scheduled whenever S i,j is scheduled. Thus, these jobs execute for at least C i time units during [t 0 , t 1 ).</p><p>We now prove the lemma. By Asm. (B), there are incomplete jobs in dep(J i,j ) ∪ {J i,j } at time t 1 . By Clm. 3, jobs in dep(J i,j ) ∪ {J i,j } execute for at least C i time units during [t 0 , t 1 ). Thus, by Def. 5, their total remaining execution time at time t 1 is at most β i -C i , which is state-wise at most max(0,</p><formula xml:id="formula_15">β + i -C i ) at time t 1 , contradicting Asm. (B).</formula><p>In Ex. 3, we see that</p><formula xml:id="formula_16">β 4 = o 2 + o 3 + e 4 .</formula><p>Generalizing from this example, in the worst case, the total overrun of all predecessor nodes of τ k increases the demand of τ k .</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>Def. 9. (Total Overrun). The total overrun of all predecessor nodes of τ k , denoted by the nonnegative RV Φ k , is given by</head><formula xml:id="formula_17">Φ k = τi∈pred(τk) max(0, β + i -C i ).</formula><p>Using the notion of total overrun, we now upper-bound β k as a function of β + i for each predecessor node τ i of τ k . Lemma 6. For each node τ k , β k ≤ 0 e k + Φ k .</p><p>Proof. By Def. 8, for each job J i,j ∈ dep(J k,j ), the remaining execution time of J i,j and the jobs on which J i,j depends when J i,j 's server job S i,j exhausts its budget is o i . Since the Release Rule states that S k,j can begin execution when each such S i,j exhausts its budget, the total remaining execution of jobs in dep(J k,j ) when S k,j is first scheduled is at most τi∈pred(τk) o i . By Lem. 5, each o i term is state-wise at most max(0, β + i -C i ), so this total remaining execution is at most Φ k by Def. 9. Because e k is the execution time of J k,j , when S k,j is first scheduled, by Def. 5, we have</p><formula xml:id="formula_18">β k ≤ 0 e k +Φ k .</formula><p>With Lem. 6, when jobs overrun their budget, β + k = e k +Φ k becomes a valid assignment for β + k that satisfies β + k ≥ 0 β k . This assignment establishes a relation between β + k and β + i for τ i ∈ pred(τ k ) that accounts for budget overruns.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>C. Computing the Drop Rate</head><p>In the previous two subsections, we established a relation between β + k and β + i for each τ i ∈ pred(τ k ) that accounts for slack reallocation and overruns, respectively. In this subsection, we unify the results from the previous subsections and compute an upper bound on the drop rate of DAG G. To aid in this, we first define the RV Δ k for each node τ k as follows.</p><formula xml:id="formula_19">Δ k = -Ψ k if Ψ k &gt; 0 Φ k otherwise<label>(1)</label></formula><p>We then use Δ k to state-wise bound the value of β k .</p><formula xml:id="formula_20">Theorem 1. For each node τ k , β k ≤ 0 max(0, Δ k + e k ).</formula><p>Proof. We examine the two cases of (1).</p><p>Case 1. Ψ k &gt; 0. By Lem. 4,</p><formula xml:id="formula_21">β k ≤ 0 e k -min(Ψ k , e k ) = max(e k -e k , e k -Ψ k ) = max(0, -Ψ k +e k ) = max(0, Δ k +e k ).</formula><p>Case 2. Ψ k ≤ 0. By Lem. 6, we have</p><formula xml:id="formula_22">β k ≤ 0 e k + Φ k ≤ 0 max(0, e k + Φ k ) = max(0, Δ k + e k ).</formula><p>Drop rate computation. Thm. 1 gives us a state-wise upper bound on β k for each node τ k . Therefore, max(0, Δ k + e k ) is a valid assignment of β + k for each node τ k that satisfies β + k ≥ 0 β k . Using this assignment, each β + k can be expanded into an expression of e k and Δ k . Additionally, using (1) and Defs. 7 and 9, Δ k can be written as an expression of β + i for each τ i ∈ pred(τ k ). Thus, by expanding out the expressions of β + i for each τ i ∈ anc(τ k ) in a similar fashion, we have the following observation.</p><formula xml:id="formula_23">Observation 2. Let E k = {e i | τ i ∈ anc(τ k )} ∪ e k . β +</formula><p>k for each τ k can be expressed as a function of E k . We denote that function as</p><formula xml:id="formula_24">β + k = F k (E k ).</formula><p>To compute an upper bound on the drop rate of G, P (β + n &gt; C n ), we can then substitute β + n with F n (E n ). To avoid the difficult process of computing the PDF of a function of multiple RVs, we observe that F n (E n ) is equal to F n ({x 1 , x 2 , ..., x n }) when e i = x i for each e i ∈ E n . In other words, by conditioning P (β + n &gt; C n ) on e i for each node τ i , we have the following. Observation 3.</p><formula xml:id="formula_25">P (β + n &gt; C n | ∀i : e i = x i ) = P (F n ({x 1 , x 2 , ...}) &gt; C n )<label>(2</label></formula><p>) Now, applying to Obs. 3 the law of total probability, which states that P (A) = ∞ i=-∞ P (A | X = i)P (X = i) for some event A and a RV X, and Asm. A1, we have the following. Theorem 2. Let I i be the set containing all values of e i where P (e i = x i ) = 0. The drop rate of G, P (β</p><formula xml:id="formula_26">+ n &gt; C n ), is x1∈I1,x2∈I2,... P (F n ({x 1 , x 2 , ...}) &gt; C n ) n i=1</formula><p>P (e i = x i ) .</p><p>(</p><formula xml:id="formula_27">)<label>3</label></formula><p>Runtime issues. Unfortunately, computing P (β + n &gt; C n ) using ( <ref type="formula" target="#formula_27">3</ref>) is computationally expensive. This is because there are n i=1 |I i | terms in the summation, and each term requires the multiplication of n more terms. This results in a time complexity of O(max</p><formula xml:id="formula_28">(|I i | : i = 1...n) n+1 )</formula><p>where n is the number of nodes in G. We therefore explore an alternative method to compute P (β + n &gt; C n ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>D. Alternate Drop Rate Computation</head><p>In this subsection, we present an alternative drop rate computation method. F n is obtained by iteratively expanding β + k for each τ k into max(0, Δ k + e k ), and then using (1) and Defs. 7 and 9 to expand each Δ k . This process to obtain F n requires applying the following primitive operations: (i) adding a constant to a RV; (ii) negating a RV; (iii) adding two RVs; (iv) determining the maximum between 0 and a RV; (v) determining the minimum of multiple RVs; and (vi) computing Δ k from Φ k and Ψ k . In the following Props. 1 to 5, we show how the above operations transform the PDFs of their input RVs into the PDFs of their output RVs. After applying the transforms accordingly, we can obtain the PDF of β + n . Props. 1 and 2 are self-evident, Props. 3 is a well-known convolution property, and we give proofs for Props. 4 and 5 Property 1. For a RV X and a constant k, the PDF of X + k is given by f X+k (x) = f X (xk).</p><p>Property 2. For a RV X, the PDF of -X is given by f -X (x) = f X (-x). Property 3. For two independent RVs X and Y , the PDF of X + Y is given by the convolution of f X and f Y , where</p><formula xml:id="formula_29">f X+Y (x) = ∞ i=-∞ f X (i -x)f Y (i).</formula><p>Property 4. For a RV X, the PDF of max(0, X) is given by</p><formula xml:id="formula_30">f max(0,X) (x) = ⎧ ⎪ ⎨ ⎪ ⎩ 0 x &lt; 0 F X (0) x = 0 f X (x) x &gt; 0.</formula><p>Proof. We examine the three possible cases of f max(0,X) (x).</p><p>Case 1. x &lt; 0. max(0, X) cannot be negative. Therefore, P (max(0, X) = x) = 0. Case 2. x = 0. This occurs when X ≤ 0. Thus, P (max(0, X) = 0) = P (X ≤ 0). Case 3. x &gt; 0. Here, max(0, X) = X, so P (max(0, X) = x) = P (X = x). Claim 4. For a set of mutually independent RVs X = {X 1 , X 2 , ..., X n }, the PDF of min(X) is given by f min(X) (x) = F min(X) (x -1) -F min(X) (x), where</p><formula xml:id="formula_31">F min(X) (x) = Xi∈X F Xi (x).<label>(4)</label></formula><p>Proof. Consider the event where min(X) &gt; x for some value of x. This occurs when each X i ∈ X is greater than x. Thus, we have P (min(X)</p><formula xml:id="formula_32">&gt; x) = P Xi∈X X i &gt; x . Because the RVs in X are independent, P Xi∈X X i &gt; x = Xi∈X P (X i &gt; x) = Xi∈X F Xi (x).</formula><p>To derive how (1) transforms the PDFs of Ψ k and Φ k to Δ k , we first prove the following. Lemma 7. For each node τ k , the events Ψ k &gt; 0 and Φ k &gt; 0 are mutually exclusive.</p><p>Proof. If Φ k &gt; 0, then by Def. 9, β + i -C i &gt; 0 holds for some τ i ∈ pred(τ k ). Hence, C iβ + i &lt; 0 holds, and by Def. 7, Ψ k = 0. On the other hand, if Ψ k &gt; 0, then by Def. 7, for all</p><formula xml:id="formula_33">τ i ∈ pred(τ k ), C i -β + i &gt; 0 holds, which implies β + i -C i &lt; 0 holds. Thus, by Def. 9, Φ k = 0.</formula><p>Property 5. The PDF of Δ k for each node τ k is given by</p><formula xml:id="formula_34">f Δk (x) = ⎧ ⎪ ⎨ ⎪ ⎩ f Ψk (-x) x &lt; 0 1 -F Ψk (0) -F Φk (0) x = 0 f Φk (x)</formula><p>x &gt; 0.</p><p>(</p><formula xml:id="formula_35">)<label>5</label></formula><p>Proof. We consider the three cases in (5) separately.</p><p>Case 1. x &lt; 0. Note that, by Def. 9, Φ k ≥ 0. Also, from (1), either</p><formula xml:id="formula_36">Δ k = Φ k or Δ k = -Ψ k . Because Φ k ≥ 0, Case 1 can only occur when Δ k = -Ψ k . Therefore,<label>(5)</label></formula><p>holds by Clm. 2.</p><p>Case 2. x = 0. By Defs. 7 and 9, both Φ k and Ψ k are nonnegative. By (1), x = 0 only occurs when Φ k = 0 and Ψ k = 0. Therefore, f Δk (0</p><formula xml:id="formula_37">) = P (Φ k = 0, Ψ k = 0) = 1 -P (Ψ k &gt; 0 or Φ k &gt; 0)</formula><p>. By Lem. 7, events Ψ k &gt; 0 and Φ k &gt; 0 are mutually exclusive. Thus, we have</p><formula xml:id="formula_38">P (Ψ k &gt; 0 or Φ k &gt; 0) = P (Ψ k &gt; 0) + P (Φ k &gt; 0) = F Ψk (0) + F Φk (0). Therefore, P (Φ k = 0, Ψ k = 0) = 1 -(F Ψk (0) + F Φk (0)).</formula><p>Case 3. x &gt; 0. According to (1), this case occurs when</p><formula xml:id="formula_39">Δ k = Φ k . Thus f Δk (x) = f Φk (x).</formula><p>Starting with β + 1 = e 1 and using Props. 1-5 to apply the PDF transformation due to each primitive operation in F n , we can obtain the PDF of β + n . Using this PDF will allow us to upper-bound the drop rate of G. Undesired independence assumption. Unfortunately, the independence requirements of Props. 3 and 4 present an issue. Computing Φ k (resp., Ψ k ) as per Def. 9 (resp., Def. 7) requires applying Prop. 3 (resp., Prop. 4) to compute the RV addition (resp., the min function). This requires β + i for each τ i ∈ pred(τ k ) to be mutually independent. However, for any τ i and τ j in pred(τ k ), β + i and β + j may not be independent. This is a direct consequence of Obs. 2-τ i and τ j can have a common ancestor τ , in which case both β + i and β + j are functions of e . Using Props. 3 and 4 to compute the PDFs of Φ k and Ψ k for each node τ k may not result in the true PDFs of Φ k and Ψ k , which are needed to compute the correct PDF of β + n . Hence, we proceed to bound the PDFs of Ψ k and Φ k and show that such bounds can be used to upper-bound</p><formula xml:id="formula_40">P (β + n &gt; C n ).</formula><p>Drop rate computation-upper bound. To facilitate upperbounding P (β + n &gt; C n ), we introduce a new RV γ k for each node τ k . We let γ 1 = e 1 for the source node, and proceed to iteratively define the PDF of γ k for each node τ k as a function of the PDFs of γ i for τ i ∈ pred(τ k ) using bounds on the PDFs of</p><formula xml:id="formula_41">Ψ k and Φ k . If we show that γ k ≥ 1 β + k , then P (γ n &gt; C n ) upper-bounds P (β + n &gt; C n ). We prove γ k ≥ 1 β + k through induction. For the base case, γ 1 ≥ 1 β + 1 is trivially true since γ 1 = β + 1 = e 1 .</formula><p>For the induction step, we assume the following induction hypothesis.</p><formula xml:id="formula_42">IH For non-source node τ k , γ i ≥ 1 β + i holds for each node τ i ∈ pred(τ k ).</formula><p>For the rest of this section, we give the iterative definition of γ k , and show that given IH, γ k ≥ 1 β + k holds. This then completes our proof of the induction step. To aid in our proof, we first give properties regarding several operations used to iteratively define γ k . These properties follow directly from the closure properties of first-degree stochastic ordering under non-decreasing and non-increasing functions <ref type="bibr" target="#b36">[37]</ref>.</p><formula xml:id="formula_43">Property 6. For RVs X, Y and a constant k, if X ≥ 1 Y , then X + k ≥ 1 Y + k. Property 7. For RVs X and , if X ≥ 1 Y , then max(0, X) ≥ 1 max(0, Y ). Property 8. For RVs X and Y , if X ≥ 1 Y , then -X ≤ 1 -Y . Lower-bounding Ψ k . To iteratively define γ k , we must first lower-bound Ψ k . Let the RV Ψ - k first-degree lower bound Ψ k for each node τ k . The PDF of Ψ - k is characterized by the following. If τ k is not the preferred successor of each τ i ∈ pred(τ k ), then Ψ - k is a RV with PDF f Ψ - k (x) = 1 x = 0 0 otherwise. (<label>6</label></formula><formula xml:id="formula_44">)</formula><formula xml:id="formula_45">If τ k is the preferred successor of each τ i ∈ pred(τ k ), then Ψ - k is a RV with PDF f Ψ - k (x) = F Ψ - k (x -1) -F Ψ - k (x)</formula><p>, where</p><formula xml:id="formula_46">F Ψ - k (x) = τi∈pred(τk) F max(0,Ci-γi) (x).<label>(7)</label></formula><p>The next two lemmas prove that</p><formula xml:id="formula_47">Ψ - k ≤ 1 Ψ k . Lemma 8. If τ k is not the preferred successor of each τ i ∈ pred(τ k ), then Ψ - k ≤ 1 Ψ k .</formula><p>Proof. Since τ k is not the preferred successor, Ψ k = 0 holds by Def. 7. Therefore, P (Ψ k = 0) = 1. By (6), P (Ψ - k = 0) = 1 holds as well. The lemma follows.</p><p>To prove that Ψ - k ≤ 1 Ψ k when τ k is the preferred successor, we require that P (max(0, C iβ + i ) &gt; x) and P (max(0, C jβ + j ) &gt; x) are not negatively correlated. In other words: Lemma 9. For τ i and τ j , both in pred(τ k ), P (max(0, C i -</p><formula xml:id="formula_48">β + i ) &gt; x)P (max(0, C j -β + j ) &gt; x) ≤ P (max(0, C i -β + i ) &gt; x, max(0, C j -β + j ) &gt; x</formula><p>). The proof is included in an online appendix <ref type="bibr" target="#b38">[39]</ref>. A loose justification is that, as functions of</p><formula xml:id="formula_49">β + i (resp. β + j ), max(0, C i - β + i ) (resp., max(0, C j -β + j )</formula><p>) can be expressed as functions of the pWCETs of their common ancestors. Due to Asm. A1, these pWCETs are independent, so the FKG Inequality <ref type="bibr" target="#b17">[18]</ref> can be applied to get Lem. 9.</p><formula xml:id="formula_50">Lemma 10. If τ k is the preferred successor of each τ i ∈ pred(τ k ), then Ψ - k ≤ 1 Ψ k . Proof. By Def. 7, Ψ k = min({max(0, C i -β + i ) | τ i ∈ pred(τ k )}), so Ψ k &gt; x holds only if max(0, C i -β + i ) &gt; x holds for each τ i ∈ pred(τ k ). Thus, P (Ψ k &gt; x) = P τi∈pred(τk) max(0, C i -β + i ) &gt; x . By Lem. 9, we have τi∈pred(τk) F max(0,Ci-β + i ) (x) ≤ P ⎛ ⎝ τi∈pred(τk) max(0, C i -β + i ) &gt; x ⎞ ⎠ . (<label>8</label></formula><formula xml:id="formula_51">)</formula><p>We now prove the lemma by establishing a relation between each term in the rhs of ( <ref type="formula" target="#formula_46">7</ref>) and a corresponding term in the lhs of <ref type="bibr" target="#b7">(8)</ref>. By IH, we have γ i ≥ 1 β + i . By Prop. 8, we have -γ i ≤ 1 -β + i . Applying Prop. 6, we get C iγ i ≤ 1 C iβ + i . Finally, by Prop. 7, we have max(0, C iγ i ) ≤ 1 max(0, C iβ + i ). Therefore, each term in the rhs of ( <ref type="formula" target="#formula_46">7</ref>) is at most the corresponding term in the lhs of <ref type="bibr" target="#b7">(8)</ref>. Thus, the lhs of (7), P (Ψ - k &gt; x), is at most the rhs of <ref type="bibr" target="#b7">(8)</ref>. Since the rhs of ( <ref type="formula" target="#formula_50">8</ref>) is equal to P (Ψ k &gt; x), we have</p><formula xml:id="formula_52">Ψ - k ≤ 1 Ψ k .</formula><p>Upper-bounding Φ k . Here, we give an upper bound Φ k by introducing a RV Φ + k for each node τ k . We will later use Φ k to define γ k . Letting μ X denote the mean of RV X, the PDF of Φ + k is as follows.</p><formula xml:id="formula_53">f Φ + k (x) = F Φ + k (x -1) -F Φ + k (x),<label>(9)</label></formula><p>where</p><formula xml:id="formula_54">F Φ + k (x) = ⎧ ⎪ ⎪ ⎨ ⎪ ⎪ ⎩ min ⎛ ⎝ F Ψ - k (0), 1 x + 1 • τi∈pred(τk) μ max(0,γi-Ci) ⎞ ⎠ x ≥ 0 1 x &lt; 0.<label>(10)</label></formula><p>The following lemma proves that Φ + k ≥ 1 Φ k . Lemma 11. For each node τ k , Φ + k ≥ 1 Φ k . Proof. We consider three cases based on the structure of F Φ + k (x) in <ref type="bibr" target="#b9">(10)</ref>.</p><p>Case 1. x ≥ 0, and F Ψ - k (0) is the smaller term in the min function. Here, P (Φ + k &gt; x) = P (Ψ - k ≤ 0) follows from (10) (and the definitions of F Φ + k (x) and F Ψ - k (0)). As the events Φ k &gt; 0 and Ψ k &gt; 0 are mutually exclusive by Lem. 7, we have Φ k &gt; 0 ⇒ Ψ k ≤ 0. Therefore, P (Φ k &gt; 0) ≤ P (Ψ k ≤ 0). Thus, since x ≥ 0, we have P (Ψ k ≤ 0) ≥ P (Φ k &gt; 0) ≥ P (Φ k &gt; x). Hence, because Lems. 8 and 10 imply</p><formula xml:id="formula_55">P (Ψ - k ≤ 0) ≥ P (Ψ k ≤ 0), we have P (Φ + k &gt; x) = P (Ψ - k ≤ 0) ≥ P (Ψ k ≤ 0) ≥ P (Φ k &gt; x). Thus, Φ + k ≥ 1 Φ k . Case 2. x ≥ 0 and F Ψ - k (0)</formula><p>is the larger term in the min function. Assume for a contradiction that for some x ≥ 0, P (Φ + k &gt; x) &lt; P(Φ k &gt; x) holds. In this case, by the definition of <ref type="formula" target="#formula_54">10</ref>), we have 1 x+1 • τi∈pred(τk) μ max(0,γi-Ci) &lt; P (Φ k &gt; x). By IH, γ i ≥ 1 β + i holds for each τ i ∈ pred(τ k ). Then, by Props. 6 and 7, max(0,</p><formula xml:id="formula_56">F Φ + k (x) in (</formula><formula xml:id="formula_57">γ i -C i ) ≥ 1 max(0, β + i -C i ). Hence, μ max(0,γi-Ci) ≥ μ max(0,β + i -Ci) . Therefore, 1 x+1 • τi∈pred(τk) μ max(0,β + i -Ci) &lt; P(Φ k &gt; x)</formula><p>. Using Def. 9 and algebraic properties of the mean, we can rewrite this inequality as</p><formula xml:id="formula_58">μΦ k x+1 &lt; P(Φ k &gt; x) = P (Φ k ≥ x + 1)</formula><p>, which contradicts Markov's inequality <ref type="bibr" target="#b19">[20]</ref>, which states that μ Φk /(x + 1) ≥ P (Φ k ≥ x + 1) for all values of x ≥ 0. Case 3. x &lt; 0. P (Φ k &gt; x) ≤ 1 is trivially true.</p><p>Iteratively defining γ k and completing the induction step. Here, we use Lems. 10 and 11 to compute the PDF of γ k and prove the validity of the induction step. To do so, we first define a RV Δ + k with PDF</p><formula xml:id="formula_59">f Δ + k (x) = ⎧ ⎪ ⎪ ⎨ ⎪ ⎪ ⎩ f Ψ - k (-x) x &lt; 0 1 -F Ψ - k (0) -F Φ + k (0) x = 0 f Φ + k (x) x &gt; 0.<label>(11)</label></formula><p>Lemma 12. For each node</p><formula xml:id="formula_60">τ k , Δ + k ≥ 1 Δ k .</formula><p>Proof. Case 1. x &gt; 0. In this case, by <ref type="bibr" target="#b10">(11)</ref>,</p><formula xml:id="formula_61">P (Δ + k &gt; x) = P (Φ + k &gt; x)</formula><p>. However, by <ref type="bibr" target="#b4">(5)</ref>,</p><formula xml:id="formula_62">P (Δ k &gt; x) = P (Φ k &gt; x). Since Lem. 11 states that Φ + k ≥ 1 Φ k , we have Δ + k ≥ 1 Δ k . Case 2.</formula><p>x ≤ 0. In this case, Δ + k &gt; x gives rise to three possibilities:</p><formula xml:id="formula_63">x &lt; Δ + k &lt; 0, or Δ + k = 0, or Δ + k &gt; 0.</formula><p>By <ref type="bibr" target="#b10">(11)</ref>, the probability of these three events are P (0</p><formula xml:id="formula_64">&lt; Ψ - k &lt; -x), 1 -P (Ψ - k &gt; 0) -P (Φ + k &gt; 0)</formula><p>, and P (Φ + k ≥ 1) respectively. Thus,</p><formula xml:id="formula_65">P (Δ + k &gt; x) = P (0 &lt; Ψ - k &lt; -x) + 1 -P (Ψ - k &gt; 0)-P (Φ + k &gt; 0)+P (Φ + k ≥ 1)</formula><p>. The first term on the rhs can be rewritten as P (Ψ - k &lt; -x)-P (Ψ - k ≤ 0), and P (Ψ - k ≤ 0) can be rewritten as 1 -P (Ψ - k &gt; 0). Cancelling like terms yields</p><formula xml:id="formula_66">P (Δ + k &gt; x) = P (Ψ - k &lt; -x).</formula><p>Through similar reasoning, P (Δ k &gt; x) = P (Ψ k &lt; -x) can be obtained from <ref type="bibr" target="#b4">(5)</ref>. It follows from Lems. 8 and 10 that P (Ψ - k ≤ -x) ≥ P (Ψ k ≤ -x) holds. Thus,</p><formula xml:id="formula_67">Δ + k ≥ 1 Δ k .</formula><p>Using Δ + k , we can finally give the definition of γ k . Def. 10. For each non-source node τ k , γ k = max(0, Δ + k +e k ). The following property, exploited in the theorem below, is a well-known closure property of stochastic orderings <ref type="bibr" target="#b36">[37]</ref>. Property 9. Let X 1 and X 2 be independent RVs and Y 1 , Y 2 be another pair of independent RVs. If</p><formula xml:id="formula_68">Y 1 ≥ 1 X 1 and Y 2 ≥ 1 X 2 , then Y 1 + Y 2 ≥ X 1 + X 2 Theorem 3. For each node τ k , γ k ≥ 1 β + k . Proof.</formula><p>By expanding out the expression of Δ k using (1) and Defs. 7 and 9, we see that Δ k is expressed solely as a function of e i for τ i ∈ anc(τ k ). Hence, by Asm. A1, Δ k and e k are independent. Δ + k and e k can similarly be shown to be independent by expanding Δ + k using ( <ref type="formula" target="#formula_43">6</ref>), ( <ref type="formula" target="#formula_46">7</ref>), <ref type="bibr" target="#b8">(9)</ref>, and (11 Thm. 3 implies that P (γ n &gt; C n ) does indeed upper-bound the DAG drop rate. We can compute this probability by starting with the base case of γ 1 = e 1 , and then inductively computing the PDF of γ i = max(0, Δ + i + e i ) for each non-source task τ i in the DAG. This can be done by using the PDF of γ i for each τ i ∈ pred(τ k ) to first compute the PDFs of Ψ - k (resp. Φ + k ) using ( <ref type="formula" target="#formula_43">6</ref>) and ( <ref type="formula" target="#formula_46">7</ref>) (resp. ( <ref type="formula" target="#formula_53">9</ref>)). Ψ - k and Φ + k can then be used to compute the PDF of Δ + k using <ref type="bibr" target="#b10">(11)</ref>. Finally, γ k can be computed by taking the PDFs of Δ + k and e k and applying Props. 3 and 4 to obtain the PDF of γ k = max(0, Δ + k + e k ).</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>V. EXPERIMENTAL EVALUATION</head><p>In this section, we experimentally compare the theoretical and experimental DAG drop rates of our proposed budgeting approach with the naïve strategy of aborting a DAG when just one of its nodes overruns its budget (as in <ref type="bibr" target="#b1">[2]</ref>). These comparisons were performed by examining randomly generated DAGs, with the experimental drop rate obtained from a simulated four-core system using a G-EDF scheduler. In these experiments, we sought to (i) assess how our approach improves upon the naïve method analytically, (ii) demonstrate that our analytical bounds are correct, and (iii) determine the best method for selecting preferred predecessors.</p><p>Random DAG generation. In order to generate an n-node DAG G with a single source and sink, we first generated a random DAG G with n -2 nodes using the Erdős-Rényi method <ref type="bibr" target="#b12">[13]</ref>. Under this method, an edge is generated between each τ i and τ j with a specified probability p, with the edge directed from the lower-indexed task to the higher-indexed one. Using G , we then generated G by connecting a source node to all nodes in G with indegree 0 and connecting all nodes in G with outdegree 0 to a sink node.</p><p>Node parameter generation. For each DAG, we randomly generated the parameters of each node τ i . To determine the pWCET PDF for each τ i , we assumed a type-1 Gumbel distribution with a mean of 5.0ms and a standard deviation of 2.0. 1  The reservation budget C i was then set as the 99.9 th percentile value of the generated pWCET e i . Finally, the period T and relative deadlines D i were set to a large value of (50n)ms so that the DAG was trivially schedulable (our focus here is dealing with node overruns, not ensuring schedulability).</p><p>Theoretical drop-rate evaluation. We evaluated the theoretical drop rate of each generated DAG using the analysis presented in Sec. IV. Additionally, unless otherwise specified, the drop rate was calculated from the upper-bounding method discussed in Sec. IV-C to avoid unnecessary independence assumptions and infeasible runtimes. This was then compared to the theoretical drop rate of the same generated DAG using the naïve budget-management strategy. In the naïve strategy, a DAG invocation completes (is not aborted) only when no node invocation overruns its budget. Therefore, since we set C i as the 99.9 th percentile value of the generated pWCET, a DAG invocation is dropped with probability 1 -0.999 n .</p><p>Experimental drop-rate evaluation. We evaluated the experimental drop rate of each generated DAG by simulating the execution of each DAG over 10,000 invocations. We chose to select the available job with the maximum number of out edges as our job selection policy for Rules. B2.2, H2.1, and H2.2. We did this to avoid scenarios where an overrunning node blocks the execution of multiple subsequent jobs. For schedules of both our proposed budget-management strategy and the naïve one, we calculated the experimental drop rate from the percentage of dropped DAG invocations over the 10,000 simulated DAG invocations.</p><p>Experiment 1. In the first experiment, we generated 1,000 DAGs with n ranging from 50 to 500 and p = 0.05. Intuitively, a low value of p indicates a low-density DAG, which better represents real-world applications <ref type="bibr" target="#b16">[17]</ref>. The results of this experiment are plotted in Fig. <ref type="figure" target="#fig_9">7(a)</ref>. These results support the following observation. Observation 4. With p = 0.05, our approach resulted in significantly lower drop rates both analytically and experimentally compared to the naïve approach at all DAG sizes. Experiment 2. In this experiment, we generated 1,000 250node DAGs with p varying from 0.05 to 0.14. This was done to explore the effectiveness of our techniques on denser DAGs. The results of this experiment are plotted in Fig. <ref type="figure" target="#fig_9">7(b)</ref>. These results support the following observations. Observation 5. Our approach resulted in much lower experimental drop rates than the naïve approach for all p values.</p><p>The discrepancy between the analytical and experimental drop rates was likely due to various sources of pessimism in our drop-rate analysis. First, in Def. 9, we assumed that no other reservations can help a job J k complete jobs in dep(J k ). 1 The Gumbel distribution is often used to represent measurement-based probabilistic WCETs <ref type="bibr" target="#b13">[14]</ref>.  The suffix "T" (resp., "E") indicates theoretical (resp., experimental) drop rates. Both plots share the same legend.</p><p>Second, in Def. 7, we assumed that only a small amount of slack can benefit the analysis. Third, we used the pessimistic Markov Inequality to upper-bound the PDF of Φ i . Observation 6. Analytically, our approach resulted in significantly lower drop rates for smaller values of p, but was worse than the naïve approach for larger p values. This was likely because larger p values increase the likelihood of certain DAG "features" (e.g., a node with multiple predecessors) that present analysis difficulties. Such features exacerbate the pessimism of Def. 9 and the Markov Inequality. Observation 7. Using min degree to select preferred predecessors yielded extremely poor theoretical drop rates. This was likely because min degree discourages nodes with many predecessors-nodes most affected by analysis pessimism-from being able to benefit from slack reallocation. Experiment 3. We ran an additional experiment to help elucidate the value, and the price, of eliminating the pessimism in using the Markov Inequality in Lem. 11. To this end, we generated five DAGs with n = 7 and p = 0.1. The maximum observed drop rate for these graphs was 0.00552, and the corresponding analytical drop-rate bound computed using Thm. 2 (resp., the method in Sec. IV-D) was 0.00613 (resp., 0.00698). However, using Thm. 2, computing these bounds for all graphs took three days on an eight-core machine, while using the method in Sec. IV-D, it took less than 1 second.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VI. RELATED WORK</head><p>Prior DAG-related work has mostly focused on deriving response-time bounds and schedulability tests assuming known WCETs <ref type="bibr" target="#b0">[1]</ref>, <ref type="bibr" target="#b2">[3]</ref>, <ref type="bibr" target="#b3">[4]</ref>, <ref type="bibr" target="#b16">[17]</ref>, <ref type="bibr" target="#b22">[23]</ref>, <ref type="bibr" target="#b23">[24]</ref>, <ref type="bibr" target="#b26">[27]</ref>, <ref type="bibr" target="#b28">[29]</ref>, <ref type="bibr" target="#b32">[33]</ref>, <ref type="bibr" target="#b34">[35]</ref>, <ref type="bibr" target="#b35">[36]</ref>, <ref type="bibr" target="#b40">[41]</ref>, <ref type="bibr" target="#b42">[43]</ref>. Reservation-based DAG scheduling has been considered in the context of federated scheduling where a reservation is provided for an entire DAG invocation to meet its deadline <ref type="bibr" target="#b4">[5]</ref>, <ref type="bibr" target="#b5">[6]</ref>, <ref type="bibr" target="#b25">[26]</ref>, <ref type="bibr" target="#b39">[40]</ref>. However, this work assumes that true WCETs are known. Prior work on overrun management for real-time systems has focused on independent tasks on uniprocessors <ref type="bibr" target="#b10">[11]</ref>, <ref type="bibr" target="#b18">[19]</ref>, <ref type="bibr" target="#b27">[28]</ref> or multiprocessors <ref type="bibr" target="#b30">[31]</ref>, <ref type="bibr" target="#b33">[34]</ref> and mode switching in mixed-criticality systems <ref type="bibr" target="#b9">[10]</ref>, <ref type="bibr" target="#b11">[12]</ref>, <ref type="bibr" target="#b24">[25]</ref>, <ref type="bibr" target="#b29">[30]</ref>. Slack reallocation has also been considered for independent tasks in the context of mixed-criticality systems <ref type="bibr" target="#b6">[7]</ref>, <ref type="bibr" target="#b15">[16]</ref>, <ref type="bibr" target="#b21">[22]</ref>, <ref type="bibr" target="#b31">[32]</ref>. Recent work on time partitioning for graphbased tasks that require accelerator access has considered budget overruns of node invocations by aborting entire DAG invocations <ref type="bibr" target="#b1">[2]</ref>.</p></div>
+<div xmlns="http://www.tei-c.org/ns/1.0"><head>VII. CONCLUSION</head><p>We have presented the first ever holistic budget-management strategy for DAG-based task system. This strategy enables low DAG drop rates in the presence of node-budget overruns, and can reallocate budgets and slack within a DAG. We have also given a probabilistic drop-rate analysis to analytically evaluate our proposed approach. In experiments presented herein, our work yielded significantly smaller theoretical drop rates for less complex DAGs, and smaller experimental drop rates for all DAGs, compared to the naïve DAG budgeting approach.</p><p>In future work, we hope to reduce the analytical pessimism for complex DAGs. We also plan to investigate the applicationlevel implications of occasionally needing to drop work. Additionally, we plan to devise budgeting techniques for DAGs that share resources such as hardware accelerators, as commonly used in the AI applications that motivate this work. Finally, our task model allows successive invocations of the same DAG to overlap in time arbitrarily. It would be interesting to consider refinements of this model, such as the restricted parallelism (rp) model <ref type="bibr" target="#b2">[3]</ref>, which allows a specifiable extent of overlap. Our drop-rate analysis can be extended to apply to the rp model via fairly mechanical adjustments, but some of our probabilistic upper bounds are somewhat pessimistic under that model, so further work is warranted. Note that for DAGs subject to hard real-time schedulability tests that preclude the overlap of successive DAG invocations, the issue of overlap becomes irrelevant and our analysis is entirely applicable.</p></div><figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_0"><head>Fig. 1 :</head><label>1</label><figDesc>Fig. 1: (a) A DAG task, and (b) executing an overrunning job using successor node's budget.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_1"><head>Fig. 2 :</head><label>2</label><figDesc>Fig. 2: Illustration of intra-task parallelism for τ2.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_4"><head>Fig. 4 :</head><label>4</label><figDesc>Fig. 4: (a) A DAG G, (b) a schedule of G with node overruns, and (c) a schedule of G with slack reallocation.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_5"><head>5 :</head><label>5</label><figDesc>if pref (τj ) = NULL then 6:</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_6"><head>Fig. 5 :</head><label>5</label><figDesc>Fig. 5: (a) A DAG G and (b) a schedule of G.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_7"><head>Fig. 6 :</head><label>6</label><figDesc>Fig. 6: (a) A DAG G (dashed edges indicate preferred successors) and (b) a schedule of G.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_8"><head></head><label></label><figDesc>(a) Plot of drop rates vs. DAG size. (b) Plot of drop rates vs. p.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" xml:id="fig_9"><head>Fig. 7 :</head><label>7</label><figDesc>Fig.7: Plots for Exps. 1 and 2. Min, Random, and Max are the three policies for assigning preferred successors (see Sec. III). The suffix "T" (resp., "E") indicates theoretical (resp., experimental) drop rates. Both plots share the same legend.</figDesc></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_0"><head>TABLE I :</head><label>I</label><figDesc>Task-model notation summary.</figDesc><table><row><cell>Symbol</cell><cell>Meaning</cell><cell>Symbol</cell><cell>Meaning</cell></row><row><cell>N</cell><cell>No. of DAG tasks</cell><cell>C i</cell><cell>Execution budget of τ i</cell></row><row><cell>m</cell><cell>No. of processors</cell><cell>e i</cell><cell>pWCET of τ i</cell></row></table></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_2"><head></head><label></label><figDesc>3,1 overrun the budget of S 2,1 and S 3,1 by 1.0 time unit, respectively. Due to Rule B2.1, S 4,1 schedules J 2,1 at time 10 and executes it to completion. Then S 4,1 schedules J 3,1 at time 11, which also executes to completion before J 4,1 becomes ready and begins execution in S 4,1 at time 12.</figDesc><table /></figure>
+<figure xmlns="http://www.tei-c.org/ns/1.0" type="table" xml:id="tab_3"><head></head><label></label><figDesc>). Since Δ + k ≥ 1 Δ k due to Lem. 12, and e k ≥ 1 e k is trivially true, Δ + k + e k ≥ 1 Δ k + e k follows from Prop. 9. Thus, by Prop. 7, max(0, Δ + k +e k ) ≥ 1 max(0, Δ k +e k ), which implies γ k ≥ 1 β + k , by Def. 10 and the choice for β + k (see Thm. 1).</figDesc><table /></figure>
+			<note xmlns="http://www.tei-c.org/ns/1.0" place="foot" xml:id="foot_0"><p>Authorized licensed use limited to: FLORIDA INTERNATIONAL UNIVERSITY. Downloaded on February 12,2026 at 00:44:27 UTC from IEEE Xplore. Restrictions apply.</p></note>
+		</body>
+		<back>
+			<div type="references">
+
+				<listBibl>
+
+<biblStruct xml:id="b0">
+	<analytic>
+		<title level="a" type="main">Exact response-time bounds of periodic DAG tasks under server-based global scheduling</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ahmed</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="447" to="459" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b1">
+	<analytic>
+		<title level="a" type="main">Timewall: Enabling time partitioning for real-time multi-core+accelerator platforms</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Tong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Voronov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Bakita</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><forename type="middle">D</forename><surname>Smith</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="455" to="468" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b2">
+	<analytic>
+		<title level="a" type="main">OpenVX and real-time certification: The troublesome history</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Amert</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Voronov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2019">2019</date>
+			<biblScope unit="page" from="312" to="325" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b3">
+	<analytic>
+		<title level="a" type="main">Improved multiprocessor global schedulability analysis of sporadic DAG task systems</title>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2014">2014</date>
+			<biblScope unit="page" from="97" to="105" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b4">
+	<analytic>
+		<title level="a" type="main">The federated scheduling of constrained-deadline sporadic DAG task systems</title>
+	</analytic>
+	<monogr>
+		<title level="j">DATE</title>
+		<imprint>
+			<biblScope unit="page" from="1323" to="1328" />
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b5">
+	<analytic>
+		<title level="a" type="main">Federated scheduling of sporadic DAG task systems</title>
+	</analytic>
+	<monogr>
+		<title level="j">ISORC</title>
+		<imprint>
+			<biblScope unit="page" from="179" to="186" />
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b6">
+	<analytic>
+		<title level="a" type="main">A bailout protocol for mixed criticality systems</title>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bate</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><forename type="middle">I</forename><surname>Davis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2015">2015</date>
+			<biblScope unit="page" from="259" to="268" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b7">
+	<analytic>
+		<title level="a" type="main">Automatic latency management for ROS 2: Benefits, challenges, and open problems</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Blaß</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Hamann</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Lange</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ziegenbein</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">B</forename><surname>Brandenburg</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTAS</title>
+		<imprint>
+			<biblScope unit="page" from="264" to="277" />
+			<date type="published" when="2021">2021</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b8">
+	<analytic>
+		<title level="a" type="main">A probabilistic framework for schedulability analysis</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Bernat</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Broster</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">EMSOFT</title>
+		<imprint>
+			<date type="published" when="2003">2003</date>
+			<biblScope unit="page" from="1" to="15" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b9">
+	<analytic>
+		<title level="a" type="main">Robust mixed-criticality systems</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Burns</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">I</forename><surname>Bate</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Computers</title>
+		<imprint>
+			<biblScope unit="volume">67</biblScope>
+			<biblScope unit="issue">10</biblScope>
+			<biblScope unit="page" from="1478" to="1491" />
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b10">
+	<analytic>
+		<title level="a" type="main">Handling execution overruns in hard real-time control systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Buttazzo</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Sha</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Computers</title>
+		<imprint>
+			<biblScope unit="volume">51</biblScope>
+			<biblScope unit="issue">7</biblScope>
+			<biblScope unit="page" from="835" to="849" />
+			<date type="published" when="2002">2002</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b11">
+	<analytic>
+		<title level="a" type="main">Utilization-based scheduling of flexible mixed-criticality realtime tasks</title>
+		<author>
+			<persName><forename type="first">G</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Stefanov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Computers</title>
+		<imprint>
+			<biblScope unit="volume">67</biblScope>
+			<biblScope unit="issue">4</biblScope>
+			<biblScope unit="page" from="543" to="558" />
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b12">
+	<monogr>
+		<title level="m" type="main">Random graph generation for scheduling simulations</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Cordeiro</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Mounié</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Perarnau</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Trystram</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Vincent</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Wagner</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+	<note>in SIMUTools</note>
+</biblStruct>
+
+<biblStruct xml:id="b13">
+	<analytic>
+		<title level="a" type="main">A survey of probabilistic timing analysis techniques for real-time systems</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Davis</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Cucu-Grosjean</surname></persName>
+		</author>
+		<idno>03:1-03:60</idno>
+	</analytic>
+	<monogr>
+		<title level="j">Leibniz Trans. Embedded Syst</title>
+		<imprint>
+			<biblScope unit="volume">6</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b14">
+	<analytic>
+		<title level="a" type="main">Response time bounds for G-EDF without intra-task precedence constraints</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">OPODIS</title>
+		<imprint>
+			<date type="published" when="2011">2011</date>
+			<biblScope unit="page" from="128" to="142" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b15">
+	<monogr>
+		<title level="m" type="main">Extending mixed criticality scheduling</title>
+		<author>
+			<persName><forename type="first">T</forename><surname>Fleming</surname></persName>
+		</author>
+		<ptr target="https://api.semanticscholar.org/CorpusID" />
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page">15603980</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b16">
+	<analytic>
+		<title level="a" type="main">Schedulability analysis of DAG tasks with arbitrary deadlines under global fixed-priority scheduling</title>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">C</forename><surname>Fonseca</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Nelissen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">V</forename><surname>Nélis</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real Time Syst</title>
+		<imprint>
+			<biblScope unit="volume">55</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="387" to="432" />
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b17">
+	<analytic>
+		<title level="a" type="main">Correlation inequalities on some partially ordered sets</title>
+		<author>
+			<persName><forename type="first">C</forename><forename type="middle">M</forename><surname>Fortuin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Ginibre</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><forename type="middle">W</forename><surname>Kasteleyn</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Comm. in Math. Phys</title>
+		<imprint>
+			<biblScope unit="volume">22</biblScope>
+			<biblScope unit="issue">2</biblScope>
+			<biblScope unit="page" from="89" to="103" />
+			<date type="published" when="1971">1971</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b18">
+	<analytic>
+		<title level="a" type="main">Performance of algorithms for scheduling realtime systems with overrun and overload</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Gardner</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Liu</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="1999">1999</date>
+			<biblScope unit="page" from="287" to="296" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b19">
+	<analytic>
+		<title level="a" type="main">Probability inequalities related to Markov&apos;s Theorem</title>
+		<author>
+			<persName><forename type="first">B</forename><forename type="middle">K</forename><surname>Ghosh</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Am. Stat</title>
+		<imprint>
+			<biblScope unit="volume">56</biblScope>
+			<biblScope unit="issue">3</biblScope>
+			<biblScope unit="page" from="186" to="190" />
+			<date type="published" when="2002">2002</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b20">
+	<monogr>
+		<title/>
+		<author>
+			<persName><forename type="first">G</forename><surname>Grimmett</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Percolation</forename><forename type="middle">Springer</forename><surname>Berlin</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="1999">1999</date>
+			<biblScope unit="page">34</biblScope>
+			<pubPlace>Heidelberg</pubPlace>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b21">
+	<analytic>
+		<title level="a" type="main">Multicore mixed-criticality systems: Partitioned scheduling and utilization bound</title>
+		<author>
+			<persName><forename type="first">J.-J</forename><surname>Han</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Tao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Zhu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Aydin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Shao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><forename type="middle">T</forename><surname>Yang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. on Comput.-Aided Des. Integr. Circuits Syst</title>
+		<imprint>
+			<biblScope unit="volume">37</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="21" to="34" />
+			<date type="published" when="2018">2018</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b22">
+	<analytic>
+		<title level="a" type="main">Bounding the response time of DAG tasks using long paths</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lv</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Chang</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="page" from="474" to="486" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b23">
+	<analytic>
+		<title level="a" type="main">Response Time Bounds for DAG Tasks with Arbitrary Intra-Task Priority Assignment</title>
+		<author>
+			<persName><forename type="first">Q</forename><surname>He</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Lv</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="volume">8</biblScope>
+			<biblScope unit="page" from="1" to="8" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b24">
+	<analytic>
+		<title level="a" type="main">On-the-fly fast overrun budgeting for mixed-criticality systems</title>
+		<author>
+			<persName><forename type="first">B</forename><surname>Hu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">P</forename><surname>Huang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Thiele</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Knoll</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">EMSOFT</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="volume">25</biblScope>
+			<biblScope unit="page">10</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b25">
+	<analytic>
+		<title level="a" type="main">Virtuallyfederated scheduling of parallel real-time tasks</title>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">H</forename><surname>Liang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Y</forename><surname>Tang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>Qiao</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2021">2021</date>
+			<biblScope unit="page" from="482" to="494" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b26">
+	<analytic>
+		<title level="a" type="main">Analysis of global EDF for parallel tasks</title>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename><surname>Agrawal</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2013">2013</date>
+			<biblScope unit="page" from="3" to="13" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b27">
+	<analytic>
+		<title level="a" type="main">Improving soft real-time performance through better slack reclaiming</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lin</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Brandt</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2005">2005</date>
+			<biblScope unit="page" from="12" to="421" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b28">
+	<analytic>
+		<title level="a" type="main">Supporting soft real-time DAG-based systems on multiprocessors with no utilization loss</title>
+		<author>
+			<persName><forename type="first">C</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2010">2010</date>
+			<biblScope unit="page" from="3" to="13" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b29">
+	<analytic>
+		<title level="a" type="main">EDF-VD scheduling of mixed-criticality systems with degraded quality guarantees</title>
+		<author>
+			<persName><forename type="first">D</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Spasic</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Stefanov</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Yi</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2016">2016</date>
+			<biblScope unit="page" from="35" to="46" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b30">
+	<analytic>
+		<title level="a" type="main">A server-based approach for overrun management in multi-core real-time systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Behnam</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Kato</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">T</forename><surname>Nolte</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ETFA</title>
+		<imprint>
+			<biblScope unit="page" from="1" to="10" />
+			<date type="published" when="2014">2014</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b31">
+	<analytic>
+		<title level="a" type="main">Mixed-criticality real-time scheduling for multicore systems</title>
+		<author>
+			<persName><forename type="first">M</forename><forename type="middle">S</forename><surname>Mollison</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">P</forename><surname>Erickson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">H</forename><surname>Anderson</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><forename type="middle">K</forename><surname>Baruah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">A</forename><surname>Scoredos</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ICCIT</title>
+		<imprint>
+			<biblScope unit="page" from="1864" to="1871" />
+			<date type="published" when="2010">2010</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b32">
+	<analytic>
+		<title level="a" type="main">Response time analysis for G-EDF and G-DM scheduling of sporadic DAG-tasks with arbitrary deadline</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Parri</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">A</forename><surname>Biondi</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Marinoni</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTNS</title>
+		<imprint>
+			<biblScope unit="page" from="205" to="214" />
+			<date type="published" when="2015">2015</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b33">
+	<analytic>
+		<title level="a" type="main">M-CASH: A real-time resource reclaiming algorithm for multiprocessor platforms</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Pellizzoni</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Caccamo</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">Real Time Syst</title>
+		<imprint>
+			<biblScope unit="volume">40</biblScope>
+			<biblScope unit="issue">1</biblScope>
+			<biblScope unit="page" from="117" to="147" />
+			<date type="published" when="2008">2008</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b34">
+	<analytic>
+		<title level="a" type="main">Global EDF scheduling of directed acyclic graphs on multiprocessor systems</title>
+		<author>
+			<persName><forename type="first">M</forename><surname>Qamhieh</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">F</forename><surname>Fauberteau</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">L</forename><surname>George</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Midonnet</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTNS</title>
+		<imprint>
+			<biblScope unit="page" from="287" to="296" />
+			<date type="published" when="2013">2013</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b35">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling of parallel tasks under a general DAG model</title>
+		<author>
+			<persName><forename type="first">A</forename><surname>Saifullah</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Ferry</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Lu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">C</forename><surname>Gill</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">IEEE Trans. Parallel Distributed Syst</title>
+		<imprint>
+			<date type="published" when="2012">2012</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b36">
+	<monogr>
+		<title/>
+		<author>
+			<persName><forename type="first">M</forename><surname>Shaked</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><forename type="middle">G</forename><surname>Shanthikumar</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Stochastic</forename><surname>Orders</surname></persName>
+		</author>
+		<imprint>
+			<date type="published" when="2007">2007</date>
+			<publisher>Springer</publisher>
+			<biblScope unit="page" from="5" to="6" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b37">
+	<analytic>
+		<title level="a" type="main">Overrun-resilient multiprocessor real-time locking</title>
+		<author>
+			<persName><forename type="first">Z</forename><surname>Tong</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">S</forename><surname>Ahmed</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">ECRTS</title>
+		<imprint>
+			<date type="published" when="2022">2022</date>
+			<biblScope unit="volume">9</biblScope>
+			<biblScope unit="page">23</biblScope>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b38">
+	<monogr>
+		<title level="m" type="main">Holistically budgeting processing graphs (longer version)</title>
+		<ptr target="http://jamesanderson.web.unc.edu/papers/" />
+		<imprint>
+			<date type="published" when="2023">2023</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b39">
+	<analytic>
+		<title level="a" type="main">Reservationbased federated scheduling for parallel real-time tasks</title>
+		<author>
+			<persName><forename type="first">N</forename><surname>Ueter</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">G</forename><surname>Brüggen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Chen</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Li</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">K</forename></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2018">2018</date>
+			<biblScope unit="page" from="482" to="494" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b40">
+	<analytic>
+		<title level="a" type="main">Real-time scheduling of DAG tasks with arbitrary deadlines</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Wang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">X</forename><surname>Jiang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">N</forename><surname>Guan</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">D</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">W</forename><surname>Liu</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">Q</forename><surname>Deng</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">ACM Trans. Design Autom. Electr. Syst</title>
+		<imprint>
+			<biblScope unit="volume">24</biblScope>
+			<biblScope unit="issue">6</biblScope>
+			<biblScope unit="page">22</biblScope>
+			<date type="published" when="2019">2019</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b41">
+	<analytic>
+		<title level="a" type="main">Real time spent on real time</title>
+		<author>
+			<persName><forename type="first">R</forename><surname>Wilhelm</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="m">RTSS</title>
+		<imprint>
+			<date type="published" when="2020">2020</date>
+			<biblScope unit="page" from="1" to="2" />
+		</imprint>
+	</monogr>
+</biblStruct>
+
+<biblStruct xml:id="b42">
+	<analytic>
+		<title level="a" type="main">Reducing response-time bounds for DAG-based task systems on heterogeneous multicore platforms</title>
+		<author>
+			<persName><forename type="first">K</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">M</forename><surname>Yang</surname></persName>
+		</author>
+		<author>
+			<persName><forename type="first">J</forename><surname>Anderson</surname></persName>
+		</author>
+	</analytic>
+	<monogr>
+		<title level="j">RTNS</title>
+		<imprint>
+			<biblScope unit="page" from="349" to="358" />
+			<date type="published" when="2016">2016</date>
+		</imprint>
+	</monogr>
+</biblStruct>
+
+				</listBibl>
+			</div>
+		</back>
+	</text>
+</TEI>
